@@ -1,6 +1,6 @@
 package com.jobdri.jobdri_api.global.security;
 
-import com.jobdri.jobdri_api.entity.user.User;
+import com.jobdri.jobdri_api.domain.user.entity.User;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;

@@ -1,7 +1,7 @@
 package com.jobdri.jobdri_api.global.security;
 
-import com.jobdri.jobdri_api.entity.user.User;
-import com.jobdri.jobdri_api.repository.UserRepository;
+import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
