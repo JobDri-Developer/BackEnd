@@ -6,6 +6,7 @@ import com.jobdri.jobdri_api.domain.auth.dto.request.ReissueTokenRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.SignupRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.response.LoginResponse;
 import com.jobdri.jobdri_api.domain.auth.dto.response.ReissueTokenResponse;
+import com.jobdri.jobdri_api.domain.user.entity.SocialType;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -55,10 +56,18 @@ public class AuthService {
 
     @Transactional
     public LoginResponse login(LoginRequest request) {
-        User user = getUserByEmail(request.email());
+        User user = userRepository.findByEmail(request.email())
+                .orElseThrow(() -> new GeneralException(GeneralErrorCode.INVALID_LOGIN, "이메일과 비밀번호를 확인해주세요."));
+
+        if (user.getSocialType() != SocialType.LOCAL) {
+            throw new GeneralException(
+                    GeneralErrorCode.SOCIAL_LOGIN_REQUIRED,
+                    "Google 계정으로 연동된 이메일입니다. 소셜 로그인을 이용해주세요"
+            );
+        }
 
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
-            throw new GeneralException(GeneralErrorCode.INVALID_LOGIN);
+            throw new GeneralException(GeneralErrorCode.INVALID_LOGIN, "이메일과 비밀번호를 확인해주세요.");
         }
 
         String accessToken = jwtUtil.createAccessToken(user.getEmail(), user.getId());
@@ -150,8 +159,4 @@ public class AuthService {
         return BLACKLIST_PREFIX + accessToken;
     }
 
-    private User getUserByEmail(String email) {
-        return userRepository.findByEmail(email)
-                .orElseThrow(() -> new GeneralException(GeneralErrorCode.INVALID_LOGIN));
-    }
 }
