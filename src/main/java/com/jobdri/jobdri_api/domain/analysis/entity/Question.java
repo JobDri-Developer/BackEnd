@@ -26,7 +26,7 @@ public class Question {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String content;
 
-    @Column(nullable = false)
+    @Column(name = "char_limit", nullable = false)
     private int limit;
 
     @Column(nullable = false, columnDefinition = "TEXT")

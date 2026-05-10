@@ -35,9 +35,10 @@ public class Experience {
     @Column(nullable = false)
     private String role;
 
-    @Column(nullable = false)
+    @Column(name = "start_date", nullable = false)
     private LocalDate start;
 
+    @Column(name = "end_date")
     private LocalDate end;
 
     @Column(nullable = false)

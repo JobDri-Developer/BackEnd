@@ -43,7 +43,7 @@ public class AuthController {
                     )
             )
     })
-    @PostMapping("/email/send-code")
+    @PostMapping("/email-verifications")
     public ResponseEntity<ApiResponse<Void>> sendVerificationCode(@Valid @RequestBody EmailSendRequest request) {
         emailService.sendVerificationCode(request.email());
         return ResponseEntity.ok(ApiResponse.onSuccess("인증번호가 성공적으로 발송되었습니다."));
@@ -64,28 +64,100 @@ public class AuthController {
                     )
             )
     })
-    @PostMapping("/email/verify-code")
+    @PostMapping("/email-verifications/confirmations")
     public ResponseEntity<ApiResponse<Void>> verifyEmailCode(@Valid @RequestBody EmailVerificationRequest request) {
         emailService.verifyCode(request.email(), request.code());
         return ResponseEntity.ok(ApiResponse.onSuccess("이메일 인증에 성공하였습니다."));
     }
 
+    @Operation(summary = "회원가입", description = "이메일 인증을 완료한 사용자가 일반 회원가입을 진행합니다.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "회원가입 성공",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":\"회원가입이 완료되었습니다.\",\"result\":null,\"error\":null}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "이메일 인증 미완료 또는 중복 이메일",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = {
+                                    @ExampleObject(name = "email_not_verified", value = "{\"isSuccess\":false,\"code\":\"AUTH_4003\",\"message\":\"이메일 인증이 필요합니다.\",\"result\":null,\"error\":\"이메일 인증이 필요합니다.\"}"),
+                                    @ExampleObject(name = "duplicate_email", value = "{\"isSuccess\":false,\"code\":\"AUTH_4001\",\"message\":\"중복되는 아이디가 존재합니다.\",\"result\":null,\"error\":\"이미 존재하는 이메일입니다.\"}")
+                            }
+                    )
+            )
+    })
     @PostMapping("/signup")
     public ApiResponse<Void> signup(@Valid @RequestBody SignupRequest request) {
         authService.signup(request);
         return ApiResponse.onSuccess("회원가입이 완료되었습니다.");
     }
 
+    @Operation(summary = "일반 로그인", description = "이메일/비밀번호로 로그인하고 access token 및 refresh token을 발급합니다.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "로그인 성공",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":\"로그인에 성공했습니다.\",\"result\":{\"accessToken\":\"eyJ...\",\"refreshToken\":\"eyJ...\"},\"error\":null}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "400", description = "소셜 로그인 계정 일반 로그인 시도",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"AUTH_4004\",\"message\":\"소셜 로그인을 이용해주세요.\",\"result\":null,\"error\":\"Google 계정으로 연동된 이메일입니다. 소셜 로그인을 이용해주세요\"}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "이메일/비밀번호 불일치",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"AUTH_4012\",\"message\":\"올바르지 않은 아이디, 혹은 비밀번호입니다.\",\"result\":null,\"error\":\"이메일과 비밀번호를 확인해주세요.\"}")
+                    )
+            )
+    })
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.onSuccess("로그인에 성공했습니다.", authService.login(request));
     }
 
+    @Operation(summary = "토큰 재발급", description = "만료된 access token과 유효한 refresh token으로 토큰을 재발급합니다.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "토큰 재발급 성공",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":\"토큰이 재발급되었습니다.\",\"result\":{\"accessToken\":\"eyJ...\",\"refreshToken\":\"eyJ...\"},\"error\":null}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "토큰 불일치 또는 유효하지 않은 토큰",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"AUTH_4012\",\"message\":\"유효하지 않은 토큰입니다.\",\"result\":null,\"error\":\"토큰 정보가 일치하지 않습니다.\"}")
+                    )
+            )
+    })
     @PostMapping("/reissue")
     public ApiResponse<ReissueTokenResponse> reissue(@Valid @RequestBody ReissueTokenRequest request) {
         return ApiResponse.onSuccess("토큰이 재발급되었습니다.", authService.reissueToken(request));
     }
 
+    @Operation(summary = "로그아웃", description = "refresh token을 삭제하고 현재 access token을 블랙리스트 처리합니다.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "로그아웃 성공",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":\"로그아웃이 완료되었습니다.\",\"result\":null,\"error\":null}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "유효하지 않은 토큰 또는 토큰 불일치",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = {
+                                    @ExampleObject(name = "invalid_access_token", value = "{\"isSuccess\":false,\"code\":\"AUTH_4012\",\"message\":\"유효하지 않은 토큰입니다.\",\"result\":null,\"error\":\"유효하지 않은 액세스 토큰입니다.\"}"),
+                                    @ExampleObject(name = "refresh_token_mismatch", value = "{\"isSuccess\":false,\"code\":\"AUTH_4012\",\"message\":\"유효하지 않은 토큰입니다.\",\"result\":null,\"error\":\"토큰 정보가 일치하지 않습니다.\"}")
+                            }
+                    )
+            )
+    })
     @PostMapping("/logout")
     public ApiResponse<Void> logout(@Valid @RequestBody LogoutRequest request) {
         authService.logout(request);
