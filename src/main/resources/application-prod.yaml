@@ -48,7 +48,7 @@ spring:
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
 
 mail:
-  from: ${MAIL_FROM:${MAIL_USERNAME}}
+  from: ${MAIL_FROM:${MAIL_USERNAME:}}
 
 app:
   oauth2:
