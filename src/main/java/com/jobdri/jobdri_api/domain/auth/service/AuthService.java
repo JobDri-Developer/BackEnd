@@ -70,6 +70,10 @@ public class AuthService {
             throw new GeneralException(GeneralErrorCode.INVALID_LOGIN, "이메일과 비밀번호를 확인해주세요.");
         }
 
+        return issueTokens(user);
+    }
+
+    public LoginResponse issueTokens(User user) {
         String accessToken = jwtUtil.createAccessToken(user.getEmail(), user.getId());
         String refreshTokenValue = jwtUtil.createRefreshToken(user.getEmail());
 
