@@ -1,0 +1,59 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jobdri-api
+    env_file:
+      - .env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/jobdri}
+      DB_USERNAME: ${DB_USERNAME:-jobdri}
+      DB_PASSWORD: ${DB_PASSWORD:-jobdri}
+      DB_DRIVER: ${DB_DRIVER:-org.postgresql.Driver}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD:
+      REDIS_SSL_ENABLED: false
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: jobdri-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: jobdri-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-jobdri}
+      POSTGRES_USER: ${DB_USERNAME:-jobdri}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-jobdri}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-jobdri} -d ${POSTGRES_DB:-jobdri}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

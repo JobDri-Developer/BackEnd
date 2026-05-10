@@ -1,5 +1,6 @@
 HELP.md
 .gradle
+.gradle-home
 build/
 !gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
@@ -44,6 +45,9 @@ out/
 
 # Env
 .env
+.env.*
+!.env.example
+!.env.production.example
 
 # application secrets
 application-local.yml
