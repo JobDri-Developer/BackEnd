@@ -13,13 +13,20 @@ spring:
       hibernate:
         format_sql: true
     open-in-view: false
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: 6379
+      password: ${REDIS_PASSWORD}
+      ssl:
+        enabled: true
 
 server:
   port: 8080
 
 jwt:
   secret:
-    key: ${JWT_SECRET_KEY:am9iZHJpLWxvY2FsLXNlY3JldC1rZXktZm9yLWRldmVsb3BtZW50LTIwMjYtam9iZHJp}
+    key: ${JWT_SECRET_KEY}
   expiration:
-    access-token: ${JWT_ACCESS_TOKEN_EXPIRATION:3600000}
-    refresh-token: ${JWT_REFRESH_TOKEN_EXPIRATION:1209600000}
+    access-token: ${JWT_ACCESS_TOKEN_EXPIRATION}
+    refresh-token: ${JWT_REFRESH_TOKEN_EXPIRATION}
