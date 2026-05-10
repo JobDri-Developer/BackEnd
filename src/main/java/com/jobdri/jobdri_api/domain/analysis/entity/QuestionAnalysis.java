@@ -32,10 +32,10 @@ public class QuestionAnalysis {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String improvement;
 
-    @Column(nullable = false)
+    @Column(name = "start_index", nullable = false)
     private int start;
 
-    @Column(nullable = false)
+    @Column(name = "end_index", nullable = false)
     private int end;
 
     public static QuestionAnalysis create(
