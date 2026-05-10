@@ -1,5 +1,8 @@
 package com.jobdri.jobdri_api.global.config;
 
+import com.jobdri.jobdri_api.domain.auth.handler.OAuth2AuthenticationFailureHandler;
+import com.jobdri.jobdri_api.domain.auth.handler.OAuth2AuthenticationSuccessHandler;
+import com.jobdri.jobdri_api.domain.auth.service.CustomOAuth2UserService;
 import com.jobdri.jobdri_api.global.apiPayload.exception.handler.CustomAccessDeniedHandler;
 import com.jobdri.jobdri_api.global.apiPayload.exception.handler.CustomAuthenticationEntryPoint;
 import com.jobdri.jobdri_api.global.jwt.JwtAuthenticationFilter;
@@ -12,8 +15,6 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
@@ -29,11 +30,9 @@ public class SecurityConfig {
     private final CustomAuthenticationEntryPoint customAuthenticationEntryPoint;
     private final CustomAccessDeniedHandler customAccessDeniedHandler;
     private final StringRedisTemplate redisTemplate;
-
-    @Bean
-    public PasswordEncoder passwordEncoder() {
-        return new BCryptPasswordEncoder();
-    }
+    private final CustomOAuth2UserService customOAuth2UserService;
+    private final OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
+    private final OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
 
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter() {
@@ -48,7 +47,7 @@ public class SecurityConfig {
         http.csrf((csrf) -> csrf.disable());
 
         http.sessionManagement((session) ->
-                session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED)
         );
 
         http.securityContext((context) ->
@@ -60,8 +59,15 @@ public class SecurityConfig {
                 .requestMatchers("/actuator/health", "/actuator/info", "/actuator/prometheus").permitAll()
                 .requestMatchers("/", "/health-check").permitAll()
                 .requestMatchers("/").permitAll()
+                .requestMatchers("/oauth2/**", "/login/oauth2/**").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
                 .anyRequest().authenticated()
+        );
+
+        http.oauth2Login(oauth2 -> oauth2
+                .userInfoEndpoint(userInfo -> userInfo.userService(customOAuth2UserService))
+                .successHandler(oAuth2AuthenticationSuccessHandler)
+                .failureHandler(oAuth2AuthenticationFailureHandler)
         );
 
         http.addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
