@@ -67,7 +67,7 @@ public class User {
                 .email(email)
                 .password(encodedPassword)
                 .role(UserRole.USER)
-                .socialType(SocialType.GOOGLE)
+                .socialType(SocialType.LOCAL)
                 .socialId(null)
                 .credit(0)
                 .build();
