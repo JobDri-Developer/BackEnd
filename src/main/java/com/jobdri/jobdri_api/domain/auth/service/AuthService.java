@@ -27,9 +27,12 @@ public class AuthService {
     private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final EmailService emailService;
 
     @Transactional
     public void signup(SignupRequest request) {
+        emailService.checkEmailVerified(request.email());
+
         if (userRepository.existsByEmail(request.email())) {
             throw new GeneralException(GeneralErrorCode.DUPLICATE_LOGINID, "이미 존재하는 이메일입니다.");
         }
@@ -39,6 +42,7 @@ public class AuthService {
 
         try {
             userRepository.save(user);
+            emailService.deleteVerifiedEmailFlag(request.email());
         } catch (DataIntegrityViolationException e) {
             throw new GeneralException(GeneralErrorCode.DUPLICATE_LOGINID, "이미 존재하는 이메일입니다.");
         }
