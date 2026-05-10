@@ -20,8 +20,9 @@ import java.util.concurrent.TimeUnit;
 public class EmailService {
 
     private static final String AUTH_CODE_PREFIX = "AuthCode:";
-    private static final long AUTH_CODE_EXPIRATION_MINUTES = 5L;
     private static final String VERIFIED_EMAIL_PREFIX = "VerifiedEmail:";
+    private static final String VERIFIED_FLAG = "true";
+    private static final long AUTH_CODE_EXPIRATION_MINUTES = 5L;
     private static final long VERIFIED_EMAIL_EXPIRATION_MINUTES = 10L;
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -49,7 +50,7 @@ public class EmailService {
         log.info("[EmailService] 인증번호 발송 요청: {} / 인증번호: {}", email, authCode);
 
         redisTemplate.opsForValue().set(
-                AUTH_CODE_PREFIX + email,
+                getAuthCodeKey(email),
                 authCode,
                 AUTH_CODE_EXPIRATION_MINUTES,
                 TimeUnit.MINUTES
@@ -57,7 +58,7 @@ public class EmailService {
     }
 
     public void verifyCode(String email, String code) {
-        String redisKey = AUTH_CODE_PREFIX + email;
+        String redisKey = getAuthCodeKey(email);
         String storedCode = redisTemplate.opsForValue().get(redisKey);
 
         if (storedCode == null) {
@@ -70,23 +71,31 @@ public class EmailService {
 
         redisTemplate.delete(redisKey);
         redisTemplate.opsForValue().set(
-                VERIFIED_EMAIL_PREFIX + email,
-                "true",
+                getVerifiedEmailKey(email),
+                VERIFIED_FLAG,
                 VERIFIED_EMAIL_EXPIRATION_MINUTES,
                 TimeUnit.MINUTES
         );
     }
 
     public void checkEmailVerified(String email) {
-        String verifiedFlag = redisTemplate.opsForValue().get(VERIFIED_EMAIL_PREFIX + email);
+        String verifiedFlag = redisTemplate.opsForValue().get(getVerifiedEmailKey(email));
 
-        if (!"true".equals(verifiedFlag)) {
+        if (!VERIFIED_FLAG.equals(verifiedFlag)) {
             throw new GeneralException(GeneralErrorCode.EMAIL_NOT_VERIFIED, "이메일 인증이 필요합니다.");
         }
     }
 
     public void deleteVerifiedEmailFlag(String email) {
-        redisTemplate.delete(VERIFIED_EMAIL_PREFIX + email);
+        redisTemplate.delete(getVerifiedEmailKey(email));
+    }
+
+    private String getAuthCodeKey(String email) {
+        return AUTH_CODE_PREFIX + email;
+    }
+
+    private String getVerifiedEmailKey(String email) {
+        return VERIFIED_EMAIL_PREFIX + email;
     }
 
     private String createAuthCode() {

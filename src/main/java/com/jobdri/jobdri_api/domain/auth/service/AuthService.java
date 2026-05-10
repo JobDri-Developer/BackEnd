@@ -1,12 +1,11 @@
 package com.jobdri.jobdri_api.domain.auth.service;
 
 import com.jobdri.jobdri_api.domain.auth.dto.request.LoginRequest;
+import com.jobdri.jobdri_api.domain.auth.dto.request.LogoutRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.ReissueTokenRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.SignupRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.response.LoginResponse;
 import com.jobdri.jobdri_api.domain.auth.dto.response.ReissueTokenResponse;
-import com.jobdri.jobdri_api.domain.auth.entity.RefreshToken;
-import com.jobdri.jobdri_api.domain.auth.repository.RefreshTokenRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -15,19 +14,25 @@ import com.jobdri.jobdri_api.global.jwt.JwtUtil;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
+    private static final String REFRESH_TOKEN_PREFIX = "RefreshToken:";
+    private static final String BLACKLIST_PREFIX = "Blacklist:";
+
     private final UserRepository userRepository;
-    private final RefreshTokenRepository refreshTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final EmailService emailService;
+    private final StringRedisTemplate redisTemplate;
 
     @Transactional
     public void signup(SignupRequest request) {
@@ -59,7 +64,7 @@ public class AuthService {
         String accessToken = jwtUtil.createAccessToken(user.getEmail(), user.getId());
         String refreshTokenValue = jwtUtil.createRefreshToken(user.getEmail());
 
-        upsertRefreshToken(user, refreshTokenValue);
+        saveRefreshToken(user.getId(), refreshTokenValue);
 
         return LoginResponse.builder()
                 .accessToken(accessToken)
@@ -69,21 +74,25 @@ public class AuthService {
 
     @Transactional
     public ReissueTokenResponse reissueToken(ReissueTokenRequest request) {
-        RefreshToken storedToken = refreshTokenRepository.findByToken(request.refreshToken())
-                .orElseThrow(() -> new GeneralException(GeneralErrorCode.INVALID_TOKEN));
-
         Claims accessClaims = jwtUtil.getClaimsFromExpiredToken(request.accessToken());
         Long accessUserId = accessClaims.get("userId", Long.class);
 
-        if (accessUserId == null || !storedToken.isOwnedBy(accessUserId)) {
+        if (accessUserId == null || !jwtUtil.validateToken(request.refreshToken())) {
+            throw new GeneralException(GeneralErrorCode.INVALID_TOKEN);
+        }
+
+        String storedRefreshToken = redisTemplate.opsForValue().get(getRefreshTokenKey(accessUserId));
+        if (storedRefreshToken == null || !storedRefreshToken.equals(request.refreshToken())) {
             throw new GeneralException(GeneralErrorCode.INVALID_TOKEN, "토큰 정보가 일치하지 않습니다.");
         }
 
-        User user = storedToken.getUser();
+        User user = userRepository.findById(accessUserId)
+                .orElseThrow(() -> new GeneralException(GeneralErrorCode.USER_NOT_FOUND));
+
         String newAccessToken = jwtUtil.createAccessToken(user.getEmail(), user.getId());
         String newRefreshToken = jwtUtil.createRefreshToken(user.getEmail());
 
-        storedToken.rotate(newRefreshToken);
+        saveRefreshToken(user.getId(), newRefreshToken);
 
         return ReissueTokenResponse.builder()
                 .accessToken(newAccessToken)
@@ -91,12 +100,54 @@ public class AuthService {
                 .build();
     }
 
-    private void upsertRefreshToken(User user, String refreshTokenValue) {
-        refreshTokenRepository.findByUser_Id(user.getId())
-                .ifPresentOrElse(
-                        token -> token.rotate(refreshTokenValue),
-                        () -> refreshTokenRepository.save(RefreshToken.create(user, refreshTokenValue))
-                );
+    @Transactional
+    public void logout(LogoutRequest request) {
+        String accessToken = request.accessToken();
+        String refreshToken = request.refreshToken();
+
+        if (!jwtUtil.validateToken(accessToken)) {
+            throw new GeneralException(GeneralErrorCode.INVALID_TOKEN, "유효하지 않은 액세스 토큰입니다.");
+        }
+
+        Claims claims = jwtUtil.getClaimsFromToken(accessToken);
+        Long userId = claims.get("userId", Long.class);
+        if (userId == null) {
+            throw new GeneralException(GeneralErrorCode.INVALID_TOKEN);
+        }
+
+        String storedRefreshToken = redisTemplate.opsForValue().get(getRefreshTokenKey(userId));
+        if (storedRefreshToken == null || !storedRefreshToken.equals(refreshToken)) {
+            throw new GeneralException(GeneralErrorCode.INVALID_TOKEN, "토큰 정보가 일치하지 않습니다.");
+        }
+
+        redisTemplate.delete(getRefreshTokenKey(userId));
+
+        long remainingTime = jwtUtil.getRemainingTime(accessToken);
+        if (remainingTime > 0) {
+            redisTemplate.opsForValue().set(
+                    getBlacklistKey(accessToken),
+                    "logout",
+                    remainingTime,
+                    TimeUnit.MILLISECONDS
+            );
+        }
+    }
+
+    private void saveRefreshToken(Long userId, String refreshTokenValue) {
+        redisTemplate.opsForValue().set(
+                getRefreshTokenKey(userId),
+                refreshTokenValue,
+                jwtUtil.getRefreshTokenTime(),
+                TimeUnit.MILLISECONDS
+        );
+    }
+
+    private String getRefreshTokenKey(Long userId) {
+        return REFRESH_TOKEN_PREFIX + userId;
+    }
+
+    private String getBlacklistKey(String accessToken) {
+        return BLACKLIST_PREFIX + accessToken;
     }
 
     private User getUserByEmail(String email) {

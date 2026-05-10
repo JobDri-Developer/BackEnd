@@ -53,6 +53,15 @@ public class JwtUtil {
         return createToken(email, null, refreshTokenTime);
     }
 
+    public long getRefreshTokenTime() {
+        return refreshTokenTime;
+    }
+
+    public long getRemainingTime(String token) {
+        Claims claims = getClaimsFromToken(token);
+        return claims.getExpiration().getTime() - System.currentTimeMillis();
+    }
+
     private String createToken(String email, Long userId, long expireTime) {
         Date now = new Date();
         Date expireDate = new Date(now.getTime() + expireTime);

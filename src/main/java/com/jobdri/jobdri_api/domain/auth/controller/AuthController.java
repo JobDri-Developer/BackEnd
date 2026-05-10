@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.auth.controller;
 import com.jobdri.jobdri_api.domain.auth.dto.request.EmailSendRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.EmailVerificationRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.LoginRequest;
+import com.jobdri.jobdri_api.domain.auth.dto.request.LogoutRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.ReissueTokenRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.SignupRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.response.LoginResponse;
@@ -17,6 +18,7 @@ import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,6 +26,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@Tag(name = "Auth", description = "인증 및 이메일 인증 API")
 @RequiredArgsConstructor
 @RequestMapping("/api/auth")
 public class AuthController {
@@ -81,5 +84,11 @@ public class AuthController {
     @PostMapping("/reissue")
     public ApiResponse<ReissueTokenResponse> reissue(@Valid @RequestBody ReissueTokenRequest request) {
         return ApiResponse.onSuccess("토큰이 재발급되었습니다.", authService.reissueToken(request));
+    }
+
+    @PostMapping("/logout")
+    public ApiResponse<Void> logout(@Valid @RequestBody LogoutRequest request) {
+        authService.logout(request);
+        return ApiResponse.onSuccess("로그아웃이 완료되었습니다.");
     }
 }
