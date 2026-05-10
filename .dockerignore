@@ -1,0 +1,14 @@
+.git
+.github
+.gradle
+.idea
+build
+out
+*.iml
+*.iws
+*.ipr
+.DS_Store
+*.log
+.env
+.env.*
+application-local.yml

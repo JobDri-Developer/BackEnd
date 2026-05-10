@@ -1,0 +1,11 @@
+services:
+  api:
+    image: ${IMAGE_NAME:-ghcr.io/jobdri-developer/backend}:${IMAGE_TAG:-latest}
+    container_name: jobdri-api
+    env_file:
+      - .env
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    restart: unless-stopped
