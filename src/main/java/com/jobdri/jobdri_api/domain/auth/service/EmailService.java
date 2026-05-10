@@ -4,11 +4,7 @@ import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.mail.MailException;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
@@ -26,28 +22,11 @@ public class EmailService {
     private static final long VERIFIED_EMAIL_EXPIRATION_MINUTES = 10L;
     private static final SecureRandom RANDOM = new SecureRandom();
 
-    private final JavaMailSender mailSender;
     private final StringRedisTemplate redisTemplate;
-
-    @Value("${mail.from:${spring.mail.username:}}")
-    private String fromAddress;
+    private final AsyncEmailSender asyncEmailSender;
 
     public void sendVerificationCode(String email) {
         String authCode = createAuthCode();
-
-        try {
-            SimpleMailMessage message = new SimpleMailMessage();
-            message.setFrom(fromAddress);
-            message.setTo(email);
-            message.setSubject("[jobdri] 회원가입 인증번호 안내");
-            message.setText("인증번호는 [" + authCode + "] 입니다.");
-            mailSender.send(message);
-        } catch (MailException e) {
-            log.error("이메일 발송 실패: {}", email, e);
-            throw new GeneralException(GeneralErrorCode.INTERNAL_SERVER_ERROR, "이메일 발송에 실패했습니다.");
-        }
-
-        log.info("[EmailService] 인증번호 발송 요청: {} / 인증번호: {}", email, authCode);
 
         redisTemplate.opsForValue().set(
                 getAuthCodeKey(email),
@@ -55,6 +34,9 @@ public class EmailService {
                 AUTH_CODE_EXPIRATION_MINUTES,
                 TimeUnit.MINUTES
         );
+
+        asyncEmailSender.sendVerificationCodeMail(email, authCode);
+        log.info("[EmailService] 인증번호 발송 요청 등록: {}", email);
     }
 
     public void verifyCode(String email, String code) {
