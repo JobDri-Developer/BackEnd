@@ -33,3 +33,29 @@ GitHub Actions 배포 secret:
 - `DEPLOY_PATH`
 - `GHCR_USERNAME`
 - `GHCR_TOKEN`
+
+## 배포 환경
+
+백엔드 API는 Docker 이미지로 빌드되어 GHCR에 업로드되고, GitHub Actions를 통해 EC2 서버에 배포됩니다.
+
+### 인프라
+
+- 서버: AWS EC2 `t3.small`
+- OS: Amazon Linux 2023
+- DB: AWS RDS PostgreSQL `db.t3.micro`
+- Redis: Upstash Redis
+- 웹 서버: Nginx
+- 컨테이너 런타임: Docker, Docker Compose
+
+### 배포 흐름
+
+1. `main` 브랜치에 변경사항이 반영됩니다.
+2. GitHub Actions가 Docker 이미지를 빌드합니다.
+3. 이미지를 GHCR에 푸시합니다.
+4. GitHub Actions가 EC2에 SSH로 접속합니다.
+5. EC2에서 `docker-compose.prod.yml`을 사용해 최신 이미지를 pull하고 API 컨테이너를 재기동합니다.
+
+### 서버 배포 경로
+
+```bash
+/opt/jobdri-api
