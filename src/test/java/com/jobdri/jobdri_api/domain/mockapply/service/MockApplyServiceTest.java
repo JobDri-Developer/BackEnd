@@ -1,0 +1,147 @@
+package com.jobdri.jobdri_api.domain.mockapply.service;
+
+import com.jobdri.jobdri_api.domain.classification.entity.Classification;
+import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
+import com.jobdri.jobdri_api.domain.classification.entity.MiddleClassification;
+import com.jobdri.jobdri_api.domain.classification.repository.ClassificationRepository;
+import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
+import com.jobdri.jobdri_api.domain.company.entity.Company;
+import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
+import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
+import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
+import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
+import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
+import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
+import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
+import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
+import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Transactional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+@SpringBootTest
+@ActiveProfiles("test")
+@Transactional
+class MockApplyServiceTest {
+
+    @Autowired
+    private MockApplyService mockApplyService;
+
+    @Autowired
+    private MockApplyRepository mockApplyRepository;
+
+    @Autowired
+    private JobPostingRepository jobPostingRepository;
+
+    @Autowired
+    private CompanyRepository companyRepository;
+
+    @Autowired
+    private ClassificationRepository classificationRepository;
+
+    @Autowired
+    private DetailClassificationRepository detailClassificationRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Test
+    @DisplayName("기존 공고를 기준으로 ACTUAL 타입 모의 서류 지원을 생성한다")
+    void createActualApply() {
+        User user = saveUser("actual-apply@example.com");
+        JobPosting jobPosting = saveJobPosting("백엔드 개발");
+
+        MockApplyCreateResponse response = mockApplyService.createActualApply(user, jobPosting.getId());
+
+        MockApply mockApply = mockApplyRepository.findById(response.mockApplyId()).orElseThrow();
+        assertThat(response.jobPostingId()).isEqualTo(jobPosting.getId());
+        assertThat(response.applyType()).isEqualTo(ApplyType.ACTUAL);
+        assertThat(mockApply.getUser().getId()).isEqualTo(user.getId());
+        assertThat(mockApply.getJobPosting().getId()).isEqualTo(jobPosting.getId());
+        assertThat(mockApply.getApplyType()).isEqualTo(ApplyType.ACTUAL);
+    }
+
+    @Test
+    @DisplayName("소분류를 기준으로 가상 공고와 MOCK 타입 모의 서류 지원을 생성한다")
+    void createMockApply() {
+        User user = saveUser("mock-apply@example.com");
+        DetailClassification detailClassification = saveDetailClassification("프론트엔드 개발");
+        MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(
+                detailClassification.getId(),
+                null,
+                "",
+                "React 경험 우대"
+        );
+
+        MockApplyCreateResponse response = mockApplyService.createMockApply(user, request);
+
+        MockApply mockApply = mockApplyRepository.findById(response.mockApplyId()).orElseThrow();
+        JobPosting jobPosting = jobPostingRepository.findById(response.jobPostingId()).orElseThrow();
+        assertThat(response.applyType()).isEqualTo(ApplyType.MOCK);
+        assertThat(mockApply.getUser().getId()).isEqualTo(user.getId());
+        assertThat(mockApply.getApplyType()).isEqualTo(ApplyType.MOCK);
+        assertThat(jobPosting.getCompany().getName()).isEqualTo("가상 기업");
+        assertThat(jobPosting.getCompany().getSize()).isEqualTo(CompanySize.STARTUP);
+        assertThat(jobPosting.getDetailClassification().getId()).isEqualTo(detailClassification.getId());
+        assertThat(jobPosting.getTask()).contains("프론트엔드 개발");
+        assertThat(jobPosting.getRequirement()).contains("프론트엔드 개발");
+        assertThat(jobPosting.getPreferred()).isEqualTo("React 경험 우대");
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 공고 ID로 ACTUAL 타입 지원 생성 시 예외를 던진다")
+    void createActualApplyThrowsWhenJobPostingNotFound() {
+        User user = saveUser("missing-job-posting@example.com");
+
+        assertThatThrownBy(() -> mockApplyService.createActualApply(user, 9999L))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.JOB_POSTING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 소분류 ID로 MOCK 타입 지원 생성 시 예외를 던진다")
+    void createMockApplyThrowsWhenDetailClassificationNotFound() {
+        User user = saveUser("missing-detail-classification@example.com");
+        MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(9999L, null, null, null);
+
+        assertThatThrownBy(() -> mockApplyService.createMockApply(user, request))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.CLASSIFICATION_NOT_FOUND);
+    }
+
+    private User saveUser(String email) {
+        return userRepository.save(User.signup("테스트 사용자", email, "encoded-password"));
+    }
+
+    private JobPosting saveJobPosting(String detailName) {
+        Company company = companyRepository.save(Company.create("테스트 기업", CompanySize.MEDIUM));
+        DetailClassification detailClassification = saveDetailClassification(detailName);
+        return jobPostingRepository.save(JobPosting.create(
+                company,
+                detailClassification,
+                "주요 업무",
+                "자격 요건",
+                "우대 사항"
+        ));
+    }
+
+    private DetailClassification saveDetailClassification(String detailName) {
+        Classification classification = Classification.create("테스트 대분류 " + detailName);
+        MiddleClassification middleClassification = classification.addMiddleClassification("테스트 중분류 " + detailName);
+        DetailClassification detailClassification = middleClassification.addDetailClassification(detailName);
+        classificationRepository.save(classification);
+        return detailClassificationRepository.findById(detailClassification.getId()).orElseThrow();
+    }
+}
