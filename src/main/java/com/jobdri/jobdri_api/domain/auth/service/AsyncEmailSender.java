@@ -22,7 +22,7 @@ public class AsyncEmailSender {
     @Value("${mail.from:${spring.mail.username:}}")
     private String fromAddress;
 
-    @Async
+    @Async("mailAsyncExecutor")
     @Retryable(
             retryFor = MailException.class,
             maxAttempts = 3,
