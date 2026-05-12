@@ -10,6 +10,10 @@ import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -33,6 +37,35 @@ public class ApplicationDraftController {
             summary = "내 임시저장 생성/수정",
             description = "로그인한 사용자의 지원 플로우 임시저장을 생성하거나 수정합니다. 사용자당 최근 임시저장 1개만 유지합니다."
     )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "임시저장 성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":\"임시저장되었습니다.\",\"result\":{\"draftId\":1,\"step\":\"COMPANY_SELECT\",\"savedAt\":\"2026-05-09T12:10:00\"},\"error\":null}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "400",
+                    description = "요청값 검증 실패",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"REQ_4002\",\"message\":\"파라미터 형식이 잘못되었습니다.\",\"result\":null,\"error\":[\"[step] 작성 단계는 필수입니다. (입력값: null)\"]}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "인증 정보 누락",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"AUTH_4011\",\"message\":\"인증 정보가 누락되었습니다.\",\"result\":null,\"error\":\"인증 정보가 누락되었습니다.\"}")
+                    )
+            )
+    })
     @PutMapping("/me")
     public ApiResponse<ApplicationDraftSaveResponse> saveOrUpdateMyDraft(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
@@ -48,6 +81,29 @@ public class ApplicationDraftController {
             summary = "내 임시저장 조회",
             description = "로그인한 사용자의 최근 임시저장 1건을 조회합니다. 임시저장이 없으면 result를 null로 반환합니다."
     )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "임시저장 조회 성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = {
+                                    @ExampleObject(name = "draft_found", value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":null,\"result\":{\"draftId\":1,\"step\":\"COMPANY_SELECT\",\"type\":\"ACTUAL\",\"postingId\":1001,\"middleCategoryId\":null,\"smallCategoryId\":null,\"selectedQuestionIds\":[],\"savedAt\":\"2026-05-09T12:10:00\"},\"error\":null}"),
+                                    @ExampleObject(name = "draft_not_found", value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":null,\"result\":null,\"error\":null}")
+                            }
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "인증 정보 누락",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"AUTH_4011\",\"message\":\"인증 정보가 누락되었습니다.\",\"result\":null,\"error\":\"인증 정보가 누락되었습니다.\"}")
+                    )
+            )
+    })
     @GetMapping("/me")
     public ApiResponse<ApplicationDraftResponse> getMyDraft(
             @AuthenticationPrincipal UserDetailsImpl userDetails
@@ -62,6 +118,26 @@ public class ApplicationDraftController {
             summary = "내 임시저장 삭제",
             description = "로그인한 사용자의 임시저장을 삭제합니다. 임시저장이 없어도 성공 처리합니다."
     )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "임시저장 삭제 성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":\"임시저장이 삭제되었습니다.\",\"result\":null,\"error\":null}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "인증 정보 누락",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"AUTH_4011\",\"message\":\"인증 정보가 누락되었습니다.\",\"result\":null,\"error\":\"인증 정보가 누락되었습니다.\"}")
+                    )
+            )
+    })
     @DeleteMapping("/me")
     public ApiResponse<Void> deleteMyDraft(
             @AuthenticationPrincipal UserDetailsImpl userDetails
