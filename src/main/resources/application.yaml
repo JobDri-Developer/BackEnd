@@ -63,3 +63,9 @@ jwt:
   expiration:
     access-token: ${JWT_ACCESS_TOKEN_EXPIRATION:3600000}
     refresh-token: ${JWT_REFRESH_TOKEN_EXPIRATION:1209600000}
+
+openai:
+  api:
+    key: ${OPENAI_API_KEY:}
+  model:
+    job-posting-extractor: ${OPENAI_JOB_POSTING_MODEL:gpt-4o-mini}
