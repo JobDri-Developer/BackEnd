@@ -59,3 +59,29 @@ GitHub Actions 배포 secret:
 
 ```bash
 /opt/jobdri-api
+```
+
+서버에는 아래 파일이 필요합니다.
+
+```text
+docker-compose.prod.yml
+.env
+```
+
+## 운영 API 도메인
+
+운영 API는 Nginx reverse proxy와 Let's Encrypt 인증서를 통해 HTTPS로 제공됩니다.
+
+```text
+https://api.jobdri.site
+```
+
+- Nginx는 80/443 요청을 Spring Boot API 컨테이너의 8080 포트로 프록시합니다.
+- SSL 인증서는 Certbot으로 발급했으며 자동 갱신이 설정되어 있습니다.
+- 상태 확인: `https://api.jobdri.site/actuator/health`
+
+정상 응답:
+
+```json
+{"status":"UP","groups":["liveness","readiness"]}
+```
