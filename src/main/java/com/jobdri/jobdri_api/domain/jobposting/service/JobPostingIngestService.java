@@ -12,6 +12,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +23,9 @@ import java.util.List;
 public class JobPostingIngestService {
 
     private static final int DEFAULT_CANDIDATE_LIMIT = 10;
+
+    @Value("${job-posting.ingest.classification-confidence-threshold:0.65}")
+    private double classificationConfidenceThreshold;
 
     private final JobPostingAiService jobPostingAiService;
     private final JobPostingClassificationService jobPostingClassificationService;
@@ -53,6 +57,18 @@ public class JobPostingIngestService {
         JobPostingClassificationResultResponse classification =
                 jobPostingAiService.classifyDetailClassification(extracted, candidates);
 
+        if (classification.getConfidence() < classificationConfidenceThreshold) {
+            return new JobPostingIngestResponse(
+                    false,
+                    "소분류 분류 confidence가 낮아 저장을 보류했습니다.",
+                    extracted,
+                    candidates,
+                    classification,
+                    null,
+                    null
+            );
+        }
+
         JobPostingGenerateResponse generated = jobPostingAiService.generateJobPosting(
                 new JobPostingGenerateRequest(
                         extracted.getCompanyName(),
@@ -79,7 +95,15 @@ public class JobPostingIngestService {
                 )
         );
 
-        return new JobPostingIngestResponse(extracted, candidates, classification, generated, saved);
+        return new JobPostingIngestResponse(
+                true,
+                "채용 공고 추출 및 저장에 성공했습니다.",
+                extracted,
+                candidates,
+                classification,
+                generated,
+                saved
+        );
     }
 
     private String fallbackCompanyName(String companyName) {

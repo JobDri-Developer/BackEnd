@@ -9,6 +9,8 @@ import java.util.List;
 @AllArgsConstructor
 public class JobPostingIngestResponse {
 
+    private boolean savedToDatabase;
+    private String message;
     private JobPostingExtractResponse extracted;
     private List<JobPostingClassificationCandidateResponse> candidates;
     private JobPostingClassificationResultResponse classification;

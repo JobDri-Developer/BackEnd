@@ -83,3 +83,7 @@ openai:
     key: ${OPENAI_API_KEY}
   model:
     job-posting-extractor: ${OPENAI_JOB_POSTING_MODEL:gpt-4o-mini}
+
+job-posting:
+  ingest:
+    classification-confidence-threshold: ${JOB_POSTING_CLASSIFICATION_CONFIDENCE_THRESHOLD}
