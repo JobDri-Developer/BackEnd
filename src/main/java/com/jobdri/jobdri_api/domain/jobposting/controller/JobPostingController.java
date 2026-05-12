@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.jobposting.controller;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingGenerateRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingUpdateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.PutMapping;
 
 import java.util.List;
 
@@ -49,6 +51,18 @@ public class JobPostingController {
         return ApiResponse.onSuccess(
                 "채용 공고 저장에 성공했습니다.",
                 jobPostingService.createJobPosting(request)
+        );
+    }
+
+    @Operation(summary = "채용 공고 수정", description = "기존 채용 공고를 수정합니다. 회사명이 없으면 회사를 새로 생성합니다.")
+    @PutMapping("/{jobPostingId}")
+    public ApiResponse<JobPostingResponse> updateJobPosting(
+            @PathVariable Long jobPostingId,
+            @Valid @RequestBody JobPostingUpdateRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "채용 공고 수정에 성공했습니다.",
+                jobPostingService.updateJobPosting(jobPostingId, request)
         );
     }
 

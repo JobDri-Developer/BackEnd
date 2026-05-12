@@ -1,6 +1,9 @@
 spring:
   application:
     name: jobdri-api
+  sql:
+    init:
+      mode: always
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}

@@ -4,7 +4,7 @@ import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 
-public record JobPostingGenerateRequest(
+public record JobPostingUpdateRequest(
         @NotBlank(message = "회사명은 필수입니다.")
         String companyName,
 
@@ -14,12 +14,13 @@ public record JobPostingGenerateRequest(
         @NotNull(message = "소분류 ID는 필수입니다.")
         Long detailClassificationId,
 
-        String hiringSummary,
-        String techStack,
-        String mainResponsibilities,
-        String requirements,
-        String preferredQualifications,
-        String tone,
-        String jobTitleHint
+        @NotBlank(message = "주요 업무는 필수입니다.")
+        String task,
+
+        @NotBlank(message = "자격 요건은 필수입니다.")
+        String requirement,
+
+        @NotBlank(message = "우대 사항은 필수입니다.")
+        String preferred
 ) {
 }

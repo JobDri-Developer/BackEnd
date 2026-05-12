@@ -1,7 +1,11 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
+import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
+import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractMultipartRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingGenerateRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -23,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.Base64;
+import java.util.stream.Collectors;
 
 @Service
 @Slf4j
@@ -30,6 +35,7 @@ import java.util.Base64;
 public class JobPostingAiService {
 
     private final OpenAIClient openAIClient;
+    private final DetailClassificationRepository detailClassificationRepository;
 
     @Value("${openai.model.job-posting-extractor:gpt-4o-mini}")
     private String extractionModel;
@@ -47,9 +53,15 @@ public class JobPostingAiService {
     }
 
     public JobPostingGenerateResponse generateJobPosting(JobPostingGenerateRequest request) {
+        DetailClassification detailClassification = detailClassificationRepository.findById(request.detailClassificationId())
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.CLASSIFICATION_NOT_FOUND,
+                        "해당 소분류를 찾을 수 없습니다. detailClassificationId=" + request.detailClassificationId()
+                ));
+
         var params = ResponseCreateParams.builder()
                 .model(extractionModel)
-                .input(buildGenerationPrompt(request))
+                .input(buildGenerationPrompt(request, detailClassification))
                 .temperature(0.7)
                 .text(JobPostingGenerateResponse.class)
                 .build();
@@ -62,6 +74,30 @@ public class JobPostingAiService {
         } catch (Exception e) {
             log.error("채용 공고 생성 OpenAI API 호출 오류: {}", e.getMessage(), e);
             return createFallbackGeneratedResponse(request);
+        }
+    }
+
+    public JobPostingClassificationResultResponse classifyDetailClassification(
+            JobPostingExtractResponse extracted,
+            List<JobPostingClassificationCandidateResponse> candidates
+    ) {
+        var params = ResponseCreateParams.builder()
+                .model(extractionModel)
+                .input(buildClassificationPrompt(extracted, candidates))
+                .temperature(0.1)
+                .text(JobPostingClassificationResultResponse.class)
+                .build();
+
+        try {
+            StructuredResponse<JobPostingClassificationResultResponse> response =
+                    openAIClient.responses().create(params);
+            JobPostingClassificationResultResponse classification =
+                    extractStructuredContent(response, JobPostingClassificationResultResponse.class);
+            normalizeClassificationResponse(classification, candidates);
+            return classification;
+        } catch (Exception e) {
+            log.error("채용 공고 소분류 분류 OpenAI API 호출 오류: {}", e.getMessage(), e);
+            return fallbackClassification(candidates);
         }
     }
 
@@ -145,6 +181,66 @@ public class JobPostingAiService {
                 [채용 공고 텍스트]
                 %s
                 """.formatted(hasImage ? "이미지 또는 텍스트" : "텍스트", normalizedSourceUrl, normalizedRawText);
+    }
+
+    private String buildClassificationPrompt(
+            JobPostingExtractResponse extracted,
+            List<JobPostingClassificationCandidateResponse> candidates
+    ) {
+        String candidateText = candidates.stream()
+                .map(candidate -> String.format(
+                        "- id=%d | 대분류=%s | 중분류=%s | 소분류=%s | score=%.4f",
+                        candidate.getDetailClassificationId(),
+                        candidate.getBigClassificationName(),
+                        candidate.getMiddleClassificationName(),
+                        candidate.getDetailClassificationName(),
+                        candidate.getScore()
+                ))
+                .collect(Collectors.joining("\n"));
+
+        return """
+                다음 채용 공고 정보에 가장 적합한 소분류를 아래 후보 중 하나만 골라주세요.
+                반드시 후보에 있는 id만 선택해야 하며, 새 값을 만들면 안 됩니다.
+                출력은 반드시 JSON 객체 하나만 반환하세요.
+
+                {
+                  "detailClassificationId": number,
+                  "detailClassificationName": "string",
+                  "middleClassificationName": "string",
+                  "bigClassificationName": "string",
+                  "reason": "string",
+                  "confidence": number
+                }
+
+                [추출된 회사명]
+                %s
+
+                [추출된 직무명]
+                %s
+
+                [추출된 주요 업무]
+                %s
+
+                [추출된 자격 요건]
+                %s
+
+                [추출된 우대 사항]
+                %s
+
+                [추출 원문]
+                %s
+
+                [후보 목록]
+                %s
+                """.formatted(
+                defaultString(extracted.getCompanyName()),
+                defaultString(extracted.getJobTitle()),
+                defaultString(extracted.getTask()),
+                defaultString(extracted.getRequirements()),
+                defaultString(extracted.getPreferredQualifications()),
+                defaultString(extracted.getRawText()),
+                candidateText
+        );
     }
 
     private ResponseInputImage buildImageContent(MultipartFile imageFile) {
@@ -248,7 +344,7 @@ public class JobPostingAiService {
         );
     }
 
-    private String buildGenerationPrompt(JobPostingGenerateRequest request) {
+    private String buildGenerationPrompt(JobPostingGenerateRequest request, DetailClassification detailClassification) {
         return """
                 아래 정보를 바탕으로 한국어 채용 공고 초안을 작성해주세요.
                 출력은 반드시 JSON 객체 하나만 반환하세요.
@@ -276,7 +372,10 @@ public class JobPostingAiService {
                 [회사 규모]
                 %s
 
-                [직무명]
+                [소분류 직무]
+                %s
+
+                [직무명 힌트]
                 %s
 
                 [채용 배경 또는 포지션 소개]
@@ -299,7 +398,8 @@ public class JobPostingAiService {
                 """.formatted(
                 request.companyName(),
                 request.companySize().name(),
-                request.jobTitle(),
+                detailClassification.getDetailName(),
+                defaultString(request.jobTitleHint()),
                 defaultString(request.hiringSummary()),
                 defaultString(request.techStack()),
                 defaultString(request.mainResponsibilities()),
@@ -312,16 +412,13 @@ public class JobPostingAiService {
     private void normalizeGeneratedResponse(JobPostingGenerateResponse response, JobPostingGenerateRequest request) {
         if (response == null) {
             throw new GeneralException(
-                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
-                    "AI 생성 응답이 비어 있습니다."
+                GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                "AI 생성 응답이 비어 있습니다."
             );
         }
 
         if (response.getCompanyName() == null || response.getCompanyName().isBlank()) {
             response.setCompanyName(request.companyName());
-        }
-        if (response.getJobTitle() == null || response.getJobTitle().isBlank()) {
-            response.setJobTitle(request.jobTitle());
         }
         if (response.getTask() == null) {
             response.setTask("");
@@ -337,14 +434,61 @@ public class JobPostingAiService {
         }
     }
 
+    private void normalizeClassificationResponse(
+            JobPostingClassificationResultResponse response,
+            List<JobPostingClassificationCandidateResponse> candidates
+    ) {
+        if (response == null) {
+            throw new GeneralException(
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "AI 분류 응답이 비어 있습니다."
+            );
+        }
+
+        JobPostingClassificationCandidateResponse matched = candidates.stream()
+                .filter(candidate -> candidate.getDetailClassificationId().equals(response.getDetailClassificationId()))
+                .findFirst()
+                .orElseGet(() -> candidates.getFirst());
+
+        response.setDetailClassificationId(matched.getDetailClassificationId());
+        response.setDetailClassificationName(matched.getDetailClassificationName());
+        response.setMiddleClassificationName(matched.getMiddleClassificationName());
+        response.setBigClassificationName(matched.getBigClassificationName());
+
+        if (response.getReason() == null) {
+            response.setReason("");
+        }
+
+        double confidence = response.getConfidence();
+        if (Double.isNaN(confidence) || Double.isInfinite(confidence) || confidence < 0.0) {
+            response.setConfidence(0.0);
+        } else if (confidence > 1.0) {
+            response.setConfidence(1.0);
+        }
+    }
+
     private JobPostingGenerateResponse createFallbackGeneratedResponse(JobPostingGenerateRequest request) {
         return new JobPostingGenerateResponse(
                 request.companyName(),
-                request.jobTitle(),
+                defaultString(request.jobTitleHint()),
                 defaultString(request.mainResponsibilities()),
                 defaultString(request.requirements()),
                 defaultString(request.preferredQualifications()),
                 defaultString(request.hiringSummary())
+        );
+    }
+
+    private JobPostingClassificationResultResponse fallbackClassification(
+            List<JobPostingClassificationCandidateResponse> candidates
+    ) {
+        JobPostingClassificationCandidateResponse first = candidates.getFirst();
+        return new JobPostingClassificationResultResponse(
+                first.getDetailClassificationId(),
+                first.getDetailClassificationName(),
+                first.getMiddleClassificationName(),
+                first.getBigClassificationName(),
+                "후보 점수가 가장 높은 소분류를 기본값으로 선택했습니다.",
+                0.0
         );
     }
 

@@ -57,4 +57,18 @@ public class JobPosting {
                 .preferred(preferred)
                 .build();
     }
+
+    public void update(
+            Company company,
+            DetailClassification detailClassification,
+            String task,
+            String requirement,
+            String preferred
+    ) {
+        this.company = company;
+        this.detailClassification = detailClassification;
+        this.task = task;
+        this.requirement = requirement;
+        this.preferred = preferred;
+    }
 }

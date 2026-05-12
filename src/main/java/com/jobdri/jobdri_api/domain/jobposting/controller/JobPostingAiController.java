@@ -1,9 +1,12 @@
 package com.jobdri.jobdri_api.domain.jobposting.controller;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestMultipartRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractMultipartRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
+import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingIngestService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -23,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class JobPostingAiController {
 
     private final JobPostingAiService jobPostingAiService;
+    private final JobPostingIngestService jobPostingIngestService;
 
     @Operation(
             summary = "채용 공고 정보 추출",
@@ -49,6 +53,20 @@ public class JobPostingAiController {
         return ApiResponse.onSuccess(
                 "채용 공고 추출에 성공했습니다.",
                 jobPostingAiService.extractJobPosting(request)
+        );
+    }
+
+    @Operation(
+            summary = "채용 공고 추출부터 분류, 생성, 저장까지 일괄 처리",
+            description = "이미지 또는 텍스트 공고를 추출하고, trigram 후보 검색과 AI 재분류를 거쳐 최종 소분류를 선택한 뒤 공고를 생성하고 저장합니다."
+    )
+    @PostMapping(value = "/ingest", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<JobPostingIngestResponse> ingestJobPosting(
+            @ModelAttribute JobPostingIngestMultipartRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "채용 공고 추출 및 저장에 성공했습니다.",
+                jobPostingIngestService.ingestAndCreate(request)
         );
     }
 }

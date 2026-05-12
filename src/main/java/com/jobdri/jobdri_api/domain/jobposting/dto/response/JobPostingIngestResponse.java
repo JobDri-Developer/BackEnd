@@ -1,0 +1,17 @@
+package com.jobdri.jobdri_api.domain.jobposting.dto.response;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
+import java.util.List;
+
+@Getter
+@AllArgsConstructor
+public class JobPostingIngestResponse {
+
+    private JobPostingExtractResponse extracted;
+    private List<JobPostingClassificationCandidateResponse> candidates;
+    private JobPostingClassificationResultResponse classification;
+    private JobPostingGenerateResponse generated;
+    private JobPostingResponse saved;
+}

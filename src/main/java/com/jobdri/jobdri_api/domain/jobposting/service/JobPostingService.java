@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificati
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingUpdateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
@@ -27,16 +28,8 @@ public class JobPostingService {
 
     @Transactional
     public JobPostingResponse createJobPosting(JobPostingCreateRequest request) {
-        Company company = companyRepository.findByName(request.companyName())
-                .orElseGet(() -> companyRepository.save(
-                        Company.create(request.companyName(), request.companySize())
-                ));
-
-        DetailClassification detailClassification = detailClassificationRepository.findById(request.detailClassificationId())
-                .orElseThrow(() -> new GeneralException(
-                        GeneralErrorCode.CLASSIFICATION_NOT_FOUND,
-                        "해당 소분류를 찾을 수 없습니다. detailClassificationId=" + request.detailClassificationId()
-                ));
+        Company company = findOrCreateCompany(request.companyName(), request.companySize());
+        DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
 
         JobPosting jobPosting = JobPosting.create(
                 company,
@@ -47,6 +40,28 @@ public class JobPostingService {
         );
 
         return JobPostingResponse.from(jobPostingRepository.save(jobPosting));
+    }
+
+    @Transactional
+    public JobPostingResponse updateJobPosting(Long jobPostingId, JobPostingUpdateRequest request) {
+        JobPosting jobPosting = jobPostingRepository.findById(jobPostingId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.JOB_POSTING_NOT_FOUND,
+                        "해당 공고를 찾을 수 없습니다. jobPostingId=" + jobPostingId
+                ));
+
+        Company company = findOrCreateCompany(request.companyName(), request.companySize());
+        DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
+
+        jobPosting.update(
+                company,
+                detailClassification,
+                request.task(),
+                request.requirement(),
+                request.preferred()
+        );
+
+        return JobPostingResponse.from(jobPosting);
     }
 
     public JobPostingResponse getJobPosting(Long jobPostingId) {
@@ -69,5 +84,18 @@ public class JobPostingService {
         return jobPostingRepository.findAllByCompanyId(companyId).stream()
                 .map(JobPostingResponse::from)
                 .toList();
+    }
+
+    private Company findOrCreateCompany(String companyName, com.jobdri.jobdri_api.domain.company.entity.CompanySize companySize) {
+        return companyRepository.findByName(companyName)
+                .orElseGet(() -> companyRepository.save(Company.create(companyName, companySize)));
+    }
+
+    private DetailClassification findDetailClassification(Long detailClassificationId) {
+        return detailClassificationRepository.findById(detailClassificationId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.CLASSIFICATION_NOT_FOUND,
+                        "해당 소분류를 찾을 수 없습니다. detailClassificationId=" + detailClassificationId
+                ));
     }
 }
