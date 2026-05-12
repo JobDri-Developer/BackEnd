@@ -1,7 +1,9 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractMultipartRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -44,6 +46,25 @@ public class JobPostingAiService {
         return extractJobPosting(rawText, null, null);
     }
 
+    public JobPostingGenerateResponse generateJobPosting(JobPostingGenerateRequest request) {
+        var params = ResponseCreateParams.builder()
+                .model(extractionModel)
+                .input(buildGenerationPrompt(request))
+                .temperature(0.7)
+                .text(JobPostingGenerateResponse.class)
+                .build();
+
+        try {
+            StructuredResponse<JobPostingGenerateResponse> response = openAIClient.responses().create(params);
+            JobPostingGenerateResponse generated = extractStructuredContent(response, JobPostingGenerateResponse.class);
+            normalizeGeneratedResponse(generated, request);
+            return generated;
+        } catch (Exception e) {
+            log.error("채용 공고 생성 OpenAI API 호출 오류: {}", e.getMessage(), e);
+            return createFallbackGeneratedResponse(request);
+        }
+    }
+
     public JobPostingExtractResponse extractJobPosting(JobPostingExtractMultipartRequest request) {
         return extractJobPosting(request.getRawText(), request.getImage(), request.getSourceUrl());
     }
@@ -78,7 +99,7 @@ public class JobPostingAiService {
 
         try {
             StructuredResponse<JobPostingExtractResponse> response = openAIClient.responses().create(params);
-            JobPostingExtractResponse extracted = extractStructuredContent(response);
+            JobPostingExtractResponse extracted = extractStructuredContent(response, JobPostingExtractResponse.class);
 
             normalizeResponse(extracted, rawText);
             return extracted;
@@ -143,7 +164,7 @@ public class JobPostingAiService {
         }
     }
 
-    private JobPostingExtractResponse extractStructuredContent(StructuredResponse<JobPostingExtractResponse> response) {
+    private <T> T extractStructuredContent(StructuredResponse<T> response, Class<T> responseType) {
         return response.output().stream()
                 .filter(item -> item.message().isPresent())
                 .flatMap(item -> item.asMessage().content().stream())
@@ -152,7 +173,7 @@ public class JobPostingAiService {
                 .findFirst()
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.INTERNAL_SERVER_ERROR,
-                        "AI 응답에서 채용 공고 추출 결과를 찾을 수 없습니다."
+                        "AI 응답에서 " + responseType.getSimpleName() + " 결과를 찾을 수 없습니다."
                 ));
     }
 
@@ -225,5 +246,109 @@ public class JobPostingAiService {
                 rawText == null ? "" : rawText,
                 0.0
         );
+    }
+
+    private String buildGenerationPrompt(JobPostingGenerateRequest request) {
+        return """
+                아래 정보를 바탕으로 한국어 채용 공고 초안을 작성해주세요.
+                출력은 반드시 JSON 객체 하나만 반환하세요.
+                설명 문장, 마크다운, 코드블럭은 포함하지 마세요.
+
+                {
+                  "companyName": "string",
+                  "jobTitle": "string",
+                  "task": "string",
+                  "requirements": "string",
+                  "preferredQualifications": "string",
+                  "summary": "string"
+                }
+
+                작성 규칙:
+                1. task는 문장형 또는 불릿을 줄바꿈으로 구분한 자연스러운 본문으로 작성하세요.
+                2. requirements는 필수 자격 요건만 정리하세요.
+                3. preferredQualifications는 우대 사항만 정리하세요.
+                4. summary는 2~3문장으로 포지션 소개를 작성하세요.
+                5. 과장되거나 허위인 내용을 만들지 말고, 입력 정보 범위 안에서 실무적인 표현으로 작성하세요.
+
+                [회사명]
+                %s
+
+                [회사 규모]
+                %s
+
+                [직무명]
+                %s
+
+                [채용 배경 또는 포지션 소개]
+                %s
+
+                [기술 스택]
+                %s
+
+                [주요 업무 초안]
+                %s
+
+                [자격 요건 초안]
+                %s
+
+                [우대 사항 초안]
+                %s
+
+                [원하는 톤]
+                %s
+                """.formatted(
+                request.companyName(),
+                request.companySize().name(),
+                request.jobTitle(),
+                defaultString(request.hiringSummary()),
+                defaultString(request.techStack()),
+                defaultString(request.mainResponsibilities()),
+                defaultString(request.requirements()),
+                defaultString(request.preferredQualifications()),
+                defaultString(request.tone())
+        );
+    }
+
+    private void normalizeGeneratedResponse(JobPostingGenerateResponse response, JobPostingGenerateRequest request) {
+        if (response == null) {
+            throw new GeneralException(
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "AI 생성 응답이 비어 있습니다."
+            );
+        }
+
+        if (response.getCompanyName() == null || response.getCompanyName().isBlank()) {
+            response.setCompanyName(request.companyName());
+        }
+        if (response.getJobTitle() == null || response.getJobTitle().isBlank()) {
+            response.setJobTitle(request.jobTitle());
+        }
+        if (response.getTask() == null) {
+            response.setTask("");
+        }
+        if (response.getRequirements() == null) {
+            response.setRequirements("");
+        }
+        if (response.getPreferredQualifications() == null) {
+            response.setPreferredQualifications("");
+        }
+        if (response.getSummary() == null) {
+            response.setSummary("");
+        }
+    }
+
+    private JobPostingGenerateResponse createFallbackGeneratedResponse(JobPostingGenerateRequest request) {
+        return new JobPostingGenerateResponse(
+                request.companyName(),
+                request.jobTitle(),
+                defaultString(request.mainResponsibilities()),
+                defaultString(request.requirements()),
+                defaultString(request.preferredQualifications()),
+                defaultString(request.hiringSummary())
+        );
+    }
+
+    private String defaultString(String value) {
+        return value == null ? "" : value;
     }
 }
