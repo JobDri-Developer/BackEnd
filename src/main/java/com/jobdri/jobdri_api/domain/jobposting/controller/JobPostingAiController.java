@@ -3,9 +3,12 @@ package com.jobdri.jobdri_api.domain.jobposting.controller;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestMultipartRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractMultipartRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
+import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAsyncFacadeService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingIngestService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,6 +25,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ModelAttribute;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 
 @RestController
 @RequiredArgsConstructor
@@ -31,6 +36,7 @@ public class JobPostingAiController {
 
     private final JobPostingAiService jobPostingAiService;
     private final JobPostingIngestService jobPostingIngestService;
+    private final JobPostingAsyncFacadeService jobPostingAsyncFacadeService;
 
     @Operation(
             summary = "채용 공고 정보 추출",
@@ -193,6 +199,34 @@ public class JobPostingAiController {
         return ApiResponse.onSuccess(
                 "채용 공고 추출 및 저장에 성공했습니다.",
                 jobPostingIngestService.ingestAndCreate(request)
+        );
+    }
+
+    @Operation(
+            summary = "채용 공고 비동기 일괄 처리 접수",
+            description = "이미지 또는 텍스트 공고를 비동기로 추출, 분류, 생성, 저장합니다. 응답으로 받은 taskId로 상태를 조회할 수 있습니다."
+    )
+    @PostMapping(value = "/ingest/async", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<JobPostingAsyncSubmitResponse> submitIngestJobPostingAsync(
+            @ModelAttribute JobPostingIngestMultipartRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "채용 공고 비동기 작업 접수에 성공했습니다.",
+                jobPostingAsyncFacadeService.submit(request)
+        );
+    }
+
+    @Operation(
+            summary = "채용 공고 비동기 작업 상태 조회",
+            description = "taskId로 비동기 작업 상태와 결과를 조회합니다."
+    )
+    @GetMapping("/ingest/async/{taskId}")
+    public ApiResponse<JobPostingAsyncStatusResponse> getIngestJobPostingAsyncStatus(
+            @PathVariable String taskId
+    ) {
+        return ApiResponse.onSuccess(
+                "채용 공고 비동기 작업 상태 조회에 성공했습니다.",
+                jobPostingAsyncFacadeService.getTask(taskId)
         );
     }
 }

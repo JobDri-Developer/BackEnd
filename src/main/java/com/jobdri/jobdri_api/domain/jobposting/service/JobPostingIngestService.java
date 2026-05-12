@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingGenerateRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestCommand;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestMultipartRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
@@ -14,7 +15,6 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -24,26 +24,37 @@ public class JobPostingIngestService {
 
     private static final int DEFAULT_CANDIDATE_LIMIT = 10;
 
-    @Value("${job-posting.ingest.classification-confidence-threshold:0.65}")
+    @Value("${job-posting.ingest.classification-confidence-threshold}")
     private double classificationConfidenceThreshold;
 
     private final JobPostingAiService jobPostingAiService;
     private final JobPostingClassificationService jobPostingClassificationService;
     private final JobPostingService jobPostingService;
 
-    @Transactional
     public JobPostingIngestResponse ingestAndCreate(JobPostingIngestMultipartRequest request) {
-        if (request.getCompanySize() == null) {
+        JobPostingIngestCommand command = JobPostingIngestCommand.builder()
+                .rawText(request.getRawText())
+                .sourceUrl(request.getSourceUrl())
+                .companySize(request.getCompanySize())
+                .tone(request.getTone())
+                .candidateLimit(request.getCandidateLimit())
+                .build();
+        return ingestAndCreate(command);
+    }
+
+    public JobPostingIngestResponse ingestAndCreate(JobPostingIngestCommand command) {
+        if (command.getCompanySize() == null) {
             throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "회사 규모는 필수입니다.");
         }
 
         JobPostingExtractResponse extracted = jobPostingAiService.extractJobPosting(
-                request.getRawText(),
-                request.getImage(),
-                request.getSourceUrl()
+                command.getRawText(),
+                command.getImageBytes(),
+                command.getImageContentType(),
+                command.getSourceUrl()
         );
 
-        int candidateLimit = request.getCandidateLimit() == null ? DEFAULT_CANDIDATE_LIMIT : request.getCandidateLimit();
+        int candidateLimit = command.getCandidateLimit() == null ? DEFAULT_CANDIDATE_LIMIT : command.getCandidateLimit();
         List<JobPostingClassificationCandidateResponse> candidates =
                 jobPostingClassificationService.findCandidates(extracted, candidateLimit);
 
@@ -72,14 +83,14 @@ public class JobPostingIngestService {
         JobPostingGenerateResponse generated = jobPostingAiService.generateJobPosting(
                 new JobPostingGenerateRequest(
                         extracted.getCompanyName(),
-                        request.getCompanySize(),
+                        command.getCompanySize(),
                         classification.getDetailClassificationId(),
                         extracted.getRawText(),
                         "",
                         extracted.getTask(),
                         extracted.getRequirements(),
                         extracted.getPreferredQualifications(),
-                        request.getTone(),
+                        command.getTone(),
                         extracted.getJobTitle()
                 )
         );
@@ -87,7 +98,7 @@ public class JobPostingIngestService {
         JobPostingResponse saved = jobPostingService.createJobPosting(
                 new JobPostingCreateRequest(
                         fallbackCompanyName(extracted.getCompanyName()),
-                        request.getCompanySize(),
+                        command.getCompanySize(),
                         classification.getDetailClassificationId(),
                         generated.getTask(),
                         generated.getRequirements(),

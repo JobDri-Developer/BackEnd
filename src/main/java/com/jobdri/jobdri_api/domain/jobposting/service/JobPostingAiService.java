@@ -105,18 +105,18 @@ public class JobPostingAiService {
         return extractJobPosting(request.getRawText(), request.getImage(), request.getSourceUrl());
     }
 
-    public JobPostingExtractResponse extractJobPosting(String rawText, MultipartFile imageFile, String sourceUrl) {
-        validateInput(rawText, imageFile);
+    public JobPostingExtractResponse extractJobPosting(String rawText, byte[] imageBytes, String imageContentType, String sourceUrl) {
+        validateInput(rawText, imageBytes);
 
         List<ResponseInputContent> contents = new ArrayList<>();
         contents.add(ResponseInputContent.ofInputText(
                 com.openai.models.responses.ResponseInputText.builder()
-                        .text(buildPrompt(rawText, sourceUrl, imageFile != null))
+                        .text(buildPrompt(rawText, sourceUrl, imageBytes != null && imageBytes.length > 0))
                         .build()
         ));
 
-        if (imageFile != null && !imageFile.isEmpty()) {
-            contents.add(ResponseInputContent.ofInputImage(buildImageContent(imageFile)));
+        if (imageBytes != null && imageBytes.length > 0) {
+            contents.add(ResponseInputContent.ofInputImage(buildImageContent(imageBytes, imageContentType)));
         }
 
         var params = ResponseCreateParams.builder()
@@ -136,14 +136,21 @@ public class JobPostingAiService {
         try {
             StructuredResponse<JobPostingExtractResponse> response = openAIClient.responses().create(params);
             JobPostingExtractResponse extracted = extractStructuredContent(response, JobPostingExtractResponse.class);
-
             normalizeResponse(extracted, rawText);
             return extracted;
-
         } catch (Exception e) {
             log.error("채용 공고 추출 OpenAI API 호출 오류: {}", e.getMessage(), e);
             return createFallbackResponse(rawText);
         }
+    }
+
+    public JobPostingExtractResponse extractJobPosting(String rawText, MultipartFile imageFile, String sourceUrl) {
+        return extractJobPosting(
+                rawText,
+                imageFile == null || imageFile.isEmpty() ? null : readImageBytes(imageFile),
+                imageFile == null || imageFile.isEmpty() ? null : imageFile.getContentType(),
+                sourceUrl
+        );
     }
 
     private String buildPrompt(String rawText, String sourceUrl, boolean hasImage) {
@@ -244,20 +251,18 @@ public class JobPostingAiService {
     }
 
     private ResponseInputImage buildImageContent(MultipartFile imageFile) {
-        validateImage(imageFile);
+        return buildImageContent(readImageBytes(imageFile), imageFile.getContentType());
+    }
 
-        try {
-            String contentType = imageFile.getContentType();
-            String base64 = Base64.getEncoder().encodeToString(imageFile.getBytes());
-            String dataUrl = "data:%s;base64,%s".formatted(contentType, base64);
+    private ResponseInputImage buildImageContent(byte[] imageBytes, String imageContentType) {
+        validateImage(imageContentType);
+        String base64 = Base64.getEncoder().encodeToString(imageBytes);
+        String dataUrl = "data:%s;base64,%s".formatted(imageContentType, base64);
 
-            return ResponseInputImage.builder()
-                    .imageUrl(dataUrl)
-                    .detail(ResponseInputImage.Detail.HIGH)
-                    .build();
-        } catch (IOException e) {
-            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "이미지 파일을 읽을 수 없습니다.");
-        }
+        return ResponseInputImage.builder()
+                .imageUrl(dataUrl)
+                .detail(ResponseInputImage.Detail.HIGH)
+                .build();
     }
 
     private <T> T extractStructuredContent(StructuredResponse<T> response, Class<T> responseType) {
@@ -285,13 +290,38 @@ public class JobPostingAiService {
         }
     }
 
+    private void validateInput(String rawText, byte[] imageBytes) {
+        boolean hasRawText = rawText != null && !rawText.isBlank();
+        boolean hasImage = imageBytes != null && imageBytes.length > 0;
+
+        if (!hasRawText && !hasImage) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "rawText 또는 image 중 하나는 반드시 포함되어야 합니다."
+            );
+        }
+    }
+
     private void validateImage(MultipartFile imageFile) {
-        String contentType = imageFile.getContentType();
+        validateImage(imageFile.getContentType());
+    }
+
+    private void validateImage(String contentType) {
         if (contentType == null || !SUPPORTED_IMAGE_TYPES.contains(contentType.toLowerCase())) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
                     "지원하는 이미지 형식은 png, jpg, jpeg, webp, gif 입니다."
             );
+        }
+    }
+
+    private byte[] readImageBytes(MultipartFile imageFile) {
+        validateImage(imageFile);
+
+        try {
+            return imageFile.getBytes();
+        } catch (IOException e) {
+            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "이미지 파일을 읽을 수 없습니다.");
         }
     }
 
