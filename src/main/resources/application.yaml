@@ -75,4 +75,4 @@ openai:
 
 job-posting:
   ingest:
-    classification-confidence-threshold: ${JOB_POSTING_CLASSIFICATION_CONFIDENCE_THRESHOLD}
+    classification-confidence-threshold: ${JOB_POSTING_CLASSIFICATION_CONFIDENCE_THRESHOLD:0.65}
