@@ -14,6 +14,7 @@ import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockReq
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
+import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
@@ -69,6 +70,7 @@ class MockApplyServiceTest {
         assertThat(mockApply.getUser().getId()).isEqualTo(user.getId());
         assertThat(mockApply.getJobPosting().getId()).isEqualTo(jobPosting.getId());
         assertThat(mockApply.getApplyType()).isEqualTo(ApplyType.ACTUAL);
+        assertThat(mockApply.getStatus()).isEqualTo(MockApplyStatus.APPLICATION_CREATED);
     }
 
     @Test
@@ -92,6 +94,7 @@ class MockApplyServiceTest {
         assertThat(response.applyType()).isEqualTo(ApplyType.MOCK);
         assertThat(mockApply.getUser().getId()).isEqualTo(user.getId());
         assertThat(mockApply.getApplyType()).isEqualTo(ApplyType.MOCK);
+        assertThat(mockApply.getStatus()).isEqualTo(MockApplyStatus.APPLICATION_CREATED);
         assertThat(jobPosting.getCompany().getId()).isEqualTo(company.getId());
         assertThat(jobPosting.getCompany().getName()).isEqualTo("선택 기업");
         assertThat(jobPosting.getCompany().getSize()).isEqualTo(CompanySize.MEDIUM);

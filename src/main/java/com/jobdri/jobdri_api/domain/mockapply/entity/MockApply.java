@@ -35,6 +35,10 @@ public class MockApply {
     @Column(nullable = false)
     private ApplyType applyType;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private MockApplyStatus status;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -50,8 +54,13 @@ public class MockApply {
                 .user(user)
                 .jobPosting(jobPosting)
                 .applyType(applyType)
+                .status(MockApplyStatus.APPLICATION_CREATED)
                 .createdAt(LocalDateTime.now())
                 .build();
+    }
+
+    public void updateStatus(MockApplyStatus status) {
+        this.status = status;
     }
 
     public Question addQuestion(String content, int limit, String answer) {
