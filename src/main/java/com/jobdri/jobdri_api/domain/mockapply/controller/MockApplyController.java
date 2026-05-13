@@ -4,10 +4,7 @@ import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateActualR
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.mockapply.service.MockApplyService;
-import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
-import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
-import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
@@ -71,7 +68,7 @@ public class MockApplyController {
     ) {
         return ApiResponse.onSuccess(
                 "모의 서류 지원이 생성되었습니다.",
-                mockApplyService.createActualApply(getCurrentUser(userDetails), request.jobPostingId())
+                mockApplyService.createActualApply(userDetails.getUser(), request.jobPostingId())
         );
     }
 
@@ -95,7 +92,7 @@ public class MockApplyController {
                     content = @Content(
                             mediaType = "application/json",
                             schema = @Schema(implementation = ApiResponse.class),
-                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"REQ_4002\",\"message\":\"파라미터 형식이 잘못되었습니다.\",\"result\":null,\"error\":[\"[detailClassificationId] 소분류 ID는 필수입니다. (입력값: null)\"]}")
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"REQ_4002\",\"message\":\"파라미터 형식이 잘못되었습니다.\",\"result\":null,\"error\":[\"[companyId] 회사 ID는 필수입니다. (입력값: null)\"]}")
                     )
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
@@ -109,11 +106,14 @@ public class MockApplyController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "404",
-                    description = "소분류 없음",
+                    description = "회사 또는 소분류 없음",
                     content = @Content(
                             mediaType = "application/json",
                             schema = @Schema(implementation = ApiResponse.class),
-                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"CLASSIFICATION_4041\",\"message\":\"해당 소분류를 찾을 수 없습니다. detailClassificationId=999\",\"result\":null,\"error\":\"해당 소분류를 찾을 수 없습니다. detailClassificationId=999\"}")
+                            examples = {
+                                    @ExampleObject(name = "company_not_found", value = "{\"isSuccess\":false,\"code\":\"COMPANY_4041\",\"message\":\"해당 회사를 찾을 수 없습니다. companyId=999\",\"result\":null,\"error\":\"해당 회사를 찾을 수 없습니다. companyId=999\"}"),
+                                    @ExampleObject(name = "classification_not_found", value = "{\"isSuccess\":false,\"code\":\"CLASSIFICATION_4041\",\"message\":\"해당 소분류를 찾을 수 없습니다. detailClassificationId=999\",\"result\":null,\"error\":\"해당 소분류를 찾을 수 없습니다. detailClassificationId=999\"}")
+                            }
                     )
             )
     })
@@ -124,14 +124,7 @@ public class MockApplyController {
     ) {
         return ApiResponse.onSuccess(
                 "모의 서류 지원이 생성되었습니다.",
-                mockApplyService.createMockApply(getCurrentUser(userDetails), request)
+                mockApplyService.createMockApply(userDetails.getUser(), request)
         );
-    }
-
-    private User getCurrentUser(UserDetailsImpl userDetails) {
-        if (userDetails == null) {
-            throw new GeneralException(GeneralErrorCode.MISSING_AUTH_INFO);
-        }
-        return userDetails.getUser();
     }
 }
