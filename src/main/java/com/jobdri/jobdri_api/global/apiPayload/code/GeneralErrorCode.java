@@ -32,6 +32,9 @@ public enum GeneralErrorCode implements BaseErrorCode {
     // 분류 에러
     CLASSIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "CLASSIFICATION_4041", "분류를 찾을 수 없습니다."),
 
+    // 회사 에러
+    COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "COMPANY_4041", "회사를 찾을 수 없습니다."),
+
     // 채용 공고 에러
     JOB_POSTING_NOT_FOUND(HttpStatus.NOT_FOUND, "JOB_POSTING_4041", "채용 공고를 찾을 수 없습니다."),
     JOB_POSTING_ASYNC_TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "JOB_POSTING_4042", "채용 공고 비동기 작업을 찾을 수 없습니다."),

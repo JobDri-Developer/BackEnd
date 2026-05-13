@@ -75,8 +75,10 @@ class MockApplyServiceTest {
     @DisplayName("소분류를 기준으로 가상 공고와 MOCK 타입 모의 서류 지원을 생성한다")
     void createMockApply() {
         User user = saveUser("mock-apply@example.com");
+        Company company = companyRepository.save(Company.create("선택 기업", CompanySize.MEDIUM));
         DetailClassification detailClassification = saveDetailClassification("프론트엔드 개발");
         MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(
+                company.getId(),
                 detailClassification.getId(),
                 null,
                 "",
@@ -90,11 +92,12 @@ class MockApplyServiceTest {
         assertThat(response.applyType()).isEqualTo(ApplyType.MOCK);
         assertThat(mockApply.getUser().getId()).isEqualTo(user.getId());
         assertThat(mockApply.getApplyType()).isEqualTo(ApplyType.MOCK);
-        assertThat(jobPosting.getCompany().getName()).isEqualTo("가상 기업");
-        assertThat(jobPosting.getCompany().getSize()).isEqualTo(CompanySize.STARTUP);
+        assertThat(jobPosting.getCompany().getId()).isEqualTo(company.getId());
+        assertThat(jobPosting.getCompany().getName()).isEqualTo("선택 기업");
+        assertThat(jobPosting.getCompany().getSize()).isEqualTo(CompanySize.MEDIUM);
         assertThat(jobPosting.getDetailClassification().getId()).isEqualTo(detailClassification.getId());
-        assertThat(jobPosting.getTask()).contains("프론트엔드 개발");
-        assertThat(jobPosting.getRequirement()).contains("프론트엔드 개발");
+        assertThat(jobPosting.getTask()).isEmpty();
+        assertThat(jobPosting.getRequirement()).isEmpty();
         assertThat(jobPosting.getPreferred()).isEqualTo("React 경험 우대");
     }
 
@@ -113,12 +116,32 @@ class MockApplyServiceTest {
     @DisplayName("존재하지 않는 소분류 ID로 MOCK 타입 지원 생성 시 예외를 던진다")
     void createMockApplyThrowsWhenDetailClassificationNotFound() {
         User user = saveUser("missing-detail-classification@example.com");
-        MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(9999L, null, null, null);
+        Company company = companyRepository.save(Company.create("선택 기업", CompanySize.MEDIUM));
+        MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(company.getId(), 9999L, null, null, null);
 
         assertThatThrownBy(() -> mockApplyService.createMockApply(user, request))
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")
                 .isEqualTo(GeneralErrorCode.CLASSIFICATION_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("존재하지 않는 회사 ID로 MOCK 타입 지원 생성 시 예외를 던진다")
+    void createMockApplyThrowsWhenCompanyNotFound() {
+        User user = saveUser("missing-company@example.com");
+        DetailClassification detailClassification = saveDetailClassification("데이터 분석");
+        MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(
+                9999L,
+                detailClassification.getId(),
+                null,
+                null,
+                null
+        );
+
+        assertThatThrownBy(() -> mockApplyService.createMockApply(user, request))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.COMPANY_NOT_FOUND);
     }
 
     private User saveUser(String email) {
