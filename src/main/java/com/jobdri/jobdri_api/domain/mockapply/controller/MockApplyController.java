@@ -30,7 +30,7 @@ public class MockApplyController {
 
     @Operation(
             summary = "실제 공고 기반 모의 서류 지원 생성",
-            description = "기존 채용 공고 ID를 기준으로 로그인 사용자의 ACTUAL 타입 모의 서류 지원을 생성합니다."
+            description = "공고 텍스트/URL 추출, 공고 저장, 사용자 확인 및 수정이 선행된 뒤 저장된 채용 공고 ID를 기준으로 로그인 사용자의 ACTUAL 타입 모의 서류 지원을 생성합니다."
     )
     @ApiResponses(value = {
             @io.swagger.v3.oas.annotations.responses.ApiResponse(

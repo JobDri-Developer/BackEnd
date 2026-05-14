@@ -11,11 +11,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateRe
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
-import com.openai.models.responses.ResponseCreateParams;
-import com.openai.models.responses.ResponseInputContent;
-import com.openai.models.responses.ResponseInputImage;
-import com.openai.models.responses.ResponseInputItem;
-import com.openai.models.responses.StructuredResponse;
+import com.openai.models.responses.*;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -69,8 +65,7 @@ public class JobPostingAiService {
         try {
             StructuredResponse<JobPostingGenerateResponse> response = openAIClient.responses().create(params);
             JobPostingGenerateResponse generated = extractStructuredContent(response, JobPostingGenerateResponse.class);
-            normalizeGeneratedResponse(generated, request);
-            return generated;
+            return normalizeGeneratedResponse(generated, request);
         } catch (Exception e) {
             log.error("채용 공고 생성 OpenAI API 호출 오류: {}", e.getMessage(), e);
             return createFallbackGeneratedResponse(request);
@@ -93,8 +88,7 @@ public class JobPostingAiService {
                     openAIClient.responses().create(params);
             JobPostingClassificationResultResponse classification =
                     extractStructuredContent(response, JobPostingClassificationResultResponse.class);
-            normalizeClassificationResponse(classification, candidates);
-            return classification;
+            return normalizeClassificationResponse(classification, candidates);
         } catch (Exception e) {
             log.error("채용 공고 소분류 분류 OpenAI API 호출 오류: {}", e.getMessage(), e);
             return fallbackClassification(candidates);
@@ -102,7 +96,7 @@ public class JobPostingAiService {
     }
 
     public JobPostingExtractResponse extractJobPosting(JobPostingExtractMultipartRequest request) {
-        return extractJobPosting(request.getRawText(), request.getImage(), request.getSourceUrl());
+        return extractJobPosting(request.rawText(), request.image(), request.sourceUrl());
     }
 
     public JobPostingExtractResponse extractJobPosting(String rawText, byte[] imageBytes, String imageContentType, String sourceUrl) {
@@ -136,8 +130,7 @@ public class JobPostingAiService {
         try {
             StructuredResponse<JobPostingExtractResponse> response = openAIClient.responses().create(params);
             JobPostingExtractResponse extracted = extractStructuredContent(response, JobPostingExtractResponse.class);
-            normalizeResponse(extracted, rawText);
-            return extracted;
+            return normalizeResponse(extracted, rawText);
         } catch (Exception e) {
             log.error("채용 공고 추출 OpenAI API 호출 오류: {}", e.getMessage(), e);
             return createFallbackResponse(rawText);
@@ -240,12 +233,12 @@ public class JobPostingAiService {
                 [후보 목록]
                 %s
                 """.formatted(
-                defaultString(extracted.getCompanyName()),
-                defaultString(extracted.getJobTitle()),
-                defaultString(extracted.getTask()),
-                defaultString(extracted.getRequirements()),
-                defaultString(extracted.getPreferredQualifications()),
-                defaultString(extracted.getRawText()),
+                defaultString(extracted.companyName()),
+                defaultString(extracted.jobTitle()),
+                defaultString(extracted.task()),
+                defaultString(extracted.requirements()),
+                defaultString(extracted.preferredQualifications()),
+                defaultString(extracted.rawText()),
                 candidateText
         );
     }
@@ -270,7 +263,7 @@ public class JobPostingAiService {
                 .filter(item -> item.message().isPresent())
                 .flatMap(item -> item.asMessage().content().stream())
                 .filter(content -> content.outputText().isPresent())
-                .map(content -> content.asOutputText())
+                .map(StructuredResponseOutputMessage.Content::asOutputText)
                 .findFirst()
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.INTERNAL_SERVER_ERROR,
@@ -325,7 +318,7 @@ public class JobPostingAiService {
         }
     }
 
-    private void normalizeResponse(JobPostingExtractResponse response, String rawText) {
+    private JobPostingExtractResponse normalizeResponse(JobPostingExtractResponse response, String rawText) {
         if (response == null) {
             throw new GeneralException(
                     GeneralErrorCode.INTERNAL_SERVER_ERROR,
@@ -333,33 +326,22 @@ public class JobPostingAiService {
             );
         }
 
-        if (response.getCompanyName() == null) {
-            response.setCompanyName("");
-        }
-        if (response.getJobTitle() == null) {
-            response.setJobTitle("");
-        }
-        if (response.getTask() == null) {
-            response.setTask("");
-        }
-        if (response.getRequirements() == null) {
-            response.setRequirements("");
-        }
-        if (response.getPreferredQualifications() == null) {
-            response.setPreferredQualifications("");
-        }
-        if (response.getRawText() == null || response.getRawText().isBlank()) {
-            response.setRawText(rawText == null ? "" : rawText);
+        double confidence = response.confidence();
+        if (Double.isNaN(confidence) || Double.isInfinite(confidence) || confidence < 0.0) {
+            confidence = 0.0;
+        } else if (confidence > 1.0) {
+            confidence = 1.0;
         }
 
-        double confidence = response.getConfidence();
-        if (Double.isNaN(confidence) || Double.isInfinite(confidence)) {
-            response.setConfidence(0.0);
-        } else if (confidence < 0.0) {
-            response.setConfidence(0.0);
-        } else if (confidence > 1.0) {
-            response.setConfidence(1.0);
-        }
+        return new JobPostingExtractResponse(
+                defaultString(response.companyName()),
+                defaultString(response.jobTitle()),
+                defaultString(response.task()),
+                defaultString(response.requirements()),
+                defaultString(response.preferredQualifications()),
+                response.rawText() == null || response.rawText().isBlank() ? defaultString(rawText) : response.rawText(),
+                confidence
+        );
     }
 
     private JobPostingExtractResponse createFallbackResponse(String rawText) {
@@ -439,7 +421,7 @@ public class JobPostingAiService {
         );
     }
 
-    private void normalizeGeneratedResponse(JobPostingGenerateResponse response, JobPostingGenerateRequest request) {
+    private JobPostingGenerateResponse normalizeGeneratedResponse(JobPostingGenerateResponse response, JobPostingGenerateRequest request) {
         if (response == null) {
             throw new GeneralException(
                 GeneralErrorCode.INTERNAL_SERVER_ERROR,
@@ -447,24 +429,22 @@ public class JobPostingAiService {
             );
         }
 
-        if (response.getCompanyName() == null || response.getCompanyName().isBlank()) {
-            response.setCompanyName(request.companyName());
+        String companyName = response.companyName();
+        if (companyName == null || companyName.isBlank()) {
+            companyName = request.companyName();
         }
-        if (response.getTask() == null) {
-            response.setTask("");
-        }
-        if (response.getRequirements() == null) {
-            response.setRequirements("");
-        }
-        if (response.getPreferredQualifications() == null) {
-            response.setPreferredQualifications("");
-        }
-        if (response.getSummary() == null) {
-            response.setSummary("");
-        }
+
+        return new JobPostingGenerateResponse(
+                companyName,
+                defaultString(response.jobTitle()),
+                defaultString(response.task()),
+                defaultString(response.requirements()),
+                defaultString(response.preferredQualifications()),
+                defaultString(response.summary())
+        );
     }
 
-    private void normalizeClassificationResponse(
+    private JobPostingClassificationResultResponse normalizeClassificationResponse(
             JobPostingClassificationResultResponse response,
             List<JobPostingClassificationCandidateResponse> candidates
     ) {
@@ -476,25 +456,25 @@ public class JobPostingAiService {
         }
 
         JobPostingClassificationCandidateResponse matched = candidates.stream()
-                .filter(candidate -> candidate.getDetailClassificationId().equals(response.getDetailClassificationId()))
+                .filter(candidate -> candidate.getDetailClassificationId().equals(response.detailClassificationId()))
                 .findFirst()
                 .orElseGet(() -> candidates.getFirst());
 
-        response.setDetailClassificationId(matched.getDetailClassificationId());
-        response.setDetailClassificationName(matched.getDetailClassificationName());
-        response.setMiddleClassificationName(matched.getMiddleClassificationName());
-        response.setBigClassificationName(matched.getBigClassificationName());
-
-        if (response.getReason() == null) {
-            response.setReason("");
-        }
-
-        double confidence = response.getConfidence();
+        double confidence = response.confidence();
         if (Double.isNaN(confidence) || Double.isInfinite(confidence) || confidence < 0.0) {
-            response.setConfidence(0.0);
+            confidence = 0.0;
         } else if (confidence > 1.0) {
-            response.setConfidence(1.0);
+            confidence = 1.0;
         }
+
+        return new JobPostingClassificationResultResponse(
+                matched.getDetailClassificationId(),
+                matched.getDetailClassificationName(),
+                matched.getMiddleClassificationName(),
+                matched.getBigClassificationName(),
+                defaultString(response.reason()),
+                confidence
+        );
     }
 
     private JobPostingGenerateResponse createFallbackGeneratedResponse(JobPostingGenerateRequest request) {
