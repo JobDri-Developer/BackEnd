@@ -33,19 +33,15 @@ public class JobPostingIngestService {
 
     public JobPostingIngestResponse ingestAndCreate(JobPostingIngestMultipartRequest request) {
         JobPostingIngestCommand command = JobPostingIngestCommand.builder()
-                .rawText(request.getRawText())
-                .sourceUrl(request.getSourceUrl())
-                .companySize(request.getCompanySize())
-                .tone(request.getTone())
-                .candidateLimit(request.getCandidateLimit())
+                .rawText(request.rawText())
+                .sourceUrl(request.sourceUrl())
+                .companySize(request.companySize())
+                .candidateLimit(request.candidateLimit())
                 .build();
         return ingestAndCreate(command);
     }
 
     public JobPostingIngestResponse ingestAndCreate(JobPostingIngestCommand command) {
-        if (command.getCompanySize() == null) {
-            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "회사 규모는 필수입니다.");
-        }
 
         JobPostingExtractResponse extracted = jobPostingAiService.extractJobPosting(
                 command.getRawText(),
@@ -68,7 +64,7 @@ public class JobPostingIngestService {
         JobPostingClassificationResultResponse classification =
                 jobPostingAiService.classifyDetailClassification(extracted, candidates);
 
-        if (classification.getConfidence() < classificationConfidenceThreshold) {
+        if (classification.confidence() < classificationConfidenceThreshold) {
             return new JobPostingIngestResponse(
                     false,
                     "소분류 분류 confidence가 낮아 저장을 보류했습니다.",
@@ -82,27 +78,27 @@ public class JobPostingIngestService {
 
         JobPostingGenerateResponse generated = jobPostingAiService.generateJobPosting(
                 new JobPostingGenerateRequest(
-                        extracted.getCompanyName(),
+                        extracted.companyName(),
                         command.getCompanySize(),
-                        classification.getDetailClassificationId(),
-                        extracted.getRawText(),
+                        classification.detailClassificationId(),
+                        extracted.rawText(),
                         "",
-                        extracted.getTask(),
-                        extracted.getRequirements(),
-                        extracted.getPreferredQualifications(),
-                        command.getTone(),
-                        extracted.getJobTitle()
+                        extracted.task(),
+                        extracted.requirements(),
+                        extracted.preferredQualifications(),
+                        null,
+                        extracted.jobTitle()
                 )
         );
 
         JobPostingResponse saved = jobPostingService.createJobPosting(
                 new JobPostingCreateRequest(
-                        fallbackCompanyName(extracted.getCompanyName()),
+                        fallbackCompanyName(extracted.companyName()),
                         command.getCompanySize(),
-                        classification.getDetailClassificationId(),
-                        generated.getTask(),
-                        generated.getRequirements(),
-                        generated.getPreferredQualifications()
+                        classification.detailClassificationId(),
+                        generated.task(),
+                        generated.requirements(),
+                        generated.preferredQualifications()
                 )
         );
 

@@ -27,11 +27,11 @@ public class JobPostingClassificationService {
 
     private String buildSearchQuery(JobPostingExtractResponse extracted) {
         return String.join(" ",
-                normalize(extracted.getJobTitle()),
-                normalize(extracted.getTask()),
-                normalize(extracted.getRequirements()),
-                normalize(extracted.getPreferredQualifications()),
-                normalize(extracted.getRawText())
+                normalize(extracted.jobTitle()),
+                normalize(extracted.task()),
+                normalize(extracted.requirements()),
+                normalize(extracted.preferredQualifications()),
+                normalize(extracted.rawText())
         ).trim();
     }
 

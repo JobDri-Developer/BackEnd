@@ -7,8 +7,6 @@ import jakarta.validation.constraints.NotNull;
 public record JobPostingGenerateRequest(
         @NotBlank(message = "회사명은 필수입니다.")
         String companyName,
-
-        @NotNull(message = "회사 규모는 필수입니다.")
         CompanySize companySize,
 
         @NotNull(message = "소분류 ID는 필수입니다.")

@@ -45,13 +45,12 @@ public class JobPostingAsyncFacadeService {
 
     private JobPostingIngestCommand snapshot(JobPostingIngestMultipartRequest request) {
         return JobPostingIngestCommand.builder()
-                .rawText(request.getRawText())
-                .sourceUrl(request.getSourceUrl())
-                .imageBytes(readBytes(request.getImage()))
-                .imageContentType(readContentType(request.getImage()))
-                .companySize(request.getCompanySize())
-                .tone(request.getTone())
-                .candidateLimit(request.getCandidateLimit())
+                .rawText(request.rawText())
+                .sourceUrl(request.sourceUrl())
+                .imageBytes(readBytes(request.image()))
+                .imageContentType(readContentType(request.image()))
+                .companySize(request.companySize())
+                .candidateLimit(request.candidateLimit())
                 .build();
     }
 
