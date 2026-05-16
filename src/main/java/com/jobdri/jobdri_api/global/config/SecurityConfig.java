@@ -84,6 +84,9 @@ public class SecurityConfig {
     public CorsConfigurationSource corsConfigurationSource() {
         var config = new org.springframework.web.cors.CorsConfiguration();
         config.setAllowedOrigins(java.util.List.of(
+                "https://jobdri.site",
+                "https://www.jobdri.site",
+                "https://api.jobdri.site",
                 "http://localhost:5173",
                 "http://localhost:8080",
                 "http://localhost:3000"));
