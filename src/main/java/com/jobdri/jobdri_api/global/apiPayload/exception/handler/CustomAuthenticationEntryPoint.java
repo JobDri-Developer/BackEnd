@@ -27,7 +27,7 @@ public class CustomAuthenticationEntryPoint implements AuthenticationEntryPoint 
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException authException) throws IOException, ServletException {
 
-        log.error("인증되지 않은 사용자 접근: {}", authException.getMessage());
+        log.warn("인증되지 않은 사용자 접근: {} {} - {}", request.getMethod(), request.getRequestURI(), authException.getMessage());
 
         GeneralErrorCode errorCode = GeneralErrorCode.MISSING_AUTH_INFO;
 
