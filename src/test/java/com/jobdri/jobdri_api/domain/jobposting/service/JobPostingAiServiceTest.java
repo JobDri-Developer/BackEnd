@@ -29,8 +29,6 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -94,9 +92,7 @@ class JobPostingAiServiceTest {
     void generateMockJobPostingUsesFallbackWhenNoReferencePostings() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
-        when(jobPostingRepository.findAllByCompanyIdAndDetailClassificationId(1L, 100L)).thenReturn(List.of());
-        when(jobPostingRepository.findAllByDetailClassificationId(100L)).thenReturn(List.of());
-        when(jobPostingRepository.findAllByCompanyId(1L)).thenReturn(List.of());
+        when(jobPostingRepository.findTop5ReferencePostings(1L, 100L)).thenReturn(List.of());
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
                 new JobPostingMockGenerateRequest(1L, 10L, 100L),
@@ -121,8 +117,7 @@ class JobPostingAiServiceTest {
                 "기존 우대 사항"
         );
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
-        when(jobPostingRepository.findAllByCompanyIdAndDetailClassificationId(1L, 100L)).thenReturn(List.of());
-        when(jobPostingRepository.findAllByDetailClassificationId(100L)).thenReturn(List.of(referencePosting));
+        when(jobPostingRepository.findTop5ReferencePostings(1L, 100L)).thenReturn(List.of(referencePosting));
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
                 new JobPostingMockGenerateRequest(1L, 10L, 100L),
@@ -148,7 +143,7 @@ class JobPostingAiServiceTest {
                 "회사 맞춤 우대 사항"
         );
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
-        when(jobPostingRepository.findAllByCompanyIdAndDetailClassificationId(1L, 100L))
+        when(jobPostingRepository.findTop5ReferencePostings(1L, 100L))
                 .thenReturn(List.of(companySpecificPosting));
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
@@ -159,7 +154,6 @@ class JobPostingAiServiceTest {
         assertThat(response.task()).isEqualTo("회사 맞춤 주요 업무");
         assertThat(response.requirement()).isEqualTo("회사 맞춤 자격 요건");
         assertThat(response.preferred()).isEqualTo("회사 맞춤 우대 사항");
-        verify(jobPostingRepository, never()).findAllByDetailClassificationId(100L);
     }
 
     @Test
@@ -167,7 +161,7 @@ class JobPostingAiServiceTest {
     void generateMockRecommendedQuestionsUsesFallback() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
-        when(jobPostingRepository.findAllByDetailClassificationId(100L)).thenReturn(List.of());
+        when(jobPostingRepository.findTop5ReferencePostings(null, 100L)).thenReturn(List.of());
 
         JobPostingMockQuestionResponse response = jobPostingAiService.generateMockRecommendedQuestions(
                 new JobPostingMockGenerateRequest(1L, 10L, 100L)
@@ -178,20 +172,26 @@ class JobPostingAiServiceTest {
     }
 
     @Test
-    @DisplayName("직무 참고 공고가 없으면 같은 회사 공고를 fallback으로 사용한다")
-    void generateMockJobPostingFallsBackToCompanyReferences() {
+    @DisplayName("점수화된 참고 공고 목록의 첫 공고를 우선 사용한다")
+    void generateMockJobPostingUsesTopScoredReferenceFirst() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
-        JobPosting companyOnlyPosting = JobPosting.create(
+        JobPosting topScoredPosting = JobPosting.create(
                 Company.create("선택 기업", CompanySize.MEDIUM),
                 detailClassification,
                 "회사 기반 주요 업무",
                 "회사 기반 자격 요건",
                 "회사 기반 우대 사항"
         );
+        JobPosting lowerPriorityPosting = JobPosting.create(
+                Company.create("다른 기업", CompanySize.MEDIUM),
+                detailClassification,
+                "직무 기반 주요 업무",
+                "직무 기반 자격 요건",
+                "직무 기반 우대 사항"
+        );
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
-        when(jobPostingRepository.findAllByCompanyIdAndDetailClassificationId(1L, 100L)).thenReturn(List.of());
-        when(jobPostingRepository.findAllByDetailClassificationId(100L)).thenReturn(List.of());
-        when(jobPostingRepository.findAllByCompanyId(1L)).thenReturn(List.of(companyOnlyPosting));
+        when(jobPostingRepository.findTop5ReferencePostings(1L, 100L))
+                .thenReturn(List.of(topScoredPosting, lowerPriorityPosting));
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
                 new JobPostingMockGenerateRequest(1L, 10L, 100L),

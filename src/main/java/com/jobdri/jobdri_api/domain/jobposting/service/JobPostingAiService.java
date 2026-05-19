@@ -36,6 +36,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class JobPostingAiService {
 
+    private static final int MAX_REFERENCE_FIELD_LENGTH = 400;
+
     private final OpenAIClient openAIClient;
     private final DetailClassificationRepository detailClassificationRepository;
     private final JobPostingRepository jobPostingRepository;
@@ -599,7 +601,6 @@ public class JobPostingAiService {
         }
 
         return referencePostings.stream()
-                .limit(5)
                 .map(jobPosting -> """
                         - 주요 업무:
                         %s
@@ -608,36 +609,18 @@ public class JobPostingAiService {
                         - 우대 사항:
                         %s
                         """.formatted(
-                        defaultString(jobPosting.getTask()),
-                        defaultString(jobPosting.getRequirement()),
-                        defaultString(jobPosting.getPreferred())
+                        truncateForPrompt(jobPosting.getTask()),
+                        truncateForPrompt(jobPosting.getRequirement()),
+                        truncateForPrompt(jobPosting.getPreferred())
                 ))
                 .collect(Collectors.joining("\n"));
     }
 
     private List<JobPosting> findMockReferencePostings(JobPostingMockGenerateRequest request, Company company) {
-        List<JobPosting> companyAndDetailMatches = company == null
-                ? List.of()
-                : jobPostingRepository.findAllByCompanyIdAndDetailClassificationId(
-                        company.getId(),
-                        request.detailClassificationId()
-                );
-        if (!companyAndDetailMatches.isEmpty()) {
-            return companyAndDetailMatches;
-        }
-
-        List<JobPosting> detailMatches = jobPostingRepository.findAllByDetailClassificationId(
+        return jobPostingRepository.findTop5ReferencePostings(
+                company == null ? null : company.getId(),
                 request.detailClassificationId()
         );
-        if (!detailMatches.isEmpty()) {
-            return detailMatches;
-        }
-
-        if (company == null) {
-            return List.of();
-        }
-
-        return jobPostingRepository.findAllByCompanyId(company.getId());
     }
 
     private JobPostingGenerateResponse normalizeGeneratedResponse(JobPostingGenerateResponse response, JobPostingGenerateRequest request) {
@@ -850,5 +833,13 @@ public class JobPostingAiService {
 
     private List<String> defaultStringList(List<String> values) {
         return values == null ? List.of() : values;
+    }
+
+    private String truncateForPrompt(String value) {
+        String normalized = defaultString(value).trim();
+        if (normalized.length() <= MAX_REFERENCE_FIELD_LENGTH) {
+            return normalized;
+        }
+        return normalized.substring(0, MAX_REFERENCE_FIELD_LENGTH) + "...";
     }
 }
