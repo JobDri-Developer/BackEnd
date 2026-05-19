@@ -13,8 +13,8 @@ public class AsyncConfig {
     @Bean(name = "jobPostingAsyncExecutor")
     public ThreadPoolTaskExecutor jobPostingAsyncExecutor(
             @Value("${async.job-posting.core-pool-size:2}") int corePoolSize,
-            @Value("${async.job-posting.max-pool-size:4}") int maxPoolSize,
-            @Value("${async.job-posting.queue-capacity:20}") int queueCapacity
+            @Value("${async.job-posting.max-pool-size:50}") int maxPoolSize,
+            @Value("${async.job-posting.queue-capacity:100}") int queueCapacity
     ) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setThreadNamePrefix("job-posting-async-");
@@ -23,7 +23,7 @@ public class AsyncConfig {
         executor.setQueueCapacity(queueCapacity);
         executor.setAllowCoreThreadTimeOut(true);
         executor.setWaitForTasksToCompleteOnShutdown(false);
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
         return executor;
     }
@@ -49,8 +49,8 @@ public class AsyncConfig {
     @Bean(name = "llmAsyncExecutor")
     public ThreadPoolTaskExecutor llmAsyncExecutor(
             @Value("${async.llm.core-pool-size:2}") int corePoolSize,
-            @Value("${async.llm.max-pool-size:4}") int maxPoolSize,
-            @Value("${async.llm.queue-capacity:20}") int queueCapacity
+            @Value("${async.llm.max-pool-size:100}") int maxPoolSize,
+            @Value("${async.llm.queue-capacity:200}") int queueCapacity
     ) {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setThreadNamePrefix("llm-async-");
@@ -59,7 +59,7 @@ public class AsyncConfig {
         executor.setQueueCapacity(queueCapacity);
         executor.setAllowCoreThreadTimeOut(true);
         executor.setWaitForTasksToCompleteOnShutdown(false);
-        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.CallerRunsPolicy());
         executor.initialize();
         return executor;
     }

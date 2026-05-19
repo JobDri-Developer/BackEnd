@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobposting.repository;
 
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.repository.query.Param;
@@ -8,8 +9,31 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 
 public interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
+    @EntityGraph(attributePaths = {
+            "company",
+            "user",
+            "detailClassification",
+            "detailClassification.middleClassification",
+            "detailClassification.middleClassification.classification"
+    })
     List<JobPosting> findAllByCompanyId(Long companyId);
+
+    @EntityGraph(attributePaths = {
+            "company",
+            "user",
+            "detailClassification",
+            "detailClassification.middleClassification",
+            "detailClassification.middleClassification.classification"
+    })
     List<JobPosting> findAllByUserId(Long userId);
+
+    @EntityGraph(attributePaths = {
+            "company",
+            "user",
+            "detailClassification",
+            "detailClassification.middleClassification",
+            "detailClassification.middleClassification.classification"
+    })
     List<JobPosting> findAllByUserIdAndCompanyId(Long userId, Long companyId);
     List<JobPosting> findTop5ByDetailClassificationIdOrderByIdDesc(Long detailClassificationId);
     List<JobPosting> findTop5ByCompanyIdOrderByIdDesc(Long companyId);

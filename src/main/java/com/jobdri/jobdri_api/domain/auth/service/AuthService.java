@@ -28,6 +28,8 @@ public class AuthService {
 
     private static final String REFRESH_TOKEN_PREFIX = "RefreshToken:";
     private static final String BLACKLIST_PREFIX = "Blacklist:";
+    private static final String REISSUE_LOCK_PREFIX = "ReissueLock:";
+    private static final long REISSUE_LOCK_TIMEOUT_SECONDS = 3L;
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -94,23 +96,41 @@ public class AuthService {
             throw new GeneralException(GeneralErrorCode.INVALID_TOKEN);
         }
 
-        String storedRefreshToken = redisTemplate.opsForValue().get(getRefreshTokenKey(accessUserId));
-        if (storedRefreshToken == null || !storedRefreshToken.equals(request.refreshToken())) {
-            throw new GeneralException(GeneralErrorCode.INVALID_TOKEN, "토큰 정보가 일치하지 않습니다.");
+        String lockKey = getReissueLockKey(accessUserId);
+        Boolean locked = redisTemplate.opsForValue().setIfAbsent(
+                lockKey,
+                request.refreshToken(),
+                REISSUE_LOCK_TIMEOUT_SECONDS,
+                TimeUnit.SECONDS
+        );
+        if (!Boolean.TRUE.equals(locked)) {
+            throw new GeneralException(
+                    GeneralErrorCode.SERVICE_UNAVAILABLE,
+                    "토큰 재발급 요청이 처리 중입니다. 잠시 후 다시 시도해주세요."
+            );
         }
 
-        User user = userRepository.findById(accessUserId)
-                .orElseThrow(() -> new GeneralException(GeneralErrorCode.USER_NOT_FOUND));
+        try {
+            String storedRefreshToken = redisTemplate.opsForValue().get(getRefreshTokenKey(accessUserId));
+            if (storedRefreshToken == null || !storedRefreshToken.equals(request.refreshToken())) {
+                throw new GeneralException(GeneralErrorCode.INVALID_TOKEN, "토큰 정보가 일치하지 않습니다.");
+            }
 
-        String newAccessToken = jwtUtil.createAccessToken(user.getEmail(), user.getId());
-        String newRefreshToken = jwtUtil.createRefreshToken(user.getEmail());
+            User user = userRepository.findById(accessUserId)
+                    .orElseThrow(() -> new GeneralException(GeneralErrorCode.USER_NOT_FOUND));
 
-        saveRefreshToken(user.getId(), newRefreshToken);
+            String newAccessToken = jwtUtil.createAccessToken(user.getEmail(), user.getId());
+            String newRefreshToken = jwtUtil.createRefreshToken(user.getEmail());
 
-        return ReissueTokenResponse.builder()
-                .accessToken(newAccessToken)
-                .refreshToken(newRefreshToken)
-                .build();
+            saveRefreshToken(user.getId(), newRefreshToken);
+
+            return ReissueTokenResponse.builder()
+                    .accessToken(newAccessToken)
+                    .refreshToken(newRefreshToken)
+                    .build();
+        } finally {
+            redisTemplate.delete(lockKey);
+        }
     }
 
     @Transactional
@@ -118,11 +138,7 @@ public class AuthService {
         String accessToken = request.accessToken();
         String refreshToken = request.refreshToken();
 
-        if (!jwtUtil.validateToken(accessToken)) {
-            throw new GeneralException(GeneralErrorCode.INVALID_TOKEN, "유효하지 않은 액세스 토큰입니다.");
-        }
-
-        Claims claims = jwtUtil.getClaimsFromToken(accessToken);
+        Claims claims = extractLogoutClaims(accessToken);
         Long userId = claims.get("userId", Long.class);
         if (userId == null) {
             throw new GeneralException(GeneralErrorCode.INVALID_TOKEN);
@@ -146,6 +162,14 @@ public class AuthService {
         }
     }
 
+    private Claims extractLogoutClaims(String accessToken) {
+        try {
+            return jwtUtil.getClaimsFromToken(accessToken);
+        } catch (GeneralException exception) {
+            return jwtUtil.getClaimsFromExpiredToken(accessToken);
+        }
+    }
+
     private void saveRefreshToken(Long userId, String refreshTokenValue) {
         redisTemplate.opsForValue().set(
                 getRefreshTokenKey(userId),
@@ -161,6 +185,10 @@ public class AuthService {
 
     private String getBlacklistKey(String accessToken) {
         return BLACKLIST_PREFIX + accessToken;
+    }
+
+    private String getReissueLockKey(Long userId) {
+        return REISSUE_LOCK_PREFIX + userId;
     }
 
 }

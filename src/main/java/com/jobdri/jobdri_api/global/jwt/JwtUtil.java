@@ -7,16 +7,15 @@ import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtBuilder;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.MalformedJwtException;
-import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.UnsupportedJwtException;
-import io.jsonwebtoken.security.Keys;
 import io.jsonwebtoken.security.SecurityException;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
-import java.security.Key;
+import javax.crypto.SecretKey;
+import io.jsonwebtoken.security.Keys;
 import java.util.Base64;
 import java.util.Date;
 
@@ -36,8 +35,7 @@ public class JwtUtil {
     @Value("${jwt.secret.key}")
     private String secretKey;
 
-    private Key key;
-    private final SignatureAlgorithm signatureAlgorithm = SignatureAlgorithm.HS256;
+    private SecretKey key;
 
     @PostConstruct
     public void init() {
@@ -67,10 +65,10 @@ public class JwtUtil {
         Date expireDate = new Date(now.getTime() + expireTime);
 
         JwtBuilder builder = Jwts.builder()
-                .setSubject(email)
-                .setIssuedAt(now)
-                .setExpiration(expireDate)
-                .signWith(key, signatureAlgorithm);
+                .subject(email)
+                .issuedAt(now)
+                .expiration(expireDate)
+                .signWith(key);
 
         if (userId != null) {
             builder.claim("userId", userId);
@@ -89,7 +87,7 @@ public class JwtUtil {
 
     public boolean validateToken(String token) {
         try {
-            Jwts.parserBuilder().setSigningKey(key).build().parseClaimsJws(token);
+            Jwts.parser().verifyWith(key).build().parseSignedClaims(token);
             return true;
         } catch (SecurityException | MalformedJwtException e) {
             log.error("Invalid JWT signature, 유효하지 않은 JWT 서명 입니다.");
@@ -104,8 +102,8 @@ public class JwtUtil {
     }
 
     public Claims getClaimsFromToken(String token) {
-        return Jwts.parserBuilder().setSigningKey(key).build()
-                .parseClaimsJws(token).getBody();
+        return Jwts.parser().verifyWith(key).build()
+                .parseSignedClaims(token).getPayload();
     }
 
     public String getEmailFromToken(Claims claims) {
@@ -114,11 +112,11 @@ public class JwtUtil {
 
     public Claims getClaimsFromExpiredToken(String token) {
         try {
-            return Jwts.parserBuilder()
-                    .setSigningKey(key)
+            return Jwts.parser()
+                    .verifyWith(key)
                     .build()
-                    .parseClaimsJws(token)
-                    .getBody();
+                    .parseSignedClaims(token)
+                    .getPayload();
         } catch (ExpiredJwtException e) {
             return e.getClaims();
         } catch (Exception e) {
