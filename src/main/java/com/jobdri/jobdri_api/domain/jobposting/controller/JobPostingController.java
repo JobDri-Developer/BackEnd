@@ -6,8 +6,11 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingMockGenerat
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingUpdateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockQuestionResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
+import com.jobdri.jobdri_api.domain.jobposting.service.MockQuestionCacheService;
+import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -32,6 +35,8 @@ import java.util.List;
 public class JobPostingController {
 
     private final JobPostingAiService jobPostingAiService;
+    private final MockJobPostingGenerationService mockJobPostingGenerationService;
+    private final MockQuestionCacheService mockQuestionCacheService;
     private final JobPostingService jobPostingService;
 
     @Operation(summary = "채용 공고 초안 생성", description = "회사 정보와 직무 정보를 바탕으로 AI가 공고 본문 초안을 생성합니다.")
@@ -55,7 +60,21 @@ public class JobPostingController {
     ) {
         return ApiResponse.onSuccess(
                 "모의 공고 생성에 성공했습니다.",
-                jobPostingAiService.generateMockJobPosting(request)
+                mockJobPostingGenerationService.generate(request)
+        );
+    }
+
+    @Operation(
+            summary = "모의 공고 추천 질문 조회",
+            description = "선택한 회사/직무 기준으로 모의 공고 추천 질문을 조회합니다. 질문은 직무 기준 캐시를 재사용합니다."
+    )
+    @PostMapping("/mock/questions")
+    public ApiResponse<JobPostingMockQuestionResponse> getMockRecommendedQuestions(
+            @Valid @RequestBody JobPostingMockGenerateRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "모의 공고 추천 질문 조회에 성공했습니다.",
+                new JobPostingMockQuestionResponse(mockQuestionCacheService.getRecommendedQuestions(request))
         );
     }
 
