@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.jobposting.entity;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
+import com.jobdri.jobdri_api.domain.user.entity.User;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -26,6 +27,10 @@ public class JobPosting {
     private Company company;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "detail_classification_id", nullable = false)
     private DetailClassification detailClassification;
 
@@ -43,6 +48,7 @@ public class JobPosting {
     private List<MockApply> mockApplies = new ArrayList<>();
 
     public static JobPosting create(
+            User user,
             Company company,
             DetailClassification detailClassification,
             String task,
@@ -50,6 +56,7 @@ public class JobPosting {
             String preferred
     ) {
         return JobPosting.builder()
+                .user(user)
                 .company(company)
                 .detailClassification(detailClassification)
                 .task(task)
@@ -59,12 +66,14 @@ public class JobPosting {
     }
 
     public void update(
+            User user,
             Company company,
             DetailClassification detailClassification,
             String task,
             String requirement,
             String preferred
     ) {
+        this.user = user;
         this.company = company;
         this.detailClassification = detailClassification;
         this.task = task;

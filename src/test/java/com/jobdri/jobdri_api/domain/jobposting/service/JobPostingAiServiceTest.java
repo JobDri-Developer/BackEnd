@@ -35,6 +35,8 @@ import static org.mockito.Mockito.when;
 class JobPostingAiServiceTest {
 
     private static final Company TEST_COMPANY = Company.create("선택 기업", CompanySize.MEDIUM);
+    private static final com.jobdri.jobdri_api.domain.user.entity.User TEST_USER =
+            com.jobdri.jobdri_api.domain.user.entity.User.signup("테스트 사용자", "test-user@example.com", "encoded-password");
 
     @Mock
     private OpenAIClient openAIClient;
@@ -55,6 +57,7 @@ class JobPostingAiServiceTest {
                 jobPostingRepository
         );
         ReflectionTestUtils.setField(TEST_COMPANY, "id", 1L);
+        ReflectionTestUtils.setField(TEST_USER, "id", 1L);
         ReflectionTestUtils.setField(jobPostingAiService, "extractionModel", "gpt-4o-mini");
     }
 
@@ -110,6 +113,7 @@ class JobPostingAiServiceTest {
     void generateMockJobPostingUsesReferencePostingFallback() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "데이터", "데이터 분석");
         JobPosting referencePosting = JobPosting.create(
+                TEST_USER,
                 Company.create("참고 기업", CompanySize.MEDIUM),
                 detailClassification,
                 "기존 주요 업무",
@@ -136,6 +140,7 @@ class JobPostingAiServiceTest {
     void generateMockJobPostingPrefersCompanyAndDetailReferences() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "데이터", "데이터 분석");
         JobPosting companySpecificPosting = JobPosting.create(
+                TEST_USER,
                 Company.create("선택 기업", CompanySize.MEDIUM),
                 detailClassification,
                 "회사 맞춤 주요 업무",
@@ -176,6 +181,7 @@ class JobPostingAiServiceTest {
     void generateMockJobPostingUsesTopScoredReferenceFirst() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
         JobPosting topScoredPosting = JobPosting.create(
+                TEST_USER,
                 Company.create("선택 기업", CompanySize.MEDIUM),
                 detailClassification,
                 "회사 기반 주요 업무",
@@ -183,6 +189,7 @@ class JobPostingAiServiceTest {
                 "회사 기반 우대 사항"
         );
         JobPosting lowerPriorityPosting = JobPosting.create(
+                TEST_USER,
                 Company.create("다른 기업", CompanySize.MEDIUM),
                 detailClassification,
                 "직무 기반 주요 업무",

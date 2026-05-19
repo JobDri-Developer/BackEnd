@@ -9,6 +9,7 @@ import lombok.Getter;
 public class JobPostingResponse {
 
     private Long jobPostingId;
+    private Long userId;
     private Long companyId;
     private String companyName;
     private String companySize;
@@ -21,6 +22,7 @@ public class JobPostingResponse {
     public static JobPostingResponse from(JobPosting jobPosting) {
         return JobPostingResponse.builder()
                 .jobPostingId(jobPosting.getId())
+                .userId(jobPosting.getUser().getId())
                 .companyId(jobPosting.getCompany().getId())
                 .companyName(jobPosting.getCompany().getName())
                 .companySize(jobPosting.getCompany().getSize().name())

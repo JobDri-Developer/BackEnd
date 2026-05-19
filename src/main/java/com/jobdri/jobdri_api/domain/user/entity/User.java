@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.user.entity;
 
 import com.jobdri.jobdri_api.domain.experience.entity.Experience;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
 import jakarta.persistence.*;
@@ -56,6 +57,10 @@ public class User {
     @Builder.Default
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<MockApply> mockApplies = new ArrayList<>();
+
+    @Builder.Default
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<JobPosting> jobPostings = new ArrayList<>();
 
     public static User signup(
             String name,

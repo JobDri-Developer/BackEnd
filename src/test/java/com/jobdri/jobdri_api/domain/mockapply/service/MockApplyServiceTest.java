@@ -70,7 +70,7 @@ class MockApplyServiceTest {
     @DisplayName("기존 공고를 기준으로 ACTUAL 타입 모의 서류 지원을 생성한다")
     void createActualApply() {
         User user = saveUser("actual-apply@example.com");
-        JobPosting jobPosting = saveJobPosting("백엔드 개발");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
 
         MockApplyCreateResponse response = mockApplyService.createActualApply(user, jobPosting.getId());
 
@@ -124,10 +124,26 @@ class MockApplyServiceTest {
     }
 
     @Test
+    @DisplayName("저장된 공고를 기준으로 MOCK 타입 모의 서류 지원을 생성한다")
+    void createMockApplyFromJobPosting() {
+        User user = saveUser("mock-from-job-posting@example.com");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
+
+        MockApplyCreateResponse response = mockApplyService.createMockApplyFromJobPosting(user, jobPosting.getId());
+
+        MockApply mockApply = mockApplyRepository.findById(response.mockApplyId()).orElseThrow();
+        assertThat(response.jobPostingId()).isEqualTo(jobPosting.getId());
+        assertThat(response.applyType()).isEqualTo(ApplyType.MOCK);
+        assertThat(mockApply.getUser().getId()).isEqualTo(user.getId());
+        assertThat(mockApply.getJobPosting().getId()).isEqualTo(jobPosting.getId());
+        assertThat(mockApply.getApplyType()).isEqualTo(ApplyType.MOCK);
+    }
+
+    @Test
     @DisplayName("mockApplyId로 생성된 모의 공고를 조회한다")
     void getMockApplyJobPosting() {
         User user = saveUser("mock-job-posting@example.com");
-        JobPosting jobPosting = saveJobPosting("백엔드 개발");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
         MockApply mockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.MOCK));
 
         var response = mockApplyService.getMockApplyJobPosting(user, mockApply.getId());
@@ -145,6 +161,19 @@ class MockApplyServiceTest {
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")
                 .isEqualTo(GeneralErrorCode.JOB_POSTING_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 공고로 MOCK 타입 지원 생성 시 예외를 던진다")
+    void createMockApplyFromJobPostingThrowsWhenForbidden() {
+        User owner = saveUser("mock-owner@example.com");
+        User otherUser = saveUser("mock-other@example.com");
+        JobPosting jobPosting = saveJobPosting(owner, "프론트엔드 개발");
+
+        assertThatThrownBy(() -> mockApplyService.createMockApplyFromJobPosting(otherUser, jobPosting.getId()))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.FORBIDDEN);
     }
 
     @Test
@@ -201,7 +230,7 @@ class MockApplyServiceTest {
     void getMockApplyJobPostingThrowsWhenForbidden() {
         User owner = saveUser("owner@example.com");
         User otherUser = saveUser("other@example.com");
-        JobPosting jobPosting = saveJobPosting("데이터 분석");
+        JobPosting jobPosting = saveJobPosting(owner, "데이터 분석");
         MockApply mockApply = mockApplyRepository.save(MockApply.create(owner, jobPosting, ApplyType.MOCK));
 
         assertThatThrownBy(() -> mockApplyService.getMockApplyJobPosting(otherUser, mockApply.getId()))
@@ -214,10 +243,11 @@ class MockApplyServiceTest {
         return userRepository.save(User.signup("테스트 사용자", email, "encoded-password"));
     }
 
-    private JobPosting saveJobPosting(String detailName) {
+    private JobPosting saveJobPosting(User user, String detailName) {
         Company company = companyRepository.save(Company.create("테스트 기업", CompanySize.MEDIUM));
         DetailClassification detailClassification = saveDetailClassification(detailName);
         return jobPostingRepository.save(JobPosting.create(
+                user,
                 company,
                 detailClassification,
                 "주요 업무",

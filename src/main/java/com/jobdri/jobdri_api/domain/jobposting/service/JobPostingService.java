@@ -9,6 +9,8 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingUpdateReque
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
+import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
@@ -25,13 +27,16 @@ public class JobPostingService {
     private final JobPostingRepository jobPostingRepository;
     private final CompanyRepository companyRepository;
     private final DetailClassificationRepository detailClassificationRepository;
+    private final UserService userService;
 
     @Transactional
-    public JobPostingResponse createJobPosting(JobPostingCreateRequest request) {
+    public JobPostingResponse createJobPosting(User user, JobPostingCreateRequest request) {
+        User validatedUser = userService.validateUser(user);
         Company company = findOrCreateCompany(request.companyName(), request.companySize());
         DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
 
         JobPosting jobPosting = JobPosting.create(
+                validatedUser,
                 company,
                 detailClassification,
                 request.task(),
@@ -43,17 +48,15 @@ public class JobPostingService {
     }
 
     @Transactional
-    public JobPostingResponse updateJobPosting(Long jobPostingId, JobPostingUpdateRequest request) {
-        JobPosting jobPosting = jobPostingRepository.findById(jobPostingId)
-                .orElseThrow(() -> new GeneralException(
-                        GeneralErrorCode.JOB_POSTING_NOT_FOUND,
-                        "해당 공고를 찾을 수 없습니다. jobPostingId=" + jobPostingId
-                ));
+    public JobPostingResponse updateJobPosting(User user, Long jobPostingId, JobPostingUpdateRequest request) {
+        User validatedUser = userService.validateUser(user);
+        JobPosting jobPosting = getOwnedJobPosting(validatedUser, jobPostingId);
 
         Company company = findOrCreateCompany(request.companyName(), request.companySize());
         DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
 
         jobPosting.update(
+                validatedUser,
                 company,
                 detailClassification,
                 request.task(),
@@ -64,26 +67,37 @@ public class JobPostingService {
         return JobPostingResponse.from(jobPosting);
     }
 
-    public JobPostingResponse getJobPosting(Long jobPostingId) {
+    public JobPostingResponse getJobPosting(User user, Long jobPostingId) {
+        User validatedUser = userService.validateUser(user);
+        return JobPostingResponse.from(getOwnedJobPosting(validatedUser, jobPostingId));
+    }
+
+    public List<JobPostingResponse> getAllJobPostings(User user) {
+        User validatedUser = userService.validateUser(user);
+        return jobPostingRepository.findAllByUserId(validatedUser.getId()).stream()
+                .map(JobPostingResponse::from)
+                .toList();
+    }
+
+    public List<JobPostingResponse> getJobPostingsByCompany(User user, Long companyId) {
+        User validatedUser = userService.validateUser(user);
+        return jobPostingRepository.findAllByUserIdAndCompanyId(validatedUser.getId(), companyId).stream()
+                .map(JobPostingResponse::from)
+                .toList();
+    }
+
+    public JobPosting getOwnedJobPosting(User user, Long jobPostingId) {
         JobPosting jobPosting = jobPostingRepository.findById(jobPostingId)
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.JOB_POSTING_NOT_FOUND,
                         "해당 공고를 찾을 수 없습니다. jobPostingId=" + jobPostingId
                 ));
 
-        return JobPostingResponse.from(jobPosting);
-    }
+        if (!jobPosting.getUser().getId().equals(user.getId())) {
+            throw new GeneralException(GeneralErrorCode.FORBIDDEN, "해당 공고에 접근할 수 없습니다.");
+        }
 
-    public List<JobPostingResponse> getAllJobPostings() {
-        return jobPostingRepository.findAll().stream()
-                .map(JobPostingResponse::from)
-                .toList();
-    }
-
-    public List<JobPostingResponse> getJobPostingsByCompany(Long companyId) {
-        return jobPostingRepository.findAllByCompanyId(companyId).stream()
-                .map(JobPostingResponse::from)
-                .toList();
+        return jobPosting;
     }
 
     private Company findOrCreateCompany(String companyName, com.jobdri.jobdri_api.domain.company.entity.CompanySize companySize) {
