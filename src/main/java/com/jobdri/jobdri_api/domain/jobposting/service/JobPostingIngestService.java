@@ -39,7 +39,6 @@ public class JobPostingIngestService {
                 .userId(user.getId())
                 .rawText(request.rawText())
                 .sourceUrl(request.sourceUrl())
-                .companySize(request.companySize())
                 .build();
         return ingestAndCreate(command);
     }
@@ -81,7 +80,7 @@ public class JobPostingIngestService {
         JobPostingGenerateResponse generated = jobPostingAiService.generateJobPosting(
                 new JobPostingGenerateRequest(
                         extracted.companyName(),
-                        command.getCompanySize(),
+                        null,
                         classification.detailClassificationId(),
                         extracted.rawText(),
                         "",
@@ -97,7 +96,7 @@ public class JobPostingIngestService {
                 resolveUser(command),
                 new JobPostingCreateRequest(
                         fallbackCompanyName(extracted.companyName()),
-                        command.getCompanySize(),
+                        null,
                         classification.detailClassificationId(),
                         generated.task(),
                         generated.requirements(),
