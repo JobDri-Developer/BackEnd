@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.mockapply.controller;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateActualRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.mockapply.service.MockApplyService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
@@ -15,6 +16,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -106,13 +109,14 @@ public class MockApplyController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "404",
-                    description = "회사 또는 소분류 없음",
+                    description = "회사 또는 직무 분류 없음",
                     content = @Content(
                             mediaType = "application/json",
                             schema = @Schema(implementation = ApiResponse.class),
                             examples = {
                                     @ExampleObject(name = "company_not_found", value = "{\"isSuccess\":false,\"code\":\"COMPANY_4041\",\"message\":\"해당 회사를 찾을 수 없습니다. companyId=999\",\"result\":null,\"error\":\"해당 회사를 찾을 수 없습니다. companyId=999\"}"),
-                                    @ExampleObject(name = "classification_not_found", value = "{\"isSuccess\":false,\"code\":\"CLASSIFICATION_4041\",\"message\":\"해당 소분류를 찾을 수 없습니다. detailClassificationId=999\",\"result\":null,\"error\":\"해당 소분류를 찾을 수 없습니다. detailClassificationId=999\"}")
+                                    @ExampleObject(name = "classification_not_found", value = "{\"isSuccess\":false,\"code\":\"CLASSIFICATION_4041\",\"message\":\"해당 소분류를 찾을 수 없습니다. detailClassificationId=999\",\"result\":null,\"error\":\"해당 소분류를 찾을 수 없습니다. detailClassificationId=999\"}"),
+                                    @ExampleObject(name = "middle_detail_mismatch", value = "{\"isSuccess\":false,\"code\":\"CLASSIFICATION_4041\",\"message\":\"해당 소분류가 중분류에 속하지 않습니다. middleClassificationId=999, detailClassificationId=1\",\"result\":null,\"error\":\"해당 소분류가 중분류에 속하지 않습니다. middleClassificationId=999, detailClassificationId=1\"}")
                             }
                     )
             )
@@ -125,6 +129,21 @@ public class MockApplyController {
         return ApiResponse.onSuccess(
                 "모의 서류 지원이 생성되었습니다.",
                 mockApplyService.createMockApply(userDetails.getUser(), request)
+        );
+    }
+
+    @Operation(
+            summary = "모의 서류 지원의 생성 공고 조회",
+            description = "mockApplyId에 연결된 생성 공고를 조회합니다."
+    )
+    @GetMapping("/{mockApplyId}/job-posting")
+    public ApiResponse<JobPostingResponse> getMockApplyJobPosting(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId
+    ) {
+        return ApiResponse.onSuccess(
+                "모의 공고 조회에 성공했습니다.",
+                mockApplyService.getMockApplyJobPosting(userDetails.getUser(), mockApplyId)
         );
     }
 }
