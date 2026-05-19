@@ -7,4 +7,6 @@ import java.util.List;
 
 public interface QuestionRepository extends JpaRepository<Question, Long> {
     List<Question> findAllByMockApplyId(Long mockApplyId);
+    List<Question> findAllByMockApplyIdOrderByIdAsc(Long mockApplyId);
+    void deleteAllByMockApplyId(Long mockApplyId);
 }

@@ -1,0 +1,82 @@
+package com.jobdri.jobdri_api.domain.analysis.controller;
+
+import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionAnswerSaveRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionSelectionSaveRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnswerResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionCandidateResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionSelectionResponse;
+import com.jobdri.jobdri_api.domain.analysis.service.QuestionService;
+import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
+import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/mock-applies/{mockApplyId}/questions")
+@Tag(name = "Question", description = "자소서 문항 선택 및 답변 저장 API")
+public class QuestionController {
+
+    private final QuestionService questionService;
+
+    @Operation(summary = "문항 후보 목록 조회", description = "문항 선택 화면에서 사용할 기본 문항 후보와 선택 여부를 조회합니다.")
+    @GetMapping("/candidates")
+    public ApiResponse<List<QuestionCandidateResponse>> getQuestionCandidates(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId
+    ) {
+        return ApiResponse.onSuccess(
+                "문항 후보 목록 조회에 성공했습니다.",
+                questionService.getQuestionCandidates(userDetails.getUser(), mockApplyId)
+        );
+    }
+
+    @Operation(summary = "선택 문항 조회", description = "현재 모의 서류 지원에 저장된 선택 문항 목록을 조회합니다.")
+    @GetMapping
+    public ApiResponse<QuestionSelectionResponse> getSelectedQuestions(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId
+    ) {
+        return ApiResponse.onSuccess(
+                "선택 문항 조회에 성공했습니다.",
+                questionService.getSelectedQuestions(userDetails.getUser(), mockApplyId)
+        );
+    }
+
+    @Operation(summary = "선택 문항 저장", description = "사용자가 선택하거나 직접 추가한 문항을 저장하고 답변 작성 단계로 진입합니다.")
+    @PutMapping
+    public ApiResponse<QuestionSelectionResponse> saveSelectedQuestions(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId,
+            @Valid @RequestBody QuestionSelectionSaveRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "선택 문항이 저장되었습니다.",
+                questionService.saveSelectedQuestions(userDetails.getUser(), mockApplyId, request)
+        );
+    }
+
+    @Operation(summary = "자소서 답변 저장/수정", description = "저장된 문항의 답변 내용을 작성하거나 수정합니다. 문항 내용은 수정하지 않습니다.")
+    @PutMapping("/answers")
+    public ApiResponse<QuestionAnswerResponse> saveAnswers(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId,
+            @Valid @RequestBody QuestionAnswerSaveRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "자소서 답변이 저장되었습니다.",
+                questionService.saveAnswers(userDetails.getUser(), mockApplyId, request)
+        );
+    }
+}
