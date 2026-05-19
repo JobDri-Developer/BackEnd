@@ -14,5 +14,4 @@ public class JobPostingIngestCommand {
     private byte[] imageBytes;
     private String imageContentType;
     private CompanySize companySize;
-    private Integer candidateLimit;
 }

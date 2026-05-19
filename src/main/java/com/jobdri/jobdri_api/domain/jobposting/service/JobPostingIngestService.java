@@ -24,7 +24,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class JobPostingIngestService {
 
-    private static final int DEFAULT_CANDIDATE_LIMIT = 10;
+    private static final int FIXED_CANDIDATE_LIMIT = 5;
 
     @Value("${job-posting.ingest.classification-confidence-threshold:0.65}")
     private double classificationConfidenceThreshold;
@@ -40,7 +40,6 @@ public class JobPostingIngestService {
                 .rawText(request.rawText())
                 .sourceUrl(request.sourceUrl())
                 .companySize(request.companySize())
-                .candidateLimit(request.candidateLimit())
                 .build();
         return ingestAndCreate(command);
     }
@@ -54,9 +53,8 @@ public class JobPostingIngestService {
                 command.getSourceUrl()
         );
 
-        int candidateLimit = command.getCandidateLimit() == null ? DEFAULT_CANDIDATE_LIMIT : command.getCandidateLimit();
         List<JobPostingClassificationCandidateResponse> candidates =
-                jobPostingClassificationService.findCandidates(extracted, candidateLimit);
+                jobPostingClassificationService.findCandidates(extracted, FIXED_CANDIDATE_LIMIT);
 
         if (candidates.isEmpty()) {
             throw new GeneralException(

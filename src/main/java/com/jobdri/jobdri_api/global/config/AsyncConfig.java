@@ -45,4 +45,22 @@ public class AsyncConfig {
         executor.initialize();
         return executor;
     }
+
+    @Bean(name = "llmAsyncExecutor")
+    public ThreadPoolTaskExecutor llmAsyncExecutor(
+            @Value("${async.llm.core-pool-size:2}") int corePoolSize,
+            @Value("${async.llm.max-pool-size:4}") int maxPoolSize,
+            @Value("${async.llm.queue-capacity:20}") int queueCapacity
+    ) {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("llm-async-");
+        executor.setCorePoolSize(corePoolSize);
+        executor.setMaxPoolSize(maxPoolSize);
+        executor.setQueueCapacity(queueCapacity);
+        executor.setAllowCoreThreadTimeOut(true);
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        executor.initialize();
+        return executor;
+    }
 }
