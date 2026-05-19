@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.mockapply.controller;
 
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateActualRequest;
+import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockFromJobPostingRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
@@ -72,6 +73,50 @@ public class MockApplyController {
         return ApiResponse.onSuccess(
                 "모의 서류 지원이 생성되었습니다.",
                 mockApplyService.createActualApply(userDetails.getUser(), request.jobPostingId())
+        );
+    }
+
+    @Operation(
+            summary = "저장된 공고 기반 MOCK 타입 모의 서류 지원 생성",
+            description = "AI 초안 생성 후 사용자가 수정하여 저장한 채용 공고 ID를 기준으로 로그인 사용자의 MOCK 타입 모의 서류 지원을 생성합니다."
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "모의 서류 지원 생성 성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":\"모의 서류 지원이 생성되었습니다.\",\"result\":{\"jobPostingId\":1,\"mockApplyId\":10,\"applyType\":\"MOCK\"},\"error\":null}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "인증 정보 누락",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"AUTH_4011\",\"message\":\"인증 정보가 누락되었습니다.\",\"result\":null,\"error\":\"인증 정보가 누락되었습니다.\"}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "다른 사용자의 공고 접근",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"AUTH_4031\",\"message\":\"해당 공고에 접근할 수 없습니다.\",\"result\":null,\"error\":\"해당 공고에 접근할 수 없습니다.\"}")
+                    )
+            )
+    })
+    @PostMapping("/mock/from-job-posting")
+    public ApiResponse<MockApplyCreateResponse> createMockApplyFromJobPosting(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @Valid @RequestBody MockApplyCreateMockFromJobPostingRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "모의 서류 지원이 생성되었습니다.",
+                mockApplyService.createMockApplyFromJobPosting(userDetails.getUser(), request.jobPostingId())
         );
     }
 

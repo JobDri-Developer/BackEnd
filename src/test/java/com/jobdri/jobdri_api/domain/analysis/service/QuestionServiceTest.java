@@ -225,9 +225,11 @@ class QuestionServiceTest {
     }
 
     private JobPosting saveJobPosting() {
+        User user = saveUser("question-jobposting" + System.nanoTime() + "@example.com");
         Company company = companyRepository.save(Company.create("테스트 기업", CompanySize.MEDIUM));
         DetailClassification detailClassification = saveDetailClassification();
         return jobPostingRepository.save(JobPosting.create(
+                user,
                 company,
                 detailClassification,
                 "주요 업무",

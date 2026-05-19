@@ -10,6 +10,8 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractRes
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
+import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
@@ -24,15 +26,17 @@ public class JobPostingIngestService {
 
     private static final int DEFAULT_CANDIDATE_LIMIT = 10;
 
-    @Value("${job-posting.ingest.classification-confidence-threshold}")
+    @Value("${job-posting.ingest.classification-confidence-threshold:0.65}")
     private double classificationConfidenceThreshold;
 
     private final JobPostingAiService jobPostingAiService;
     private final JobPostingClassificationService jobPostingClassificationService;
     private final JobPostingService jobPostingService;
+    private final UserService userService;
 
-    public JobPostingIngestResponse ingestAndCreate(JobPostingIngestMultipartRequest request) {
+    public JobPostingIngestResponse ingestAndCreate(User user, JobPostingIngestMultipartRequest request) {
         JobPostingIngestCommand command = JobPostingIngestCommand.builder()
+                .userId(user.getId())
                 .rawText(request.rawText())
                 .sourceUrl(request.sourceUrl())
                 .companySize(request.companySize())
@@ -92,6 +96,7 @@ public class JobPostingIngestService {
         );
 
         JobPostingResponse saved = jobPostingService.createJobPosting(
+                resolveUser(command),
                 new JobPostingCreateRequest(
                         fallbackCompanyName(extracted.companyName()),
                         command.getCompanySize(),
@@ -118,5 +123,12 @@ public class JobPostingIngestService {
             return "미분류 회사";
         }
         return companyName;
+    }
+
+    private User resolveUser(JobPostingIngestCommand command) {
+        if (command.getUserId() == null) {
+            throw new GeneralException(GeneralErrorCode.MISSING_AUTH_INFO, "인증 정보가 누락되었습니다.");
+        }
+        return userService.getUser(command.getUserId());
     }
 }

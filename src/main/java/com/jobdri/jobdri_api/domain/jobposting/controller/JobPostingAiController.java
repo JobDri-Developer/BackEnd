@@ -10,7 +10,9 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResp
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAsyncFacadeService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingIngestService;
+import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
+import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
@@ -20,6 +22,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ModelAttribute;
@@ -37,6 +40,7 @@ public class JobPostingAiController {
     private final JobPostingAiService jobPostingAiService;
     private final JobPostingIngestService jobPostingIngestService;
     private final JobPostingAsyncFacadeService jobPostingAsyncFacadeService;
+    private final UserService userService;
 
     @Operation(
             summary = "채용 공고 정보 추출",
@@ -44,8 +48,10 @@ public class JobPostingAiController {
     )
     @PostMapping(value = "/extract", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ApiResponse<JobPostingExtractResponse> extractJobPostingFromText(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
             @Valid @RequestBody JobPostingExtractRequest request
     ) {
+        validateAuthenticatedUser(userDetails);
         return ApiResponse.onSuccess(
                 "채용 공고 추출에 성공했습니다.",
                 jobPostingAiService.extractJobPosting(request.rawText())
@@ -58,8 +64,10 @@ public class JobPostingAiController {
     )
     @PostMapping(value = "/extract", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<JobPostingExtractResponse> extractJobPostingFromMultipart(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
             @ModelAttribute JobPostingExtractMultipartRequest request
     ) {
+        validateAuthenticatedUser(userDetails);
         return ApiResponse.onSuccess(
                 "채용 공고 추출에 성공했습니다.",
                 jobPostingAiService.extractJobPosting(request)
@@ -194,11 +202,13 @@ public class JobPostingAiController {
     })
     @PostMapping(value = "/ingest", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<JobPostingIngestResponse> ingestJobPosting(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
             @ModelAttribute JobPostingIngestMultipartRequest request
     ) {
+        var user = validateAuthenticatedUser(userDetails);
         return ApiResponse.onSuccess(
                 "채용 공고 추출 및 저장에 성공했습니다.",
-                jobPostingIngestService.ingestAndCreate(request)
+                jobPostingIngestService.ingestAndCreate(user, request)
         );
     }
 
@@ -208,11 +218,13 @@ public class JobPostingAiController {
     )
     @PostMapping(value = "/ingest/async", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<JobPostingAsyncSubmitResponse> submitIngestJobPostingAsync(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
             @ModelAttribute JobPostingIngestMultipartRequest request
     ) {
+        var user = validateAuthenticatedUser(userDetails);
         return ApiResponse.onSuccess(
                 "채용 공고 비동기 작업 접수에 성공했습니다.",
-                jobPostingAsyncFacadeService.submit(request)
+                jobPostingAsyncFacadeService.submit(user, request)
         );
     }
 
@@ -222,11 +234,17 @@ public class JobPostingAiController {
     )
     @GetMapping("/ingest/async/{taskId}")
     public ApiResponse<JobPostingAsyncStatusResponse> getIngestJobPostingAsyncStatus(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
             @PathVariable String taskId
     ) {
+        validateAuthenticatedUser(userDetails);
         return ApiResponse.onSuccess(
                 "채용 공고 비동기 작업 상태 조회에 성공했습니다.",
                 jobPostingAsyncFacadeService.getTask(taskId)
         );
+    }
+
+    private com.jobdri.jobdri_api.domain.user.entity.User validateAuthenticatedUser(UserDetailsImpl userDetails) {
+        return userService.validateUser(userDetails == null ? null : userDetails.getUser());
     }
 }

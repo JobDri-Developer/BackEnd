@@ -19,4 +19,17 @@ public class UserService {
         return userRepository.findById(userId)
                 .orElseThrow(() -> new GeneralException(GeneralErrorCode.USER_NOT_FOUND));
     }
+
+    @Transactional(readOnly = true)
+    public User validateUser(User user) {
+        if (user == null || user.getId() == null) {
+            throw new GeneralException(GeneralErrorCode.MISSING_AUTH_INFO, "인증 정보가 누락되었습니다.");
+        }
+
+        return userRepository.findById(user.getId())
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.USER_NOT_FOUND,
+                        "해당 유저를 찾을 수 없습니다. userId=" + user.getId()
+                ));
+    }
 }

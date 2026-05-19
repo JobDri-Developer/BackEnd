@@ -4,6 +4,8 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestComma
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestMultipartRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncSubmitResponse;
+import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
@@ -19,10 +21,12 @@ public class JobPostingAsyncFacadeService {
 
     private final JobPostingAsyncTaskService jobPostingAsyncTaskService;
     private final JobPostingAsyncProcessor jobPostingAsyncProcessor;
+    private final UserService userService;
 
-    public JobPostingAsyncSubmitResponse submit(JobPostingIngestMultipartRequest request) {
+    public JobPostingAsyncSubmitResponse submit(User user, JobPostingIngestMultipartRequest request) {
+        User validatedUser = userService.validateUser(user);
         String taskId = jobPostingAsyncTaskService.createPendingTask();
-        JobPostingIngestCommand command = snapshot(request);
+        JobPostingIngestCommand command = snapshot(validatedUser, request);
 
         try {
             jobPostingAsyncProcessor.process(taskId, command);
@@ -43,8 +47,9 @@ public class JobPostingAsyncFacadeService {
         return jobPostingAsyncTaskService.getTask(taskId);
     }
 
-    private JobPostingIngestCommand snapshot(JobPostingIngestMultipartRequest request) {
+    private JobPostingIngestCommand snapshot(User user, JobPostingIngestMultipartRequest request) {
         return JobPostingIngestCommand.builder()
+                .userId(user.getId())
                 .rawText(request.rawText())
                 .sourceUrl(request.sourceUrl())
                 .imageBytes(readBytes(request.image()))

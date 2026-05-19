@@ -8,6 +8,7 @@ import lombok.Getter;
 @Builder
 public class JobPostingIngestCommand {
 
+    private Long userId;
     private String rawText;
     private String sourceUrl;
     private byte[] imageBytes;

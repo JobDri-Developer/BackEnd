@@ -11,7 +11,7 @@ import java.time.Duration;
 @Configuration
 public class OpenAiConfig {
 
-    @Value("${openai.api.key}")
+    @Value("${openai.api.key:}")
     private String openAiApiKey;
 
     @Bean
