@@ -2,8 +2,10 @@ package com.jobdri.jobdri_api.domain.jobposting.controller;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingGenerateRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingMockGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingUpdateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
@@ -40,6 +42,20 @@ public class JobPostingController {
         return ApiResponse.onSuccess(
                 "채용 공고 초안 생성에 성공했습니다.",
                 jobPostingAiService.generateJobPosting(request)
+        );
+    }
+
+    @Operation(
+            summary = "모의 공고 생성",
+            description = "선택한 직무 중분류/소분류를 기반으로 기존 공고를 참고하여 가상의 모의 공고를 생성합니다."
+    )
+    @PostMapping("/mock/generate")
+    public ApiResponse<JobPostingMockGenerateResponse> generateMockJobPosting(
+            @Valid @RequestBody JobPostingMockGenerateRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "모의 공고 생성에 성공했습니다.",
+                jobPostingAiService.generateMockJobPosting(request)
         );
     }
 

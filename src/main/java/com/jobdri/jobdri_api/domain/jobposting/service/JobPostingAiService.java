@@ -4,10 +4,14 @@ import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractMultipartRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingGenerateRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingMockGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -32,6 +36,7 @@ public class JobPostingAiService {
 
     private final OpenAIClient openAIClient;
     private final DetailClassificationRepository detailClassificationRepository;
+    private final JobPostingRepository jobPostingRepository;
 
     @Value("${openai.model.job-posting-extractor:gpt-4o-mini}")
     private String extractionModel;
@@ -69,6 +74,34 @@ public class JobPostingAiService {
         } catch (Exception e) {
             log.error("채용 공고 생성 OpenAI API 호출 오류: {}", e.getMessage(), e);
             return createFallbackGeneratedResponse(request);
+        }
+    }
+
+    public JobPostingMockGenerateResponse generateMockJobPosting(JobPostingMockGenerateRequest request) {
+        DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
+        validateMiddleClassification(request, detailClassification);
+
+        List<JobPosting> referencePostings = jobPostingRepository.findAllByDetailClassificationId(
+                request.detailClassificationId()
+        );
+
+        var params = ResponseCreateParams.builder()
+                .model(extractionModel)
+                .input(buildMockGenerationPrompt(request, detailClassification, referencePostings))
+                .temperature(0.7)
+                .text(JobPostingMockGenerateResponse.class)
+                .build();
+
+        try {
+            StructuredResponse<JobPostingMockGenerateResponse> response = openAIClient.responses().create(params);
+            JobPostingMockGenerateResponse generated = extractStructuredContent(
+                    response,
+                    JobPostingMockGenerateResponse.class
+            );
+            return normalizeMockGeneratedResponse(generated, detailClassification);
+        } catch (Exception e) {
+            log.error("모의 공고 생성 OpenAI API 호출 오류: {}", e.getMessage(), e);
+            return createFallbackMockGeneratedResponse(detailClassification, referencePostings);
         }
     }
 
@@ -357,6 +390,8 @@ public class JobPostingAiService {
     }
 
     private String buildGenerationPrompt(JobPostingGenerateRequest request, DetailClassification detailClassification) {
+        String companySize = request.companySize() == null ? "미지정" : request.companySize().name();
+
         return """
                 아래 정보를 바탕으로 한국어 채용 공고 초안을 작성해주세요.
                 출력은 반드시 JSON 객체 하나만 반환하세요.
@@ -408,8 +443,8 @@ public class JobPostingAiService {
                 [원하는 톤]
                 %s
                 """.formatted(
-                request.companyName(),
-                request.companySize().name(),
+                defaultString(request.companyName()),
+                companySize,
                 detailClassification.getDetailName(),
                 defaultString(request.jobTitleHint()),
                 defaultString(request.hiringSummary()),
@@ -419,6 +454,84 @@ public class JobPostingAiService {
                 defaultString(request.preferredQualifications()),
                 defaultString(request.tone())
         );
+    }
+
+    private String buildMockGenerationPrompt(
+            JobPostingMockGenerateRequest request,
+            DetailClassification detailClassification,
+            List<JobPosting> referencePostings
+    ) {
+        String middleName = detailClassification.getMiddleClassification().getMiddleName();
+        String detailName = detailClassification.getDetailName();
+        String referenceText = buildReferencePostingText(referencePostings);
+
+        return """
+                아래 직무 분류를 바탕으로 한국어 모의 채용 공고 초안을 작성해주세요.
+                사용자는 회사명을 입력하지 않았으므로 companyName은 반드시 "가상 기업"으로 작성하세요.
+                실제 DB 저장용이 아니라 프론트에서 확인할 초안이므로, 출력은 반드시 JSON 객체 하나만 반환하세요.
+                설명 문장, 마크다운, 코드블럭은 포함하지 마세요.
+
+                {
+                  "companyName": "string",
+                  "jobTitle": "string",
+                  "task": "string",
+                  "requirement": "string",
+                  "preferred": "string",
+                  "summary": "string"
+                }
+
+                작성 규칙:
+                1. jobTitle은 소분류 직무명을 기반으로 자연스러운 직무명으로 작성하세요.
+                2. task는 신입/주니어가 수행할 수 있는 주요 업무를 중심으로 작성하세요.
+                3. requirement는 필수 자격 요건만 정리하세요.
+                4. preferred는 우대 사항만 정리하세요.
+                5. summary는 2~3문장으로 포지션 소개를 작성하세요.
+                6. 참고 공고가 있으면 표현과 직무 맥락만 참고하고, 특정 회사 고유 정보는 만들지 마세요.
+                7. 참고 공고가 없으면 중분류/소분류명만 기반으로 일반적인 신입/주니어용 공고를 작성하세요.
+
+                [중분류 ID]
+                %d
+
+                [중분류 직무]
+                %s
+
+                [소분류 ID]
+                %d
+
+                [소분류 직무]
+                %s
+
+                [같은 소분류의 기존 공고 참고 자료]
+                %s
+                """.formatted(
+                request.middleClassificationId(),
+                middleName,
+                request.detailClassificationId(),
+                detailName,
+                referenceText
+        );
+    }
+
+    private String buildReferencePostingText(List<JobPosting> referencePostings) {
+        if (referencePostings == null || referencePostings.isEmpty()) {
+            return "참고 가능한 기존 공고가 없습니다.";
+        }
+
+        return referencePostings.stream()
+                .limit(5)
+                .map(jobPosting -> """
+                        - 주요 업무:
+                        %s
+                        - 자격 요건:
+                        %s
+                        - 우대 사항:
+                        %s
+                        """.formatted(
+                        defaultString(jobPosting.getTask()),
+                        defaultString(jobPosting.getRequirement()),
+                        defaultString(jobPosting.getPreferred())
+                ))
+                .collect(Collectors.joining("\n"));
     }
 
     private JobPostingGenerateResponse normalizeGeneratedResponse(JobPostingGenerateResponse response, JobPostingGenerateRequest request) {
@@ -442,6 +555,61 @@ public class JobPostingAiService {
                 defaultString(response.preferredQualifications()),
                 defaultString(response.summary())
         );
+    }
+
+    private JobPostingMockGenerateResponse normalizeMockGeneratedResponse(
+            JobPostingMockGenerateResponse response,
+            DetailClassification detailClassification
+    ) {
+        if (response == null) {
+            throw new GeneralException(
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "AI 모의 공고 생성 응답이 비어 있습니다."
+            );
+        }
+
+        String companyName = response.companyName();
+        if (companyName == null || companyName.isBlank()) {
+            companyName = "가상 기업";
+        }
+
+        String jobTitle = response.jobTitle();
+        if (jobTitle == null || jobTitle.isBlank()) {
+            jobTitle = detailClassification.getDetailName();
+        }
+
+        return new JobPostingMockGenerateResponse(
+                companyName,
+                jobTitle,
+                defaultString(response.task()),
+                defaultString(response.requirement()),
+                defaultString(response.preferred()),
+                defaultString(response.summary())
+        );
+    }
+
+    private DetailClassification findDetailClassification(Long detailClassificationId) {
+        return detailClassificationRepository.findById(detailClassificationId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.CLASSIFICATION_NOT_FOUND,
+                        "해당 소분류를 찾을 수 없습니다. detailClassificationId=" + detailClassificationId
+                ));
+    }
+
+    private void validateMiddleClassification(
+            JobPostingMockGenerateRequest request,
+            DetailClassification detailClassification
+    ) {
+        Long actualMiddleClassificationId = detailClassification.getMiddleClassification().getId();
+        if (!actualMiddleClassificationId.equals(request.middleClassificationId())) {
+            throw new GeneralException(
+                    GeneralErrorCode.CLASSIFICATION_NOT_FOUND,
+                    "해당 소분류가 중분류에 속하지 않습니다. middleClassificationId="
+                            + request.middleClassificationId()
+                            + ", detailClassificationId="
+                            + request.detailClassificationId()
+            );
+        }
     }
 
     private JobPostingClassificationResultResponse normalizeClassificationResponse(
@@ -485,6 +653,32 @@ public class JobPostingAiService {
                 defaultString(request.requirements()),
                 defaultString(request.preferredQualifications()),
                 defaultString(request.hiringSummary())
+        );
+    }
+
+    private JobPostingMockGenerateResponse createFallbackMockGeneratedResponse(
+            DetailClassification detailClassification,
+            List<JobPosting> referencePostings
+    ) {
+        JobPosting referencePosting = referencePostings == null || referencePostings.isEmpty()
+                ? null
+                : referencePostings.getFirst();
+        String middleName = detailClassification.getMiddleClassification().getMiddleName();
+        String detailName = detailClassification.getDetailName();
+
+        return new JobPostingMockGenerateResponse(
+                "가상 기업",
+                detailName,
+                referencePosting == null
+                        ? "%s 직무의 기본 업무를 수행하며, 서비스 개발과 운영 과정에 참여합니다.".formatted(detailName)
+                        : defaultString(referencePosting.getTask()),
+                referencePosting == null
+                        ? "%s 분야에 대한 기본 이해와 협업 역량을 갖춘 분을 찾습니다.".formatted(detailName)
+                        : defaultString(referencePosting.getRequirement()),
+                referencePosting == null
+                        ? "관련 프로젝트 경험 또는 %s 분야 학습 경험이 있으면 좋습니다.".formatted(middleName)
+                        : defaultString(referencePosting.getPreferred()),
+                "%s/%s 직무 기반으로 생성된 신입 및 주니어 대상 모의 공고입니다.".formatted(middleName, detailName)
         );
     }
 
