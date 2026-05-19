@@ -22,12 +22,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.PutMapping;
 
 import java.util.List;
 
@@ -102,7 +102,7 @@ public class JobPostingController {
     }
 
     @Operation(summary = "채용 공고 수정", description = "기존 채용 공고를 수정합니다. 회사명이 없으면 회사를 새로 생성합니다.")
-    @PutMapping("/{jobPostingId}")
+    @PatchMapping("/{jobPostingId}")
     public ApiResponse<JobPostingResponse> updateJobPosting(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @PathVariable Long jobPostingId,
