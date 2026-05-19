@@ -83,9 +83,7 @@ public class JobPostingAiService {
         DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
         validateMiddleClassification(request, detailClassification);
 
-        List<JobPosting> referencePostings = jobPostingRepository.findAllByDetailClassificationId(
-                request.detailClassificationId()
-        );
+        List<JobPosting> referencePostings = findMockReferencePostings(request, company);
 
         var params = ResponseCreateParams.builder()
                 .model(extractionModel)
@@ -111,9 +109,7 @@ public class JobPostingAiService {
         DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
         validateMiddleClassification(request, detailClassification);
 
-        List<JobPosting> referencePostings = jobPostingRepository.findAllByDetailClassificationId(
-                request.detailClassificationId()
-        );
+        List<JobPosting> referencePostings = findMockReferencePostings(request, null);
 
         var params = ResponseCreateParams.builder()
                 .model(extractionModel)
@@ -617,6 +613,31 @@ public class JobPostingAiService {
                         defaultString(jobPosting.getPreferred())
                 ))
                 .collect(Collectors.joining("\n"));
+    }
+
+    private List<JobPosting> findMockReferencePostings(JobPostingMockGenerateRequest request, Company company) {
+        List<JobPosting> companyAndDetailMatches = company == null
+                ? List.of()
+                : jobPostingRepository.findAllByCompanyIdAndDetailClassificationId(
+                        company.getId(),
+                        request.detailClassificationId()
+                );
+        if (!companyAndDetailMatches.isEmpty()) {
+            return companyAndDetailMatches;
+        }
+
+        List<JobPosting> detailMatches = jobPostingRepository.findAllByDetailClassificationId(
+                request.detailClassificationId()
+        );
+        if (!detailMatches.isEmpty()) {
+            return detailMatches;
+        }
+
+        if (company == null) {
+            return List.of();
+        }
+
+        return jobPostingRepository.findAllByCompanyId(company.getId());
     }
 
     private JobPostingGenerateResponse normalizeGeneratedResponse(JobPostingGenerateResponse response, JobPostingGenerateRequest request) {

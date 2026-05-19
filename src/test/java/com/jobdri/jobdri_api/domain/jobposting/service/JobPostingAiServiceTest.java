@@ -29,6 +29,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -54,6 +56,7 @@ class JobPostingAiServiceTest {
                 detailClassificationRepository,
                 jobPostingRepository
         );
+        ReflectionTestUtils.setField(TEST_COMPANY, "id", 1L);
         ReflectionTestUtils.setField(jobPostingAiService, "extractionModel", "gpt-4o-mini");
     }
 
@@ -91,7 +94,9 @@ class JobPostingAiServiceTest {
     void generateMockJobPostingUsesFallbackWhenNoReferencePostings() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(jobPostingRepository.findAllByCompanyIdAndDetailClassificationId(1L, 100L)).thenReturn(List.of());
         when(jobPostingRepository.findAllByDetailClassificationId(100L)).thenReturn(List.of());
+        when(jobPostingRepository.findAllByCompanyId(1L)).thenReturn(List.of());
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
                 new JobPostingMockGenerateRequest(1L, 10L, 100L),
@@ -116,6 +121,7 @@ class JobPostingAiServiceTest {
                 "기존 우대 사항"
         );
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(jobPostingRepository.findAllByCompanyIdAndDetailClassificationId(1L, 100L)).thenReturn(List.of());
         when(jobPostingRepository.findAllByDetailClassificationId(100L)).thenReturn(List.of(referencePosting));
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
@@ -131,6 +137,32 @@ class JobPostingAiServiceTest {
     }
 
     @Test
+    @DisplayName("같은 회사와 소분류 공고가 있으면 그 공고를 우선 참고한다")
+    void generateMockJobPostingPrefersCompanyAndDetailReferences() {
+        DetailClassification detailClassification = createDetailClassification(10L, 100L, "데이터", "데이터 분석");
+        JobPosting companySpecificPosting = JobPosting.create(
+                Company.create("선택 기업", CompanySize.MEDIUM),
+                detailClassification,
+                "회사 맞춤 주요 업무",
+                "회사 맞춤 자격 요건",
+                "회사 맞춤 우대 사항"
+        );
+        when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(jobPostingRepository.findAllByCompanyIdAndDetailClassificationId(1L, 100L))
+                .thenReturn(List.of(companySpecificPosting));
+
+        JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
+                new JobPostingMockGenerateRequest(1L, 10L, 100L),
+                TEST_COMPANY
+        );
+
+        assertThat(response.task()).isEqualTo("회사 맞춤 주요 업무");
+        assertThat(response.requirement()).isEqualTo("회사 맞춤 자격 요건");
+        assertThat(response.preferred()).isEqualTo("회사 맞춤 우대 사항");
+        verify(jobPostingRepository, never()).findAllByDetailClassificationId(100L);
+    }
+
+    @Test
     @DisplayName("추천 질문 생성 실패 시 소분류 기반 fallback 질문을 반환한다")
     void generateMockRecommendedQuestionsUsesFallback() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
@@ -143,6 +175,32 @@ class JobPostingAiServiceTest {
 
         assertThat(response.recommendedQuestions()).hasSize(5);
         assertThat(response.recommendedQuestions().getFirst()).contains("Java/Spring");
+    }
+
+    @Test
+    @DisplayName("직무 참고 공고가 없으면 같은 회사 공고를 fallback으로 사용한다")
+    void generateMockJobPostingFallsBackToCompanyReferences() {
+        DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
+        JobPosting companyOnlyPosting = JobPosting.create(
+                Company.create("선택 기업", CompanySize.MEDIUM),
+                detailClassification,
+                "회사 기반 주요 업무",
+                "회사 기반 자격 요건",
+                "회사 기반 우대 사항"
+        );
+        when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(jobPostingRepository.findAllByCompanyIdAndDetailClassificationId(1L, 100L)).thenReturn(List.of());
+        when(jobPostingRepository.findAllByDetailClassificationId(100L)).thenReturn(List.of());
+        when(jobPostingRepository.findAllByCompanyId(1L)).thenReturn(List.of(companyOnlyPosting));
+
+        JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
+                new JobPostingMockGenerateRequest(1L, 10L, 100L),
+                TEST_COMPANY
+        );
+
+        assertThat(response.task()).isEqualTo("회사 기반 주요 업무");
+        assertThat(response.requirement()).isEqualTo("회사 기반 자격 요건");
+        assertThat(response.preferred()).isEqualTo("회사 기반 우대 사항");
     }
 
     @Test
