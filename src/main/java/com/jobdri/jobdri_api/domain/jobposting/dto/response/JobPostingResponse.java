@@ -25,7 +25,7 @@ public class JobPostingResponse {
                 .userId(jobPosting.getUser().getId())
                 .companyId(jobPosting.getCompany().getId())
                 .companyName(jobPosting.getCompany().getName())
-                .companySize(jobPosting.getCompany().getSize().name())
+                .companySize(jobPosting.getCompany().getSize() == null ? null : jobPosting.getCompany().getSize().name())
                 .detailClassificationId(jobPosting.getDetailClassification().getId())
                 .detailClassificationName(jobPosting.getDetailClassification().getDetailName())
                 .task(jobPosting.getTask())

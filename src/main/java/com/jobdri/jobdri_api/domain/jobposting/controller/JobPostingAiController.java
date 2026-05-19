@@ -131,7 +131,6 @@ public class JobPostingAiController {
                                           "jobPostingId": 10,
                                           "companyId": 3,
                                           "companyName": "삼성전자",
-                                          "companySize": "ENTERPRISE",
                                           "detailClassificationId": 101,
                                           "detailClassificationName": "Java/Spring",
                                           "task": "백엔드 서비스 개발 및 운영\\nAPI 설계 및 성능 개선",

@@ -54,7 +54,6 @@ public class JobPostingAsyncFacadeService {
                 .sourceUrl(request.sourceUrl())
                 .imageBytes(readBytes(request.image()))
                 .imageContentType(readContentType(request.image()))
-                .companySize(request.companySize())
                 .build();
     }
 
