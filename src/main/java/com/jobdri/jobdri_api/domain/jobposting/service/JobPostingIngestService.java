@@ -17,7 +17,9 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.List;
 
 @Service
@@ -39,6 +41,8 @@ public class JobPostingIngestService {
                 .userId(user.getId())
                 .rawText(request.rawText())
                 .sourceUrl(request.sourceUrl())
+                .imageBytes(readBytes(request.image()))
+                .imageContentType(readContentType(request.image()))
                 .build();
         return ingestAndCreate(command);
     }
@@ -127,5 +131,24 @@ public class JobPostingIngestService {
             throw new GeneralException(GeneralErrorCode.MISSING_AUTH_INFO, "인증 정보가 누락되었습니다.");
         }
         return userService.getUser(command.getUserId());
+    }
+
+    private byte[] readBytes(MultipartFile image) {
+        if (image == null || image.isEmpty()) {
+            return null;
+        }
+
+        try {
+            return image.getBytes();
+        } catch (IOException e) {
+            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "이미지 파일을 읽을 수 없습니다.");
+        }
+    }
+
+    private String readContentType(MultipartFile image) {
+        if (image == null || image.isEmpty()) {
+            return null;
+        }
+        return image.getContentType();
     }
 }
