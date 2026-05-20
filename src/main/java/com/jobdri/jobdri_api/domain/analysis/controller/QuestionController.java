@@ -14,6 +14,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -68,7 +69,7 @@ public class QuestionController {
     }
 
     @Operation(summary = "자소서 답변 저장/수정", description = "저장된 문항의 답변 내용을 작성하거나 수정합니다. 문항 내용은 수정하지 않습니다.")
-    @PutMapping("/answers")
+    @PatchMapping("/answers")
     public ApiResponse<QuestionAnswerResponse> saveAnswers(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @PathVariable Long mockApplyId,
