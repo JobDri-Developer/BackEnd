@@ -26,7 +26,6 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -115,31 +114,29 @@ public class JobPostingController {
         );
     }
 
-    @Operation(summary = "채용 공고 단건 조회", description = "채용 공고 ID로 단건 조회합니다.")
-    @GetMapping("/{jobPostingId}")
-    public ApiResponse<JobPostingResponse> getJobPosting(
+    @Operation(summary = "내가 생성한 채용 공고 단건 조회", description = "현재 로그인한 사용자가 생성한 채용 공고를 ID로 단건 조회합니다.")
+    @GetMapping("/me/{jobPostingId}")
+    public ApiResponse<JobPostingResponse> getMyJobPosting(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @PathVariable Long jobPostingId
     ) {
         var user = validateAuthenticatedUser(userDetails);
         return ApiResponse.onSuccess(
-                "채용 공고 조회에 성공했습니다.",
+                "내 채용 공고 조회에 성공했습니다.",
                 jobPostingService.getJobPosting(user, jobPostingId)
         );
     }
 
-    @Operation(summary = "채용 공고 목록 조회", description = "전체 공고 또는 회사별 공고 목록을 조회합니다.")
-    @GetMapping
-    public ApiResponse<List<JobPostingResponse>> getJobPostings(
-            @AuthenticationPrincipal UserDetailsImpl userDetails,
-            @RequestParam(required = false) Long companyId
+    @Operation(summary = "내가 생성한 채용 공고 목록 조회", description = "현재 로그인한 사용자가 생성한 채용 공고 목록을 조회합니다.")
+    @GetMapping("/me")
+    public ApiResponse<List<JobPostingResponse>> getMyJobPostings(
+            @AuthenticationPrincipal UserDetailsImpl userDetails
     ) {
         var user = validateAuthenticatedUser(userDetails);
-        List<JobPostingResponse> result = companyId == null
-                ? jobPostingService.getAllJobPostings(user)
-                : jobPostingService.getJobPostingsByCompany(user, companyId);
-
-        return ApiResponse.onSuccess("채용 공고 목록 조회에 성공했습니다.", result);
+        return ApiResponse.onSuccess(
+                "내 채용 공고 목록 조회에 성공했습니다.",
+                jobPostingService.getAllJobPostings(user)
+        );
     }
 
     private com.jobdri.jobdri_api.domain.user.entity.User validateAuthenticatedUser(UserDetailsImpl userDetails) {
