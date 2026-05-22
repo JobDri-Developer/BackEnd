@@ -62,7 +62,7 @@ server:
 
 jwt:
   secret:
-    key: ${JWT_SECRET_KEY}
+    key: ${JWT_SECRET_KEY:am9iZHJpLWxvY2FsLXNlY3JldC1rZXktZm9yLWRldmVsb3BtZW50LTIwMjYtam9iZHJp}
   expiration:
     access-token: ${JWT_ACCESS_TOKEN_EXPIRATION:3600000}
     refresh-token: ${JWT_REFRESH_TOKEN_EXPIRATION:1209600000}

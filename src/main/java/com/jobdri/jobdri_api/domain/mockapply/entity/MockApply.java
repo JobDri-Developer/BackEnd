@@ -72,4 +72,8 @@ public class MockApply {
     public void assignAnalysis(Analysis analysis) {
         this.analysis = analysis;
     }
+
+    public void clearAnalysis() {
+        this.analysis = null;
+    }
 }

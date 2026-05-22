@@ -8,4 +8,6 @@ import java.util.List;
 public interface QuestionAnalysisRepository extends JpaRepository<QuestionAnalysis, Long> {
     List<QuestionAnalysis> findAllByQuestionId(Long questionId);
     List<QuestionAnalysis> findAllByAnalysisId(Long analysisId);
+    List<QuestionAnalysis> findAllByAnalysisIdOrderByQuestionIdAscIdAsc(Long analysisId);
+    void deleteAllByAnalysisId(Long analysisId);
 }
