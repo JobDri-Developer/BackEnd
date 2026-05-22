@@ -32,6 +32,11 @@ public class QuestionAnalysis {
     @Column(nullable = false, columnDefinition = "TEXT")
     private String improvement;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, columnDefinition = "varchar(255) default 'MENTIONED'")
+    @Builder.Default
+    private QuestionAnalysisStatus status = QuestionAnalysisStatus.MENTIONED;
+
     @Column(name = "start_index", nullable = false)
     private int start;
 
@@ -44,6 +49,7 @@ public class QuestionAnalysis {
             String sentence,
             String reason,
             String improvement,
+            QuestionAnalysisStatus status,
             int start,
             int end
     ) {
@@ -53,6 +59,7 @@ public class QuestionAnalysis {
                 .sentence(sentence)
                 .reason(reason)
                 .improvement(improvement)
+                .status(status)
                 .start(start)
                 .end(end)
                 .build();

@@ -7,6 +7,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnalysisRespon
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
+import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
@@ -137,6 +138,7 @@ public class AnalysisService {
                     sentence,
                     defaultString(item.reason()),
                     defaultString(item.improvement()),
+                    normalizeStatus(item.status()),
                     start,
                     start + sentence.length()
             ));
@@ -198,5 +200,17 @@ public class AnalysisService {
 
     private String defaultString(String value) {
         return value == null ? "" : value;
+    }
+
+    private QuestionAnalysisStatus normalizeStatus(String status) {
+        if (!StringUtils.hasText(status)) {
+            return QuestionAnalysisStatus.MENTIONED;
+        }
+
+        try {
+            return QuestionAnalysisStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return QuestionAnalysisStatus.MENTIONED;
+        }
     }
 }

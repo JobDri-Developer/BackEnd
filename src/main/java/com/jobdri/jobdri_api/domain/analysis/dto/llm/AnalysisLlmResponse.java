@@ -13,6 +13,7 @@ public record AnalysisLlmResponse(
     public record QuestionAnalysisItem(
             Long questionId,
             String sentence,
+            String status,
             String reason,
             String improvement
     ) {
