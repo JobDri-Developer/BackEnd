@@ -9,7 +9,6 @@ import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -19,16 +18,18 @@ public class CreditService {
     private final UserRepository userRepository;
     private final CreditTransactionRepository creditTransactionRepository;
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public int charge(User user, int amount, String description, String referenceId) {
+        validatePositiveAmount(amount);
         User managedUser = getManagedUser(user);
         managedUser.increaseCredit(amount);
         saveTransaction(managedUser, CreditTransactionType.CHARGE, amount, description, referenceId);
         return managedUser.getCredit();
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public int use(User user, int amount, String description, String referenceId) {
+        validatePositiveAmount(amount);
         User managedUser = getManagedUser(user);
         try {
             managedUser.decreaseCredit(amount);
@@ -39,12 +40,19 @@ public class CreditService {
         return managedUser.getCredit();
     }
 
-    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    @Transactional
     public int refund(User user, int amount, String description, String referenceId) {
+        validatePositiveAmount(amount);
         User managedUser = getManagedUser(user);
         managedUser.increaseCredit(amount);
         saveTransaction(managedUser, CreditTransactionType.REFUND, amount, description, referenceId);
         return managedUser.getCredit();
+    }
+
+    private void validatePositiveAmount(int amount) {
+        if (amount <= 0) {
+            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "amount는 1 이상이어야 합니다.");
+        }
     }
 
     private void saveTransaction(
@@ -68,7 +76,7 @@ public class CreditService {
         if (user == null || user.getId() == null) {
             throw new GeneralException(GeneralErrorCode.MISSING_AUTH_INFO, "인증 정보가 누락되었습니다.");
         }
-        return userRepository.findById(user.getId())
+        return userRepository.findByIdForUpdate(user.getId())
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.USER_NOT_FOUND,
                         "해당 유저를 찾을 수 없습니다. userId=" + user.getId()

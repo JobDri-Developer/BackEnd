@@ -4,34 +4,57 @@ import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Base64;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class TossPaymentClient {
 
-    private final RestClient.Builder restClientBuilder;
+    private static final int LOG_MESSAGE_MAX_LENGTH = 500;
 
-    @Value("${payment.toss.secret-key:}")
+    private final RestClient.Builder restClientBuilder;
+    private RestClient restClient;
+
+    @Value("${payment.toss.secret-key}")
     private String secretKey;
 
     @Value("${payment.toss.base-url:https://api.tosspayments.com}")
     private String baseUrl;
 
+    @PostConstruct
+    void init() {
+        if (secretKey == null || secretKey.isBlank()) {
+            throw new IllegalStateException("payment.toss.secret-key must be configured");
+        }
+
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofSeconds(5));
+        requestFactory.setReadTimeout(Duration.ofSeconds(10));
+
+        this.restClient = restClientBuilder
+                .baseUrl(baseUrl)
+                .requestFactory(requestFactory)
+                .build();
+    }
+
     public TossPaymentConfirmResponse confirm(String paymentKey, String orderId, int amount) {
         try {
-            return restClientBuilder
-                    .baseUrl(baseUrl)
-                    .build()
+            return restClient
                     .post()
                     .uri("/v1/payments/confirm")
                     .header(HttpHeaders.AUTHORIZATION, authorizationHeader())
@@ -40,10 +63,23 @@ public class TossPaymentClient {
                     .body(new TossPaymentConfirmRequest(paymentKey, orderId, amount))
                     .retrieve()
                     .body(TossPaymentConfirmResponse.class);
-        } catch (RestClientException e) {
+        } catch (HttpStatusCodeException e) {
+            log.warn(
+                    "Toss payment confirm failed. status={}, response={}",
+                    e.getStatusCode(),
+                    truncate(e.getResponseBodyAsString())
+            );
+            log.warn("Toss payment confirm exception", e);
             throw new GeneralException(
                     GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
-                    "토스페이먼츠 결제 승인에 실패했습니다."
+                    "토스페이먼츠 결제 승인 실패"
+            );
+        } catch (RestClientException e) {
+            log.warn("Toss payment confirm request failed. message={}", truncate(e.getMessage()));
+            log.warn("Toss payment confirm request exception", e);
+            throw new GeneralException(
+                    GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
+                    "토스페이먼츠 결제 승인 중 오류 발생"
             );
         }
     }
@@ -51,5 +87,12 @@ public class TossPaymentClient {
     private String authorizationHeader() {
         String credential = secretKey + ":";
         return "Basic " + Base64.getEncoder().encodeToString(credential.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String truncate(String value) {
+        if (value == null || value.length() <= LOG_MESSAGE_MAX_LENGTH) {
+            return value;
+        }
+        return value.substring(0, LOG_MESSAGE_MAX_LENGTH) + "...";
     }
 }

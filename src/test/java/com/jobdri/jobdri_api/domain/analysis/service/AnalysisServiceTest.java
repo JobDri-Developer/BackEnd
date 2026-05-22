@@ -21,6 +21,8 @@ import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
+import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
+import com.jobdri.jobdri_api.domain.payment.repository.CreditTransactionRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -33,6 +35,9 @@ import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -73,6 +78,9 @@ class AnalysisServiceTest {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private CreditTransactionRepository creditTransactionRepository;
+
     @MockBean
     private AnalysisAiClient analysisAiClient;
 
@@ -82,6 +90,7 @@ class AnalysisServiceTest {
         User user = saveUser("analysis-save@example.com");
         MockApply mockApply = saveMockApply(user);
         Question question = saveQuestion(mockApply, "지원 직무 경험을 작성해주세요.", "Spring Boot API를 개발했습니다.");
+        int initialCredit = userRepository.findById(user.getId()).orElseThrow().getCredit();
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
                 120,
                 82,
@@ -115,6 +124,29 @@ class AnalysisServiceTest {
         assertThat(mockApplyRepository.findById(mockApply.getId()).orElseThrow().getStatus())
                 .isEqualTo(MockApplyStatus.COMPLETED);
         assertThat(analysisRepository.findByMockApplyId(mockApply.getId())).isPresent();
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(initialCredit - 1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.USE
+        )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("LLM 분석 실패 시 크레딧 차감과 분석 저장을 롤백한다")
+    void analyzeRollsBackCreditWhenLlmFails() {
+        User user = saveUser("analysis-credit-rollback@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험을 작성해주세요.", "Spring Boot API를 개발했습니다.");
+        int initialCredit = userRepository.findById(user.getId()).orElseThrow().getCredit();
+        when(analysisAiClient.analyze(any(), any())).thenThrow(new RuntimeException("LLM timeout"));
+
+        assertThatThrownBy(() -> analysisService.analyze(user, mockApply.getId()))
+                .isInstanceOf(RuntimeException.class)
+                .hasMessage("LLM timeout");
+
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(initialCredit);
+        assertThat(analysisRepository.findByMockApplyId(mockApply.getId())).isEmpty();
+        assertThat(creditTransactionRepository.findAllByUserIdOrderByCreatedAtDescIdDesc(user.getId())).isEmpty();
     }
 
     @Test
@@ -252,9 +284,67 @@ class AnalysisServiceTest {
         assertThat(response.questions().get(0).analyses()).hasSize(1);
     }
 
+    @Test
+    @DisplayName("크레딧 1개인 사용자가 동시에 분석을 요청해도 하나만 성공한다")
+    void analyzeConcurrentlyUsesCreditOnlyOnce() throws Exception {
+        User user = saveUserWithCredit("analysis-concurrent-credit@example.com", 1);
+        MockApply firstMockApply = saveMockApply(user);
+        MockApply secondMockApply = saveMockApply(user);
+        Question firstQuestion = saveQuestion(firstMockApply, "지원 직무 경험을 작성해주세요.", "Spring Boot API를 개발했습니다.");
+        Question secondQuestion = saveQuestion(secondMockApply, "문제 해결 경험을 작성해주세요.", "장애 로그를 분석했습니다.");
+        when(analysisAiClient.analyze(any(), any()))
+                .thenReturn(new AnalysisLlmResponse(
+                        80,
+                        81,
+                        82,
+                        83,
+                        "첫 번째 분석",
+                        List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                                firstQuestion.getId(),
+                                "Spring Boot API를 개발했습니다.",
+                                "mentioned",
+                                "성과 지표가 부족합니다.",
+                                "Spring Boot API를 개발해 응답 시간을 개선했습니다."
+                        ))
+                ))
+                .thenReturn(new AnalysisLlmResponse(
+                        70,
+                        71,
+                        72,
+                        73,
+                        "두 번째 분석",
+                        List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                                secondQuestion.getId(),
+                                "장애 로그를 분석했습니다.",
+                                "mentioned",
+                                "결과가 부족합니다.",
+                                "장애 로그를 분석해 복구 시간을 단축했습니다."
+                        ))
+                ));
+
+        List<Result> results = runConcurrently(
+                List.of(
+                        () -> analyzeSafely(user, firstMockApply.getId()),
+                        () -> analyzeSafely(user, secondMockApply.getId())
+                )
+        );
+
+        assertThat(results).filteredOn(Result::success).hasSize(1);
+        assertThat(results).filteredOn(result -> !result.success()).hasSize(1);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isZero();
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.USE
+        )).hasSize(1);
+    }
+
     private User saveUser(String email) {
+        return saveUserWithCredit(email, 11);
+    }
+
+    private User saveUserWithCredit(String email, int credit) {
         User user = User.signup("테스트 사용자", email, "encoded-password");
-        user.increaseCredit(10);
+        user.increaseCredit(credit - 1);
         return userRepository.save(user);
     }
 
@@ -286,5 +376,49 @@ class AnalysisServiceTest {
         DetailClassification detailClassification = middleClassification.addDetailClassification("분석 테스트 소분류");
         classificationRepository.save(classification);
         return detailClassificationRepository.findById(detailClassification.getId()).orElseThrow();
+    }
+
+    private Result analyzeSafely(User user, Long mockApplyId) {
+        try {
+            analysisService.analyze(user, mockApplyId);
+            return Result.ok();
+        } catch (Exception e) {
+            return Result.failure(e);
+        }
+    }
+
+    private List<Result> runConcurrently(List<Callable<Result>> tasks) throws Exception {
+        var ready = new CountDownLatch(tasks.size());
+        var start = new CountDownLatch(1);
+        var executor = Executors.newFixedThreadPool(tasks.size());
+        try {
+            var futures = tasks.stream()
+                    .map(task -> executor.submit(() -> {
+                        ready.countDown();
+                        start.await();
+                        return task.call();
+                    }))
+                    .toList();
+            ready.await();
+            start.countDown();
+
+            List<Result> results = new java.util.ArrayList<>();
+            for (var future : futures) {
+                results.add(future.get());
+            }
+            return results;
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    private record Result(boolean success, Exception exception) {
+        static Result ok() {
+            return new Result(true, null);
+        }
+
+        static Result failure(Exception exception) {
+            return new Result(false, exception);
+        }
     }
 }

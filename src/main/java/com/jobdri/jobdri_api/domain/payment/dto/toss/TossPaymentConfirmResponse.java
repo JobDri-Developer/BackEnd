@@ -5,7 +5,7 @@ public record TossPaymentConfirmResponse(
         String orderId,
         String orderName,
         String status,
-        Integer totalAmount,
+        int totalAmount,
         String method
 ) {
 }
