@@ -6,6 +6,7 @@ import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -21,7 +22,10 @@ import java.util.Base64;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 public class TossPaymentClient {
+
+    private static final int LOG_MESSAGE_MAX_LENGTH = 500;
 
     private final RestClient.Builder restClientBuilder;
     private RestClient restClient;
@@ -60,14 +64,21 @@ public class TossPaymentClient {
                     .retrieve()
                     .body(TossPaymentConfirmResponse.class);
         } catch (HttpStatusCodeException e) {
+            log.warn(
+                    "Toss payment confirm failed. status={}, response={}",
+                    e.getStatusCode(),
+                    truncate(e.getResponseBodyAsString()),
+                    e
+            );
             throw new GeneralException(
                     GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
-                    "토스페이먼츠 결제 승인 실패: " + e.getStatusCode() + " - " + e.getResponseBodyAsString()
+                    "토스페이먼츠 결제 승인 실패"
             );
         } catch (RestClientException e) {
+            log.warn("Toss payment confirm request failed. message={}", truncate(e.getMessage()), e);
             throw new GeneralException(
                     GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
-                    "토스페이먼츠 결제 승인 중 오류 발생: " + e.getMessage()
+                    "토스페이먼츠 결제 승인 중 오류 발생"
             );
         }
     }
@@ -75,5 +86,12 @@ public class TossPaymentClient {
     private String authorizationHeader() {
         String credential = secretKey + ":";
         return "Basic " + Base64.getEncoder().encodeToString(credential.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private String truncate(String value) {
+        if (value == null || value.length() <= LOG_MESSAGE_MAX_LENGTH) {
+            return value;
+        }
+        return value.substring(0, LOG_MESSAGE_MAX_LENGTH) + "...";
     }
 }
