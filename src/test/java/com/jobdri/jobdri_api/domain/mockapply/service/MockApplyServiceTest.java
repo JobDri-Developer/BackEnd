@@ -32,6 +32,7 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -163,11 +164,13 @@ class MockApplyServiceTest {
         MockApply second = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.MOCK));
         MockApply third = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
 
-        ReflectionTestUtils.setField(first, "createdAt", first.getCreatedAt().minusMinutes(2));
-        ReflectionTestUtils.setField(second, "createdAt", second.getCreatedAt().minusMinutes(1));
-        mockApplyRepository.save(first);
-        mockApplyRepository.save(second);
-        mockApplyRepository.save(third);
+        LocalDateTime baseTime = LocalDateTime.of(2026, 1, 1, 12, 0);
+        ReflectionTestUtils.setField(first, "createdAt", baseTime);
+        ReflectionTestUtils.setField(second, "createdAt", baseTime.plusMinutes(1));
+        ReflectionTestUtils.setField(third, "createdAt", baseTime.plusMinutes(2));
+        mockApplyRepository.saveAndFlush(first);
+        mockApplyRepository.saveAndFlush(second);
+        mockApplyRepository.saveAndFlush(third);
 
         MockApplySequenceResponse response = mockApplyService.getMockApplySequence(user, second.getId());
 
