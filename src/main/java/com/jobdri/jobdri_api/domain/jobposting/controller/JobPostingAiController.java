@@ -46,10 +46,10 @@ public class JobPostingAiController {
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @Valid @RequestBody JobPostingExtractRequest request
     ) {
-        validateAuthenticatedUser(userDetails);
+        var user = validateAuthenticatedUser(userDetails);
         return ApiResponse.onSuccess(
                 "채용 공고 추출에 성공했습니다.",
-                jobPostingAiService.extractJobPosting(request)
+                jobPostingAiService.extractJobPosting(user.getId(), request)
         );
     }
 

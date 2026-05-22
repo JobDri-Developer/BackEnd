@@ -14,7 +14,6 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenera
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockQuestionResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
-import com.jobdri.jobdri_api.global.config.s3.S3ObjectUrlService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -38,17 +37,17 @@ public class JobPostingAiService {
     private final OpenAIClient openAIClient;
     private final DetailClassificationRepository detailClassificationRepository;
     private final JobPostingRepository jobPostingRepository;
-    private final S3ObjectUrlService s3ObjectUrlService;
+    private final JobPostingImageStorageService jobPostingImageStorageService;
 
     @Value("${openai.model.job-posting-extractor:gpt-4o-mini}")
     private String extractionModel;
 
     public JobPostingExtractResponse extractJobPosting(String rawText) {
-        return extractJobPosting(rawText, null);
+        return extractJobPosting(null, rawText, null);
     }
 
-    public JobPostingExtractResponse extractJobPosting(JobPostingExtractRequest request) {
-        return extractJobPosting(request.rawText(), request.imageObjectKey());
+    public JobPostingExtractResponse extractJobPosting(Long userId, JobPostingExtractRequest request) {
+        return extractJobPosting(userId, request.rawText(), request.imageObjectKey());
     }
 
     public JobPostingGenerateResponse generateJobPosting(JobPostingGenerateRequest request) {
@@ -150,10 +149,10 @@ public class JobPostingAiService {
         }
     }
 
-    public JobPostingExtractResponse extractJobPosting(String rawText, String imageObjectKey) {
+    public JobPostingExtractResponse extractJobPosting(Long userId, String rawText, String imageObjectKey) {
         validateInput(rawText, imageObjectKey);
         String imageUrl = hasText(imageObjectKey)
-                ? s3ObjectUrlService.createPresignedGetUrl(imageObjectKey)
+                ? jobPostingImageStorageService.createReadableImageUrl(userId, imageObjectKey)
                 : null;
 
         List<ResponseInputContent> contents = new ArrayList<>();

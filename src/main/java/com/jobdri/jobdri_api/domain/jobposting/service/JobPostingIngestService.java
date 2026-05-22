@@ -45,6 +45,7 @@ public class JobPostingIngestService {
     public JobPostingIngestResponse ingestAndCreate(JobPostingIngestCommand command) {
 
         JobPostingExtractResponse extracted = jobPostingAiService.extractJobPosting(
+                command.getUserId(),
                 command.getRawText(),
                 command.getImageObjectKey()
         );

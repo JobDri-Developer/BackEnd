@@ -13,7 +13,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenera
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockQuestionResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
-import com.jobdri.jobdri_api.global.config.s3.S3ObjectUrlService;
+import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingImageStorageService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -49,7 +49,7 @@ class JobPostingAiServiceTest {
     private JobPostingRepository jobPostingRepository;
 
     @Mock
-    private S3ObjectUrlService s3ObjectUrlService;
+    private JobPostingImageStorageService jobPostingImageStorageService;
 
     private JobPostingAiService jobPostingAiService;
 
@@ -59,7 +59,7 @@ class JobPostingAiServiceTest {
                 openAIClient,
                 detailClassificationRepository,
                 jobPostingRepository,
-                s3ObjectUrlService
+                jobPostingImageStorageService
         );
         ReflectionTestUtils.setField(TEST_COMPANY, "id", 1L);
         ReflectionTestUtils.setField(TEST_USER, "id", 1L);

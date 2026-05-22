@@ -107,7 +107,7 @@ class JobPostingIngestServiceTest {
                 .preferred("정제된 우대 사항")
                 .build();
 
-        when(jobPostingAiService.extractJobPosting(any(), any()))
+        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
                 .thenReturn(extracted);
         when(jobPostingClassificationService.findCandidates(extracted, 5))
                 .thenReturn(List.of(candidate));
@@ -123,6 +123,7 @@ class JobPostingIngestServiceTest {
 
         ArgumentCaptor<String> imageObjectKeyCaptor = ArgumentCaptor.forClass(String.class);
         verify(jobPostingAiService).extractJobPosting(
+                eq(1L),
                 eq("채용 공고 원문"),
                 imageObjectKeyCaptor.capture()
         );
