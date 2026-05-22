@@ -92,12 +92,13 @@ public class QuestionService {
         validateCustomCandidate(content);
 
         CustomQuestionCandidate candidate = findOrCreateCustomCandidate(mockApply, content, request.charLimit());
+        boolean selected = questionRepository.existsByMockApplyIdAndContent(mockApply.getId(), candidate.getContent());
 
         return new QuestionCandidateResponse(
                 candidate.getId(),
                 candidate.getContent(),
                 candidate.getLimit(),
-                false,
+                selected,
                 true
         );
     }

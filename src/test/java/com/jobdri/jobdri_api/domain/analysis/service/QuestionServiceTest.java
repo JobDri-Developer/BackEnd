@@ -187,6 +187,33 @@ class QuestionServiceTest {
     }
 
     @Test
+    @DisplayName("이미 선택된 직접 추가 후보를 다시 요청하면 선택 상태로 반환한다")
+    void addCustomQuestionCandidateReturnsSelectedStateWhenAlreadySelected() {
+        User user = saveUser("question-custom-selected@example.com");
+        MockApply mockApply = saveMockApply(user);
+        QuestionCandidateResponse first = questionService.addCustomQuestionCandidate(
+                user,
+                mockApply.getId(),
+                new QuestionCandidateCreateRequest("이미 선택된 직접 추가 문항입니다.", 500)
+        );
+        questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
+                new QuestionSelectionSaveRequest.QuestionItem("이미 선택된 직접 추가 문항입니다.", 500, true)
+        )));
+
+        QuestionCandidateResponse second = questionService.addCustomQuestionCandidate(
+                user,
+                mockApply.getId(),
+                new QuestionCandidateCreateRequest("이미 선택된 직접 추가 문항입니다.", 800)
+        );
+
+        assertThat(second.questionId()).isEqualTo(first.questionId());
+        assertThat(second.content()).isEqualTo(first.content());
+        assertThat(second.charLimit()).isEqualTo(first.charLimit());
+        assertThat(second.selected()).isTrue();
+        assertThat(second.custom()).isTrue();
+    }
+
+    @Test
     @DisplayName("문항 후보 목록은 이미 저장된 기본 문항을 선택 상태로 반환한다")
     void getQuestionCandidatesMarksSelectedQuestion() {
         User user = saveUser("question-candidates@example.com");
