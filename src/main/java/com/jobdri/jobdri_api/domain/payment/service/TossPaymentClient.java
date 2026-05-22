@@ -67,15 +67,16 @@ public class TossPaymentClient {
             log.warn(
                     "Toss payment confirm failed. status={}, response={}",
                     e.getStatusCode(),
-                    truncate(e.getResponseBodyAsString()),
-                    e
+                    truncate(e.getResponseBodyAsString())
             );
+            log.warn("Toss payment confirm exception", e);
             throw new GeneralException(
                     GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
                     "토스페이먼츠 결제 승인 실패"
             );
         } catch (RestClientException e) {
-            log.warn("Toss payment confirm request failed. message={}", truncate(e.getMessage()), e);
+            log.warn("Toss payment confirm request failed. message={}", truncate(e.getMessage()));
+            log.warn("Toss payment confirm request exception", e);
             throw new GeneralException(
                     GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
                     "토스페이먼츠 결제 승인 중 오류 발생"
