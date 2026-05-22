@@ -7,6 +7,9 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.config.s3.S3ObjectUrlService;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
+import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 
 import java.util.Locale;
 import java.util.Map;
@@ -25,14 +28,20 @@ public class JobPostingImageStorageService {
     );
 
     private final S3ObjectUrlService s3ObjectUrlService;
+    private final S3Client s3Client;
     private final long presignPutExpirationMinutes;
+    private final long maxImageSizeBytes;
 
     public JobPostingImageStorageService(
             S3ObjectUrlService s3ObjectUrlService,
-            @Value("${spring.cloud.aws.s3.presign-put-expiration-minutes:5}") long presignPutExpirationMinutes
+            S3Client s3Client,
+            @Value("${spring.cloud.aws.s3.presign-put-expiration-minutes:5}") long presignPutExpirationMinutes,
+            @Value("${job-posting.image-upload.max-size-bytes:5242880}") long maxImageSizeBytes
     ) {
         this.s3ObjectUrlService = s3ObjectUrlService;
+        this.s3Client = s3Client;
         this.presignPutExpirationMinutes = presignPutExpirationMinutes;
+        this.maxImageSizeBytes = maxImageSizeBytes;
     }
 
     public JobPostingImageUploadPresignResponse createUploadPresignUrl(
@@ -65,6 +74,7 @@ public class JobPostingImageStorageService {
 
     public String createReadableImageUrl(Long userId, String objectKey) {
         validateOwnership(userId, objectKey);
+        validateUploadedObject(objectKey);
         return s3ObjectUrlService.createPresignedGetUrl(objectKey);
     }
 
@@ -92,5 +102,30 @@ public class JobPostingImageStorageService {
 
     private String normalizeContentType(String contentType) {
         return contentType == null ? "" : contentType.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private void validateUploadedObject(String objectKey) {
+        HeadObjectResponse headObject = s3Client.headObject(
+                HeadObjectRequest.builder()
+                        .bucket(s3ObjectUrlService.getBucket())
+                        .key(objectKey)
+                        .build()
+        );
+
+        String normalizedContentType = normalizeContentType(headObject.contentType());
+        if (!CONTENT_TYPE_TO_EXTENSION.containsKey(normalizedContentType)) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "지원하는 이미지 형식은 png, jpg, jpeg, webp, gif 입니다."
+            );
+        }
+
+        Long contentLength = headObject.contentLength();
+        if (contentLength != null && contentLength > maxImageSizeBytes) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "이미지 파일 크기가 허용 범위를 초과했습니다."
+            );
+        }
     }
 }

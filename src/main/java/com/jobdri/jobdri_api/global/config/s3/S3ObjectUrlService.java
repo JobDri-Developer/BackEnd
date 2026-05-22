@@ -51,4 +51,8 @@ public class S3ObjectUrlService {
 
         return s3Presigner.presignPutObject(presignRequest).url().toString();
     }
+
+    public String getBucket() {
+        return bucket;
+    }
 }

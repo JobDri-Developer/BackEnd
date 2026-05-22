@@ -1,0 +1,17 @@
+{
+  "Rules": [
+    {
+      "ID": "DeleteTemporaryJobPostingImages",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "job-postings/"
+      },
+      "Expiration": {
+        "Days": 1
+      },
+      "AbortIncompleteMultipartUpload": {
+        "DaysAfterInitiation": 1
+      }
+    }
+  ]
+}
