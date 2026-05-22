@@ -11,6 +11,8 @@ spring:
         static: ap-northeast-2
       s3:
         bucket: test-bucket
+        presign-get-expiration-minutes: 10
+        presign-put-expiration-minutes: 5
   datasource:
     url: jdbc:h2:mem:jobdri-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     username: sa
@@ -70,3 +72,7 @@ jwt:
   expiration:
     access-token: 3600000
     refresh-token: 1209600000
+
+job-posting:
+  image-upload:
+    max-size-bytes: 5242880
