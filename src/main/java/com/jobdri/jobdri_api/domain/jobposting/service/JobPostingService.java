@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
+import com.jobdri.jobdri_api.domain.audit.service.AuditLogService;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
@@ -28,6 +29,7 @@ public class JobPostingService {
     private final CompanyRepository companyRepository;
     private final DetailClassificationRepository detailClassificationRepository;
     private final UserService userService;
+    private final AuditLogService auditLogService;
 
     @Transactional
     public JobPostingResponse createJobPosting(User user, JobPostingCreateRequest request) {
@@ -44,13 +46,25 @@ public class JobPostingService {
                 request.preferred()
         );
 
-        return JobPostingResponse.from(jobPostingRepository.save(jobPosting));
+        JobPosting savedJobPosting = jobPostingRepository.save(jobPosting);
+        JobPostingResponse response = JobPostingResponse.from(savedJobPosting);
+        auditLogService.record(
+                validatedUser,
+                "JOB_POSTING_CREATE",
+                "JOB_POSTING",
+                savedJobPosting.getId(),
+                null,
+                JobPostingAuditValue.from(savedJobPosting)
+        );
+
+        return response;
     }
 
     @Transactional
     public JobPostingResponse updateJobPosting(User user, Long jobPostingId, JobPostingUpdateRequest request) {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = getOwnedJobPosting(validatedUser, jobPostingId);
+        JobPostingAuditValue beforeValue = JobPostingAuditValue.from(jobPosting);
 
         Company company = findOrCreateCompany(request.companyName(), request.companySize());
         DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
@@ -62,6 +76,14 @@ public class JobPostingService {
                 request.task(),
                 request.requirement(),
                 request.preferred()
+        );
+        auditLogService.record(
+                validatedUser,
+                "JOB_POSTING_UPDATE",
+                "JOB_POSTING",
+                jobPosting.getId(),
+                beforeValue,
+                JobPostingAuditValue.from(jobPosting)
         );
 
         return JobPostingResponse.from(jobPosting);
@@ -111,5 +133,27 @@ public class JobPostingService {
                         GeneralErrorCode.CLASSIFICATION_NOT_FOUND,
                         "해당 소분류를 찾을 수 없습니다. detailClassificationId=" + detailClassificationId
                 ));
+    }
+
+    private record JobPostingAuditValue(
+            Long jobPostingId,
+            Long companyId,
+            String companyName,
+            Long detailClassificationId,
+            String task,
+            String requirement,
+            String preferred
+    ) {
+        private static JobPostingAuditValue from(JobPosting jobPosting) {
+            return new JobPostingAuditValue(
+                    jobPosting.getId(),
+                    jobPosting.getCompany().getId(),
+                    jobPosting.getCompany().getName(),
+                    jobPosting.getDetailClassification().getId(),
+                    jobPosting.getTask(),
+                    jobPosting.getRequirement(),
+                    jobPosting.getPreferred()
+            );
+        }
     }
 }

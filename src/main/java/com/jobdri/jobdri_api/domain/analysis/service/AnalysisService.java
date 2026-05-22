@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
+import com.jobdri.jobdri_api.domain.audit.service.AuditLogService;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
@@ -42,6 +43,7 @@ public class AnalysisService {
     private final QuestionAnalysisRepository questionAnalysisRepository;
     private final AnalysisAiClient analysisAiClient;
     private final CreditService creditService;
+    private final AuditLogService auditLogService;
 
     @Transactional
     public AnalysisResponse analyze(User user, Long mockApplyId) {
@@ -78,7 +80,24 @@ public class AnalysisService {
             questionAnalysisRepository.saveAll(questionAnalyses);
             mockApply.updateStatus(MockApplyStatus.COMPLETED);
 
-            return getAnalysis(user, mockApplyId);
+            AnalysisResponse response = toResponse(mockApply, analysis, questions, questionAnalyses);
+            auditLogService.record(
+                    user,
+                    "ANALYSIS_RUN",
+                    "MOCK_APPLY",
+                    mockApply.getId(),
+                    null,
+                    new AnalysisAuditValue(
+                            analysis.getId(),
+                            analysis.getScore(),
+                            analysis.getJobFit(),
+                            analysis.getImpact(),
+                            analysis.getCompleteness(),
+                            questionAnalyses.size()
+                    )
+            );
+
+            return response;
         } catch (RuntimeException e) {
             creditService.refund(user, 1, "자소서 분석 실패 환불", referenceId);
             throw e;
@@ -222,5 +241,15 @@ public class AnalysisService {
         } catch (IllegalArgumentException e) {
             return QuestionAnalysisStatus.MENTIONED;
         }
+    }
+
+    private record AnalysisAuditValue(
+            Long analysisId,
+            int score,
+            int jobFit,
+            int impact,
+            int completeness,
+            int highlightCount
+    ) {
     }
 }

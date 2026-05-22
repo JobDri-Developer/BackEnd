@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.mockapply.service;
 
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
+import com.jobdri.jobdri_api.domain.audit.service.AuditLogService;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
@@ -40,6 +41,7 @@ public class MockApplyService {
     private final MockJobPostingGenerationService mockJobPostingGenerationService;
     private final JobPostingService jobPostingService;
     private final UserService userService;
+    private final AuditLogService auditLogService;
 
     @Transactional
     public MockApplyCreateResponse createActualApply(User user, Long jobPostingId) {
@@ -47,7 +49,10 @@ public class MockApplyService {
         JobPosting jobPosting = jobPostingService.getOwnedJobPosting(validatedUser, jobPostingId);
 
         MockApply mockApply = MockApply.create(validatedUser, jobPosting, ApplyType.ACTUAL);
-        return MockApplyCreateResponse.from(mockApplyRepository.save(mockApply));
+        MockApply savedMockApply = mockApplyRepository.save(mockApply);
+        MockApplyCreateResponse response = MockApplyCreateResponse.from(savedMockApply);
+        recordMockApplyCreated(validatedUser, savedMockApply);
+        return response;
     }
 
     @Transactional
@@ -56,7 +61,10 @@ public class MockApplyService {
         JobPosting jobPosting = jobPostingService.getOwnedJobPosting(validatedUser, jobPostingId);
 
         MockApply mockApply = MockApply.create(validatedUser, jobPosting, ApplyType.MOCK);
-        return MockApplyCreateResponse.from(mockApplyRepository.save(mockApply));
+        MockApply savedMockApply = mockApplyRepository.save(mockApply);
+        MockApplyCreateResponse response = MockApplyCreateResponse.from(savedMockApply);
+        recordMockApplyCreated(validatedUser, savedMockApply);
+        return response;
     }
 
     @Transactional
@@ -87,7 +95,10 @@ public class MockApplyService {
                 ));
 
         MockApply mockApply = MockApply.create(validatedUser, savedJobPosting, ApplyType.MOCK);
-        return MockApplyCreateResponse.from(mockApplyRepository.save(mockApply));
+        MockApply savedMockApply = mockApplyRepository.save(mockApply);
+        MockApplyCreateResponse response = MockApplyCreateResponse.from(savedMockApply);
+        recordMockApplyCreated(validatedUser, savedMockApply);
+        return response;
     }
 
     public JobPostingResponse getMockApplyJobPosting(User user, Long mockApplyId) {
@@ -161,5 +172,29 @@ public class MockApplyService {
         }
 
         return mockApply;
+    }
+
+    private void recordMockApplyCreated(User user, MockApply mockApply) {
+        auditLogService.record(
+                user,
+                "MOCK_APPLY_CREATE",
+                "MOCK_APPLY",
+                mockApply.getId(),
+                null,
+                new MockApplyAuditValue(
+                        mockApply.getId(),
+                        mockApply.getJobPosting().getId(),
+                        mockApply.getApplyType().name(),
+                        mockApply.getStatus().name()
+                )
+        );
+    }
+
+    private record MockApplyAuditValue(
+            Long mockApplyId,
+            Long jobPostingId,
+            String applyType,
+            String status
+    ) {
     }
 }

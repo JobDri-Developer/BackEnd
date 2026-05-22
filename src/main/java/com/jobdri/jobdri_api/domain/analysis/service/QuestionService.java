@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.CustomQuestionCandidate;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.CustomQuestionCandidateRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
+import com.jobdri.jobdri_api.domain.audit.service.AuditLogService;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
@@ -50,6 +51,7 @@ public class QuestionService {
     private final MockApplyRepository mockApplyRepository;
     private final QuestionRepository questionRepository;
     private final CustomQuestionCandidateRepository customQuestionCandidateRepository;
+    private final AuditLogService auditLogService;
 
     public List<QuestionCandidateResponse> getQuestionCandidates(User user, Long mockApplyId) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
@@ -94,13 +96,23 @@ public class QuestionService {
         CustomQuestionCandidate candidate = findOrCreateCustomCandidate(mockApply, content, request.charLimit());
         boolean selected = questionRepository.existsByMockApplyIdAndContent(mockApply.getId(), candidate.getContent());
 
-        return new QuestionCandidateResponse(
+        QuestionCandidateResponse response = new QuestionCandidateResponse(
                 candidate.getId(),
                 candidate.getContent(),
                 candidate.getLimit(),
                 selected,
                 true
         );
+        auditLogService.record(
+                user,
+                "CUSTOM_QUESTION_CANDIDATE_ADD",
+                "MOCK_APPLY",
+                mockApply.getId(),
+                null,
+                response
+        );
+
+        return response;
     }
 
     private CustomQuestionCandidate findOrCreateCustomCandidate(
@@ -150,6 +162,9 @@ public class QuestionService {
         validateSelectionCount(request.questions().size());
 
         List<Question> existingQuestions = questionRepository.findAllByMockApplyId(mockApply.getId());
+        List<QuestionAuditValue> beforeQuestions = existingQuestions.stream()
+                .map(QuestionAuditValue::from)
+                .toList();
         questionRepository.deleteAll(existingQuestions);
 
         List<Question> questions = request.questions().stream()
@@ -163,11 +178,21 @@ public class QuestionService {
         List<Question> savedQuestions = questionRepository.saveAll(questions);
         mockApply.updateStatus(MockApplyStatus.ANSWER_WRITE);
 
-        return new QuestionSelectionResponse(
+        QuestionSelectionResponse response = new QuestionSelectionResponse(
                 mockApply.getId(),
                 mockApply.getStatus(),
                 savedQuestions.stream().map(QuestionResponse::from).toList()
         );
+        auditLogService.record(
+                user,
+                "QUESTION_SELECTION_SAVE",
+                "MOCK_APPLY",
+                mockApply.getId(),
+                beforeQuestions,
+                savedQuestions.stream().map(QuestionAuditValue::from).toList()
+        );
+
+        return response;
     }
 
     @Transactional
@@ -180,6 +205,9 @@ public class QuestionService {
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         Map<Long, Question> questionMap = questions.stream()
                 .collect(Collectors.toMap(Question::getId, Function.identity()));
+        List<QuestionAnswerAuditValue> beforeAnswers = questions.stream()
+                .map(QuestionAnswerAuditValue::from)
+                .toList();
 
         for (QuestionAnswerSaveRequest.AnswerItem item : request.answers()) {
             Question question = questionMap.get(item.questionId());
@@ -192,11 +220,21 @@ public class QuestionService {
             question.updateAnswer(normalizeAnswer(item.answer()));
         }
 
-        return new QuestionAnswerResponse(
+        QuestionAnswerResponse response = new QuestionAnswerResponse(
                 mockApply.getId(),
                 mockApply.getStatus(),
                 questions.stream().map(QuestionResponse::from).toList()
         );
+        auditLogService.record(
+                user,
+                "QUESTION_ANSWER_SAVE",
+                "MOCK_APPLY",
+                mockApply.getId(),
+                beforeAnswers,
+                questions.stream().map(QuestionAnswerAuditValue::from).toList()
+        );
+
+        return response;
     }
 
     private MockApply getOwnedMockApply(User user, Long mockApplyId) {
@@ -245,5 +283,17 @@ public class QuestionService {
     }
 
     private record QuestionCandidate(Long id, String content, int charLimit) {
+    }
+
+    private record QuestionAuditValue(Long questionId, String content, int charLimit) {
+        private static QuestionAuditValue from(Question question) {
+            return new QuestionAuditValue(question.getId(), question.getContent(), question.getLimit());
+        }
+    }
+
+    private record QuestionAnswerAuditValue(Long questionId, String answer) {
+        private static QuestionAnswerAuditValue from(Question question) {
+            return new QuestionAnswerAuditValue(question.getId(), question.getAnswer());
+        }
     }
 }
