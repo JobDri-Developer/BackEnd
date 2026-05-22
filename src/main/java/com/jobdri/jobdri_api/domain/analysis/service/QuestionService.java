@@ -35,11 +35,11 @@ public class QuestionService {
     private static final int DEFAULT_CHAR_LIMIT = 1000;
 
     private static final List<QuestionCandidate> DEFAULT_CANDIDATES = List.of(
-            new QuestionCandidate("지원 동기와 입사 후 목표를 작성해주세요.", 700),
-            new QuestionCandidate("지원 직무와 관련된 경험 또는 역량을 구체적으로 작성해주세요.", 1000),
-            new QuestionCandidate("문제를 해결했던 경험과 그 과정에서의 역할을 작성해주세요.", 1000),
-            new QuestionCandidate("협업 과정에서 갈등을 해결했던 경험을 작성해주세요.", 800),
-            new QuestionCandidate("가장 성취감을 느꼈던 프로젝트와 성과를 작성해주세요.", 1000)
+            new QuestionCandidate(1L, "지원 동기와 입사 후 목표를 작성해주세요.", 700),
+            new QuestionCandidate(2L, "지원 직무와 관련된 경험 또는 역량을 구체적으로 작성해주세요.", 1000),
+            new QuestionCandidate(3L, "문제를 해결했던 경험과 그 과정에서의 역할을 작성해주세요.", 1000),
+            new QuestionCandidate(4L, "협업 과정에서 갈등을 해결했던 경험을 작성해주세요.", 800),
+            new QuestionCandidate(5L, "가장 성취감을 느꼈던 프로젝트와 성과를 작성해주세요.", 1000)
     );
 
     private final MockApplyRepository mockApplyRepository;
@@ -53,6 +53,7 @@ public class QuestionService {
 
         return DEFAULT_CANDIDATES.stream()
                 .map(candidate -> new QuestionCandidateResponse(
+                        candidate.id(),
                         candidate.content(),
                         candidate.charLimit(),
                         selectedContents.contains(candidate.content())
@@ -165,6 +166,6 @@ public class QuestionService {
         return "";
     }
 
-    private record QuestionCandidate(String content, int charLimit) {
+    private record QuestionCandidate(Long id, String content, int charLimit) {
     }
 }
