@@ -74,7 +74,7 @@ public class User {
                 .role(UserRole.USER)
                 .socialType(SocialType.LOCAL)
                 .socialId(null)
-                .credit(0)
+                .credit(1)
                 .build();
     }
 
@@ -92,7 +92,7 @@ public class User {
                 .socialType(socialType)
                 .socialId(socialId)
                 .role(UserRole.USER)
-                .credit(0)
+                .credit(1)
                 .build();
     }
 

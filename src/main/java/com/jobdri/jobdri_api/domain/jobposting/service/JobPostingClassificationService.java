@@ -30,8 +30,7 @@ public class JobPostingClassificationService {
                 normalize(extracted.jobTitle()),
                 normalize(extracted.task()),
                 normalize(extracted.requirements()),
-                normalize(extracted.preferredQualifications()),
-                normalize(extracted.rawText())
+                normalize(extracted.preferredQualifications())
         ).trim();
     }
 
