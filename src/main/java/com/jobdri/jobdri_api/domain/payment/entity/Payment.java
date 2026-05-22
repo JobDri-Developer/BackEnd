@@ -25,13 +25,13 @@ public class Payment {
     @Column(nullable = false)
     private String content;
 
-    @Column(unique = true)
+    @Column(nullable = false, unique = true)
     private String orderId;
 
     @Column(unique = true)
     private String paymentKey;
 
-    @Column
+    @Column(nullable = false)
     private String planCode;
 
     @Column(nullable = false)

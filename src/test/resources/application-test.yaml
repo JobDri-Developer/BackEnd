@@ -76,3 +76,9 @@ jwt:
 job-posting:
   image-upload:
     max-size-bytes: 5242880
+
+payment:
+  toss:
+    client-key: test-toss-client-key
+    secret-key: test-toss-secret-key
+    base-url: https://api.tosspayments.com

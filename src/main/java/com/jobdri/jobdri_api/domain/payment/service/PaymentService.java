@@ -14,6 +14,7 @@ import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -36,6 +37,13 @@ public class PaymentService {
 
     @Value("${payment.toss.client-key:}")
     private String tossClientKey;
+
+    @PostConstruct
+    void validateConfig() {
+        if (tossClientKey == null || tossClientKey.isBlank()) {
+            throw new IllegalStateException("payment.toss.client-key must be configured");
+        }
+    }
 
     public List<CreditPlanResponse> getPlans() {
         return Arrays.stream(CreditPlan.values())
@@ -63,7 +71,7 @@ public class PaymentService {
     @Transactional
     public PaymentConfirmResponse confirm(User user, PaymentConfirmRequest request) {
         User validatedUser = userService.validateUser(user);
-        Payment payment = paymentRepository.findByOrderId(request.orderId())
+        Payment payment = paymentRepository.findByOrderIdForUpdate(request.orderId())
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.PAYMENT_NOT_FOUND,
                         "결제 정보를 찾을 수 없습니다. orderId=" + request.orderId()
@@ -117,7 +125,6 @@ public class PaymentService {
         if (response == null
                 || !request.orderId().equals(response.orderId())
                 || !request.paymentKey().equals(response.paymentKey())
-                || response.totalAmount() == null
                 || response.totalAmount() != request.amount()) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "결제 승인 응답 검증에 실패했습니다.");
         }

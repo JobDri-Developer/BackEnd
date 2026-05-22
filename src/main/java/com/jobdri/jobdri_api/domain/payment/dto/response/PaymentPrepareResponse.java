@@ -2,6 +2,8 @@ package com.jobdri.jobdri_api.domain.payment.dto.response;
 
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
 
+import java.util.Objects;
+
 public record PaymentPrepareResponse(
         Long paymentId,
         String orderId,
@@ -12,6 +14,7 @@ public record PaymentPrepareResponse(
         String customerEmail
 ) {
     public static PaymentPrepareResponse of(Payment payment, String clientKey) {
+        Objects.requireNonNull(payment.getUser(), "Payment.user must not be null");
         return new PaymentPrepareResponse(
                 payment.getId(),
                 payment.getOrderId(),
