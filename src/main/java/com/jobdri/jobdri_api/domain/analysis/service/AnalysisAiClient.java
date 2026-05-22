@@ -79,6 +79,7 @@ public class AnalysisAiClient {
                     {
                       "questionId": 1,
                       "sentence": "자소서 답변 안에 실제 존재하는 정확한 부분 문자열",
+                      "status": "mentioned",
                       "reason": "문제 이유",
                       "improvement": "개선 예시 문장"
                     }
@@ -131,6 +132,7 @@ public class AnalysisAiClient {
                 [중요 규칙]
                 - JSON 외 텍스트, 마크다운, 코드블럭을 출력하지 않는다.
                 - questionAnalyses의 questionId는 입력된 questionId 중 하나만 사용한다.
+                - questionAnalyses의 status는 proven, mentioned, missing, fabricated 중 하나만 사용한다.
                 - sentence는 answer에 포함된 정확한 substring만 사용한다.
                 - start/end index는 출력하지 않는다. 서버가 Java에서 계산한다.
                 - 원문 매칭이 불확실하면 questionAnalyses에 포함하지 않는다.
