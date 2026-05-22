@@ -14,6 +14,7 @@ import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationService;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
@@ -28,8 +29,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -150,6 +153,31 @@ class MockApplyServiceTest {
 
         assertThat(response.getJobPostingId()).isEqualTo(jobPosting.getId());
         assertThat(response.getCompanyName()).isEqualTo(jobPosting.getCompany().getName());
+    }
+
+    @Test
+    @DisplayName("같은 공고 기준 자소서 총 개수와 현재 순번을 조회한다")
+    void getMockApplySequence() {
+        User user = saveUser("sequence@example.com");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
+        MockApply first = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.MOCK));
+        MockApply second = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.MOCK));
+        MockApply third = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
+
+        LocalDateTime baseTime = LocalDateTime.of(2026, 1, 1, 12, 0);
+        ReflectionTestUtils.setField(first, "createdAt", baseTime);
+        ReflectionTestUtils.setField(second, "createdAt", baseTime.plusMinutes(1));
+        ReflectionTestUtils.setField(third, "createdAt", baseTime.plusMinutes(2));
+        mockApplyRepository.saveAndFlush(first);
+        mockApplyRepository.saveAndFlush(second);
+        mockApplyRepository.saveAndFlush(third);
+
+        MockApplySequenceResponse response = mockApplyService.getMockApplySequence(user, second.getId());
+
+        assertThat(response.jobPostingId()).isEqualTo(jobPosting.getId());
+        assertThat(response.mockApplyId()).isEqualTo(second.getId());
+        assertThat(response.totalCount()).isEqualTo(3);
+        assertThat(response.sequence()).isEqualTo(2);
     }
 
     @Test
