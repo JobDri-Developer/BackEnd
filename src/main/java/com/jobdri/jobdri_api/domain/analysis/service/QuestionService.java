@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.CustomQuestionCandidate;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.CustomQuestionCandidateRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
+import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
@@ -82,6 +83,7 @@ public class QuestionService {
     }
 
     @Transactional
+    @AuditLogEvent(action = "CUSTOM_QUESTION_CANDIDATE_ADD", targetType = "MOCK_APPLY", targetId = "#arg1")
     public QuestionCandidateResponse addCustomQuestionCandidate(
             User user,
             Long mockApplyId,
@@ -141,6 +143,7 @@ public class QuestionService {
     }
 
     @Transactional
+    @AuditLogEvent(action = "QUESTION_SELECTION_SAVE", targetType = "MOCK_APPLY", targetId = "#arg1")
     public QuestionSelectionResponse saveSelectedQuestions(
             User user,
             Long mockApplyId,
@@ -171,6 +174,7 @@ public class QuestionService {
     }
 
     @Transactional
+    @AuditLogEvent(action = "QUESTION_ANSWER_SAVE", targetType = "MOCK_APPLY", targetId = "#arg1")
     public QuestionAnswerResponse saveAnswers(
             User user,
             Long mockApplyId,

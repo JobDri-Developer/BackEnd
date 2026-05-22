@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.mockapply.service;
 
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
+import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
@@ -42,6 +43,7 @@ public class MockApplyService {
     private final UserService userService;
 
     @Transactional
+    @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createActualApply(User user, Long jobPostingId) {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = jobPostingService.getOwnedJobPosting(validatedUser, jobPostingId);
@@ -51,6 +53,7 @@ public class MockApplyService {
     }
 
     @Transactional
+    @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createMockApplyFromJobPosting(User user, Long jobPostingId) {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = jobPostingService.getOwnedJobPosting(validatedUser, jobPostingId);
@@ -60,6 +63,7 @@ public class MockApplyService {
     }
 
     @Transactional
+    @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createMockApply(User user, MockApplyCreateMockRequest request) {
         User validatedUser = userService.validateUser(user);
         Company company = companyRepository.findById(request.companyId())

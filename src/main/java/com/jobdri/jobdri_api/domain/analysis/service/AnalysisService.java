@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
+import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
@@ -44,6 +45,7 @@ public class AnalysisService {
     private final CreditService creditService;
 
     @Transactional
+    @AuditLogEvent(action = "ANALYSIS_RUN", targetType = "MOCK_APPLY", targetId = "#arg1")
     public AnalysisResponse analyze(User user, Long mockApplyId) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
@@ -78,7 +80,7 @@ public class AnalysisService {
             questionAnalysisRepository.saveAll(questionAnalyses);
             mockApply.updateStatus(MockApplyStatus.COMPLETED);
 
-            return getAnalysis(user, mockApplyId);
+            return toResponse(mockApply, analysis, questions, questionAnalyses);
         } catch (RuntimeException e) {
             creditService.refund(user, 1, "자소서 분석 실패 환불", referenceId);
             throw e;
@@ -223,4 +225,5 @@ public class AnalysisService {
             return QuestionAnalysisStatus.MENTIONED;
         }
     }
+
 }

@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
+import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
@@ -30,6 +31,7 @@ public class JobPostingService {
     private final UserService userService;
 
     @Transactional
+    @AuditLogEvent(action = "JOB_POSTING_CREATE", targetType = "JOB_POSTING", targetId = "#result.getJobPostingId()")
     public JobPostingResponse createJobPosting(User user, JobPostingCreateRequest request) {
         User validatedUser = userService.validateUser(user);
         Company company = findOrCreateCompany(request.companyName(), request.companySize());
@@ -48,6 +50,7 @@ public class JobPostingService {
     }
 
     @Transactional
+    @AuditLogEvent(action = "JOB_POSTING_UPDATE", targetType = "JOB_POSTING", targetId = "#arg1")
     public JobPostingResponse updateJobPosting(User user, Long jobPostingId, JobPostingUpdateRequest request) {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = getOwnedJobPosting(validatedUser, jobPostingId);
