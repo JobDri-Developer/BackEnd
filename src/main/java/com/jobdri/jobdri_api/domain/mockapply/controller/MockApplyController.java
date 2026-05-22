@@ -4,6 +4,7 @@ import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateActualR
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockFromJobPostingRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.mockapply.service.MockApplyService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
@@ -189,6 +190,21 @@ public class MockApplyController {
         return ApiResponse.onSuccess(
                 "모의 공고 조회에 성공했습니다.",
                 mockApplyService.getMockApplyJobPosting(userDetails.getUser(), mockApplyId)
+        );
+    }
+
+    @Operation(
+            summary = "같은 공고 기준 자소서 개수 및 순번 조회",
+            description = "현재 mockApply가 연결된 채용 공고 기준으로, 로그인 사용자가 생성한 자소서 총 개수와 현재 자소서 순번을 조회합니다."
+    )
+    @GetMapping("/{mockApplyId}/sequence")
+    public ApiResponse<MockApplySequenceResponse> getMockApplySequence(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId
+    ) {
+        return ApiResponse.onSuccess(
+                "자소서 순번 조회에 성공했습니다.",
+                mockApplyService.getMockApplySequence(userDetails.getUser(), mockApplyId)
         );
     }
 }

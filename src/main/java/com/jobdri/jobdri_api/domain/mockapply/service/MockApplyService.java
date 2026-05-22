@@ -12,6 +12,7 @@ import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationS
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockFromJobPostingRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
@@ -87,6 +88,39 @@ public class MockApplyService {
         User validatedUser = userService.validateUser(user);
         MockApply mockApply = getOwnedMockApply(validatedUser, mockApplyId);
         return JobPostingResponse.from(mockApply.getJobPosting());
+    }
+
+    public MockApplySequenceResponse getMockApplySequence(User user, Long mockApplyId) {
+        User validatedUser = userService.validateUser(user);
+        MockApply mockApply = getOwnedMockApply(validatedUser, mockApplyId);
+
+        java.util.List<MockApply> mockApplies = mockApplyRepository
+                .findAllByUserIdAndJobPostingIdOrderByCreatedAtAscIdAsc(
+                        validatedUser.getId(),
+                        mockApply.getJobPosting().getId()
+                );
+
+        int sequence = -1;
+        for (int i = 0; i < mockApplies.size(); i++) {
+            if (mockApplies.get(i).getId().equals(mockApply.getId())) {
+                sequence = i + 1;
+                break;
+            }
+        }
+
+        if (sequence < 0) {
+            throw new GeneralException(
+                    GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
+                    "해당 공고에 연결된 모의 서류 지원 순서를 찾을 수 없습니다. mockApplyId=" + mockApplyId
+            );
+        }
+
+        return new MockApplySequenceResponse(
+                mockApply.getJobPosting().getId(),
+                mockApply.getId(),
+                mockApplies.size(),
+                sequence
+        );
     }
 
     private MockApply getOwnedMockApply(User user, Long mockApplyId) {

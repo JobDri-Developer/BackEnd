@@ -8,4 +8,5 @@ import java.util.List;
 public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
     List<MockApply> findAllByUserId(Long userId);
     List<MockApply> findAllByJobPostingId(Long jobPostingId);
+    List<MockApply> findAllByUserIdAndJobPostingIdOrderByCreatedAtAscIdAsc(Long userId, Long jobPostingId);
 }
