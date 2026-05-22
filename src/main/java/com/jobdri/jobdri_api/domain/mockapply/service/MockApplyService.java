@@ -93,22 +93,21 @@ public class MockApplyService {
     public MockApplySequenceResponse getMockApplySequence(User user, Long mockApplyId) {
         User validatedUser = userService.validateUser(user);
         MockApply mockApply = getOwnedMockApply(validatedUser, mockApplyId);
+        Long jobPostingId = mockApply.getJobPosting().getId();
 
-        java.util.List<MockApply> mockApplies = mockApplyRepository
-                .findAllByUserIdAndJobPostingIdOrderByCreatedAtAscIdAsc(
+        int totalCount = Math.toIntExact(
+                mockApplyRepository.countByUserIdAndJobPostingId(validatedUser.getId(), jobPostingId)
+        );
+        int sequence = Math.toIntExact(
+                mockApplyRepository.countSequenceByUserIdAndJobPostingId(
                         validatedUser.getId(),
-                        mockApply.getJobPosting().getId()
-                );
+                        jobPostingId,
+                        mockApply.getCreatedAt(),
+                        mockApply.getId()
+                )
+        );
 
-        int sequence = -1;
-        for (int i = 0; i < mockApplies.size(); i++) {
-            if (mockApplies.get(i).getId().equals(mockApply.getId())) {
-                sequence = i + 1;
-                break;
-            }
-        }
-
-        if (sequence < 0) {
+        if (sequence < 1 || sequence > totalCount) {
             throw new GeneralException(
                     GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
                     "해당 공고에 연결된 모의 서류 지원 순서를 찾을 수 없습니다. mockApplyId=" + mockApplyId
@@ -116,9 +115,9 @@ public class MockApplyService {
         }
 
         return new MockApplySequenceResponse(
-                mockApply.getJobPosting().getId(),
+                jobPostingId,
                 mockApply.getId(),
-                mockApplies.size(),
+                totalCount,
                 sequence
         );
     }
