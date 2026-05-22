@@ -13,6 +13,18 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
     long countByUserIdAndJobPostingId(Long userId, Long jobPostingId);
 
     @Query("""
+            select ma
+            from MockApply ma
+            join fetch ma.jobPosting jp
+            join fetch jp.company
+            join fetch jp.detailClassification
+            left join fetch ma.analysis
+            where ma.user.id = :userId
+            order by ma.createdAt desc, ma.id desc
+            """)
+    List<MockApply> findHomeItemsByUserId(@Param("userId") Long userId);
+
+    @Query("""
             select count(ma)
             from MockApply ma
             where ma.user.id = :userId

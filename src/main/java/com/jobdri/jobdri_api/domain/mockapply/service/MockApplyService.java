@@ -12,9 +12,12 @@ import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationS
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockFromJobPostingRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeItemResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
+import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
@@ -23,6 +26,9 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -120,6 +126,27 @@ public class MockApplyService {
                 totalCount,
                 sequence
         );
+    }
+
+    public MockApplyHomeResponse getMyMockApplies(User user) {
+        User validatedUser = userService.validateUser(user);
+        List<MockApplyHomeItemResponse> items = mockApplyRepository.findHomeItemsByUserId(validatedUser.getId()).stream()
+                .map(MockApplyHomeItemResponse::from)
+                .toList();
+
+        return new MockApplyHomeResponse(
+                filterByCompletion(items, false),
+                filterByCompletion(items, true)
+        );
+    }
+
+    private List<MockApplyHomeItemResponse> filterByCompletion(
+            List<MockApplyHomeItemResponse> items,
+            boolean completed
+    ) {
+        return items.stream()
+                .filter(item -> completed == (item.status() == MockApplyStatus.COMPLETED))
+                .collect(Collectors.toList());
     }
 
     private MockApply getOwnedMockApply(User user, Long mockApplyId) {
