@@ -1,12 +1,15 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionCandidateCreateRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionAnswerSaveRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionSelectionSaveRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnswerResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionSelectionResponse;
+import com.jobdri.jobdri_api.domain.analysis.entity.CustomQuestionCandidate;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.repository.CustomQuestionCandidateRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
@@ -19,6 +22,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -44,21 +48,63 @@ public class QuestionService {
 
     private final MockApplyRepository mockApplyRepository;
     private final QuestionRepository questionRepository;
+    private final CustomQuestionCandidateRepository customQuestionCandidateRepository;
 
     public List<QuestionCandidateResponse> getQuestionCandidates(User user, Long mockApplyId) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
-        Set<String> selectedContents = questionRepository.findAllByMockApplyId(mockApply.getId()).stream()
+        List<Question> selectedQuestions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        Set<String> selectedContents = selectedQuestions.stream()
                 .map(Question::getContent)
                 .collect(Collectors.toSet());
 
-        return DEFAULT_CANDIDATES.stream()
+        List<QuestionCandidateResponse> candidates = new ArrayList<>(DEFAULT_CANDIDATES.stream()
                 .map(candidate -> new QuestionCandidateResponse(
                         candidate.id(),
                         candidate.content(),
                         candidate.charLimit(),
-                        selectedContents.contains(candidate.content())
+                        selectedContents.contains(candidate.content()),
+                        false
                 ))
-                .toList();
+                .toList());
+
+        customQuestionCandidateRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId()).stream()
+                .map(candidate -> new QuestionCandidateResponse(
+                        candidate.getId(),
+                        candidate.getContent(),
+                        candidate.getLimit(),
+                        selectedContents.contains(candidate.getContent()),
+                        true
+                ))
+                .forEach(candidates::add);
+
+        return candidates;
+    }
+
+    @Transactional
+    public QuestionCandidateResponse addCustomQuestionCandidate(
+            User user,
+            Long mockApplyId,
+            QuestionCandidateCreateRequest request
+    ) {
+        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
+        String content = request.content().trim();
+        validateCustomCandidate(content);
+
+        CustomQuestionCandidate candidate = customQuestionCandidateRepository
+                .findByMockApplyIdAndContent(mockApply.getId(), content)
+                .orElseGet(() -> customQuestionCandidateRepository.save(CustomQuestionCandidate.create(
+                        mockApply,
+                        content,
+                        resolveCharLimit(request.charLimit())
+                )));
+
+        return new QuestionCandidateResponse(
+                candidate.getId(),
+                candidate.getContent(),
+                candidate.getLimit(),
+                false,
+                true
+        );
     }
 
     public QuestionSelectionResponse getSelectedQuestions(User user, Long mockApplyId) {
@@ -157,6 +203,14 @@ public class QuestionService {
             return DEFAULT_CHAR_LIMIT;
         }
         return charLimit;
+    }
+
+    private void validateCustomCandidate(String content) {
+        boolean existsInDefault = DEFAULT_CANDIDATES.stream()
+                .anyMatch(candidate -> candidate.content().equals(content));
+        if (existsInDefault) {
+            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "이미 기본 후보에 존재하는 문항입니다.");
+        }
     }
 
     private String normalizeAnswer(String answer) {

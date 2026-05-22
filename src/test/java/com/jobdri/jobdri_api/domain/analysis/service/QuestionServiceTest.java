@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionAnswerSaveRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionCandidateCreateRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionSelectionSaveRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnswerResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionCandidateResponse;
@@ -111,6 +112,31 @@ class QuestionServiceTest {
     }
 
     @Test
+    @DisplayName("직접 추가 문항은 선택 문항으로 저장하지 않고 후보 목록에 추가한다")
+    void addCustomQuestionCandidate() {
+        User user = saveUser("question-custom-candidate@example.com");
+        MockApply mockApply = saveMockApply(user);
+
+        QuestionCandidateResponse response = questionService.addCustomQuestionCandidate(
+                user,
+                mockApply.getId(),
+                new QuestionCandidateCreateRequest("직접 추가한 후보 문항입니다.", 500)
+        );
+        List<QuestionCandidateResponse> candidates = questionService.getQuestionCandidates(user, mockApply.getId());
+
+        assertThat(response.content()).isEqualTo("직접 추가한 후보 문항입니다.");
+        assertThat(response.charLimit()).isEqualTo(500);
+        assertThat(response.selected()).isFalse();
+        assertThat(response.custom()).isTrue();
+        assertThat(questionRepository.findAllByMockApplyId(mockApply.getId())).isEmpty();
+        assertThat(candidates).hasSize(6);
+        assertThat(candidates.get(5).questionId()).isEqualTo(response.questionId());
+        assertThat(candidates.get(5).content()).isEqualTo("직접 추가한 후보 문항입니다.");
+        assertThat(candidates.get(5).selected()).isFalse();
+        assertThat(candidates.get(5).custom()).isTrue();
+    }
+
+    @Test
     @DisplayName("문항 후보 목록은 이미 저장된 기본 문항을 선택 상태로 반환한다")
     void getQuestionCandidatesMarksSelectedQuestion() {
         User user = saveUser("question-candidates@example.com");
@@ -125,6 +151,9 @@ class QuestionServiceTest {
         assertThat(candidates)
                 .extracting(QuestionCandidateResponse::questionId)
                 .containsExactly(1L, 2L, 3L, 4L, 5L);
+        assertThat(candidates)
+                .extracting(QuestionCandidateResponse::custom)
+                .containsOnly(false);
         assertThat(candidates.get(0).selected()).isTrue();
         assertThat(candidates.get(1).selected()).isFalse();
     }
