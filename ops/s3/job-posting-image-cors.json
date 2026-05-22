@@ -1,0 +1,25 @@
+[
+  {
+    "AllowedHeaders": [
+      "*"
+    ],
+    "AllowedMethods": [
+      "PUT",
+      "GET",
+      "HEAD"
+    ],
+    "AllowedOrigins": [
+      "https://jobdri.site",
+      "https://www.jobdri.site",
+      "https://job-dri.vercel.app",
+      "http://localhost:3000",
+      "http://localhost:5173"
+    ],
+    "ExposeHeaders": [
+      "ETag",
+      "x-amz-request-id",
+      "x-amz-id-2"
+    ],
+    "MaxAgeSeconds": 3000
+  }
+]

@@ -49,6 +49,17 @@ spring:
               - email
               - profile
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+  cloud:
+    aws:
+      credentials:
+        access-key: ${AWS_ACCESS_KEY_ID:dummy-access-key}
+        secret-key: ${AWS_SECRET_ACCESS_KEY:dummy-secret-key}
+      region:
+        static: ${AWS_REGION:ap-northeast-2}
+      s3:
+        bucket: ${S3_BUCKET:dummy-bucket}
+        presign-get-expiration-minutes: ${S3_PRESIGN_GET_EXPIRATION_MINUTES:10}
+        presign-put-expiration-minutes: ${S3_PRESIGN_PUT_EXPIRATION_MINUTES:5}
 
 mail:
   from: ${MAIL_FROM:${MAIL_USERNAME:}}
@@ -76,6 +87,8 @@ openai:
 job-posting:
   ingest:
     classification-confidence-threshold: ${JOB_POSTING_CLASSIFICATION_CONFIDENCE_THRESHOLD:0.65}
+  image-upload:
+    max-size-bytes: ${JOB_POSTING_IMAGE_UPLOAD_MAX_SIZE_BYTES:5242880}
 
 async:
   job-posting:

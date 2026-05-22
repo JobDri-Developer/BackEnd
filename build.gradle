@@ -17,6 +17,12 @@ repositories {
 	mavenCentral()
 }
 
+dependencyManagement {
+	imports {
+		mavenBom 'io.awspring.cloud:spring-cloud-aws-dependencies:3.4.2'
+	}
+}
+
 dependencies {
 	//redis
 	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
@@ -48,6 +54,9 @@ dependencies {
 
 	//openai
 	implementation 'com.openai:openai-java:4.35.0'
+
+	//S3
+	implementation 'io.awspring.cloud:spring-cloud-aws-starter-s3'
 
 
 	compileOnly 'org.projectlombok:lombok'
