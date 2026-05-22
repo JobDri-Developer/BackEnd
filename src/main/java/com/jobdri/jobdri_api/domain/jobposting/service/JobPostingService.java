@@ -31,7 +31,7 @@ public class JobPostingService {
     private final UserService userService;
 
     @Transactional
-    @AuditLogEvent(action = "JOB_POSTING_CREATE", targetType = "JOB_POSTING", targetId = "#result.jobPostingId()")
+    @AuditLogEvent(action = "JOB_POSTING_CREATE", targetType = "JOB_POSTING", targetId = "#result.getJobPostingId()")
     public JobPostingResponse createJobPosting(User user, JobPostingCreateRequest request) {
         User validatedUser = userService.validateUser(user);
         Company company = findOrCreateCompany(request.companyName(), request.companySize());
