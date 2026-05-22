@@ -51,7 +51,6 @@ public class JobPostingAsyncFacadeService {
         return JobPostingIngestCommand.builder()
                 .userId(user.getId())
                 .rawText(request.rawText())
-                .sourceUrl(request.sourceUrl())
                 .imageBytes(readBytes(request.image()))
                 .imageContentType(readContentType(request.image()))
                 .build();

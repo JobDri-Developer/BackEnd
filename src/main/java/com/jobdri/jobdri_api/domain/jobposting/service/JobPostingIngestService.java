@@ -40,7 +40,6 @@ public class JobPostingIngestService {
         JobPostingIngestCommand command = JobPostingIngestCommand.builder()
                 .userId(user.getId())
                 .rawText(request.rawText())
-                .sourceUrl(request.sourceUrl())
                 .imageBytes(readBytes(request.image()))
                 .imageContentType(readContentType(request.image()))
                 .build();
@@ -52,8 +51,7 @@ public class JobPostingIngestService {
         JobPostingExtractResponse extracted = jobPostingAiService.extractJobPosting(
                 command.getRawText(),
                 command.getImageBytes(),
-                command.getImageContentType(),
-                command.getSourceUrl()
+                command.getImageContentType()
         );
 
         List<JobPostingClassificationCandidateResponse> candidates =

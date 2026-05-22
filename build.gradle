@@ -49,6 +49,9 @@ dependencies {
 	//openai
 	implementation 'com.openai:openai-java:4.35.0'
 
+	//S3
+	implementation 'io.awspring.cloud:spring-cloud-aws-starter-s3:3.1.1'
+
 
 	compileOnly 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'

@@ -9,7 +9,6 @@ public class JobPostingIngestCommand {
 
     private Long userId;
     private String rawText;
-    private String sourceUrl;
     private byte[] imageBytes;
     private String imageContentType;
 }

@@ -157,16 +157,16 @@ public class JobPostingAiService {
     }
 
     public JobPostingExtractResponse extractJobPosting(JobPostingExtractMultipartRequest request) {
-        return extractJobPosting(request.rawText(), request.image(), request.sourceUrl());
+        return extractJobPosting(request.rawText(), request.image());
     }
 
-    public JobPostingExtractResponse extractJobPosting(String rawText, byte[] imageBytes, String imageContentType, String sourceUrl) {
+    public JobPostingExtractResponse extractJobPosting(String rawText, byte[] imageBytes, String imageContentType) {
         validateInput(rawText, imageBytes);
 
         List<ResponseInputContent> contents = new ArrayList<>();
         contents.add(ResponseInputContent.ofInputText(
                 com.openai.models.responses.ResponseInputText.builder()
-                        .text(buildPrompt(rawText, sourceUrl, imageBytes != null && imageBytes.length > 0))
+                        .text(buildPrompt(rawText, imageBytes != null && imageBytes.length > 0))
                         .build()
         ));
 
@@ -198,18 +198,16 @@ public class JobPostingAiService {
         }
     }
 
-    public JobPostingExtractResponse extractJobPosting(String rawText, MultipartFile imageFile, String sourceUrl) {
+    public JobPostingExtractResponse extractJobPosting(String rawText, MultipartFile imageFile) {
         return extractJobPosting(
                 rawText,
                 imageFile == null || imageFile.isEmpty() ? null : readImageBytes(imageFile),
-                imageFile == null || imageFile.isEmpty() ? null : imageFile.getContentType(),
-                sourceUrl
+                imageFile == null || imageFile.isEmpty() ? null : imageFile.getContentType()
         );
     }
 
-    private String buildPrompt(String rawText, String sourceUrl, boolean hasImage) {
+    private String buildPrompt(String rawText, boolean hasImage) {
         String normalizedRawText = rawText == null ? "" : rawText;
-        String normalizedSourceUrl = sourceUrl == null ? "" : sourceUrl;
 
         return """
                 이 %s는 채용 공고입니다.
@@ -236,12 +234,9 @@ public class JobPostingAiService {
                 5. confidence는 추출 결과 전체에 대한 신뢰도를 0~1 사이 실수로 반환하세요.
                 6. JSON 외의 다른 텍스트는 절대 출력하지 마세요.
 
-                [원본 URL]
-                %s
-
                 [채용 공고 텍스트]
                 %s
-                """.formatted(hasImage ? "이미지 또는 텍스트" : "텍스트", normalizedSourceUrl, normalizedRawText);
+                """.formatted(hasImage ? "이미지 또는 텍스트" : "텍스트", normalizedRawText);
     }
 
     private String buildClassificationPrompt(
