@@ -84,6 +84,12 @@ openai:
   model:
     job-posting-extractor: ${OPENAI_JOB_POSTING_MODEL:gpt-4o-mini}
 
+payment:
+  toss:
+    client-key: ${TOSS_CLIENT_KEY:}
+    secret-key: ${TOSS_SECRET_KEY:}
+    base-url: ${TOSS_BASE_URL:https://api.tosspayments.com}
+
 job-posting:
   ingest:
     classification-confidence-threshold: ${JOB_POSTING_CLASSIFICATION_CONFIDENCE_THRESHOLD:0.65}

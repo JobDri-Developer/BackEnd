@@ -25,6 +25,18 @@ public class Payment {
     @Column(nullable = false)
     private String content;
 
+    @Column(unique = true)
+    private String orderId;
+
+    @Column(unique = true)
+    private String paymentKey;
+
+    @Column
+    private String planCode;
+
+    @Column(nullable = false)
+    private int creditAmount;
+
     @Column(nullable = false)
     private int price;
 
@@ -35,18 +47,32 @@ public class Payment {
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
-    public static Payment createPending(User user, String content, int price) {
+    private LocalDateTime approvedAt;
+
+    public static Payment createPending(
+            User user,
+            String content,
+            String orderId,
+            String planCode,
+            int creditAmount,
+            int price
+    ) {
         return Payment.builder()
                 .user(user)
                 .content(content)
+                .orderId(orderId)
+                .planCode(planCode)
+                .creditAmount(creditAmount)
                 .price(price)
                 .status(PaymentStatus.PENDING)
                 .createdAt(LocalDateTime.now())
                 .build();
     }
 
-    public void complete() {
+    public void complete(String paymentKey) {
+        this.paymentKey = paymentKey;
         this.status = PaymentStatus.COMPLETED;
+        this.approvedAt = LocalDateTime.now();
     }
 
     public void fail() {

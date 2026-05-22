@@ -5,8 +5,10 @@ import com.jobdri.jobdri_api.domain.payment.entity.PaymentStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
     List<Payment> findAllByUserId(Long userId);
     List<Payment> findAllByStatus(PaymentStatus status);
+    Optional<Payment> findByOrderId(String orderId);
 }

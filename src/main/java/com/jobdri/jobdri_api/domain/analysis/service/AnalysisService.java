@@ -14,6 +14,7 @@ import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
+import com.jobdri.jobdri_api.domain.payment.service.CreditService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
@@ -40,6 +41,7 @@ public class AnalysisService {
     private final AnalysisRepository analysisRepository;
     private final QuestionAnalysisRepository questionAnalysisRepository;
     private final AnalysisAiClient analysisAiClient;
+    private final CreditService creditService;
 
     @Transactional
     public AnalysisResponse analyze(User user, Long mockApplyId) {
@@ -56,23 +58,31 @@ public class AnalysisService {
             );
         }
 
-        AnalysisLlmResponse llmResponse = analysisAiClient.analyze(mockApply.getJobPosting(), answeredQuestions);
-        replaceExistingAnalysis(mockApply);
+        String referenceId = "mockApplyId=" + mockApply.getId();
+        creditService.use(user, 1, "자소서 분석 크레딧 차감", referenceId);
 
-        Analysis analysis = analysisRepository.save(Analysis.create(
-                mockApply,
-                clampScore(llmResponse.score()),
-                clampScore(llmResponse.jobFit()),
-                clampScore(llmResponse.impact()),
-                clampScore(llmResponse.completeness()),
-                normalizeFeedback(llmResponse.feedback())
-        ));
+        try {
+            AnalysisLlmResponse llmResponse = analysisAiClient.analyze(mockApply.getJobPosting(), answeredQuestions);
+            replaceExistingAnalysis(mockApply);
 
-        List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(analysis, answeredQuestions, llmResponse);
-        questionAnalysisRepository.saveAll(questionAnalyses);
-        mockApply.updateStatus(MockApplyStatus.COMPLETED);
+            Analysis analysis = analysisRepository.save(Analysis.create(
+                    mockApply,
+                    clampScore(llmResponse.score()),
+                    clampScore(llmResponse.jobFit()),
+                    clampScore(llmResponse.impact()),
+                    clampScore(llmResponse.completeness()),
+                    normalizeFeedback(llmResponse.feedback())
+            ));
 
-        return getAnalysis(user, mockApplyId);
+            List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(analysis, answeredQuestions, llmResponse);
+            questionAnalysisRepository.saveAll(questionAnalyses);
+            mockApply.updateStatus(MockApplyStatus.COMPLETED);
+
+            return getAnalysis(user, mockApplyId);
+        } catch (RuntimeException e) {
+            creditService.refund(user, 1, "자소서 분석 실패 환불", referenceId);
+            throw e;
+        }
     }
 
     public AnalysisResponse getAnalysis(User user, Long mockApplyId) {
