@@ -18,6 +18,7 @@ import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -90,13 +91,7 @@ public class QuestionService {
         String content = request.content().trim();
         validateCustomCandidate(content);
 
-        CustomQuestionCandidate candidate = customQuestionCandidateRepository
-                .findByMockApplyIdAndContent(mockApply.getId(), content)
-                .orElseGet(() -> customQuestionCandidateRepository.save(CustomQuestionCandidate.create(
-                        mockApply,
-                        content,
-                        resolveCharLimit(request.charLimit())
-                )));
+        CustomQuestionCandidate candidate = findOrCreateCustomCandidate(mockApply, content, request.charLimit());
 
         return new QuestionCandidateResponse(
                 candidate.getId(),
@@ -105,6 +100,34 @@ public class QuestionService {
                 false,
                 true
         );
+    }
+
+    private CustomQuestionCandidate findOrCreateCustomCandidate(
+            MockApply mockApply,
+            String content,
+            Integer charLimit
+    ) {
+        return customQuestionCandidateRepository
+                .findByMockApplyIdAndContent(mockApply.getId(), content)
+                .orElseGet(() -> saveCustomCandidate(mockApply, content, charLimit));
+    }
+
+    private CustomQuestionCandidate saveCustomCandidate(
+            MockApply mockApply,
+            String content,
+            Integer charLimit
+    ) {
+        try {
+            return customQuestionCandidateRepository.saveAndFlush(CustomQuestionCandidate.create(
+                    mockApply,
+                    content,
+                    resolveCharLimit(charLimit)
+            ));
+        } catch (DataIntegrityViolationException e) {
+            return customQuestionCandidateRepository
+                    .findByMockApplyIdAndContent(mockApply.getId(), content)
+                    .orElseThrow(() -> e);
+        }
     }
 
     public QuestionSelectionResponse getSelectedQuestions(User user, Long mockApplyId) {

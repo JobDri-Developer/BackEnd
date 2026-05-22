@@ -137,6 +137,56 @@ class QuestionServiceTest {
     }
 
     @Test
+    @DisplayName("기본 후보와 같은 내용은 직접 추가 문항 후보로 등록할 수 없다")
+    void addCustomQuestionCandidateThrowsWhenContentExistsInDefaultCandidate() {
+        User user = saveUser("question-custom-default-duplicate@example.com");
+        MockApply mockApply = saveMockApply(user);
+
+        assertThatThrownBy(() -> questionService.addCustomQuestionCandidate(
+                user,
+                mockApply.getId(),
+                new QuestionCandidateCreateRequest("지원 동기와 입사 후 목표를 작성해주세요.", 700)
+        ))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
+        assertThat(questionRepository.findAllByMockApplyId(mockApply.getId())).isEmpty();
+        assertThat(questionService.getQuestionCandidates(user, mockApply.getId())).hasSize(5);
+    }
+
+    @Test
+    @DisplayName("같은 직접 추가 문항 후보를 여러 번 요청하면 기존 후보를 반환한다")
+    void addCustomQuestionCandidateReturnsExistingCandidateWhenDuplicated() {
+        User user = saveUser("question-custom-duplicate@example.com");
+        MockApply mockApply = saveMockApply(user);
+
+        QuestionCandidateResponse first = questionService.addCustomQuestionCandidate(
+                user,
+                mockApply.getId(),
+                new QuestionCandidateCreateRequest("중복 직접 추가 문항입니다.", 500)
+        );
+        QuestionCandidateResponse second = questionService.addCustomQuestionCandidate(
+                user,
+                mockApply.getId(),
+                new QuestionCandidateCreateRequest("중복 직접 추가 문항입니다.", 800)
+        );
+        List<QuestionCandidateResponse> candidates = questionService.getQuestionCandidates(user, mockApply.getId());
+
+        assertThat(second.questionId()).isEqualTo(first.questionId());
+        assertThat(second.content()).isEqualTo(first.content());
+        assertThat(second.charLimit()).isEqualTo(first.charLimit());
+        assertThat(second.selected()).isFalse();
+        assertThat(second.custom()).isTrue();
+        assertThat(questionRepository.findAllByMockApplyId(mockApply.getId())).isEmpty();
+        assertThat(candidates).hasSize(6);
+        assertThat(candidates.stream()
+                .filter(QuestionCandidateResponse::custom)
+                .map(QuestionCandidateResponse::content)
+                .toList())
+                .containsExactly("중복 직접 추가 문항입니다.");
+    }
+
+    @Test
     @DisplayName("문항 후보 목록은 이미 저장된 기본 문항을 선택 상태로 반환한다")
     void getQuestionCandidatesMarksSelectedQuestion() {
         User user = saveUser("question-candidates@example.com");
