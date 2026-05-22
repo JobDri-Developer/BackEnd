@@ -31,7 +31,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
@@ -42,7 +41,6 @@ import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @ActiveProfiles("test")
-@Transactional
 class AnalysisServiceTest {
 
     @Autowired
@@ -114,7 +112,8 @@ class AnalysisServiceTest {
         assertThat(response.questions().get(0).analyses().get(0).start()).isEqualTo(0);
         assertThat(response.questions().get(0).analyses().get(0).end())
                 .isEqualTo("Spring Boot API를 개발했습니다.".length());
-        assertThat(mockApply.getStatus()).isEqualTo(MockApplyStatus.COMPLETED);
+        assertThat(mockApplyRepository.findById(mockApply.getId()).orElseThrow().getStatus())
+                .isEqualTo(MockApplyStatus.COMPLETED);
         assertThat(analysisRepository.findByMockApplyId(mockApply.getId())).isPresent();
     }
 
@@ -254,7 +253,9 @@ class AnalysisServiceTest {
     }
 
     private User saveUser(String email) {
-        return userRepository.save(User.signup("테스트 사용자", email, "encoded-password"));
+        User user = User.signup("테스트 사용자", email, "encoded-password");
+        user.increaseCredit(10);
+        return userRepository.save(user);
     }
 
     private MockApply saveMockApply(User user) {

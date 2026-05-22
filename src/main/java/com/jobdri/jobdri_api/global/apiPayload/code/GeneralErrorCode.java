@@ -44,6 +44,13 @@ public enum GeneralErrorCode implements BaseErrorCode {
     QUESTION_NOT_FOUND(HttpStatus.NOT_FOUND, "QUESTION_4041", "문항을 찾을 수 없습니다."),
     ANALYSIS_NOT_FOUND(HttpStatus.NOT_FOUND, "ANALYSIS_4041", "자소서 분석 결과를 찾을 수 없습니다."),
 
+    // 결제/크레딧 에러
+    PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "PAYMENT_4041", "결제 정보를 찾을 수 없습니다."),
+    PAYMENT_AMOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "PAYMENT_4001", "결제 금액이 일치하지 않습니다."),
+    PAYMENT_ALREADY_PROCESSED(HttpStatus.BAD_REQUEST, "PAYMENT_4002", "이미 처리된 결제입니다."),
+    PAYMENT_CONFIRM_FAILED(HttpStatus.BAD_GATEWAY, "PAYMENT_5021", "결제 승인에 실패했습니다."),
+    INSUFFICIENT_CREDIT(HttpStatus.PAYMENT_REQUIRED, "CREDIT_4021", "크레딧이 부족합니다."),
+
     // 유저 에러
     USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_4041", "유저를 찾을 수 없습니다.");
 
