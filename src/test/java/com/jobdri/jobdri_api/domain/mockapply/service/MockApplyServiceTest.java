@@ -1,5 +1,7 @@
 package com.jobdri.jobdri_api.domain.mockapply.service;
 
+import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
+import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.classification.entity.Classification;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.entity.MiddleClassification;
@@ -14,6 +16,7 @@ import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationService;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
@@ -50,6 +53,9 @@ class MockApplyServiceTest {
 
     @Autowired
     private MockApplyRepository mockApplyRepository;
+
+    @Autowired
+    private AnalysisRepository analysisRepository;
 
     @Autowired
     private JobPostingRepository jobPostingRepository;
@@ -178,6 +184,42 @@ class MockApplyServiceTest {
         assertThat(response.mockApplyId()).isEqualTo(second.getId());
         assertThat(response.totalCount()).isEqualTo(3);
         assertThat(response.sequence()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("홈 화면에서 이어쓰기와 완료 결과 카드 목록을 조회한다")
+    void getMyMockApplies() {
+        User user = saveUser("home-list@example.com");
+        User otherUser = saveUser("home-list-other@example.com");
+        JobPosting backendPosting = saveJobPosting(user, "백엔드 개발");
+        JobPosting dataPosting = saveJobPosting(user, "데이터 분석");
+        JobPosting otherPosting = saveJobPosting(otherUser, "프론트엔드 개발");
+
+        MockApply inProgress = mockApplyRepository.save(MockApply.create(user, backendPosting, ApplyType.ACTUAL));
+        inProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        MockApply completed = mockApplyRepository.save(MockApply.create(user, dataPosting, ApplyType.MOCK));
+        completed.updateStatus(MockApplyStatus.COMPLETED);
+        mockApplyRepository.save(MockApply.create(otherUser, otherPosting, ApplyType.MOCK));
+        Analysis analysis = analysisRepository.save(Analysis.create(completed, 71, 72, 73, 74, "완료 분석입니다."));
+        completed.assignAnalysis(analysis);
+
+        MockApplyHomeResponse response = mockApplyService.getMyMockApplies(user);
+
+        assertThat(response.inProgress()).hasSize(1);
+        assertThat(response.completed()).hasSize(1);
+        assertThat(response.inProgress().get(0).mockApplyId()).isEqualTo(inProgress.getId());
+        assertThat(response.inProgress().get(0).jobPostingId()).isEqualTo(backendPosting.getId());
+        assertThat(response.inProgress().get(0).status()).isEqualTo(MockApplyStatus.ANSWER_WRITE);
+        assertThat(response.inProgress().get(0).companyName()).isEqualTo("테스트 기업");
+        assertThat(response.inProgress().get(0).detailClassificationName()).isEqualTo("백엔드 개발");
+        assertThat(response.inProgress().get(0).jobTitle()).isEqualTo("백엔드 개발");
+        assertThat(response.inProgress().get(0).applyType()).isEqualTo(ApplyType.ACTUAL);
+        assertThat(response.inProgress().get(0).score()).isNull();
+        assertThat(response.inProgress().get(0).resumePath()).isEqualTo("/mock-applies/" + inProgress.getId() + "/answers");
+        assertThat(response.completed().get(0).mockApplyId()).isEqualTo(completed.getId());
+        assertThat(response.completed().get(0).score()).isEqualTo(71);
+        assertThat(response.completed().get(0).applyType()).isEqualTo(ApplyType.MOCK);
+        assertThat(response.completed().get(0).resumePath()).isEqualTo("/mock-applies/" + completed.getId() + "/analysis");
     }
 
     @Test

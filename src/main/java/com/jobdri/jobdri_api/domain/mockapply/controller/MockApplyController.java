@@ -4,6 +4,7 @@ import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateActualR
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockFromJobPostingRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.mockapply.service.MockApplyService;
@@ -32,6 +33,20 @@ import org.springframework.web.bind.annotation.RestController;
 public class MockApplyController {
 
     private final MockApplyService mockApplyService;
+
+    @Operation(
+            summary = "내 모의 서류 지원 홈 목록 조회",
+            description = "홈 화면에서 이어서 작성할 지원과 완료된 분석 결과 카드를 조회합니다."
+    )
+    @GetMapping("/me")
+    public ApiResponse<MockApplyHomeResponse> getMyMockApplies(
+            @AuthenticationPrincipal UserDetailsImpl userDetails
+    ) {
+        return ApiResponse.onSuccess(
+                "모의 서류 지원 목록 조회에 성공했습니다.",
+                mockApplyService.getMyMockApplies(userDetails.getUser())
+        );
+    }
 
     @Operation(
             summary = "실제 공고 기반 모의 서류 지원 생성",
