@@ -50,7 +50,7 @@ public class Analysis {
             int completeness,
             String feedback
     ) {
-        Analysis analysis = Analysis.builder()
+        return Analysis.builder()
                 .mockApply(mockApply)
                 .score(score)
                 .jobFit(jobFit)
@@ -58,7 +58,5 @@ public class Analysis {
                 .completeness(completeness)
                 .feedback(feedback)
                 .build();
-        mockApply.assignAnalysis(analysis);
-        return analysis;
     }
 }
