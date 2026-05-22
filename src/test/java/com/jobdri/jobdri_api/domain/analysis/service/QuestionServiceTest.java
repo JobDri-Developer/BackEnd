@@ -122,6 +122,9 @@ class QuestionServiceTest {
         List<QuestionCandidateResponse> candidates = questionService.getQuestionCandidates(user, mockApply.getId());
 
         assertThat(candidates).hasSize(5);
+        assertThat(candidates)
+                .extracting(QuestionCandidateResponse::questionId)
+                .containsExactly(1L, 2L, 3L, 4L, 5L);
         assertThat(candidates.get(0).selected()).isTrue();
         assertThat(candidates.get(1).selected()).isFalse();
     }
