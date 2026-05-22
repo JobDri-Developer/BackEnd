@@ -94,6 +94,7 @@ class AnalysisServiceTest {
                         new AnalysisLlmResponse.QuestionAnalysisItem(
                                 question.getId(),
                                 "Spring Boot API를 개발했습니다.",
+                                "mentioned",
                                 "성과 지표가 없어 구체성이 약합니다.",
                                 "Spring Boot API를 개발해 응답 시간을 20% 개선했습니다."
                         )
@@ -109,6 +110,7 @@ class AnalysisServiceTest {
         assertThat(response.completeness()).isEqualTo(80);
         assertThat(response.questions()).hasSize(1);
         assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).status()).isEqualTo("mentioned");
         assertThat(response.questions().get(0).analyses().get(0).start()).isEqualTo(0);
         assertThat(response.questions().get(0).analyses().get(0).end())
                 .isEqualTo("Spring Boot API를 개발했습니다.".length());
@@ -159,6 +161,7 @@ class AnalysisServiceTest {
                         new AnalysisLlmResponse.QuestionAnalysisItem(
                                 question.getId(),
                                 "답변에 없는 문장입니다.",
+                                "fabricated",
                                 "원문에 없습니다.",
                                 "원문 기반 문장으로 개선해야 합니다."
                         )
@@ -188,6 +191,7 @@ class AnalysisServiceTest {
                         List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
                                 question.getId(),
                                 "가입 완료율을 개선했습니다.",
+                                "mentioned",
                                 "수치가 부족합니다.",
                                 "가입 완료율을 12% 개선했습니다."
                         ))
@@ -201,6 +205,7 @@ class AnalysisServiceTest {
                         List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
                                 question.getId(),
                                 "API 응답 속도를 개선했습니다.",
+                                "proven",
                                 "성과 기준이 더 필요합니다.",
                                 "API 응답 속도를 300ms 단축했습니다."
                         ))
@@ -212,6 +217,7 @@ class AnalysisServiceTest {
         assertThat(second.analysisId()).isNotEqualTo(first.analysisId());
         assertThat(second.score()).isEqualTo(88);
         assertThat(second.feedback()).isEqualTo("두 번째 분석");
+        assertThat(second.questions().get(0).analyses().get(0).status()).isEqualTo("proven");
         assertThat(analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow().getScore()).isEqualTo(88);
         assertThat(questionAnalysisRepository.findAllByAnalysisId(second.analysisId())).hasSize(1);
         assertThat(questionAnalysisRepository.findAllByAnalysisId(first.analysisId())).isEmpty();
@@ -232,6 +238,7 @@ class AnalysisServiceTest {
                 List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
                         question.getId(),
                         "서비스 개선 경험이 있습니다.",
+                        "mentioned",
                         "구체성이 조금 부족합니다.",
                         "서비스 개선 경험으로 전환율을 10% 높였습니다."
                 ))
