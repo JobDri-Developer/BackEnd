@@ -4,6 +4,7 @@ public record QuestionCandidateResponse(
         Long questionId,
         String content,
         int charLimit,
-        boolean selected
+        boolean selected,
+        boolean custom
 ) {
 }

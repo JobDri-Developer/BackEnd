@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.controller;
 
+import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionCandidateCreateRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionAnswerSaveRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionSelectionSaveRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnswerResponse;
@@ -16,6 +17,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -40,6 +42,19 @@ public class QuestionController {
         return ApiResponse.onSuccess(
                 "문항 후보 목록 조회에 성공했습니다.",
                 questionService.getQuestionCandidates(userDetails.getUser(), mockApplyId)
+        );
+    }
+
+    @Operation(summary = "직접 추가 문항 후보 생성", description = "직접 입력한 문항을 선택 후보 목록에 추가합니다. 선택 문항으로 확정 저장되지는 않습니다.")
+    @PostMapping("/candidates")
+    public ApiResponse<QuestionCandidateResponse> addCustomQuestionCandidate(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId,
+            @Valid @RequestBody QuestionCandidateCreateRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "직접 추가 문항 후보가 생성되었습니다.",
+                questionService.addCustomQuestionCandidate(userDetails.getUser(), mockApplyId, request)
         );
     }
 
