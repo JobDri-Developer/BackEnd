@@ -3,7 +3,7 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
-import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractMultipartRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingMockGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
@@ -14,6 +14,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenera
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockQuestionResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
+import com.jobdri.jobdri_api.global.config.s3.S3ObjectUrlService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -22,13 +23,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
-import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
-import java.util.Base64;
 import java.util.stream.Collectors;
 
 @Service
@@ -41,20 +38,17 @@ public class JobPostingAiService {
     private final OpenAIClient openAIClient;
     private final DetailClassificationRepository detailClassificationRepository;
     private final JobPostingRepository jobPostingRepository;
+    private final S3ObjectUrlService s3ObjectUrlService;
 
     @Value("${openai.model.job-posting-extractor:gpt-4o-mini}")
     private String extractionModel;
 
-    private static final Set<String> SUPPORTED_IMAGE_TYPES = Set.of(
-            "image/png",
-            "image/jpeg",
-            "image/jpg",
-            "image/webp",
-            "image/gif"
-    );
-
     public JobPostingExtractResponse extractJobPosting(String rawText) {
-        return extractJobPosting(rawText, null, null);
+        return extractJobPosting(rawText, null);
+    }
+
+    public JobPostingExtractResponse extractJobPosting(JobPostingExtractRequest request) {
+        return extractJobPosting(request.rawText(), request.imageObjectKey());
     }
 
     public JobPostingGenerateResponse generateJobPosting(JobPostingGenerateRequest request) {
@@ -156,22 +150,21 @@ public class JobPostingAiService {
         }
     }
 
-    public JobPostingExtractResponse extractJobPosting(JobPostingExtractMultipartRequest request) {
-        return extractJobPosting(request.rawText(), request.image());
-    }
-
-    public JobPostingExtractResponse extractJobPosting(String rawText, byte[] imageBytes, String imageContentType) {
-        validateInput(rawText, imageBytes);
+    public JobPostingExtractResponse extractJobPosting(String rawText, String imageObjectKey) {
+        validateInput(rawText, imageObjectKey);
+        String imageUrl = hasText(imageObjectKey)
+                ? s3ObjectUrlService.createPresignedGetUrl(imageObjectKey)
+                : null;
 
         List<ResponseInputContent> contents = new ArrayList<>();
         contents.add(ResponseInputContent.ofInputText(
                 com.openai.models.responses.ResponseInputText.builder()
-                        .text(buildPrompt(rawText, imageBytes != null && imageBytes.length > 0))
+                        .text(buildPrompt(rawText, imageUrl != null))
                         .build()
         ));
 
-        if (imageBytes != null && imageBytes.length > 0) {
-            contents.add(ResponseInputContent.ofInputImage(buildImageContent(imageBytes, imageContentType)));
+        if (imageUrl != null) {
+            contents.add(ResponseInputContent.ofInputImage(buildImageContent(imageUrl)));
         }
 
         var params = ResponseCreateParams.builder()
@@ -196,14 +189,6 @@ public class JobPostingAiService {
             log.error("채용 공고 추출 OpenAI API 호출 오류: {}", e.getMessage(), e);
             return createFallbackResponse(rawText);
         }
-    }
-
-    public JobPostingExtractResponse extractJobPosting(String rawText, MultipartFile imageFile) {
-        return extractJobPosting(
-                rawText,
-                imageFile == null || imageFile.isEmpty() ? null : readImageBytes(imageFile),
-                imageFile == null || imageFile.isEmpty() ? null : imageFile.getContentType()
-        );
     }
 
     private String buildPrompt(String rawText, boolean hasImage) {
@@ -299,17 +284,9 @@ public class JobPostingAiService {
         );
     }
 
-    private ResponseInputImage buildImageContent(MultipartFile imageFile) {
-        return buildImageContent(readImageBytes(imageFile), imageFile.getContentType());
-    }
-
-    private ResponseInputImage buildImageContent(byte[] imageBytes, String imageContentType) {
-        validateImage(imageContentType);
-        String base64 = Base64.getEncoder().encodeToString(imageBytes);
-        String dataUrl = "data:%s;base64,%s".formatted(imageContentType, base64);
-
+    private ResponseInputImage buildImageContent(String imageUrl) {
         return ResponseInputImage.builder()
-                .imageUrl(dataUrl)
+                .imageUrl(imageUrl)
                 .detail(ResponseInputImage.Detail.HIGH)
                 .build();
     }
@@ -327,50 +304,15 @@ public class JobPostingAiService {
                 ));
     }
 
-    private void validateInput(String rawText, MultipartFile imageFile) {
-        boolean hasRawText = rawText != null && !rawText.isBlank();
-        boolean hasImage = imageFile != null && !imageFile.isEmpty();
+    private void validateInput(String rawText, String imageObjectKey) {
+        boolean hasRawText = hasText(rawText);
+        boolean hasImage = hasText(imageObjectKey);
 
         if (!hasRawText && !hasImage) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
-                    "rawText 또는 image 중 하나는 반드시 포함되어야 합니다."
+                    "rawText 또는 imageObjectKey 중 하나는 반드시 포함되어야 합니다."
             );
-        }
-    }
-
-    private void validateInput(String rawText, byte[] imageBytes) {
-        boolean hasRawText = rawText != null && !rawText.isBlank();
-        boolean hasImage = imageBytes != null && imageBytes.length > 0;
-
-        if (!hasRawText && !hasImage) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "rawText 또는 image 중 하나는 반드시 포함되어야 합니다."
-            );
-        }
-    }
-
-    private void validateImage(MultipartFile imageFile) {
-        validateImage(imageFile.getContentType());
-    }
-
-    private void validateImage(String contentType) {
-        if (contentType == null || !SUPPORTED_IMAGE_TYPES.contains(contentType.toLowerCase())) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "지원하는 이미지 형식은 png, jpg, jpeg, webp, gif 입니다."
-            );
-        }
-    }
-
-    private byte[] readImageBytes(MultipartFile imageFile) {
-        validateImage(imageFile);
-
-        try {
-            return imageFile.getBytes();
-        } catch (IOException e) {
-            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "이미지 파일을 읽을 수 없습니다.");
         }
     }
 
@@ -824,6 +766,10 @@ public class JobPostingAiService {
 
     private String defaultString(String value) {
         return value == null ? "" : value;
+    }
+
+    private boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private List<String> defaultStringList(List<String> values) {

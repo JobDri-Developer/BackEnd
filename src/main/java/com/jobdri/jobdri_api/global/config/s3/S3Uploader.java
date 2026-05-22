@@ -22,7 +22,7 @@ import java.util.UUID;
 public class S3Uploader {
     private final S3Client s3Client;
 
-    @Value("${spring.cloud.aws.s3.bucket}")
+    @Value("${spring.cloud.aws.s3.bucket:dummy-bucket}")
     private String bucket;
 
     // MultipartFile을 전달받아 S3에 업로드

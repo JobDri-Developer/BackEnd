@@ -1,7 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
-import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestMultipartRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
@@ -18,7 +18,6 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -57,18 +56,11 @@ class JobPostingIngestServiceTest {
     }
 
     @Test
-    @DisplayName("동기 ingest는 multipart 이미지와 content type을 추출 단계로 전달한다")
-    void ingestAndCreatePassesMultipartImageToExtract() {
-        MockMultipartFile image = new MockMultipartFile(
-                "image",
-                "posting.png",
-                "image/png",
-                new byte[]{1, 2, 3}
-        );
-        JobPostingIngestMultipartRequest request = new JobPostingIngestMultipartRequest(
+    @DisplayName("동기 ingest는 image object key를 추출 단계로 전달한다")
+    void ingestAndCreatePassesImageObjectKeyToExtract() {
+        JobPostingIngestRequest request = new JobPostingIngestRequest(
                 "채용 공고 원문",
-                "https://example.com/job-posting",
-                image
+                "job-postings/1/posting.png"
         );
 
         JobPostingExtractResponse extracted = new JobPostingExtractResponse(
@@ -115,7 +107,7 @@ class JobPostingIngestServiceTest {
                 .preferred("정제된 우대 사항")
                 .build();
 
-        when(jobPostingAiService.extractJobPosting(any(), any(byte[].class), any(), any()))
+        when(jobPostingAiService.extractJobPosting(any(), any()))
                 .thenReturn(extracted);
         when(jobPostingClassificationService.findCandidates(extracted, 5))
                 .thenReturn(List.of(candidate));
@@ -129,17 +121,13 @@ class JobPostingIngestServiceTest {
 
         JobPostingIngestResponse response = jobPostingIngestService.ingestAndCreate(user, request);
 
-        ArgumentCaptor<byte[]> imageBytesCaptor = ArgumentCaptor.forClass(byte[].class);
-        ArgumentCaptor<String> contentTypeCaptor = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> imageObjectKeyCaptor = ArgumentCaptor.forClass(String.class);
         verify(jobPostingAiService).extractJobPosting(
                 eq("채용 공고 원문"),
-                imageBytesCaptor.capture(),
-                contentTypeCaptor.capture(),
-                eq("https://example.com/job-posting")
+                imageObjectKeyCaptor.capture()
         );
 
-        assertThat(imageBytesCaptor.getValue()).containsExactly(1, 2, 3);
-        assertThat(contentTypeCaptor.getValue()).isEqualTo("image/png");
+        assertThat(imageObjectKeyCaptor.getValue()).isEqualTo("job-postings/1/posting.png");
         assertThat(response.isSavedToDatabase()).isTrue();
     }
 }

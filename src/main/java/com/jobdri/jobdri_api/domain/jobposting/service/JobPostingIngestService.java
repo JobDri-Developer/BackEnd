@@ -3,7 +3,7 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestCommand;
-import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestMultipartRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
@@ -17,9 +17,6 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
-
-import java.io.IOException;
 import java.util.List;
 
 @Service
@@ -36,12 +33,11 @@ public class JobPostingIngestService {
     private final JobPostingService jobPostingService;
     private final UserService userService;
 
-    public JobPostingIngestResponse ingestAndCreate(User user, JobPostingIngestMultipartRequest request) {
+    public JobPostingIngestResponse ingestAndCreate(User user, JobPostingIngestRequest request) {
         JobPostingIngestCommand command = JobPostingIngestCommand.builder()
                 .userId(user.getId())
                 .rawText(request.rawText())
-                .imageBytes(readBytes(request.image()))
-                .imageContentType(readContentType(request.image()))
+                .imageObjectKey(request.imageObjectKey())
                 .build();
         return ingestAndCreate(command);
     }
@@ -50,8 +46,7 @@ public class JobPostingIngestService {
 
         JobPostingExtractResponse extracted = jobPostingAiService.extractJobPosting(
                 command.getRawText(),
-                command.getImageBytes(),
-                command.getImageContentType()
+                command.getImageObjectKey()
         );
 
         List<JobPostingClassificationCandidateResponse> candidates =
@@ -131,22 +126,4 @@ public class JobPostingIngestService {
         return userService.getUser(command.getUserId());
     }
 
-    private byte[] readBytes(MultipartFile image) {
-        if (image == null || image.isEmpty()) {
-            return null;
-        }
-
-        try {
-            return image.getBytes();
-        } catch (IOException e) {
-            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "이미지 파일을 읽을 수 없습니다.");
-        }
-    }
-
-    private String readContentType(MultipartFile image) {
-        if (image == null || image.isEmpty()) {
-            return null;
-        }
-        return image.getContentType();
-    }
 }

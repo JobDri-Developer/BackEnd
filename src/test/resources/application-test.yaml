@@ -2,6 +2,15 @@ spring:
   sql:
     init:
       mode: never
+  cloud:
+    aws:
+      credentials:
+        access-key: test-access-key
+        secret-key: test-secret-key
+      region:
+        static: ap-northeast-2
+      s3:
+        bucket: test-bucket
   datasource:
     url: jdbc:h2:mem:jobdri-test;MODE=PostgreSQL;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
     username: sa

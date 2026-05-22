@@ -2,7 +2,7 @@ package com.jobdri.jobdri_api.domain.jobposting.dto.request;
 
 import jakarta.validation.constraints.AssertTrue;
 
-public record JobPostingExtractRequest(
+public record JobPostingIngestRequest(
         String rawText,
         String imageObjectKey
 ) {
