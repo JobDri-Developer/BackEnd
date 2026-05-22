@@ -36,9 +36,11 @@ public class S3Uploader {
     private String upload(File uploadFile, String dirName) {
         // convert 메소드에서 생성한 고유한 이름을 그대로 사용합니다.
         String fileName = dirName + "/" + uploadFile.getName();
-        String uploadImageUrl = putS3(uploadFile, fileName);
-        removeNewFile(uploadFile);
-        return uploadImageUrl;
+        try {
+            return putS3(uploadFile, fileName);
+        } finally {
+            removeNewFile(uploadFile);
+        }
     }
 
     // AWS SDK v2에 맞게 PutObjectRequest를 builder 패턴으로 변경

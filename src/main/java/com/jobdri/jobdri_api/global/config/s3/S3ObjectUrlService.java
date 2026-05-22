@@ -30,7 +30,10 @@ public class S3ObjectUrlService {
                 .build();
 
         GetObjectPresignRequest presignRequest = GetObjectPresignRequest.builder()
-                .signatureDuration(Duration.ofMinutes(presignGetExpirationMinutes))
+                .signatureDuration(Duration.ofMinutes(validateExpirationMinutes(
+                        presignGetExpirationMinutes,
+                        "spring.cloud.aws.s3.presign-get-expiration-minutes"
+                )))
                 .getObjectRequest(getObjectRequest)
                 .build();
 
@@ -45,7 +48,10 @@ public class S3ObjectUrlService {
                 .build();
 
         PutObjectPresignRequest presignRequest = PutObjectPresignRequest.builder()
-                .signatureDuration(Duration.ofMinutes(expiresInMinutes))
+                .signatureDuration(Duration.ofMinutes(validateExpirationMinutes(
+                        expiresInMinutes,
+                        "presigned PUT expiration minutes"
+                )))
                 .putObjectRequest(putObjectRequest)
                 .build();
 
@@ -54,5 +60,12 @@ public class S3ObjectUrlService {
 
     public String getBucket() {
         return bucket;
+    }
+
+    private long validateExpirationMinutes(long expirationMinutes, String propertyName) {
+        if (expirationMinutes < 1 || expirationMinutes > 10080) {
+            throw new IllegalArgumentException(propertyName + " must be between 1 and 10080 minutes.");
+        }
+        return expirationMinutes;
     }
 }

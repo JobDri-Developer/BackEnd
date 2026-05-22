@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
+import software.amazon.awssdk.services.s3.model.S3Exception;
 
 import java.util.Locale;
 import java.util.Map;
@@ -18,7 +19,7 @@ import java.util.UUID;
 @Service
 public class JobPostingImageStorageService {
 
-    private static final String BASE_DIR = "job-postings";
+    private static final String BASE_DIR = "job-postings/tmp";
     private static final Map<String, String> CONTENT_TYPE_TO_EXTENSION = Map.of(
             "image/png", "png",
             "image/jpeg", "jpg",
@@ -73,6 +74,9 @@ public class JobPostingImageStorageService {
     }
 
     public String createReadableImageUrl(Long userId, String objectKey) {
+        if (objectKey == null || objectKey.isBlank()) {
+            return null;
+        }
         validateOwnership(userId, objectKey);
         validateUploadedObject(objectKey);
         return s3ObjectUrlService.createPresignedGetUrl(objectKey);
@@ -105,12 +109,36 @@ public class JobPostingImageStorageService {
     }
 
     private void validateUploadedObject(String objectKey) {
-        HeadObjectResponse headObject = s3Client.headObject(
-                HeadObjectRequest.builder()
-                        .bucket(s3ObjectUrlService.getBucket())
-                        .key(objectKey)
-                        .build()
-        );
+        if (objectKey == null || objectKey.isBlank()) {
+            return;
+        }
+
+        HeadObjectResponse headObject;
+        try {
+            headObject = s3Client.headObject(
+                    HeadObjectRequest.builder()
+                            .bucket(s3ObjectUrlService.getBucket())
+                            .key(objectKey)
+                            .build()
+            );
+        } catch (S3Exception e) {
+            if (e.statusCode() == 404) {
+                throw new GeneralException(
+                        GeneralErrorCode.INVALID_PARAMETER,
+                        "업로드된 이미지를 찾을 수 없습니다. objectKey=" + objectKey
+                );
+            }
+            if (e.statusCode() == 403) {
+                throw new GeneralException(
+                        GeneralErrorCode.FORBIDDEN,
+                        "업로드된 이미지에 접근할 수 없습니다. objectKey=" + objectKey
+                );
+            }
+            throw new GeneralException(
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "업로드된 이미지 검증 중 오류가 발생했습니다. objectKey=" + objectKey
+            );
+        }
 
         String normalizedContentType = normalizeContentType(headObject.contentType());
         if (!CONTENT_TYPE_TO_EXTENSION.containsKey(normalizedContentType)) {
