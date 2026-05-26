@@ -149,7 +149,7 @@ public class AnalysisService {
                     analysis,
                     sentence,
                     defaultString(item.reason()),
-                    defaultString(item.improvement()),
+                    normalizeImprovement(item.improvement()),
                     normalizeStatus(item.status()),
                     start,
                     start + sentence.length()
@@ -217,6 +217,28 @@ public class AnalysisService {
 
     private String defaultString(String value) {
         return value == null ? "" : value;
+    }
+
+    private String normalizeImprovement(String improvement) {
+        if (!StringUtils.hasText(improvement)) {
+            return "";
+        }
+
+        String normalized = improvement.trim();
+        if (isInstructionLikeImprovement(normalized)) {
+            return "";
+        }
+        return normalized;
+    }
+
+    private boolean isInstructionLikeImprovement(String improvement) {
+        return improvement.endsWith("하세요.")
+                || improvement.endsWith("해주세요.")
+                || improvement.endsWith("해야 합니다.")
+                || improvement.endsWith("필요합니다.")
+                || improvement.contains("추가하여")
+                || improvement.contains("명확히 하세요")
+                || improvement.contains("보완하세요");
     }
 
     private QuestionAnalysisStatus normalizeStatus(String status) {
