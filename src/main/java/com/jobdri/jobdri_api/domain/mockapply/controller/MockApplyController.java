@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockFro
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyRetryResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.mockapply.service.MockApplyService;
@@ -194,6 +195,32 @@ public class MockApplyController {
         return ApiResponse.onSuccess(
                 "모의 서류 지원이 생성되었습니다.",
                 mockApplyService.createMockApply(userDetails.getUser(), request)
+        );
+    }
+
+    @Operation(
+            summary = "모의 서류 지원 재도전",
+            description = "기존 모의 서류 지원의 공고와 선택 문항을 복사해 새 회차의 모의 서류 지원을 생성합니다. 답변은 비워진 상태로 자소서 입력 단계부터 다시 진행합니다."
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "재도전 모의 서류 지원 생성 성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":\"재도전 모의 서류 지원이 생성되었습니다.\",\"result\":{\"sourceMockApplyId\":10,\"jobPostingId\":2,\"mockApplyId\":11,\"applyType\":\"MOCK\",\"status\":\"ANSWER_WRITE\",\"sequence\":2},\"error\":null}")
+                    )
+            )
+    })
+    @PostMapping("/{mockApplyId}/retry")
+    public ApiResponse<MockApplyRetryResponse> retryMockApply(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId
+    ) {
+        return ApiResponse.onSuccess(
+                "재도전 모의 서류 지원이 생성되었습니다.",
+                mockApplyService.retryMockApply(userDetails.getUser(), mockApplyId)
         );
     }
 

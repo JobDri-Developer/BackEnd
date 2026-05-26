@@ -6,11 +6,23 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
     List<MockApply> findAllByUserId(Long userId);
     List<MockApply> findAllByJobPostingId(Long jobPostingId);
     long countByUserIdAndJobPostingId(Long userId, Long jobPostingId);
+
+    @Query("""
+            select ma
+            from MockApply ma
+            join fetch ma.user
+            join fetch ma.jobPosting jp
+            join fetch jp.company
+            join fetch jp.detailClassification
+            where ma.id = :mockApplyId
+            """)
+    Optional<MockApply> findByIdWithJobPosting(@Param("mockApplyId") Long mockApplyId);
 
     @Query("""
             select coalesce(max(ma.sequence), 0)
