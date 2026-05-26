@@ -192,13 +192,17 @@ public class MockApplyService {
     }
 
     private int resolveSequence(User user, JobPosting jobPosting, Integer requestedSequence) {
-        if (requestedSequence != null) {
+        if (isPositiveSequence(requestedSequence)) {
             return requestedSequence;
         }
         return Math.toIntExact(mockApplyRepository.countByUserIdAndJobPostingId(
                 user.getId(),
                 jobPosting.getId()
         )) + 1;
+    }
+
+    private boolean isPositiveSequence(Integer sequence) {
+        return sequence != null && sequence > 0;
     }
 
     private MockApply saveMockApplyWithSequence(
@@ -212,7 +216,7 @@ public class MockApplyService {
             try {
                 return mockApplyRepository.saveAndFlush(MockApply.create(user, jobPosting, applyType, sequence));
             } catch (DataIntegrityViolationException e) {
-                if (requestedSequence != null) {
+                if (isPositiveSequence(requestedSequence)) {
                     throw new GeneralException(
                             GeneralErrorCode.INVALID_PARAMETER,
                             "이미 사용 중인 지원 순번입니다. sequence=" + requestedSequence

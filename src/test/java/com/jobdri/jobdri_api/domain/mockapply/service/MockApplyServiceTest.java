@@ -111,6 +111,24 @@ class MockApplyServiceTest {
     }
 
     @Test
+    @DisplayName("요청 순번이 0 이하이면 다음 유효 순번을 저장한다")
+    void createActualApplyIgnoresNonPositiveRequestedSequence() {
+        User user = saveUser("actual-apply-non-positive-sequence@example.com");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
+        mockApplyService.createActualApply(user, jobPosting.getId());
+
+        MockApplyCreateResponse zeroResponse = mockApplyService.createActualApply(user, jobPosting.getId(), 0);
+        MockApplyCreateResponse negativeResponse = mockApplyService.createActualApply(user, jobPosting.getId(), -1);
+
+        MockApply zeroSequenceApply = mockApplyRepository.findById(zeroResponse.mockApplyId()).orElseThrow();
+        MockApply negativeSequenceApply = mockApplyRepository.findById(negativeResponse.mockApplyId()).orElseThrow();
+        assertThat(zeroResponse.sequence()).isEqualTo(2);
+        assertThat(negativeResponse.sequence()).isEqualTo(3);
+        assertThat(zeroSequenceApply.getSequence()).isEqualTo(2);
+        assertThat(negativeSequenceApply.getSequence()).isEqualTo(3);
+    }
+
+    @Test
     @DisplayName("같은 공고에 이미 사용 중인 순번을 명시하면 예외를 던진다")
     void createActualApplyThrowsWhenRequestedSequenceDuplicated() {
         User user = saveUser("actual-apply-sequence-duplicate@example.com");
