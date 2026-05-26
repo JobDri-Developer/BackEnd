@@ -25,44 +25,75 @@ import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.SQLException;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class MockApplyService {
+    private static final int SEQUENCE_SAVE_MAX_RETRY = 5;
+    private static final String SEQUENCE_UNIQUE_CONSTRAINT = "uk_mock_apply_user_posting_sequence";
+    private static final String UNIQUE_VIOLATION_SQL_STATE = "23505";
+
     private final MockApplyRepository mockApplyRepository;
     private final JobPostingRepository jobPostingRepository;
     private final CompanyRepository companyRepository;
     private final MockJobPostingGenerationService mockJobPostingGenerationService;
     private final JobPostingService jobPostingService;
     private final UserService userService;
+    private final MockApplyPersistenceService mockApplyPersistenceService;
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createActualApply(User user, Long jobPostingId) {
+        return createActualApply(user, jobPostingId, null);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
+    public MockApplyCreateResponse createActualApply(User user, Long jobPostingId, Integer sequence) {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = jobPostingService.getOwnedJobPosting(validatedUser, jobPostingId);
 
-        MockApply mockApply = MockApply.create(validatedUser, jobPosting, ApplyType.ACTUAL);
-        return MockApplyCreateResponse.from(mockApplyRepository.save(mockApply));
+        MockApply mockApply = saveMockApplyWithSequence(
+                validatedUser,
+                jobPosting,
+                ApplyType.ACTUAL,
+                sequence
+        );
+        return MockApplyCreateResponse.from(mockApply);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createMockApplyFromJobPosting(User user, Long jobPostingId) {
+        return createMockApplyFromJobPosting(user, jobPostingId, null);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
+    public MockApplyCreateResponse createMockApplyFromJobPosting(User user, Long jobPostingId, Integer sequence) {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = jobPostingService.getOwnedJobPosting(validatedUser, jobPostingId);
 
-        MockApply mockApply = MockApply.create(validatedUser, jobPosting, ApplyType.MOCK);
-        return MockApplyCreateResponse.from(mockApplyRepository.save(mockApply));
+        MockApply mockApply = saveMockApplyWithSequence(
+                validatedUser,
+                jobPosting,
+                ApplyType.MOCK,
+                sequence
+        );
+        return MockApplyCreateResponse.from(mockApply);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createMockApply(User user, MockApplyCreateMockRequest request) {
         User validatedUser = userService.validateUser(user);
@@ -90,8 +121,13 @@ public class MockApplyService {
                         "생성된 모의 공고를 찾을 수 없습니다. jobPostingId=" + savedJobPostingId
                 ));
 
-        MockApply mockApply = MockApply.create(validatedUser, savedJobPosting, ApplyType.MOCK);
-        return MockApplyCreateResponse.from(mockApplyRepository.save(mockApply));
+        MockApply mockApply = saveMockApplyWithSequence(
+                validatedUser,
+                savedJobPosting,
+                ApplyType.MOCK,
+                request.sequence()
+        );
+        return MockApplyCreateResponse.from(mockApply);
     }
 
     public JobPostingResponse getMockApplyJobPosting(User user, Long mockApplyId) {
@@ -109,8 +145,9 @@ public class MockApplyService {
                 mockApplyRepository.countByUserIdAndJobPostingId(validatedUser.getId(), jobPostingId)
         );
         int sequence = mockApplyRepository.calculateSequence(mockApply);
+        totalCount = Math.max(totalCount, sequence);
 
-        if (sequence < 1 || sequence > totalCount) {
+        if (sequence < 1) {
             throw new GeneralException(
                     GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
                     "해당 공고에 연결된 모의 서류 지원 순서를 찾을 수 없습니다. mockApplyId=" + mockApplyId
@@ -158,5 +195,78 @@ public class MockApplyService {
         }
 
         return mockApply;
+    }
+
+    private int resolveSequence(User user, JobPosting jobPosting, Integer requestedSequence) {
+        if (isPositiveSequence(requestedSequence)) {
+            return requestedSequence;
+        }
+        return Math.toIntExact(mockApplyRepository.countByUserIdAndJobPostingId(
+                user.getId(),
+                jobPosting.getId()
+        )) + 1;
+    }
+
+    private boolean isPositiveSequence(Integer sequence) {
+        return sequence != null && sequence > 0;
+    }
+
+    private MockApply saveMockApplyWithSequence(
+            User user,
+            JobPosting jobPosting,
+            ApplyType applyType,
+            Integer requestedSequence
+    ) {
+        int sequence = resolveSequence(user, jobPosting, requestedSequence);
+        for (int attempt = 0; attempt < SEQUENCE_SAVE_MAX_RETRY; attempt++) {
+            try {
+                return mockApplyPersistenceService.saveAndFlush(MockApply.create(user, jobPosting, applyType, sequence));
+            } catch (DataIntegrityViolationException e) {
+                if (!isSequenceUniqueConflict(e)) {
+                    throw e;
+                }
+                if (isPositiveSequence(requestedSequence)) {
+                    throw new GeneralException(
+                            GeneralErrorCode.INVALID_PARAMETER,
+                            "이미 사용 중인 지원 순번입니다. sequence=" + requestedSequence
+                    );
+                }
+                sequence++;
+            }
+        }
+
+        throw new GeneralException(
+            GeneralErrorCode.INTERNAL_SERVER_ERROR,
+            "모의 서류 지원 순번 생성에 실패했습니다."
+        );
+    }
+
+    private boolean isSequenceUniqueConflict(DataIntegrityViolationException exception) {
+        Throwable cause = exception;
+        while (cause != null) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException constraintViolation
+                    && isSequenceConstraintName(constraintViolation.getConstraintName())) {
+                return true;
+            }
+            if (cause instanceof SQLException sqlException
+                    && UNIQUE_VIOLATION_SQL_STATE.equals(sqlException.getSQLState())
+                    && containsSequenceConstraint(sqlException.getMessage())) {
+                return true;
+            }
+            if (containsSequenceConstraint(cause.getMessage())) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+        return false;
+    }
+
+    private boolean isSequenceConstraintName(String constraintName) {
+        return containsSequenceConstraint(constraintName);
+    }
+
+    private boolean containsSequenceConstraint(String value) {
+        return value != null
+                && value.toLowerCase(Locale.ROOT).contains(SEQUENCE_UNIQUE_CONSTRAINT);
     }
 }

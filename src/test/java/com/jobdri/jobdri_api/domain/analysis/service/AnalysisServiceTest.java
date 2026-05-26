@@ -162,6 +162,34 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("분석 응답은 저장된 지원 순번을 우선 반환한다")
+    void analyzeReturnsStoredSequence() {
+        User user = saveUser("analysis-stored-sequence@example.com");
+        JobPosting jobPosting = saveJobPosting(user);
+        MockApply mockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL, 4));
+        Question question = saveQuestion(mockApply, "재지원 분석 문항입니다.", "Spring Boot API를 개발했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                81,
+                82,
+                83,
+                "저장 순번 분석입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "Spring Boot API를 개발했습니다.",
+                        "mentioned",
+                        "성과 지표가 부족합니다.",
+                        "Spring Boot API를 개발해 응답 시간을 개선했습니다."
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.mockApplyId()).isEqualTo(mockApply.getId());
+        assertThat(response.sequence()).isEqualTo(4);
+    }
+
+    @Test
     @DisplayName("LLM 분석 실패 시 크레딧 차감과 분석 저장을 롤백한다")
     void analyzeRollsBackCreditWhenLlmFails() {
         User user = saveUser("analysis-credit-rollback@example.com");

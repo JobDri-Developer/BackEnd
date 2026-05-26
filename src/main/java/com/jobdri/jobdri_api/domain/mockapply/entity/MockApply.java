@@ -16,7 +16,13 @@ import java.util.List;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder(access = AccessLevel.PRIVATE)
-@Table(name = "mock_applies")
+@Table(
+        name = "mock_applies",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_mock_apply_user_posting_sequence",
+                columnNames = {"user_id", "job_posting_id", "sequence"}
+        )
+)
 public class MockApply {
 
     @Id
@@ -39,6 +45,8 @@ public class MockApply {
     @Column(nullable = false)
     private MockApplyStatus status;
 
+    private Integer sequence;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -50,11 +58,16 @@ public class MockApply {
     private List<Question> questions = new ArrayList<>();
 
     public static MockApply create(User user, JobPosting jobPosting, ApplyType applyType) {
+        return create(user, jobPosting, applyType, null);
+    }
+
+    public static MockApply create(User user, JobPosting jobPosting, ApplyType applyType, Integer sequence) {
         return MockApply.builder()
                 .user(user)
                 .jobPosting(jobPosting)
                 .applyType(applyType)
                 .status(MockApplyStatus.APPLICATION_CREATED)
+                .sequence(sequence)
                 .createdAt(LocalDateTime.now())
                 .build();
     }
