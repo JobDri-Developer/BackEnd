@@ -1,7 +1,9 @@
 package com.jobdri.jobdri_api.domain.mockapply.service;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
+import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
+import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.classification.entity.Classification;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.entity.MiddleClassification;
@@ -17,6 +19,7 @@ import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationS
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyRetryResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
@@ -61,6 +64,9 @@ class MockApplyServiceTest {
 
     @Autowired
     private AnalysisRepository analysisRepository;
+
+    @Autowired
+    private QuestionRepository questionRepository;
 
     @Autowired
     private JobPostingRepository jobPostingRepository;
@@ -230,6 +236,42 @@ class MockApplyServiceTest {
     }
 
     @Test
+    @DisplayName("기존 지원의 공고와 문항을 복사해 재도전 지원을 생성한다")
+    void retryMockApply() {
+        User user = saveUser("retry-mock-apply@example.com");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
+        MockApply sourceMockApply = saveMockApply(user, jobPosting, ApplyType.MOCK, 1);
+        saveQuestion(sourceMockApply, "지원 동기와 입사 후 목표를 작성해주세요.", 700, "기존 답변");
+        saveQuestion(sourceMockApply, "직접 추가한 문항입니다.", 1000, "기존 직접 추가 답변");
+
+        MockApplyRetryResponse response = mockApplyService.retryMockApply(user, sourceMockApply.getId());
+
+        MockApply retryMockApply = mockApplyRepository.findById(response.mockApplyId()).orElseThrow();
+        JobPosting retryJobPosting = jobPostingRepository.findById(response.jobPostingId()).orElseThrow();
+        List<Question> retryQuestions = questionRepository.findAllByMockApplyIdOrderByIdAsc(response.mockApplyId());
+        assertThat(response.sourceMockApplyId()).isEqualTo(sourceMockApply.getId());
+        assertThat(response.sequence()).isEqualTo(2);
+        assertThat(response.status()).isEqualTo(MockApplyStatus.ANSWER_WRITE);
+        assertThat(retryMockApply.getApplyType()).isEqualTo(ApplyType.MOCK);
+        assertThat(retryMockApply.getSequence()).isEqualTo(2);
+        assertThat(retryMockApply.getStatus()).isEqualTo(MockApplyStatus.ANSWER_WRITE);
+        assertThat(retryJobPosting.getId()).isNotEqualTo(jobPosting.getId());
+        assertThat(retryJobPosting.getCompany().getId()).isEqualTo(jobPosting.getCompany().getId());
+        assertThat(retryJobPosting.getDetailClassification().getId()).isEqualTo(jobPosting.getDetailClassification().getId());
+        assertThat(retryJobPosting.getTask()).isEqualTo(jobPosting.getTask());
+        assertThat(retryQuestions).hasSize(2);
+        assertThat(retryQuestions)
+                .extracting(Question::getContent)
+                .containsExactly(
+                        "지원 동기와 입사 후 목표를 작성해주세요.",
+                        "직접 추가한 문항입니다."
+                );
+        assertThat(retryQuestions)
+                .extracting(Question::getAnswer)
+                .containsExactly("", "");
+    }
+
+    @Test
     @DisplayName("mockApplyId로 생성된 모의 공고를 조회한다")
     void getMockApplyJobPosting() {
         User user = saveUser("mock-job-posting@example.com");
@@ -290,6 +332,7 @@ class MockApplyServiceTest {
         assertThat(response.completed()).hasSize(1);
         assertThat(response.inProgress().get(0).mockApplyId()).isEqualTo(inProgress.getId());
         assertThat(response.inProgress().get(0).jobPostingId()).isEqualTo(backendPosting.getId());
+        assertThat(response.inProgress().get(0).sequence()).isEqualTo(1);
         assertThat(response.inProgress().get(0).status()).isEqualTo(MockApplyStatus.ANSWER_WRITE);
         assertThat(response.inProgress().get(0).companyName()).isEqualTo("테스트 기업");
         assertThat(response.inProgress().get(0).detailClassificationName()).isEqualTo("백엔드 개발");
@@ -298,6 +341,7 @@ class MockApplyServiceTest {
         assertThat(response.inProgress().get(0).score()).isNull();
         assertThat(response.inProgress().get(0).resumePath()).isEqualTo("/mock-applies/" + inProgress.getId() + "/answers");
         assertThat(response.completed().get(0).mockApplyId()).isEqualTo(completed.getId());
+        assertThat(response.completed().get(0).sequence()).isEqualTo(1);
         assertThat(response.completed().get(0).score()).isEqualTo(71);
         assertThat(response.completed().get(0).applyType()).isEqualTo(ApplyType.MOCK);
         assertThat(response.completed().get(0).resumePath()).isEqualTo("/mock-applies/" + completed.getId() + "/analysis");
@@ -445,6 +489,15 @@ class MockApplyServiceTest {
         return inNewTransaction(() -> mockApplyRepository.saveAndFlush(
                 MockApply.create(user, jobPosting, applyType, sequence)
         ));
+    }
+
+    private Question saveQuestion(MockApply mockApply, String content, int limit, String answer) {
+        return inNewTransaction(() -> questionRepository.save(Question.create(
+                mockApplyRepository.findById(mockApply.getId()).orElseThrow(),
+                content,
+                limit,
+                answer
+        )));
     }
 
     private <T> T inNewTransaction(Supplier<T> action) {

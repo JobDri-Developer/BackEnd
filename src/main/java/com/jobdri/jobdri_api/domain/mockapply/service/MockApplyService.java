@@ -1,5 +1,7 @@
 package com.jobdri.jobdri_api.domain.mockapply.service;
 
+import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
@@ -15,6 +17,7 @@ import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockReq
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeItemResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyRetryResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
@@ -47,6 +50,7 @@ public class MockApplyService {
     private final MockApplyRepository mockApplyRepository;
     private final JobPostingRepository jobPostingRepository;
     private final CompanyRepository companyRepository;
+    private final QuestionRepository questionRepository;
     private final MockJobPostingGenerationService mockJobPostingGenerationService;
     private final JobPostingService jobPostingService;
     private final UserService userService;
@@ -72,6 +76,48 @@ public class MockApplyService {
                 sequence
         );
         return MockApplyCreateResponse.from(mockApply);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @AuditLogEvent(action = "MOCK_APPLY_RETRY", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
+    public MockApplyRetryResponse retryMockApply(User user, Long mockApplyId) {
+        User validatedUser = userService.validateUser(user);
+        MockApply sourceMockApply = getOwnedMockApplyWithJobPosting(validatedUser, mockApplyId);
+        JobPosting sourceJobPosting = sourceMockApply.getJobPosting();
+
+        JobPosting clonedJobPosting = jobPostingRepository.save(JobPosting.create(
+                validatedUser,
+                sourceJobPosting.getCompany(),
+                sourceJobPosting.getDetailClassification(),
+                sourceJobPosting.getTask(),
+                sourceJobPosting.getRequirement(),
+                sourceJobPosting.getPreferred()
+        ));
+
+        MockApply retryMockApply = saveMockApplyWithSequence(
+                validatedUser,
+                clonedJobPosting,
+                sourceMockApply.getApplyType(),
+                null
+        );
+
+        List<Question> sourceQuestions = questionRepository.findAllByMockApplyIdOrderByIdAsc(sourceMockApply.getId());
+        if (!sourceQuestions.isEmpty()) {
+            MockApply targetMockApply = retryMockApply;
+            List<Question> retryQuestions = sourceQuestions.stream()
+                    .map(question -> Question.create(
+                            targetMockApply,
+                            question.getContent(),
+                            question.getLimit(),
+                            ""
+                    ))
+                    .toList();
+            mockApplyPersistenceService.saveQuestions(retryQuestions);
+            retryMockApply.updateStatus(MockApplyStatus.ANSWER_WRITE);
+            retryMockApply = mockApplyPersistenceService.saveAndFlush(retryMockApply);
+        }
+
+        return MockApplyRetryResponse.of(sourceMockApply.getId(), retryMockApply);
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -187,6 +233,20 @@ public class MockApplyService {
 
     private MockApply getOwnedMockApply(User user, Long mockApplyId) {
         MockApply mockApply = mockApplyRepository.findById(mockApplyId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
+                        "해당 모의 서류 지원을 찾을 수 없습니다. mockApplyId=" + mockApplyId
+                ));
+
+        if (!mockApply.getUser().getId().equals(user.getId())) {
+            throw new GeneralException(GeneralErrorCode.FORBIDDEN, "해당 모의 서류 지원에 접근할 수 없습니다.");
+        }
+
+        return mockApply;
+    }
+
+    private MockApply getOwnedMockApplyWithJobPosting(User user, Long mockApplyId) {
+        MockApply mockApply = mockApplyRepository.findByIdWithJobPosting(mockApplyId)
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
                         "해당 모의 서류 지원을 찾을 수 없습니다. mockApplyId=" + mockApplyId
