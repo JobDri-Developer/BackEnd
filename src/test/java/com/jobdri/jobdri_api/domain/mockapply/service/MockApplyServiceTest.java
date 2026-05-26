@@ -33,10 +33,15 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.UUID;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -71,6 +76,9 @@ class MockApplyServiceTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
 
     @MockBean
     private MockJobPostingGenerationService mockJobPostingGenerationService;
@@ -115,17 +123,18 @@ class MockApplyServiceTest {
     void createActualApplyIgnoresNonPositiveRequestedSequence() {
         User user = saveUser("actual-apply-non-positive-sequence@example.com");
         JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
-        mockApplyService.createActualApply(user, jobPosting.getId());
+        saveMockApply(user, jobPosting, ApplyType.ACTUAL, 1);
+        saveMockApply(user, jobPosting, ApplyType.ACTUAL, 3);
 
         MockApplyCreateResponse zeroResponse = mockApplyService.createActualApply(user, jobPosting.getId(), 0);
         MockApplyCreateResponse negativeResponse = mockApplyService.createActualApply(user, jobPosting.getId(), -1);
 
         MockApply zeroSequenceApply = mockApplyRepository.findById(zeroResponse.mockApplyId()).orElseThrow();
         MockApply negativeSequenceApply = mockApplyRepository.findById(negativeResponse.mockApplyId()).orElseThrow();
-        assertThat(zeroResponse.sequence()).isEqualTo(2);
-        assertThat(negativeResponse.sequence()).isEqualTo(3);
-        assertThat(zeroSequenceApply.getSequence()).isEqualTo(2);
-        assertThat(negativeSequenceApply.getSequence()).isEqualTo(3);
+        assertThat(zeroResponse.sequence()).isEqualTo(4);
+        assertThat(negativeResponse.sequence()).isEqualTo(5);
+        assertThat(zeroSequenceApply.getSequence()).isEqualTo(4);
+        assertThat(negativeSequenceApply.getSequence()).isEqualTo(5);
     }
 
     @Test
@@ -145,7 +154,8 @@ class MockApplyServiceTest {
     @DisplayName("소분류를 기준으로 가상 공고와 MOCK 타입 모의 서류 지원을 생성한다")
     void createMockApply() {
         User user = saveUser("mock-apply@example.com");
-        Company company = companyRepository.save(Company.create("선택 기업", CompanySize.MEDIUM));
+        String companyName = "선택 기업 " + UUID.randomUUID();
+        Company company = saveCompany(companyName, CompanySize.MEDIUM);
         DetailClassification detailClassification = saveDetailClassification("프론트엔드 개발");
         Long middleClassificationId = detailClassification.getMiddleClassification().getId();
         MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(
@@ -155,7 +165,7 @@ class MockApplyServiceTest {
         );
         when(mockJobPostingGenerationService.generate(any()))
                 .thenReturn(new JobPostingMockGenerateResponse(
-                        "선택 기업",
+                        companyName,
                         "프론트엔드 개발자",
                         "웹 프론트엔드 개발 및 운영",
                         "HTML/CSS/JavaScript 기본기",
@@ -175,7 +185,7 @@ class MockApplyServiceTest {
         assertThat(mockApply.getStatus()).isEqualTo(MockApplyStatus.APPLICATION_CREATED);
         assertThat(mockApply.getSequence()).isEqualTo(1);
         assertThat(jobPosting.getCompany().getId()).isEqualTo(company.getId());
-        assertThat(jobPosting.getCompany().getName()).isEqualTo("선택 기업");
+        assertThat(jobPosting.getCompany().getName()).isEqualTo(companyName);
         assertThat(jobPosting.getCompany().getSize()).isEqualTo(CompanySize.MEDIUM);
         assertThat(jobPosting.getDetailClassification().getId()).isEqualTo(detailClassification.getId());
         assertThat(jobPosting.getTask()).isEqualTo("웹 프론트엔드 개발 및 운영");
@@ -303,7 +313,7 @@ class MockApplyServiceTest {
     @DisplayName("존재하지 않는 소분류 ID로 MOCK 타입 지원 생성 시 예외를 던진다")
     void createMockApplyThrowsWhenDetailClassificationNotFound() {
         User user = saveUser("missing-detail-classification@example.com");
-        Company company = companyRepository.save(Company.create("선택 기업", CompanySize.MEDIUM));
+        Company company = saveCompany("선택 기업 " + UUID.randomUUID(), CompanySize.MEDIUM);
         MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(company.getId(), 1L, 9999L);
         when(mockJobPostingGenerationService.generate(any()))
                 .thenThrow(new GeneralException(
@@ -333,7 +343,7 @@ class MockApplyServiceTest {
     @DisplayName("소분류가 중분류에 속하지 않으면 MOCK 타입 지원 생성 시 예외를 던진다")
     void createMockApplyThrowsWhenMiddleClassificationMismatched() {
         User user = saveUser("middle-mismatch@example.com");
-        Company company = companyRepository.save(Company.create("선택 기업", CompanySize.MEDIUM));
+        Company company = saveCompany("선택 기업 " + UUID.randomUUID(), CompanySize.MEDIUM);
         DetailClassification detailClassification = saveDetailClassification("데이터 분석");
         MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(company.getId(), 9999L, detailClassification.getId());
         when(mockJobPostingGenerationService.generate(any()))
@@ -363,27 +373,49 @@ class MockApplyServiceTest {
     }
 
     private User saveUser(String email) {
-        return userRepository.save(User.signup("테스트 사용자", email, "encoded-password"));
+        return inNewTransaction(() -> userRepository.save(User.signup("테스트 사용자", email, "encoded-password")));
     }
 
     private JobPosting saveJobPosting(User user, String detailName) {
-        Company company = companyRepository.save(Company.create("테스트 기업", CompanySize.MEDIUM));
-        DetailClassification detailClassification = saveDetailClassification(detailName);
-        return jobPostingRepository.save(JobPosting.create(
-                user,
-                company,
-                detailClassification,
-                "주요 업무",
-                "자격 요건",
-                "우대 사항"
-        ));
+        return inNewTransaction(() -> {
+            Company company = companyRepository.save(Company.create("테스트 기업", CompanySize.MEDIUM));
+            DetailClassification detailClassification = saveDetailClassificationInCurrentTransaction(detailName);
+            return jobPostingRepository.save(JobPosting.create(
+                    user,
+                    company,
+                    detailClassification,
+                    "주요 업무",
+                    "자격 요건",
+                    "우대 사항"
+            ));
+        });
     }
 
     private DetailClassification saveDetailClassification(String detailName) {
-        Classification classification = Classification.create("테스트 대분류 " + detailName);
+        return inNewTransaction(() -> saveDetailClassificationInCurrentTransaction(detailName));
+    }
+
+    private DetailClassification saveDetailClassificationInCurrentTransaction(String detailName) {
+        Classification classification = Classification.create("테스트 대분류 " + detailName + " " + UUID.randomUUID());
         MiddleClassification middleClassification = classification.addMiddleClassification("테스트 중분류 " + detailName);
         DetailClassification detailClassification = middleClassification.addDetailClassification(detailName);
         classificationRepository.save(classification);
         return detailClassificationRepository.findById(detailClassification.getId()).orElseThrow();
+    }
+
+    private Company saveCompany(String name, CompanySize size) {
+        return inNewTransaction(() -> companyRepository.save(Company.create(name, size)));
+    }
+
+    private MockApply saveMockApply(User user, JobPosting jobPosting, ApplyType applyType, Integer sequence) {
+        return inNewTransaction(() -> mockApplyRepository.saveAndFlush(
+                MockApply.create(user, jobPosting, applyType, sequence)
+        ));
+    }
+
+    private <T> T inNewTransaction(Supplier<T> action) {
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        return transactionTemplate.execute(status -> action.get());
     }
 }

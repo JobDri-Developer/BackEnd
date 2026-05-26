@@ -27,6 +27,7 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
@@ -44,14 +45,15 @@ public class MockApplyService {
     private final MockJobPostingGenerationService mockJobPostingGenerationService;
     private final JobPostingService jobPostingService;
     private final UserService userService;
+    private final MockApplyPersistenceService mockApplyPersistenceService;
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createActualApply(User user, Long jobPostingId) {
         return createActualApply(user, jobPostingId, null);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createActualApply(User user, Long jobPostingId, Integer sequence) {
         User validatedUser = userService.validateUser(user);
@@ -66,13 +68,13 @@ public class MockApplyService {
         return MockApplyCreateResponse.from(mockApply);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createMockApplyFromJobPosting(User user, Long jobPostingId) {
         return createMockApplyFromJobPosting(user, jobPostingId, null);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createMockApplyFromJobPosting(User user, Long jobPostingId, Integer sequence) {
         User validatedUser = userService.validateUser(user);
@@ -87,7 +89,7 @@ public class MockApplyService {
         return MockApplyCreateResponse.from(mockApply);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createMockApply(User user, MockApplyCreateMockRequest request) {
         User validatedUser = userService.validateUser(user);
@@ -214,7 +216,7 @@ public class MockApplyService {
         int sequence = resolveSequence(user, jobPosting, requestedSequence);
         for (int attempt = 0; attempt < SEQUENCE_SAVE_MAX_RETRY; attempt++) {
             try {
-                return mockApplyRepository.saveAndFlush(MockApply.create(user, jobPosting, applyType, sequence));
+                return mockApplyPersistenceService.saveAndFlush(MockApply.create(user, jobPosting, applyType, sequence));
             } catch (DataIntegrityViolationException e) {
                 if (isPositiveSequence(requestedSequence)) {
                     throw new GeneralException(
