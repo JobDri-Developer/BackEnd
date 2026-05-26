@@ -201,10 +201,11 @@ public class MockApplyService {
         if (isPositiveSequence(requestedSequence)) {
             return requestedSequence;
         }
-        return Math.toIntExact(mockApplyRepository.countByUserIdAndJobPostingId(
+        return mockApplyRepository.findMaxSequenceByUserIdAndCompanyIdAndDetailClassificationId(
                 user.getId(),
-                jobPosting.getId()
-        )) + 1;
+                jobPosting.getCompany().getId(),
+                jobPosting.getDetailClassification().getId()
+        ) + 1;
     }
 
     private boolean isPositiveSequence(Integer sequence) {

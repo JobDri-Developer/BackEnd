@@ -12,6 +12,19 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
     List<MockApply> findAllByJobPostingId(Long jobPostingId);
     long countByUserIdAndJobPostingId(Long userId, Long jobPostingId);
 
+    @Query("""
+            select coalesce(max(ma.sequence), 0)
+            from MockApply ma
+            where ma.user.id = :userId
+              and ma.jobPosting.company.id = :companyId
+              and ma.jobPosting.detailClassification.id = :detailClassificationId
+            """)
+    int findMaxSequenceByUserIdAndCompanyIdAndDetailClassificationId(
+            @Param("userId") Long userId,
+            @Param("companyId") Long companyId,
+            @Param("detailClassificationId") Long detailClassificationId
+    );
+
     default int calculateSequence(MockApply mockApply) {
         if (mockApply.getSequence() != null && mockApply.getSequence() > 0) {
             return mockApply.getSequence();

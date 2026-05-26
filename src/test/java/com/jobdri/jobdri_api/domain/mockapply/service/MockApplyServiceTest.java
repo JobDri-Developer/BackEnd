@@ -119,6 +119,24 @@ class MockApplyServiceTest {
     }
 
     @Test
+    @DisplayName("같은 회사와 직무의 다른 공고로 재지원하면 다음 순번을 저장한다")
+    void createActualApplySequencesAcrossSameCompanyAndDetailJobPostings() {
+        User user = saveUser("actual-apply-retry-sequence@example.com");
+        Company company = saveCompany("재지원 기업 " + UUID.randomUUID(), CompanySize.MEDIUM);
+        DetailClassification detailClassification = saveDetailClassification("백엔드 개발");
+        JobPosting firstJobPosting = saveJobPosting(user, company, detailClassification, "첫 번째 JD");
+        JobPosting secondJobPosting = saveJobPosting(user, company, detailClassification, "복제된 JD");
+
+        MockApplyCreateResponse firstResponse = mockApplyService.createActualApply(user, firstJobPosting.getId());
+        MockApplyCreateResponse secondResponse = mockApplyService.createActualApply(user, secondJobPosting.getId());
+
+        MockApply secondMockApply = mockApplyRepository.findById(secondResponse.mockApplyId()).orElseThrow();
+        assertThat(firstResponse.sequence()).isEqualTo(1);
+        assertThat(secondResponse.sequence()).isEqualTo(2);
+        assertThat(secondMockApply.getSequence()).isEqualTo(2);
+    }
+
+    @Test
     @DisplayName("요청 순번이 0 이하이면 다음 유효 순번을 저장한다")
     void createActualApplyIgnoresNonPositiveRequestedSequence() {
         User user = saveUser("actual-apply-non-positive-sequence@example.com");
@@ -389,6 +407,22 @@ class MockApplyServiceTest {
                     "우대 사항"
             ));
         });
+    }
+
+    private JobPosting saveJobPosting(
+            User user,
+            Company company,
+            DetailClassification detailClassification,
+            String task
+    ) {
+        return inNewTransaction(() -> jobPostingRepository.save(JobPosting.create(
+                userRepository.findById(user.getId()).orElseThrow(),
+                companyRepository.findById(company.getId()).orElseThrow(),
+                detailClassificationRepository.findById(detailClassification.getId()).orElseThrow(),
+                task,
+                "자격 요건",
+                "우대 사항"
+        )));
     }
 
     private DetailClassification saveDetailClassification(String detailName) {
