@@ -149,7 +149,7 @@ public class AnalysisService {
                     analysis,
                     sentence,
                     defaultString(item.reason()),
-                    defaultString(item.improvement()),
+                    normalizeImprovement(item.improvement()),
                     normalizeStatus(item.status()),
                     start,
                     start + sentence.length()
@@ -217,6 +217,32 @@ public class AnalysisService {
 
     private String defaultString(String value) {
         return value == null ? "" : value;
+    }
+
+    private String normalizeImprovement(String improvement) {
+        if (!StringUtils.hasText(improvement)) {
+            return "";
+        }
+
+        String normalized = improvement.trim();
+        if (isInstructionLikeImprovement(normalized)) {
+            return "";
+        }
+        return normalized;
+    }
+
+    private boolean isInstructionLikeImprovement(String improvement) {
+        return improvement.endsWith("하세요.")
+                || improvement.endsWith("해주세요.")
+                || improvement.endsWith("해 주세요.")
+                || improvement.endsWith("하십시오.")
+                || improvement.endsWith("해주십시오.")
+                || improvement.endsWith("해 주십시오.")
+                || improvement.endsWith("해야 합니다.")
+                || improvement.endsWith("필요합니다.")
+                || improvement.matches(".*[을를]\\s+(추가|보완|수정)하\\s*(세요|십시오).*")
+                || improvement.matches(".*명확히\\s+(하\\s*(세요|십시오|야 합니다)|해\\s*(주세요|주십시오|야 합니다)).*")
+                || improvement.matches("^(추가|보완|수정).*(하세요|해주세요|해 주세요|하십시오|해주십시오|해 주십시오)(\\.|$)");
     }
 
     private QuestionAnalysisStatus normalizeStatus(String status) {

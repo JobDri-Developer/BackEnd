@@ -237,6 +237,127 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("LLM improvement가 첨삭 지시문이면 빈 값으로 저장한다")
+    void analyzeNormalizesInstructionLikeImprovement() {
+        User user = saveUser("analysis-instruction-improvement@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "문제 해결 경험", "저는 로그를 확인하고 쿼리 실행 계획을 분석했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                64,
+                70,
+                55,
+                67,
+                "개선 예시 문장 검증입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "저는 로그를 확인하고 쿼리 실행 계획을 분석했습니다.",
+                        "mentioned",
+                        "성과 수치가 부족합니다.",
+                        "성과 수치를 추가하여 문제 해결의 효과를 명확히 하세요."
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).improvement()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("완성된 평서문 improvement는 그대로 저장한다")
+    void analyzePreservesDeclarativeImprovement() {
+        User user = saveUser("analysis-declarative-improvement@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "문제 해결 경험", "저는 로그를 확인했습니다.");
+        String validImprovement = "저는 로그를 분석하고 누락된 인덱스를 추가하여 응답 시간을 1.8초에서 0.6초로 단축했습니다.";
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                70,
+                75,
+                65,
+                70,
+                "평서문 검증입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "저는 로그를 확인했습니다.",
+                        "mentioned",
+                        "성과가 부족합니다.",
+                        validImprovement
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).improvement())
+                .isEqualTo(validImprovement);
+    }
+
+    @Test
+    @DisplayName("띄어쓰기가 포함된 첨삭 지시문도 빈 값으로 저장한다")
+    void analyzeNormalizesSpacedInstructionLikeImprovement() {
+        User user = saveUser("analysis-spaced-instruction-improvement@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "문제 해결 경험", "저는 로그를 확인했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                64,
+                70,
+                55,
+                67,
+                "띄어쓰기 지시문 검증입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "저는 로그를 확인했습니다.",
+                        "mentioned",
+                        "성과가 부족합니다.",
+                        "성과 수치를 추가해 주세요."
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).improvement()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("하십시오와 해주십시오 형태의 첨삭 지시문도 빈 값으로 저장한다")
+    void analyzeNormalizesFormalInstructionLikeImprovement() {
+        User user = saveUser("analysis-formal-instruction-improvement@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question firstQuestion = saveQuestion(mockApply, "문제 해결 경험", "저는 로그를 확인했습니다.");
+        Question secondQuestion = saveQuestion(mockApply, "성과 경험", "저는 API 응답 속도를 개선했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                64,
+                70,
+                55,
+                67,
+                "격식체 지시문 검증입니다.",
+                List.of(
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                firstQuestion.getId(),
+                                "저는 로그를 확인했습니다.",
+                                "mentioned",
+                                "성과가 부족합니다.",
+                                "문장을 명확히 하십시오."
+                        ),
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                secondQuestion.getId(),
+                                "저는 API 응답 속도를 개선했습니다.",
+                                "mentioned",
+                                "성과 수치가 부족합니다.",
+                                "수정해주십시오."
+                        )
+                )
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions()).hasSize(2);
+        assertThat(response.questions().get(0).analyses().get(0).improvement()).isEmpty();
+        assertThat(response.questions().get(1).analyses().get(0).improvement()).isEmpty();
+    }
+
+    @Test
     @DisplayName("재분석 시 기존 분석과 문항 분석을 새 결과로 교체한다")
     void analyzeReplacesExistingAnalysis() {
         User user = saveUser("analysis-replace@example.com");

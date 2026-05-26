@@ -81,7 +81,7 @@ public class AnalysisAiClient {
                       "sentence": "자소서 답변 안에 실제 존재하는 정확한 부분 문자열",
                       "status": "mentioned",
                       "reason": "문제 이유",
-                      "improvement": "개선 예시 문장"
+                      "improvement": "사용자가 그대로 붙여 넣을 수 있는 완성된 개선 예시 문장"
                     }
                   ]
                 }
@@ -134,6 +134,12 @@ public class AnalysisAiClient {
                 - questionAnalyses의 questionId는 입력된 questionId 중 하나만 사용한다.
                 - questionAnalyses의 status는 proven, mentioned, missing, fabricated 중 하나만 사용한다.
                 - sentence는 answer에 포함된 정확한 substring만 사용한다.
+                - improvement는 첨삭 조언이 아니라 sentence를 대체할 수 있는 완성된 예시 문장이어야 한다.
+                - improvement에는 "하세요.", "해주세요.", "해야 합니다.", "필요합니다."로 끝나는 지시문을 쓰지 않는다.
+                - improvement에는 "추가하세요.", "보완하세요.", "수정해주세요.", "명확히 해야 합니다." 같은 첨삭 조언 표현을 쓰지 않는다.
+                - improvement는 반드시 한국어 평서문으로 작성하고, 가능하면 수치/성과/행동을 포함한다.
+                - 좋은 improvement 예: "저는 쿼리 실행 계획을 분석해 누락된 인덱스를 추가했고, 평균 응답 시간을 1.8초에서 0.6초로 단축했습니다."
+                - 나쁜 improvement 예: "성과 수치를 추가하여 문제 해결의 효과를 명확히 하세요."
                 - start/end index는 출력하지 않는다. 서버가 Java에서 계산한다.
                 - 원문 매칭이 불확실하면 questionAnalyses에 포함하지 않는다.
                 """.formatted(
