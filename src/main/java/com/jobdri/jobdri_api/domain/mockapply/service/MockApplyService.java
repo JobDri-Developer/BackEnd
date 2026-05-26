@@ -108,14 +108,7 @@ public class MockApplyService {
         int totalCount = Math.toIntExact(
                 mockApplyRepository.countByUserIdAndJobPostingId(validatedUser.getId(), jobPostingId)
         );
-        int sequence = Math.toIntExact(
-                mockApplyRepository.countSequenceByUserIdAndJobPostingId(
-                        validatedUser.getId(),
-                        jobPostingId,
-                        mockApply.getCreatedAt(),
-                        mockApply.getId()
-                )
-        );
+        int sequence = mockApplyRepository.calculateSequence(mockApply);
 
         if (sequence < 1 || sequence > totalCount) {
             throw new GeneralException(

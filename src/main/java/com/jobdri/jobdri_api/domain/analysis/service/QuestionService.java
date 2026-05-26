@@ -199,6 +199,7 @@ public class QuestionService {
         return new QuestionAnswerResponse(
                 mockApply.getId(),
                 mockApply.getStatus(),
+                mockApplyRepository.calculateSequence(mockApply),
                 questions.stream().map(QuestionResponse::from).toList()
         );
     }

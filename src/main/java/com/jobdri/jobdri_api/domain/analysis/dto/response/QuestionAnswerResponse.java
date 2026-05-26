@@ -7,6 +7,7 @@ import java.util.List;
 public record QuestionAnswerResponse(
         Long mockApplyId,
         MockApplyStatus status,
+        int sequence,
         List<QuestionResponse> questions
 ) {
 }

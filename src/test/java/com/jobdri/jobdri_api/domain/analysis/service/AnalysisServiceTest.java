@@ -111,6 +111,7 @@ class AnalysisServiceTest {
         AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
 
         assertThat(response.status()).isEqualTo(MockApplyStatus.COMPLETED);
+        assertThat(response.sequence()).isEqualTo(1);
         assertThat(response.score()).isEqualTo(100);
         assertThat(response.jobFit()).isEqualTo(82);
         assertThat(response.impact()).isEqualTo(71);
@@ -129,6 +130,35 @@ class AnalysisServiceTest {
                 user.getId(),
                 CreditTransactionType.USE
         )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("분석 응답은 같은 공고 기준 현재 지원 순번을 반환한다")
+    void analyzeReturnsSequence() {
+        User user = saveUser("analysis-sequence@example.com");
+        JobPosting jobPosting = saveJobPosting(user);
+        mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
+        MockApply secondMockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
+        Question question = saveQuestion(secondMockApply, "재지원 분석 문항입니다.", "Spring Boot API를 개발했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                81,
+                82,
+                83,
+                "재지원 분석입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "Spring Boot API를 개발했습니다.",
+                        "mentioned",
+                        "성과 지표가 부족합니다.",
+                        "Spring Boot API를 개발해 응답 시간을 개선했습니다."
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, secondMockApply.getId());
+
+        assertThat(response.mockApplyId()).isEqualTo(secondMockApply.getId());
+        assertThat(response.sequence()).isEqualTo(2);
     }
 
     @Test
