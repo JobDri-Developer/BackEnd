@@ -216,7 +216,10 @@ public class MockApplyService {
                 );
             } catch (DataIntegrityViolationException e) {
                 if (attempt == SEQUENCE_ALLOCATE_MAX_RETRY - 1) {
-                    throw e;
+                    throw new GeneralException(
+                            GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                            "모의 서류 지원 순번 할당에 실패했습니다."
+                    );
                 }
             }
         }
