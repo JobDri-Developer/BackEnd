@@ -88,7 +88,7 @@ public class MockApplyController {
     ) {
         return ApiResponse.onSuccess(
                 "모의 서류 지원이 생성되었습니다.",
-                mockApplyService.createActualApply(userDetails.getUser(), request.jobPostingId())
+                mockApplyService.createActualApply(userDetails.getUser(), request.jobPostingId(), request.sequence())
         );
     }
 
@@ -132,7 +132,11 @@ public class MockApplyController {
     ) {
         return ApiResponse.onSuccess(
                 "모의 서류 지원이 생성되었습니다.",
-                mockApplyService.createMockApplyFromJobPosting(userDetails.getUser(), request.jobPostingId())
+                mockApplyService.createMockApplyFromJobPosting(
+                        userDetails.getUser(),
+                        request.jobPostingId(),
+                        request.sequence()
+                )
         );
     }
 

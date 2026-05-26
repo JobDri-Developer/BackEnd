@@ -86,10 +86,28 @@ class MockApplyServiceTest {
         MockApply mockApply = mockApplyRepository.findById(response.mockApplyId()).orElseThrow();
         assertThat(response.jobPostingId()).isEqualTo(jobPosting.getId());
         assertThat(response.applyType()).isEqualTo(ApplyType.ACTUAL);
+        assertThat(response.sequence()).isEqualTo(1);
         assertThat(mockApply.getUser().getId()).isEqualTo(user.getId());
         assertThat(mockApply.getJobPosting().getId()).isEqualTo(jobPosting.getId());
         assertThat(mockApply.getApplyType()).isEqualTo(ApplyType.ACTUAL);
         assertThat(mockApply.getStatus()).isEqualTo(MockApplyStatus.APPLICATION_CREATED);
+        assertThat(mockApply.getSequence()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("요청 순번이 있으면 ACTUAL 타입 지원에 저장한다")
+    void createActualApplyWithRequestedSequence() {
+        User user = saveUser("actual-apply-sequence@example.com");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
+
+        MockApplyCreateResponse response = mockApplyService.createActualApply(user, jobPosting.getId(), 3);
+
+        MockApply mockApply = mockApplyRepository.findById(response.mockApplyId()).orElseThrow();
+        MockApplySequenceResponse sequenceResponse = mockApplyService.getMockApplySequence(user, mockApply.getId());
+        assertThat(response.sequence()).isEqualTo(3);
+        assertThat(mockApply.getSequence()).isEqualTo(3);
+        assertThat(sequenceResponse.sequence()).isEqualTo(3);
+        assertThat(sequenceResponse.totalCount()).isEqualTo(3);
     }
 
     @Test
@@ -120,9 +138,11 @@ class MockApplyServiceTest {
         MockApply mockApply = mockApplyRepository.findById(response.mockApplyId()).orElseThrow();
         JobPosting jobPosting = jobPostingRepository.findById(response.jobPostingId()).orElseThrow();
         assertThat(response.applyType()).isEqualTo(ApplyType.MOCK);
+        assertThat(response.sequence()).isEqualTo(1);
         assertThat(mockApply.getUser().getId()).isEqualTo(user.getId());
         assertThat(mockApply.getApplyType()).isEqualTo(ApplyType.MOCK);
         assertThat(mockApply.getStatus()).isEqualTo(MockApplyStatus.APPLICATION_CREATED);
+        assertThat(mockApply.getSequence()).isEqualTo(1);
         assertThat(jobPosting.getCompany().getId()).isEqualTo(company.getId());
         assertThat(jobPosting.getCompany().getName()).isEqualTo("선택 기업");
         assertThat(jobPosting.getCompany().getSize()).isEqualTo(CompanySize.MEDIUM);
@@ -143,9 +163,11 @@ class MockApplyServiceTest {
         MockApply mockApply = mockApplyRepository.findById(response.mockApplyId()).orElseThrow();
         assertThat(response.jobPostingId()).isEqualTo(jobPosting.getId());
         assertThat(response.applyType()).isEqualTo(ApplyType.MOCK);
+        assertThat(response.sequence()).isEqualTo(1);
         assertThat(mockApply.getUser().getId()).isEqualTo(user.getId());
         assertThat(mockApply.getJobPosting().getId()).isEqualTo(jobPosting.getId());
         assertThat(mockApply.getApplyType()).isEqualTo(ApplyType.MOCK);
+        assertThat(mockApply.getSequence()).isEqualTo(1);
     }
 
     @Test

@@ -45,20 +45,42 @@ public class MockApplyService {
     @Transactional
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createActualApply(User user, Long jobPostingId) {
+        return createActualApply(user, jobPostingId, null);
+    }
+
+    @Transactional
+    @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
+    public MockApplyCreateResponse createActualApply(User user, Long jobPostingId, Integer sequence) {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = jobPostingService.getOwnedJobPosting(validatedUser, jobPostingId);
 
-        MockApply mockApply = MockApply.create(validatedUser, jobPosting, ApplyType.ACTUAL);
+        MockApply mockApply = MockApply.create(
+                validatedUser,
+                jobPosting,
+                ApplyType.ACTUAL,
+                resolveSequence(validatedUser, jobPosting, sequence)
+        );
         return MockApplyCreateResponse.from(mockApplyRepository.save(mockApply));
     }
 
     @Transactional
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyCreateResponse createMockApplyFromJobPosting(User user, Long jobPostingId) {
+        return createMockApplyFromJobPosting(user, jobPostingId, null);
+    }
+
+    @Transactional
+    @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
+    public MockApplyCreateResponse createMockApplyFromJobPosting(User user, Long jobPostingId, Integer sequence) {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = jobPostingService.getOwnedJobPosting(validatedUser, jobPostingId);
 
-        MockApply mockApply = MockApply.create(validatedUser, jobPosting, ApplyType.MOCK);
+        MockApply mockApply = MockApply.create(
+                validatedUser,
+                jobPosting,
+                ApplyType.MOCK,
+                resolveSequence(validatedUser, jobPosting, sequence)
+        );
         return MockApplyCreateResponse.from(mockApplyRepository.save(mockApply));
     }
 
@@ -90,7 +112,12 @@ public class MockApplyService {
                         "생성된 모의 공고를 찾을 수 없습니다. jobPostingId=" + savedJobPostingId
                 ));
 
-        MockApply mockApply = MockApply.create(validatedUser, savedJobPosting, ApplyType.MOCK);
+        MockApply mockApply = MockApply.create(
+                validatedUser,
+                savedJobPosting,
+                ApplyType.MOCK,
+                resolveSequence(validatedUser, savedJobPosting, request.sequence())
+        );
         return MockApplyCreateResponse.from(mockApplyRepository.save(mockApply));
     }
 
@@ -109,8 +136,9 @@ public class MockApplyService {
                 mockApplyRepository.countByUserIdAndJobPostingId(validatedUser.getId(), jobPostingId)
         );
         int sequence = mockApplyRepository.calculateSequence(mockApply);
+        totalCount = Math.max(totalCount, sequence);
 
-        if (sequence < 1 || sequence > totalCount) {
+        if (sequence < 1) {
             throw new GeneralException(
                     GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
                     "해당 공고에 연결된 모의 서류 지원 순서를 찾을 수 없습니다. mockApplyId=" + mockApplyId
@@ -158,5 +186,15 @@ public class MockApplyService {
         }
 
         return mockApply;
+    }
+
+    private int resolveSequence(User user, JobPosting jobPosting, Integer requestedSequence) {
+        if (requestedSequence != null) {
+            return requestedSequence;
+        }
+        return Math.toIntExact(mockApplyRepository.countByUserIdAndJobPostingId(
+                user.getId(),
+                jobPosting.getId()
+        )) + 1;
     }
 }

@@ -327,6 +327,25 @@ class QuestionServiceTest {
     }
 
     @Test
+    @DisplayName("답변 저장 응답은 저장된 지원 순번을 우선 반환한다")
+    void saveAnswersReturnsStoredSequence() {
+        User user = saveUser("answer-stored-sequence@example.com");
+        JobPosting jobPosting = saveJobPosting();
+        MockApply mockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL, 4));
+        QuestionSelectionResponse selected = questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
+                new QuestionSelectionSaveRequest.QuestionItem("재지원 저장 순번 문항입니다.", 700, false)
+        )));
+        Long questionId = selected.questions().get(0).questionId();
+
+        QuestionAnswerResponse response = questionService.saveAnswers(user, mockApply.getId(), new QuestionAnswerSaveRequest(List.of(
+                new QuestionAnswerSaveRequest.AnswerItem(questionId, "네 번째 지원 답변입니다.")
+        )));
+
+        assertThat(response.mockApplyId()).isEqualTo(mockApply.getId());
+        assertThat(response.sequence()).isEqualTo(4);
+    }
+
+    @Test
     @DisplayName("해당 지원서에 속하지 않은 문항은 답변 저장에 사용할 수 없다")
     void saveAnswersThrowsWhenQuestionDoesNotBelongToMockApply() {
         User user = saveUser("answer-invalid-question@example.com");

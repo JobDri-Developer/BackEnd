@@ -13,6 +13,10 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
     long countByUserIdAndJobPostingId(Long userId, Long jobPostingId);
 
     default int calculateSequence(MockApply mockApply) {
+        if (mockApply.getSequence() != null && mockApply.getSequence() > 0) {
+            return mockApply.getSequence();
+        }
+
         return Math.toIntExact(countSequenceByUserIdAndJobPostingId(
                 mockApply.getUser().getId(),
                 mockApply.getJobPosting().getId(),

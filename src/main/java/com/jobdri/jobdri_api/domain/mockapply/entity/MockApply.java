@@ -39,6 +39,8 @@ public class MockApply {
     @Column(nullable = false)
     private MockApplyStatus status;
 
+    private Integer sequence;
+
     @Column(nullable = false)
     private LocalDateTime createdAt;
 
@@ -50,11 +52,16 @@ public class MockApply {
     private List<Question> questions = new ArrayList<>();
 
     public static MockApply create(User user, JobPosting jobPosting, ApplyType applyType) {
+        return create(user, jobPosting, applyType, null);
+    }
+
+    public static MockApply create(User user, JobPosting jobPosting, ApplyType applyType, Integer sequence) {
         return MockApply.builder()
                 .user(user)
                 .jobPosting(jobPosting)
                 .applyType(applyType)
                 .status(MockApplyStatus.APPLICATION_CREATED)
+                .sequence(sequence)
                 .createdAt(LocalDateTime.now())
                 .build();
     }
