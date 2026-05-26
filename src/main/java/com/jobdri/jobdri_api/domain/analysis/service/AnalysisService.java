@@ -234,10 +234,12 @@ public class AnalysisService {
     private boolean isInstructionLikeImprovement(String improvement) {
         return improvement.endsWith("하세요.")
                 || improvement.endsWith("해주세요.")
+                || improvement.endsWith("해 주세요.")
+                || improvement.endsWith("해 주십시오.")
                 || improvement.endsWith("해야 합니다.")
                 || improvement.endsWith("필요합니다.")
-                || improvement.matches(".*[을를]\\s+(추가|보완|수정)하(세요|십시오).*")
-                || improvement.matches(".*명확히\\s+(하|해)(세요|야 합니다).*")
+                || improvement.matches(".*[을를]\\s+(추가|보완|수정)하\\s*(세요|십시오).*")
+                || improvement.matches(".*명확히\\s+(하|해)\\s*(세요|야 합니다).*")
                 || improvement.matches("^(추가|보완|수정).*(하세요|해주세요)\\.$");
     }
 

@@ -293,6 +293,33 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("띄어쓰기가 포함된 첨삭 지시문도 빈 값으로 저장한다")
+    void analyzeNormalizesSpacedInstructionLikeImprovement() {
+        User user = saveUser("analysis-spaced-instruction-improvement@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "문제 해결 경험", "저는 로그를 확인했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                64,
+                70,
+                55,
+                67,
+                "띄어쓰기 지시문 검증입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "저는 로그를 확인했습니다.",
+                        "mentioned",
+                        "성과가 부족합니다.",
+                        "성과 수치를 추가해 주세요."
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).improvement()).isEmpty();
+    }
+
+    @Test
     @DisplayName("재분석 시 기존 분석과 문항 분석을 새 결과로 교체한다")
     void analyzeReplacesExistingAnalysis() {
         User user = saveUser("analysis-replace@example.com");
