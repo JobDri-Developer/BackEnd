@@ -9,10 +9,6 @@ public record QuestionResponse(
         String answer,
         boolean custom
 ) {
-    public static QuestionResponse from(Question question) {
-        return from(question, false);
-    }
-
     public static QuestionResponse from(Question question, boolean custom) {
         return new QuestionResponse(
                 question.getId(),

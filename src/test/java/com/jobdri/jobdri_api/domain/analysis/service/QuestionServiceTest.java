@@ -37,6 +37,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -127,8 +128,12 @@ class QuestionServiceTest {
         QuestionSelectionResponse response = questionService.getSelectedQuestions(user, mockApply.getId());
 
         assertThat(response.questions()).hasSize(2);
-        assertThat(response.questions().get(0).custom()).isFalse();
-        assertThat(response.questions().get(1).custom()).isTrue();
+        assertThat(response.questions())
+                .extracting("content", "custom")
+                .containsExactlyInAnyOrder(
+                        tuple("지원 동기와 입사 후 목표를 작성해주세요.", false),
+                        tuple("직접 추가한 문항입니다.", true)
+                );
     }
 
     @Test
