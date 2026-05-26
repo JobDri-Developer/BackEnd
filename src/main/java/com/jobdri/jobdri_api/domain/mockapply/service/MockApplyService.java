@@ -30,7 +30,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.SQLException;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Service
@@ -38,6 +40,8 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class MockApplyService {
     private static final int SEQUENCE_SAVE_MAX_RETRY = 5;
+    private static final String SEQUENCE_UNIQUE_CONSTRAINT = "uk_mock_apply_user_posting_sequence";
+    private static final String UNIQUE_VIOLATION_SQL_STATE = "23505";
 
     private final MockApplyRepository mockApplyRepository;
     private final JobPostingRepository jobPostingRepository;
@@ -218,6 +222,9 @@ public class MockApplyService {
             try {
                 return mockApplyPersistenceService.saveAndFlush(MockApply.create(user, jobPosting, applyType, sequence));
             } catch (DataIntegrityViolationException e) {
+                if (!isSequenceUniqueConflict(e)) {
+                    throw e;
+                }
                 if (isPositiveSequence(requestedSequence)) {
                     throw new GeneralException(
                             GeneralErrorCode.INVALID_PARAMETER,
@@ -229,8 +236,37 @@ public class MockApplyService {
         }
 
         throw new GeneralException(
-                GeneralErrorCode.INTERNAL_SERVER_ERROR,
-                "모의 서류 지원 순번 생성에 실패했습니다."
+            GeneralErrorCode.INTERNAL_SERVER_ERROR,
+            "모의 서류 지원 순번 생성에 실패했습니다."
         );
+    }
+
+    private boolean isSequenceUniqueConflict(DataIntegrityViolationException exception) {
+        Throwable cause = exception;
+        while (cause != null) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException constraintViolation
+                    && isSequenceConstraintName(constraintViolation.getConstraintName())) {
+                return true;
+            }
+            if (cause instanceof SQLException sqlException
+                    && UNIQUE_VIOLATION_SQL_STATE.equals(sqlException.getSQLState())
+                    && containsSequenceConstraint(sqlException.getMessage())) {
+                return true;
+            }
+            if (containsSequenceConstraint(cause.getMessage())) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+        return false;
+    }
+
+    private boolean isSequenceConstraintName(String constraintName) {
+        return containsSequenceConstraint(constraintName);
+    }
+
+    private boolean containsSequenceConstraint(String value) {
+        return value != null
+                && value.toLowerCase(Locale.ROOT).contains(SEQUENCE_UNIQUE_CONSTRAINT);
     }
 }
