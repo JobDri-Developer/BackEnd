@@ -136,7 +136,7 @@ public class QuestionService {
     public QuestionSelectionResponse getSelectedQuestions(User user, Long mockApplyId) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<QuestionResponse> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId()).stream()
-                .map(QuestionResponse::from)
+                .map(this::toQuestionResponse)
                 .toList();
 
         return new QuestionSelectionResponse(mockApply.getId(), mockApply.getStatus(), questions);
@@ -169,7 +169,7 @@ public class QuestionService {
         return new QuestionSelectionResponse(
                 mockApply.getId(),
                 mockApply.getStatus(),
-                savedQuestions.stream().map(QuestionResponse::from).toList()
+                savedQuestions.stream().map(this::toQuestionResponse).toList()
         );
     }
 
@@ -200,8 +200,12 @@ public class QuestionService {
                 mockApply.getId(),
                 mockApply.getStatus(),
                 mockApplyRepository.calculateSequence(mockApply),
-                questions.stream().map(QuestionResponse::from).toList()
+                questions.stream().map(this::toQuestionResponse).toList()
         );
+    }
+
+    private QuestionResponse toQuestionResponse(Question question) {
+        return QuestionResponse.from(question, isCustomQuestion(question.getContent()));
     }
 
     private MockApply getOwnedMockApply(User user, Long mockApplyId) {
@@ -234,10 +238,13 @@ public class QuestionService {
         return charLimit;
     }
 
+    private boolean isCustomQuestion(String content) {
+        return DEFAULT_CANDIDATES.stream()
+                .noneMatch(candidate -> candidate.content().equals(content));
+    }
+
     private void validateCustomCandidate(String content) {
-        boolean existsInDefault = DEFAULT_CANDIDATES.stream()
-                .anyMatch(candidate -> candidate.content().equals(content));
-        if (existsInDefault) {
+        if (!isCustomQuestion(content)) {
             throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "이미 기본 후보에 존재하는 문항입니다.");
         }
     }

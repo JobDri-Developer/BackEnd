@@ -37,6 +37,7 @@ import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -73,7 +74,7 @@ class QuestionServiceTest {
         User user = saveUser("question-save@example.com");
         MockApply mockApply = saveMockApply(user);
         QuestionSelectionSaveRequest request = new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("지원 동기를 작성해주세요.", 700, false),
+                new QuestionSelectionSaveRequest.QuestionItem("지원 동기와 입사 후 목표를 작성해주세요.", 700, false),
                 new QuestionSelectionSaveRequest.QuestionItem("직접 추가한 문항입니다.", null, true)
         ));
 
@@ -82,10 +83,12 @@ class QuestionServiceTest {
         assertThat(response.mockApplyId()).isEqualTo(mockApply.getId());
         assertThat(response.status()).isEqualTo(MockApplyStatus.ANSWER_WRITE);
         assertThat(response.questions()).hasSize(2);
-        assertThat(response.questions().get(0).content()).isEqualTo("지원 동기를 작성해주세요.");
+        assertThat(response.questions().get(0).content()).isEqualTo("지원 동기와 입사 후 목표를 작성해주세요.");
         assertThat(response.questions().get(0).charLimit()).isEqualTo(700);
+        assertThat(response.questions().get(0).custom()).isFalse();
         assertThat(response.questions().get(1).content()).isEqualTo("직접 추가한 문항입니다.");
         assertThat(response.questions().get(1).charLimit()).isEqualTo(1000);
+        assertThat(response.questions().get(1).custom()).isTrue();
         assertThat(mockApply.getStatus()).isEqualTo(MockApplyStatus.ANSWER_WRITE);
         assertThat(questionRepository.findAllByMockApplyId(mockApply.getId())).hasSize(2);
     }
@@ -106,9 +109,31 @@ class QuestionServiceTest {
 
         assertThat(response.questions()).hasSize(1);
         assertThat(response.questions().get(0).content()).isEqualTo("새 문항");
+        assertThat(response.questions().get(0).custom()).isTrue();
         assertThat(questionRepository.findAllByMockApplyId(mockApply.getId()))
                 .extracting(Question::getContent)
                 .containsExactly("새 문항");
+    }
+
+    @Test
+    @DisplayName("선택 문항 조회 시 직접 추가 여부를 함께 반환한다")
+    void getSelectedQuestionsReturnsCustomFlag() {
+        User user = saveUser("question-selected-custom-flag@example.com");
+        MockApply mockApply = saveMockApply(user);
+        questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
+                new QuestionSelectionSaveRequest.QuestionItem("지원 동기와 입사 후 목표를 작성해주세요.", 700, false),
+                new QuestionSelectionSaveRequest.QuestionItem("직접 추가한 문항입니다.", 1000, true)
+        )));
+
+        QuestionSelectionResponse response = questionService.getSelectedQuestions(user, mockApply.getId());
+
+        assertThat(response.questions()).hasSize(2);
+        assertThat(response.questions())
+                .extracting("content", "custom")
+                .containsExactlyInAnyOrder(
+                        tuple("지원 동기와 입사 후 목표를 작성해주세요.", false),
+                        tuple("직접 추가한 문항입니다.", true)
+                );
     }
 
     @Test

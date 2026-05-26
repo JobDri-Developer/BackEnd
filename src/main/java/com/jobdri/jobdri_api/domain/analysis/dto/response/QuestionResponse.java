@@ -6,14 +6,16 @@ public record QuestionResponse(
         Long questionId,
         String content,
         int charLimit,
-        String answer
+        String answer,
+        boolean custom
 ) {
-    public static QuestionResponse from(Question question) {
+    public static QuestionResponse from(Question question, boolean custom) {
         return new QuestionResponse(
                 question.getId(),
                 question.getContent(),
                 question.getLimit(),
-                question.getAnswer()
+                question.getAnswer(),
+                custom
         );
     }
 }
