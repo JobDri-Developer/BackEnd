@@ -199,7 +199,7 @@ public class MockApplyController {
     }
 
     @Operation(
-            summary = "모의 서류 지원 재도전",
+            summary = "모의 서류 지원 재도전 - ",
             description = "기존 모의 서류 지원의 공고와 선택 문항을 복사해 새 회차의 모의 서류 지원을 생성합니다. 답변은 비워진 상태로 자소서 입력 단계부터 다시 진행합니다."
     )
     @ApiResponses(value = {
