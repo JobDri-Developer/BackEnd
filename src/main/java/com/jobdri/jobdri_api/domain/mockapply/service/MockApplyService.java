@@ -25,6 +25,7 @@ import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,6 +36,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class MockApplyService {
+    private static final int SEQUENCE_SAVE_MAX_RETRY = 5;
+
     private final MockApplyRepository mockApplyRepository;
     private final JobPostingRepository jobPostingRepository;
     private final CompanyRepository companyRepository;
@@ -54,13 +57,13 @@ public class MockApplyService {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = jobPostingService.getOwnedJobPosting(validatedUser, jobPostingId);
 
-        MockApply mockApply = MockApply.create(
+        MockApply mockApply = saveMockApplyWithSequence(
                 validatedUser,
                 jobPosting,
                 ApplyType.ACTUAL,
-                resolveSequence(validatedUser, jobPosting, sequence)
+                sequence
         );
-        return MockApplyCreateResponse.from(mockApplyRepository.save(mockApply));
+        return MockApplyCreateResponse.from(mockApply);
     }
 
     @Transactional
@@ -75,13 +78,13 @@ public class MockApplyService {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = jobPostingService.getOwnedJobPosting(validatedUser, jobPostingId);
 
-        MockApply mockApply = MockApply.create(
+        MockApply mockApply = saveMockApplyWithSequence(
                 validatedUser,
                 jobPosting,
                 ApplyType.MOCK,
-                resolveSequence(validatedUser, jobPosting, sequence)
+                sequence
         );
-        return MockApplyCreateResponse.from(mockApplyRepository.save(mockApply));
+        return MockApplyCreateResponse.from(mockApply);
     }
 
     @Transactional
@@ -112,13 +115,13 @@ public class MockApplyService {
                         "생성된 모의 공고를 찾을 수 없습니다. jobPostingId=" + savedJobPostingId
                 ));
 
-        MockApply mockApply = MockApply.create(
+        MockApply mockApply = saveMockApplyWithSequence(
                 validatedUser,
                 savedJobPosting,
                 ApplyType.MOCK,
-                resolveSequence(validatedUser, savedJobPosting, request.sequence())
+                request.sequence()
         );
-        return MockApplyCreateResponse.from(mockApplyRepository.save(mockApply));
+        return MockApplyCreateResponse.from(mockApply);
     }
 
     public JobPostingResponse getMockApplyJobPosting(User user, Long mockApplyId) {
@@ -196,5 +199,32 @@ public class MockApplyService {
                 user.getId(),
                 jobPosting.getId()
         )) + 1;
+    }
+
+    private MockApply saveMockApplyWithSequence(
+            User user,
+            JobPosting jobPosting,
+            ApplyType applyType,
+            Integer requestedSequence
+    ) {
+        int sequence = resolveSequence(user, jobPosting, requestedSequence);
+        for (int attempt = 0; attempt < SEQUENCE_SAVE_MAX_RETRY; attempt++) {
+            try {
+                return mockApplyRepository.saveAndFlush(MockApply.create(user, jobPosting, applyType, sequence));
+            } catch (DataIntegrityViolationException e) {
+                if (requestedSequence != null) {
+                    throw new GeneralException(
+                            GeneralErrorCode.INVALID_PARAMETER,
+                            "이미 사용 중인 지원 순번입니다. sequence=" + requestedSequence
+                    );
+                }
+                sequence++;
+            }
+        }
+
+        throw new GeneralException(
+                GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                "모의 서류 지원 순번 생성에 실패했습니다."
+        );
     }
 }

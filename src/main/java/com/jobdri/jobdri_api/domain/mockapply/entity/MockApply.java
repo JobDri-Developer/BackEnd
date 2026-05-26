@@ -16,7 +16,13 @@ import java.util.List;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder(access = AccessLevel.PRIVATE)
-@Table(name = "mock_applies")
+@Table(
+        name = "mock_applies",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_mock_apply_user_posting_sequence",
+                columnNames = {"user_id", "job_posting_id", "sequence"}
+        )
+)
 public class MockApply {
 
     @Id

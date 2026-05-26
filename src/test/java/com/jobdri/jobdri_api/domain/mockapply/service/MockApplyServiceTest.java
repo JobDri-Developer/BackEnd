@@ -111,6 +111,19 @@ class MockApplyServiceTest {
     }
 
     @Test
+    @DisplayName("같은 공고에 이미 사용 중인 순번을 명시하면 예외를 던진다")
+    void createActualApplyThrowsWhenRequestedSequenceDuplicated() {
+        User user = saveUser("actual-apply-sequence-duplicate@example.com");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
+        mockApplyService.createActualApply(user, jobPosting.getId(), 2);
+
+        assertThatThrownBy(() -> mockApplyService.createActualApply(user, jobPosting.getId(), 2))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
+    }
+
+    @Test
     @DisplayName("소분류를 기준으로 가상 공고와 MOCK 타입 모의 서류 지원을 생성한다")
     void createMockApply() {
         User user = saveUser("mock-apply@example.com");
