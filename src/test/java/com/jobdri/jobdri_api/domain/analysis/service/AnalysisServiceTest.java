@@ -264,6 +264,35 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("완성된 평서문 improvement는 그대로 저장한다")
+    void analyzePreservesDeclarativeImprovement() {
+        User user = saveUser("analysis-declarative-improvement@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "문제 해결 경험", "저는 로그를 확인했습니다.");
+        String validImprovement = "저는 로그를 분석하고 누락된 인덱스를 추가하여 응답 시간을 1.8초에서 0.6초로 단축했습니다.";
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                70,
+                75,
+                65,
+                70,
+                "평서문 검증입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "저는 로그를 확인했습니다.",
+                        "mentioned",
+                        "성과가 부족합니다.",
+                        validImprovement
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).improvement())
+                .isEqualTo(validImprovement);
+    }
+
+    @Test
     @DisplayName("재분석 시 기존 분석과 문항 분석을 새 결과로 교체한다")
     void analyzeReplacesExistingAnalysis() {
         User user = saveUser("analysis-replace@example.com");

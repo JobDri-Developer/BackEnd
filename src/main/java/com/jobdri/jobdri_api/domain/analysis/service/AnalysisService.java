@@ -236,9 +236,9 @@ public class AnalysisService {
                 || improvement.endsWith("해주세요.")
                 || improvement.endsWith("해야 합니다.")
                 || improvement.endsWith("필요합니다.")
-                || improvement.contains("추가하여")
-                || improvement.contains("명확히 하세요")
-                || improvement.contains("보완하세요");
+                || improvement.matches(".*[을를]\\s+(추가|보완|수정)하(세요|십시오).*")
+                || improvement.matches(".*명확히\\s+(하|해)(세요|야 합니다).*")
+                || improvement.matches("^(추가|보완|수정).*(하세요|해주세요)\\.$");
     }
 
     private QuestionAnalysisStatus normalizeStatus(String status) {
