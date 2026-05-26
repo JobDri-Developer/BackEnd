@@ -12,6 +12,15 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
     List<MockApply> findAllByJobPostingId(Long jobPostingId);
     long countByUserIdAndJobPostingId(Long userId, Long jobPostingId);
 
+    default int calculateSequence(MockApply mockApply) {
+        return Math.toIntExact(countSequenceByUserIdAndJobPostingId(
+                mockApply.getUser().getId(),
+                mockApply.getJobPosting().getId(),
+                mockApply.getCreatedAt(),
+                mockApply.getId()
+        ));
+    }
+
     @Query("""
             select ma
             from MockApply ma

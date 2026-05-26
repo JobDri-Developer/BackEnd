@@ -179,7 +179,12 @@ public class AnalysisService {
                 ))
                 .toList();
 
-        return AnalysisResponse.of(analysis, mockApply.getStatus(), questionResponses);
+        return AnalysisResponse.of(
+                analysis,
+                mockApply.getStatus(),
+                mockApplyRepository.calculateSequence(mockApply),
+                questionResponses
+        );
     }
 
     private MockApply getOwnedMockApply(User user, Long mockApplyId) {

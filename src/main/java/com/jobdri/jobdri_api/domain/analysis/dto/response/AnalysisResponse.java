@@ -9,6 +9,7 @@ public record AnalysisResponse(
         Long mockApplyId,
         Long analysisId,
         MockApplyStatus status,
+        int sequence,
         int score,
         int jobFit,
         int impact,
@@ -19,12 +20,14 @@ public record AnalysisResponse(
     public static AnalysisResponse of(
             Analysis analysis,
             MockApplyStatus status,
+            int sequence,
             List<AnalysisQuestionResponse> questions
     ) {
         return new AnalysisResponse(
                 analysis.getMockApply().getId(),
                 analysis.getId(),
                 status,
+                sequence,
                 analysis.getScore(),
                 analysis.getJobFit(),
                 analysis.getImpact(),

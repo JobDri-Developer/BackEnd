@@ -299,10 +299,31 @@ class QuestionServiceTest {
         )));
 
         assertThat(response.questions()).hasSize(1);
+        assertThat(response.sequence()).isEqualTo(1);
         assertThat(response.questions().get(0).content()).isEqualTo("지원 동기를 작성해주세요.");
         assertThat(response.questions().get(0).answer()).isEqualTo("저는 백엔드 개발 경험을 바탕으로 지원했습니다.");
         assertThat(questionRepository.findById(questionId).orElseThrow().getAnswer())
                 .isEqualTo("저는 백엔드 개발 경험을 바탕으로 지원했습니다.");
+    }
+
+    @Test
+    @DisplayName("답변 저장 응답은 같은 공고 기준 현재 지원 순번을 반환한다")
+    void saveAnswersReturnsSequence() {
+        User user = saveUser("answer-sequence@example.com");
+        JobPosting jobPosting = saveJobPosting();
+        mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
+        MockApply secondMockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
+        QuestionSelectionResponse selected = questionService.saveSelectedQuestions(user, secondMockApply.getId(), new QuestionSelectionSaveRequest(List.of(
+                new QuestionSelectionSaveRequest.QuestionItem("재지원 답변 문항입니다.", 700, false)
+        )));
+        Long questionId = selected.questions().get(0).questionId();
+
+        QuestionAnswerResponse response = questionService.saveAnswers(user, secondMockApply.getId(), new QuestionAnswerSaveRequest(List.of(
+                new QuestionAnswerSaveRequest.AnswerItem(questionId, "두 번째 지원 답변입니다.")
+        )));
+
+        assertThat(response.mockApplyId()).isEqualTo(secondMockApply.getId());
+        assertThat(response.sequence()).isEqualTo(2);
     }
 
     @Test
