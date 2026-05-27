@@ -16,18 +16,16 @@ public class MockApplySequenceService {
     private final MockApplyRepository mockApplyRepository;
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public int allocate(Long userId, Long companyId, Long detailClassificationId) {
+    public int allocate(Long userId, Long jobPostingId) {
         MockApplySequence sequence = mockApplySequenceRepository
-                .findByKeyForUpdate(userId, companyId, detailClassificationId)
+                .findByKeyForUpdate(userId, jobPostingId)
                 .orElseGet(() -> mockApplySequenceRepository.saveAndFlush(
                         MockApplySequence.create(
                                 userId,
-                                companyId,
-                                detailClassificationId,
-                                mockApplyRepository.findMaxSequenceByUserIdAndCompanyIdAndDetailClassificationId(
+                                jobPostingId,
+                                mockApplyRepository.findMaxSequenceByUserIdAndJobPostingId(
                                         userId,
-                                        companyId,
-                                        detailClassificationId
+                                        jobPostingId
                                 )
                         )
                 ));

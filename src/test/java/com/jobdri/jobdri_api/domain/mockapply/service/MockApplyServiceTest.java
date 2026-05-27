@@ -125,8 +125,8 @@ class MockApplyServiceTest {
     }
 
     @Test
-    @DisplayName("같은 회사와 직무의 다른 공고로 재지원하면 다음 순번을 저장한다")
-    void createActualApplySequencesAcrossSameCompanyAndDetailJobPostings() {
+    @DisplayName("같은 회사와 직무여도 다른 공고이면 순번을 따로 계산한다")
+    void createActualApplySequencesByJobPosting() {
         User user = saveUser("actual-apply-retry-sequence@example.com");
         Company company = saveCompany("재지원 기업 " + UUID.randomUUID(), CompanySize.MEDIUM);
         DetailClassification detailClassification = saveDetailClassification("백엔드 개발");
@@ -138,8 +138,8 @@ class MockApplyServiceTest {
 
         MockApply secondMockApply = mockApplyRepository.findById(secondResponse.mockApplyId()).orElseThrow();
         assertThat(firstResponse.sequence()).isEqualTo(1);
-        assertThat(secondResponse.sequence()).isEqualTo(2);
-        assertThat(secondMockApply.getSequence()).isEqualTo(2);
+        assertThat(secondResponse.sequence()).isEqualTo(1);
+        assertThat(secondMockApply.getSequence()).isEqualTo(1);
     }
 
     @Test
@@ -236,7 +236,7 @@ class MockApplyServiceTest {
     }
 
     @Test
-    @DisplayName("기존 지원의 공고와 문항을 복사해 재도전 지원을 생성한다")
+    @DisplayName("기존 지원의 공고에 새 회차와 문항을 생성한다")
     void retryMockApply() {
         User user = saveUser("retry-mock-apply@example.com");
         JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
@@ -250,12 +250,14 @@ class MockApplyServiceTest {
         JobPosting retryJobPosting = jobPostingRepository.findById(response.jobPostingId()).orElseThrow();
         List<Question> retryQuestions = questionRepository.findAllByMockApplyIdOrderByIdAsc(response.mockApplyId());
         assertThat(response.sourceMockApplyId()).isEqualTo(sourceMockApply.getId());
+        assertThat(response.jobPostingId()).isEqualTo(jobPosting.getId());
         assertThat(response.sequence()).isEqualTo(2);
         assertThat(response.status()).isEqualTo(MockApplyStatus.ANSWER_WRITE);
         assertThat(retryMockApply.getApplyType()).isEqualTo(ApplyType.MOCK);
+        assertThat(retryMockApply.getJobPosting().getId()).isEqualTo(jobPosting.getId());
         assertThat(retryMockApply.getSequence()).isEqualTo(2);
         assertThat(retryMockApply.getStatus()).isEqualTo(MockApplyStatus.ANSWER_WRITE);
-        assertThat(retryJobPosting.getId()).isNotEqualTo(jobPosting.getId());
+        assertThat(retryJobPosting.getId()).isEqualTo(jobPosting.getId());
         assertThat(retryJobPosting.getCompany().getId()).isEqualTo(jobPosting.getCompany().getId());
         assertThat(retryJobPosting.getDetailClassification().getId()).isEqualTo(jobPosting.getDetailClassification().getId());
         assertThat(retryJobPosting.getTask()).isEqualTo(jobPosting.getTask());

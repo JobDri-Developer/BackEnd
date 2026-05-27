@@ -29,6 +29,17 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
             select coalesce(max(ma.sequence), 0)
             from MockApply ma
             where ma.user.id = :userId
+              and ma.jobPosting.id = :jobPostingId
+            """)
+    int findMaxSequenceByUserIdAndJobPostingId(
+            @Param("userId") Long userId,
+            @Param("jobPostingId") Long jobPostingId
+    );
+
+    @Query("""
+            select coalesce(max(ma.sequence), 0)
+            from MockApply ma
+            where ma.user.id = :userId
               and ma.jobPosting.company.id = :companyId
               and ma.jobPosting.detailClassification.id = :detailClassificationId
             """)

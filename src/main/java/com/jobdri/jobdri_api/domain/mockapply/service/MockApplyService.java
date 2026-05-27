@@ -85,18 +85,9 @@ public class MockApplyService {
         MockApply sourceMockApply = getOwnedMockApplyWithJobPosting(validatedUser, mockApplyId);
         JobPosting sourceJobPosting = sourceMockApply.getJobPosting();
 
-        JobPosting clonedJobPosting = jobPostingRepository.save(JobPosting.create(
-                validatedUser,
-                sourceJobPosting.getCompany(),
-                sourceJobPosting.getDetailClassification(),
-                sourceJobPosting.getTask(),
-                sourceJobPosting.getRequirement(),
-                sourceJobPosting.getPreferred()
-        ));
-
         MockApply retryMockApply = saveMockApplyWithSequence(
                 validatedUser,
-                clonedJobPosting,
+                sourceJobPosting,
                 sourceMockApply.getApplyType(),
                 null
         );
@@ -269,11 +260,7 @@ public class MockApplyService {
     private int allocateSequence(User user, JobPosting jobPosting) {
         for (int attempt = 0; attempt < SEQUENCE_ALLOCATE_MAX_RETRY; attempt++) {
             try {
-                return mockApplySequenceService.allocate(
-                        user.getId(),
-                        jobPosting.getCompany().getId(),
-                        jobPosting.getDetailClassification().getId()
-                );
+                return mockApplySequenceService.allocate(user.getId(), jobPosting.getId());
             } catch (DataIntegrityViolationException e) {
                 if (attempt == SEQUENCE_ALLOCATE_MAX_RETRY - 1) {
                     throw new GeneralException(
