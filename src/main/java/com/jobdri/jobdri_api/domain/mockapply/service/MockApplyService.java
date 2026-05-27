@@ -43,7 +43,6 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class MockApplyService {
     private static final int SEQUENCE_SAVE_MAX_RETRY = 5;
-    private static final int SEQUENCE_ALLOCATE_MAX_RETRY = 5;
     private static final String SEQUENCE_UNIQUE_CONSTRAINT = "uk_mock_apply_user_posting_sequence";
     private static final String UNIQUE_VIOLATION_SQL_STATE = "23505";
 
@@ -55,7 +54,6 @@ public class MockApplyService {
     private final JobPostingService jobPostingService;
     private final UserService userService;
     private final MockApplyPersistenceService mockApplyPersistenceService;
-    private final MockApplySequenceService mockApplySequenceService;
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
@@ -85,18 +83,9 @@ public class MockApplyService {
         MockApply sourceMockApply = getOwnedMockApplyWithJobPosting(validatedUser, mockApplyId);
         JobPosting sourceJobPosting = sourceMockApply.getJobPosting();
 
-        JobPosting clonedJobPosting = jobPostingRepository.save(JobPosting.create(
-                validatedUser,
-                sourceJobPosting.getCompany(),
-                sourceJobPosting.getDetailClassification(),
-                sourceJobPosting.getTask(),
-                sourceJobPosting.getRequirement(),
-                sourceJobPosting.getPreferred()
-        ));
-
         MockApply retryMockApply = saveMockApplyWithSequence(
                 validatedUser,
-                clonedJobPosting,
+                sourceJobPosting,
                 sourceMockApply.getApplyType(),
                 null
         );
@@ -267,27 +256,10 @@ public class MockApplyService {
     }
 
     private int allocateSequence(User user, JobPosting jobPosting) {
-        for (int attempt = 0; attempt < SEQUENCE_ALLOCATE_MAX_RETRY; attempt++) {
-            try {
-                return mockApplySequenceService.allocate(
-                        user.getId(),
-                        jobPosting.getCompany().getId(),
-                        jobPosting.getDetailClassification().getId()
-                );
-            } catch (DataIntegrityViolationException e) {
-                if (attempt == SEQUENCE_ALLOCATE_MAX_RETRY - 1) {
-                    throw new GeneralException(
-                            GeneralErrorCode.INTERNAL_SERVER_ERROR,
-                            "모의 서류 지원 순번 할당에 실패했습니다."
-                    );
-                }
-            }
-        }
-
-        throw new GeneralException(
-                GeneralErrorCode.INTERNAL_SERVER_ERROR,
-                "모의 서류 지원 순번 할당에 실패했습니다."
-        );
+        return mockApplyRepository.findMaxSequenceByUserIdAndJobPostingId(
+                user.getId(),
+                jobPosting.getId()
+        ) + 1;
     }
 
     private boolean isPositiveSequence(Integer sequence) {
