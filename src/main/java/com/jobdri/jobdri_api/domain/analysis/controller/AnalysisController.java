@@ -13,6 +13,7 @@ import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -40,11 +41,12 @@ public class AnalysisController {
     @GetMapping
     public ApiResponse<AnalysisResponse> getAnalysis(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
-            @PathVariable Long mockApplyId
+            @PathVariable Long mockApplyId,
+            @RequestParam(required = false) Integer sequence
     ) {
         return ApiResponse.onSuccess(
                 "자소서 분석 결과 조회에 성공했습니다.",
-                analysisService.getAnalysis(getAuthenticatedUser(userDetails), mockApplyId)
+                analysisService.getAnalysis(getAuthenticatedUser(userDetails), mockApplyId, sequence)
         );
     }
 

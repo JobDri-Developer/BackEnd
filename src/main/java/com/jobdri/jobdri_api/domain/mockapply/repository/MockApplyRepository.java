@@ -11,6 +11,7 @@ import java.util.Optional;
 public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
     List<MockApply> findAllByUserId(Long userId);
     List<MockApply> findAllByJobPostingId(Long jobPostingId);
+    List<MockApply> findAllByUserIdAndJobPostingIdOrderByIdAsc(Long userId, Long jobPostingId);
     long countByUserIdAndJobPostingId(Long userId, Long jobPostingId);
 
     @Query("""

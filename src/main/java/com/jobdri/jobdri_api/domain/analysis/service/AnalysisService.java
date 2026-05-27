@@ -88,17 +88,51 @@ public class AnalysisService {
     }
 
     public AnalysisResponse getAnalysis(User user, Long mockApplyId) {
+        return getAnalysis(user, mockApplyId, null);
+    }
+
+    public AnalysisResponse getAnalysis(User user, Long mockApplyId, Integer sequence) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
-        Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId())
+        if (sequence != null) {
+            mockApply = resolveMockApplyBySequence(mockApply, sequence);
+        }
+        Long resolvedMockApplyId = mockApply.getId();
+
+        Analysis analysis = analysisRepository.findByMockApplyId(resolvedMockApplyId)
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.ANALYSIS_NOT_FOUND,
-                        "해당 모의 서류 지원의 분석 결과를 찾을 수 없습니다. mockApplyId=" + mockApplyId
+                        "해당 모의 서류 지원의 분석 결과를 찾을 수 없습니다. mockApplyId=" + resolvedMockApplyId
                 ));
-        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(resolvedMockApplyId);
         List<QuestionAnalysis> questionAnalyses =
                 questionAnalysisRepository.findAllByAnalysisIdOrderByQuestionIdAscIdAsc(analysis.getId());
 
         return toResponse(mockApply, analysis, questions, questionAnalyses);
+    }
+
+    private MockApply resolveMockApplyBySequence(MockApply baseMockApply, int sequence) {
+        if (sequence < 1) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "sequence는 1 이상의 값이어야 합니다."
+            );
+        }
+
+        List<MockApply> mockApplies = mockApplyRepository.findAllByUserIdAndJobPostingIdOrderByIdAsc(
+                baseMockApply.getUser().getId(),
+                baseMockApply.getJobPosting().getId()
+        );
+
+        return mockApplies.stream()
+                .filter(mockApply -> sequence == mockApplyRepository.calculateSequence(mockApply))
+                .findFirst()
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
+                        "해당 순번의 모의 서류 지원을 찾을 수 없습니다. mockApplyId="
+                                + baseMockApply.getId()
+                                + ", sequence="
+                                + sequence
+                ));
     }
 
     private void replaceExistingAnalysis(MockApply mockApply) {
