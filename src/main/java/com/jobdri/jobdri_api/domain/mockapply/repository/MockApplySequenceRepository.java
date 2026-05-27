@@ -16,12 +16,10 @@ public interface MockApplySequenceRepository extends JpaRepository<MockApplySequ
             select mas
             from MockApplySequence mas
             where mas.userId = :userId
-              and mas.companyId = :companyId
-              and mas.detailClassificationId = :detailClassificationId
+              and mas.jobPostingId = :jobPostingId
             """)
     Optional<MockApplySequence> findByKeyForUpdate(
             @Param("userId") Long userId,
-            @Param("companyId") Long companyId,
-            @Param("detailClassificationId") Long detailClassificationId
+            @Param("jobPostingId") Long jobPostingId
     );
 }

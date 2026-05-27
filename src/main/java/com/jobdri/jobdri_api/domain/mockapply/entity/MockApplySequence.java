@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
         name = "mock_apply_sequences",
         uniqueConstraints = @UniqueConstraint(
                 name = "uk_mock_apply_sequences_key",
-                columnNames = {"user_id", "company_id", "detail_classification_id"}
+                columnNames = {"user_id", "job_posting_id"}
         )
 )
 public class MockApplySequence {
@@ -28,25 +28,20 @@ public class MockApplySequence {
     @Column(name = "user_id", nullable = false)
     private Long userId;
 
-    @Column(name = "company_id", nullable = false)
-    private Long companyId;
-
-    @Column(name = "detail_classification_id", nullable = false)
-    private Long detailClassificationId;
+    @Column(name = "job_posting_id", nullable = false)
+    private Long jobPostingId;
 
     @Column(nullable = false)
     private int lastSequence;
 
     public static MockApplySequence create(
             Long userId,
-            Long companyId,
-            Long detailClassificationId,
+            Long jobPostingId,
             int lastSequence
     ) {
         return MockApplySequence.builder()
                 .userId(userId)
-                .companyId(companyId)
-                .detailClassificationId(detailClassificationId)
+                .jobPostingId(jobPostingId)
                 .lastSequence(lastSequence)
                 .build();
     }
