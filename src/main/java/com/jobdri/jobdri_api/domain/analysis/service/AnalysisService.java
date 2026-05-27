@@ -123,16 +123,25 @@ public class AnalysisService {
                 baseMockApply.getJobPosting().getId()
         );
 
-        return mockApplies.stream()
-                .filter(mockApply -> sequence == mockApplyRepository.calculateSequence(mockApply))
-                .findFirst()
-                .orElseThrow(() -> new GeneralException(
-                        GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
-                        "해당 순번의 모의 서류 지원을 찾을 수 없습니다. mockApplyId="
-                                + baseMockApply.getId()
-                                + ", sequence="
-                                + sequence
-                ));
+        int derivedSequence = 0;
+        for (MockApply mockApply : mockApplies) {
+            derivedSequence++;
+            int resolvedSequence = mockApply.getSequence() != null && mockApply.getSequence() > 0
+                    ? mockApply.getSequence()
+                    : derivedSequence;
+
+            if (resolvedSequence == sequence) {
+                return mockApply;
+            }
+        }
+
+        throw new GeneralException(
+                GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
+                "해당 순번의 모의 서류 지원을 찾을 수 없습니다. mockApplyId="
+                        + baseMockApply.getId()
+                        + ", sequence="
+                        + sequence
+        );
     }
 
     private void replaceExistingAnalysis(MockApply mockApply) {

@@ -508,6 +508,50 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("sequence 쿼리값 조회는 저장된 지원 순번을 우선 사용한다")
+    void getAnalysisByStoredSequence() {
+        User user = saveUser("analysis-get-stored-sequence@example.com");
+        JobPosting jobPosting = saveJobPosting(user);
+        MockApply firstMockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
+        MockApply secondMockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL, 4));
+        saveQuestion(firstMockApply, "첫 번째 지원 동기", "첫 번째 답변입니다.");
+        Question secondQuestion = saveQuestion(secondMockApply, "두 번째 지원 동기", "두 번째 답변입니다.");
+        when(analysisAiClient.analyze(any(), any()))
+                .thenReturn(new AnalysisLlmResponse(
+                        61,
+                        62,
+                        63,
+                        64,
+                        "첫 번째 분석 결과",
+                        List.of()
+                ))
+                .thenReturn(new AnalysisLlmResponse(
+                        81,
+                        82,
+                        83,
+                        84,
+                        "저장 순번 분석 결과",
+                        List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                                secondQuestion.getId(),
+                                "두 번째 답변입니다.",
+                                "mentioned",
+                                "근거가 더 필요합니다.",
+                                "두 번째 답변에 구체적인 성과를 추가했습니다."
+                        ))
+                ));
+
+        analysisService.analyze(user, firstMockApply.getId());
+        AnalysisResponse saved = analysisService.analyze(user, secondMockApply.getId());
+
+        AnalysisResponse response = analysisService.getAnalysis(user, firstMockApply.getId(), 4);
+
+        assertThat(response.analysisId()).isEqualTo(saved.analysisId());
+        assertThat(response.mockApplyId()).isEqualTo(secondMockApply.getId());
+        assertThat(response.sequence()).isEqualTo(4);
+        assertThat(response.feedback()).isEqualTo("저장 순번 분석 결과");
+    }
+
+    @Test
     @DisplayName("존재하지 않는 sequence로 분석 결과 조회 시 예외를 던진다")
     void getAnalysisThrowsWhenSequenceDoesNotExist() {
         User user = saveUser("analysis-get-sequence-missing@example.com");
