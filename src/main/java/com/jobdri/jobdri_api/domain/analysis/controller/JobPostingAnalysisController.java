@@ -12,39 +12,28 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/mock-applies/{mockApplyId}/analysis")
+@RequestMapping("/api/job-postings/{jobPostingId}/analysis")
 @Tag(name = "Analysis", description = "자소서 분석 API")
-public class AnalysisController {
+public class JobPostingAnalysisController {
 
     private final AnalysisService analysisService;
 
-    @Operation(summary = "자소서 분석 실행", description = "저장된 문항 답변과 공고 정보를 기반으로 자소서를 분석하고 결과를 저장합니다.")
-    @PostMapping
-    public ApiResponse<AnalysisResponse> analyze(
-            @AuthenticationPrincipal UserDetailsImpl userDetails,
-            @PathVariable Long mockApplyId
-    ) {
-        return ApiResponse.onSuccess(
-                "자소서 분석이 완료되었습니다.",
-                analysisService.analyze(getAuthenticatedUser(userDetails), mockApplyId)
-        );
-    }
-
-    @Operation(summary = "자소서 분석 결과 조회", description = "저장된 자소서 분석 결과를 조회합니다.")
+    @Operation(summary = "지원 회차별 자소서 분석 결과 조회", description = "공고 기준으로 지정한 지원 회차의 자소서 분석 결과를 조회합니다.")
     @GetMapping
-    public ApiResponse<AnalysisResponse> getAnalysis(
+    public ApiResponse<AnalysisResponse> getAnalysisBySequence(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
-            @PathVariable Long mockApplyId
+            @PathVariable Long jobPostingId,
+            @RequestParam Integer sequence
     ) {
         return ApiResponse.onSuccess(
                 "자소서 분석 결과 조회에 성공했습니다.",
-                analysisService.getAnalysis(getAuthenticatedUser(userDetails), mockApplyId)
+                analysisService.getAnalysisByJobPostingSequence(getAuthenticatedUser(userDetails), jobPostingId, sequence)
         );
     }
 
