@@ -12,6 +12,8 @@ import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
@@ -41,6 +43,7 @@ public class AnalysisService {
     private final QuestionRepository questionRepository;
     private final AnalysisRepository analysisRepository;
     private final QuestionAnalysisRepository questionAnalysisRepository;
+    private final JobPostingService jobPostingService;
     private final AnalysisAiClient analysisAiClient;
     private final CreditService creditService;
 
@@ -88,29 +91,35 @@ public class AnalysisService {
     }
 
     public AnalysisResponse getAnalysis(User user, Long mockApplyId) {
-        return getAnalysis(user, mockApplyId, null);
-    }
-
-    public AnalysisResponse getAnalysis(User user, Long mockApplyId, Integer sequence) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
-        if (sequence != null) {
-            mockApply = resolveMockApplyBySequence(mockApply, sequence);
-        }
-        Long resolvedMockApplyId = mockApply.getId();
-
-        Analysis analysis = analysisRepository.findByMockApplyId(resolvedMockApplyId)
+        Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId())
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.ANALYSIS_NOT_FOUND,
-                        "해당 모의 서류 지원의 분석 결과를 찾을 수 없습니다. mockApplyId=" + resolvedMockApplyId
+                        "해당 모의 서류 지원의 분석 결과를 찾을 수 없습니다. mockApplyId=" + mockApply.getId()
                 ));
-        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(resolvedMockApplyId);
+        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         List<QuestionAnalysis> questionAnalyses =
                 questionAnalysisRepository.findAllByAnalysisIdOrderByQuestionIdAscIdAsc(analysis.getId());
 
         return toResponse(mockApply, analysis, questions, questionAnalyses);
     }
 
-    private MockApply resolveMockApplyBySequence(MockApply baseMockApply, int sequence) {
+    public AnalysisResponse getAnalysisByJobPostingSequence(User user, Long jobPostingId, int sequence) {
+        JobPosting jobPosting = jobPostingService.getOwnedJobPosting(user, jobPostingId);
+        MockApply mockApply = resolveMockApplyBySequence(jobPosting, sequence);
+        Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId())
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.ANALYSIS_NOT_FOUND,
+                        "해당 모의 서류 지원의 분석 결과를 찾을 수 없습니다. mockApplyId=" + mockApply.getId()
+                ));
+        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        List<QuestionAnalysis> questionAnalyses =
+                questionAnalysisRepository.findAllByAnalysisIdOrderByQuestionIdAscIdAsc(analysis.getId());
+
+        return toResponse(mockApply, analysis, questions, questionAnalyses);
+    }
+
+    private MockApply resolveMockApplyBySequence(JobPosting jobPosting, int sequence) {
         if (sequence < 1) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
@@ -119,8 +128,8 @@ public class AnalysisService {
         }
 
         List<MockApply> mockApplies = mockApplyRepository.findAllByUserIdAndJobPostingIdOrderByIdAsc(
-                baseMockApply.getUser().getId(),
-                baseMockApply.getJobPosting().getId()
+                jobPosting.getUser().getId(),
+                jobPosting.getId()
         );
 
         int derivedSequence = 0;
@@ -137,8 +146,8 @@ public class AnalysisService {
 
         throw new GeneralException(
                 GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
-                "해당 순번의 모의 서류 지원을 찾을 수 없습니다. mockApplyId="
-                        + baseMockApply.getId()
+                "해당 순번의 모의 서류 지원을 찾을 수 없습니다. jobPostingId="
+                        + jobPosting.getId()
                         + ", sequence="
                         + sequence
         );

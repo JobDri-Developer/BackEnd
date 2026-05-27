@@ -464,8 +464,8 @@ class AnalysisServiceTest {
     }
 
     @Test
-    @DisplayName("sequence 쿼리값으로 같은 공고의 특정 회차 분석 결과를 조회한다")
-    void getAnalysisBySequence() {
+    @DisplayName("jobPosting 기준 sequence로 특정 회차 분석 결과를 조회한다")
+    void getAnalysisByJobPostingSequence() {
         User user = saveUser("analysis-get-sequence@example.com");
         JobPosting jobPosting = saveJobPosting(user);
         MockApply firstMockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
@@ -499,7 +499,7 @@ class AnalysisServiceTest {
         analysisService.analyze(user, firstMockApply.getId());
         AnalysisResponse saved = analysisService.analyze(user, secondMockApply.getId());
 
-        AnalysisResponse response = analysisService.getAnalysis(user, firstMockApply.getId(), 2);
+        AnalysisResponse response = analysisService.getAnalysisByJobPostingSequence(user, jobPosting.getId(), 2);
 
         assertThat(response.analysisId()).isEqualTo(saved.analysisId());
         assertThat(response.mockApplyId()).isEqualTo(secondMockApply.getId());
@@ -508,8 +508,8 @@ class AnalysisServiceTest {
     }
 
     @Test
-    @DisplayName("sequence 쿼리값 조회는 저장된 지원 순번을 우선 사용한다")
-    void getAnalysisByStoredSequence() {
+    @DisplayName("jobPosting 기준 sequence 조회는 저장된 지원 순번을 우선 사용한다")
+    void getAnalysisByJobPostingStoredSequence() {
         User user = saveUser("analysis-get-stored-sequence@example.com");
         JobPosting jobPosting = saveJobPosting(user);
         MockApply firstMockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
@@ -543,7 +543,7 @@ class AnalysisServiceTest {
         analysisService.analyze(user, firstMockApply.getId());
         AnalysisResponse saved = analysisService.analyze(user, secondMockApply.getId());
 
-        AnalysisResponse response = analysisService.getAnalysis(user, firstMockApply.getId(), 4);
+        AnalysisResponse response = analysisService.getAnalysisByJobPostingSequence(user, jobPosting.getId(), 4);
 
         assertThat(response.analysisId()).isEqualTo(saved.analysisId());
         assertThat(response.mockApplyId()).isEqualTo(secondMockApply.getId());
@@ -552,12 +552,16 @@ class AnalysisServiceTest {
     }
 
     @Test
-    @DisplayName("존재하지 않는 sequence로 분석 결과 조회 시 예외를 던진다")
-    void getAnalysisThrowsWhenSequenceDoesNotExist() {
+    @DisplayName("존재하지 않는 sequence로 jobPosting 분석 결과 조회 시 예외를 던진다")
+    void getAnalysisByJobPostingThrowsWhenSequenceDoesNotExist() {
         User user = saveUser("analysis-get-sequence-missing@example.com");
         MockApply mockApply = saveMockApply(user);
 
-        assertThatThrownBy(() -> analysisService.getAnalysis(user, mockApply.getId(), 2))
+        assertThatThrownBy(() -> analysisService.getAnalysisByJobPostingSequence(
+                user,
+                mockApply.getJobPosting().getId(),
+                2
+        ))
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")
                 .isEqualTo(GeneralErrorCode.MOCK_APPLY_NOT_FOUND);
