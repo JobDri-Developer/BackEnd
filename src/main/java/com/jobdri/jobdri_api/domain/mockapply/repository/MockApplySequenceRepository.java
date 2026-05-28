@@ -22,4 +22,6 @@ public interface MockApplySequenceRepository extends JpaRepository<MockApplySequ
             @Param("userId") Long userId,
             @Param("jobPostingId") Long jobPostingId
     );
+
+    void deleteAllByUserIdAndJobPostingId(Long userId, Long jobPostingId);
 }

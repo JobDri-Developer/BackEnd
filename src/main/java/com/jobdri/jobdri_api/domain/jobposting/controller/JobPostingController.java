@@ -20,6 +20,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -137,6 +138,20 @@ public class JobPostingController {
                 "내 채용 공고 목록 조회에 성공했습니다.",
                 jobPostingService.getAllJobPostings(user)
         );
+    }
+
+    @Operation(
+            summary = "채용 공고 및 모의 서류 결과 전체 삭제",
+            description = "채용 공고와 연결된 모의 서류 지원, 문항, 분석 결과를 함께 삭제합니다."
+    )
+    @DeleteMapping("/{jobPostingId}")
+    public ApiResponse<Void> deleteJobPosting(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long jobPostingId
+    ) {
+        var user = validateAuthenticatedUser(userDetails);
+        jobPostingService.deleteJobPosting(user, jobPostingId);
+        return ApiResponse.onSuccess("채용 공고와 모의 서류 결과가 삭제되었습니다.", null);
     }
 
     private com.jobdri.jobdri_api.domain.user.entity.User validateAuthenticatedUser(UserDetailsImpl userDetails) {
