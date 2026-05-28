@@ -1,5 +1,8 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
+import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
+import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
+import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
@@ -10,6 +13,9 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingUpdateReque
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
+import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
+import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
+import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplySequenceRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -29,6 +35,11 @@ public class JobPostingService {
     private final CompanyRepository companyRepository;
     private final DetailClassificationRepository detailClassificationRepository;
     private final UserService userService;
+    private final MockApplySequenceRepository mockApplySequenceRepository;
+    private final MockApplyRepository mockApplyRepository;
+    private final QuestionRepository questionRepository;
+    private final AnalysisRepository analysisRepository;
+    private final QuestionAnalysisRepository questionAnalysisRepository;
 
     @Transactional
     @AuditLogEvent(action = "JOB_POSTING_CREATE", targetType = "JOB_POSTING", targetId = "#result.getJobPostingId()")
@@ -87,6 +98,26 @@ public class JobPostingService {
         return jobPostingRepository.findAllByUserIdAndCompanyId(validatedUser.getId(), companyId).stream()
                 .map(JobPostingResponse::from)
                 .toList();
+    }
+
+    @Transactional
+    @AuditLogEvent(action = "JOB_POSTING_DELETE", targetType = "JOB_POSTING", targetId = "#arg1")
+    public void deleteJobPosting(User user, Long jobPostingId) {
+        User validatedUser = userService.validateUser(user);
+        JobPosting jobPosting = getOwnedJobPosting(validatedUser, jobPostingId);
+
+        List<MockApply> mockApplies = mockApplyRepository.findAllByJobPostingId(jobPostingId);
+        for (MockApply mockApply : mockApplies) {
+            analysisRepository.findByMockApplyId(mockApply.getId()).ifPresent(analysis -> {
+                questionAnalysisRepository.deleteAllByAnalysisId(analysis.getId());
+                analysisRepository.delete(analysis);
+            });
+            questionRepository.deleteAllByMockApplyId(mockApply.getId());
+        }
+
+        mockApplyRepository.deleteAll(mockApplies);
+        mockApplySequenceRepository.deleteAllByUserIdAndJobPostingId(validatedUser.getId(), jobPostingId);
+        jobPostingRepository.delete(jobPosting);
     }
 
     public JobPosting getOwnedJobPosting(User user, Long jobPostingId) {
