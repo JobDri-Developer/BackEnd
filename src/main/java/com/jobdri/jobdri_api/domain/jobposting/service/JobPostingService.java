@@ -13,7 +13,6 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingUpdateReque
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
-import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplySequenceRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
@@ -106,16 +105,10 @@ public class JobPostingService {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = getOwnedJobPosting(validatedUser, jobPostingId);
 
-        List<MockApply> mockApplies = mockApplyRepository.findAllByJobPostingId(jobPostingId);
-        for (MockApply mockApply : mockApplies) {
-            analysisRepository.findByMockApplyId(mockApply.getId()).ifPresent(analysis -> {
-                questionAnalysisRepository.deleteAllByAnalysisId(analysis.getId());
-                analysisRepository.delete(analysis);
-            });
-            questionRepository.deleteAllByMockApplyId(mockApply.getId());
-        }
-
-        mockApplyRepository.deleteAll(mockApplies);
+        questionAnalysisRepository.deleteAllByJobPostingId(jobPostingId);
+        questionRepository.deleteAllByJobPostingId(jobPostingId);
+        analysisRepository.deleteAllByJobPostingId(jobPostingId);
+        mockApplyRepository.deleteAllByJobPostingId(jobPostingId);
         mockApplySequenceRepository.deleteAllByUserIdAndJobPostingId(validatedUser.getId(), jobPostingId);
         jobPostingRepository.delete(jobPosting);
     }

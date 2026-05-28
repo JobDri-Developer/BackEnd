@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.mockapply.repository;
 
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -13,6 +14,8 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
     List<MockApply> findAllByJobPostingId(Long jobPostingId);
     List<MockApply> findAllByUserIdAndJobPostingIdOrderByIdAsc(Long userId, Long jobPostingId);
     long countByUserIdAndJobPostingId(Long userId, Long jobPostingId);
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    void deleteAllByJobPostingId(Long jobPostingId);
 
     @Query("""
             select ma
