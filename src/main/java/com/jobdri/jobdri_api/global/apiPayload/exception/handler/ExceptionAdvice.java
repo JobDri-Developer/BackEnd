@@ -16,11 +16,21 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 import java.util.List;
+import java.util.Locale;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 @Slf4j
 @RestControllerAdvice(annotations = RestController.class)
 public class ExceptionAdvice {
+    private static final String MASKED_VALUE = "****";
+    private static final Set<String> SENSITIVE_FIELD_KEYWORDS = Set.of(
+            "password",
+            "token",
+            "secret",
+            "authorization",
+            "credential"
+    );
 
     @ExceptionHandler(GeneralException.class)
     public ResponseEntity<ApiResponse<Object>> handleCustomException(GeneralException e) {
@@ -37,7 +47,7 @@ public class ExceptionAdvice {
                 .map(fe -> String.format("[%s] %s (입력값: %s)",
                         fe.getField(),
                         fe.getDefaultMessage(),
-                        fe.getRejectedValue()))
+                        formatRejectedValue(fe.getField(), fe.getRejectedValue())))
                 .toList();
 
         log.warn("Validation failed: {}", errors);
@@ -51,10 +61,13 @@ public class ExceptionAdvice {
     @ExceptionHandler(ConstraintViolationException.class)
     public ResponseEntity<ApiResponse<Object>> handleConstraintViolationException(ConstraintViolationException e) {
         List<String> errors = e.getConstraintViolations().stream()
-                .map(violation -> String.format("[%s] %s (입력값: %s)",
-                        violation.getPropertyPath().toString(),
-                        violation.getMessage(),
-                        violation.getInvalidValue()))
+                .map(violation -> {
+                    String propertyPath = violation.getPropertyPath().toString();
+                    return String.format("[%s] %s (입력값: %s)",
+                            propertyPath,
+                            violation.getMessage(),
+                            formatRejectedValue(propertyPath, violation.getInvalidValue()));
+                })
                 .collect(Collectors.toList());
 
         log.warn("Constraint violation: {}", errors);
@@ -87,5 +100,22 @@ public class ExceptionAdvice {
         return ResponseEntity
                 .status(code.getHttpStatus())
                 .body(ApiResponse.onFailure(code, code.getMessage()));
+    }
+
+    static String formatRejectedValue(String field, Object rejectedValue) {
+        if (isSensitiveField(field)) {
+            return MASKED_VALUE;
+        }
+        return String.valueOf(rejectedValue);
+    }
+
+    static boolean isSensitiveField(String field) {
+        if (field == null) {
+            return false;
+        }
+
+        String normalizedField = field.toLowerCase(Locale.ROOT);
+        return SENSITIVE_FIELD_KEYWORDS.stream()
+                .anyMatch(normalizedField::contains);
     }
 }
