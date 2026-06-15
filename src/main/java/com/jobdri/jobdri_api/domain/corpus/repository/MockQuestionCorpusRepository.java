@@ -14,7 +14,7 @@ public interface MockQuestionCorpusRepository extends JpaRepository<MockQuestion
 
     List<MockQuestionCorpus> findAllByCompanyId(Long companyId);
 
-    List<MockQuestionCorpus> findAllByValidForEmbeddingTrueOrderByIdAsc(Pageable pageable);
+    List<MockQuestionCorpus> findAllByValidForEmbeddingTrueAndEmbeddingTextIsNotNullOrderByIdAsc(Pageable pageable);
 
-    List<MockQuestionCorpus> findAllByValidForEmbeddingTrueOrderByIdAsc();
+    List<MockQuestionCorpus> findAllByValidForEmbeddingTrueAndEmbeddingTextIsNotNullOrderByIdAsc();
 }

@@ -6,5 +6,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.Optional;
 
 public interface MockQuestionCacheRepository extends JpaRepository<MockQuestionCache, Long> {
-    Optional<MockQuestionCache> findByDetailClassification_IdAndPromptVersion(Long detailClassificationId, String promptVersion);
+    Optional<MockQuestionCache> findByCompany_IdAndDetailClassification_IdAndPromptVersion(
+            Long companyId,
+            Long detailClassificationId,
+            String promptVersion
+    );
 }

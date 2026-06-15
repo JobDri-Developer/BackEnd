@@ -29,7 +29,7 @@ public class CorpusAdminRunner implements ApplicationRunner {
     private final CorpusEmbeddingSyncService corpusEmbeddingSyncService;
 
     @Override
-    public void run(ApplicationArguments args) throws Exception {
+    public void run(ApplicationArguments args) {
         bootstrapAdminService.promoteConfiguredAdmins();
 
         if (runImportOnStartup && StringUtils.hasText(importXlsxPath)) {

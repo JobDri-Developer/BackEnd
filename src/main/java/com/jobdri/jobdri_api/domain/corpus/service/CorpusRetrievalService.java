@@ -45,9 +45,10 @@ public class CorpusRetrievalService {
 
     public RetrievalContext retrieveForMockGeneration(Company company, DetailClassification detailClassification) {
         String baseQuery = buildMockBaseQuery(company, detailClassification);
+        float[] vector = corpusEmbeddingClient.embedQuery(baseQuery);
         return new RetrievalContext(
-                findSimilarJobPostings(company, detailClassification, baseQuery, jdLimit),
-                findSimilarQuestions(company, detailClassification, baseQuery, questionLimit)
+                findSimilarJobPostings(company, detailClassification, baseQuery, vector, jdLimit),
+                findSimilarQuestions(company, detailClassification, baseQuery, vector, questionLimit)
         );
     }
 
@@ -55,6 +56,22 @@ public class CorpusRetrievalService {
             Company company,
             DetailClassification detailClassification,
             String query,
+            int limit
+    ) {
+        return findSimilarJobPostings(
+                company,
+                detailClassification,
+                query,
+                corpusEmbeddingClient.embedQuery(query),
+                limit
+        );
+    }
+
+    private List<RetrievedJobPostingReference> findSimilarJobPostings(
+            Company company,
+            DetailClassification detailClassification,
+            String query,
+            float[] vector,
             int limit
     ) {
         String companyAndDetailSql = """
@@ -107,8 +124,6 @@ public class CorpusRetrievalService {
                 ORDER BY e.embedding <=> ?
                 LIMIT ?
                 """;
-
-        float[] vector = corpusEmbeddingClient.embedQuery(query);
         try (Connection connection = dataSource.getConnection()) {
             PGvector.registerTypes(connection);
 
@@ -163,6 +178,22 @@ public class CorpusRetrievalService {
             String query,
             int limit
     ) {
+        return findSimilarQuestions(
+                company,
+                detailClassification,
+                query,
+                corpusEmbeddingClient.embedQuery(query),
+                limit
+        );
+    }
+
+    private List<RetrievedQuestionReference> findSimilarQuestions(
+            Company company,
+            DetailClassification detailClassification,
+            String query,
+            float[] vector,
+            int limit
+    ) {
         String companyAndDetailSql = """
                 SELECT
                     c.id,
@@ -213,8 +244,6 @@ public class CorpusRetrievalService {
                 ORDER BY e.embedding <=> ?
                 LIMIT ?
                 """;
-
-        float[] vector = corpusEmbeddingClient.embedQuery(query);
         try (Connection connection = dataSource.getConnection()) {
             PGvector.registerTypes(connection);
 

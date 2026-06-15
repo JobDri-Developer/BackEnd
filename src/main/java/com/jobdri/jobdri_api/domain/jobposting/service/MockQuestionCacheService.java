@@ -30,14 +30,22 @@ public class MockQuestionCacheService {
 
     public List<String> getRecommendedQuestions(JobPostingMockGenerateRequest request) {
         return mockQuestionCacheRepository
-                .findByDetailClassification_IdAndPromptVersion(request.detailClassificationId(), PROMPT_VERSION)
+                .findByCompany_IdAndDetailClassification_IdAndPromptVersion(
+                        request.companyId(),
+                        request.detailClassificationId(),
+                        PROMPT_VERSION
+                )
                 .map(MockQuestionCache::getQuestions)
                 .orElseGet(() -> createAndCacheQuestions(request));
     }
 
     public List<String> createAndCacheQuestions(JobPostingMockGenerateRequest request) {
         return mockQuestionCacheRepository
-                .findByDetailClassification_IdAndPromptVersion(request.detailClassificationId(), PROMPT_VERSION)
+                .findByCompany_IdAndDetailClassification_IdAndPromptVersion(
+                        request.companyId(),
+                        request.detailClassificationId(),
+                        PROMPT_VERSION
+                )
                 .map(MockQuestionCache::getQuestions)
                 .orElseGet(() -> {
                     DetailClassification detailClassification = detailClassificationRepository.findById(request.detailClassificationId())
@@ -55,6 +63,7 @@ public class MockQuestionCacheService {
                             jobPostingAiService.generateMockRecommendedQuestions(request, company);
                     MockQuestionCache saved = mockQuestionCacheRepository.save(
                             MockQuestionCache.create(
+                                    company,
                                     detailClassification,
                                     PROMPT_VERSION,
                                     generated.recommendedQuestions()

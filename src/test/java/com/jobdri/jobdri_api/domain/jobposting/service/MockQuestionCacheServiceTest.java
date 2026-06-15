@@ -58,12 +58,18 @@ class MockQuestionCacheServiceTest {
     @DisplayName("캐시가 있으면 AI 호출 없이 추천 질문을 반환한다")
     void getRecommendedQuestionsUsesCache() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
+        Company company = Company.create("선택 기업", CompanySize.MEDIUM);
         MockQuestionCache cache = MockQuestionCache.create(
+                company,
                 detailClassification,
                 MockQuestionCacheService.PROMPT_VERSION,
                 List.of("질문 1", "질문 2")
         );
-        when(mockQuestionCacheRepository.findByDetailClassification_IdAndPromptVersion(100L, MockQuestionCacheService.PROMPT_VERSION))
+        when(mockQuestionCacheRepository.findByCompany_IdAndDetailClassification_IdAndPromptVersion(
+                1L,
+                100L,
+                MockQuestionCacheService.PROMPT_VERSION
+        ))
                 .thenReturn(Optional.of(cache));
 
         List<String> questions = mockQuestionCacheService.getRecommendedQuestions(
@@ -84,7 +90,11 @@ class MockQuestionCacheServiceTest {
         JobPostingMockGenerateRequest request = new JobPostingMockGenerateRequest(1L, 10L, 100L);
         JobPostingMockQuestionResponse aiResponse = new JobPostingMockQuestionResponse(List.of("질문 A", "질문 B"));
 
-        when(mockQuestionCacheRepository.findByDetailClassification_IdAndPromptVersion(100L, MockQuestionCacheService.PROMPT_VERSION))
+        when(mockQuestionCacheRepository.findByCompany_IdAndDetailClassification_IdAndPromptVersion(
+                1L,
+                100L,
+                MockQuestionCacheService.PROMPT_VERSION
+        ))
                 .thenReturn(Optional.empty());
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
         when(companyRepository.findById(1L)).thenReturn(Optional.of(Company.create("선택 기업", CompanySize.MEDIUM)));

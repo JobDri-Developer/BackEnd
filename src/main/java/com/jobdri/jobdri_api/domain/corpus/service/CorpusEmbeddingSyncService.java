@@ -75,8 +75,8 @@ public class CorpusEmbeddingSyncService {
     @Transactional
     public int syncQuestionEmbeddings(Integer limit) {
         List<MockQuestionCorpus> corpusList = limit == null
-                ? mockQuestionCorpusRepository.findAllByValidForEmbeddingTrueOrderByIdAsc()
-                : mockQuestionCorpusRepository.findAllByValidForEmbeddingTrueOrderByIdAsc(PageRequest.of(0, limit));
+                ? mockQuestionCorpusRepository.findAllByValidForEmbeddingTrueAndEmbeddingTextIsNotNullOrderByIdAsc()
+                : mockQuestionCorpusRepository.findAllByValidForEmbeddingTrueAndEmbeddingTextIsNotNullOrderByIdAsc(PageRequest.of(0, limit));
         return upsertQuestionEmbeddings(corpusList);
     }
 

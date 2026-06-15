@@ -81,7 +81,13 @@ public class JobPostingAiService {
         DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
         validateMiddleClassification(request, detailClassification);
 
-        RetrievalContext retrievalContext = corpusRetrievalService.retrieveForMockGeneration(company, detailClassification);
+        RetrievalContext retrievalContext = emptyRetrievalContext();
+        try {
+            retrievalContext = corpusRetrievalService.retrieveForMockGeneration(company, detailClassification);
+        } catch (Exception e) {
+            log.warn("모의 공고 생성 retrieval 실패. fallback without corpus references. message={}", e.getMessage());
+            log.debug("mock job posting retrieval exception", e);
+        }
 
         var params = ResponseCreateParams.builder()
                 .model(extractionModel)
@@ -110,7 +116,13 @@ public class JobPostingAiService {
         DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
         validateMiddleClassification(request, detailClassification);
 
-        RetrievalContext retrievalContext = corpusRetrievalService.retrieveForMockGeneration(company, detailClassification);
+        RetrievalContext retrievalContext = emptyRetrievalContext();
+        try {
+            retrievalContext = corpusRetrievalService.retrieveForMockGeneration(company, detailClassification);
+        } catch (Exception e) {
+            log.warn("추천 질문 생성 retrieval 실패. fallback without corpus references. message={}", e.getMessage());
+            log.debug("mock question retrieval exception", e);
+        }
 
         var params = ResponseCreateParams.builder()
                 .model(extractionModel)
@@ -807,6 +819,10 @@ public class JobPostingAiService {
 
     private String defaultString(String value) {
         return value == null ? "" : value;
+    }
+
+    private RetrievalContext emptyRetrievalContext() {
+        return new RetrievalContext(List.of(), List.of());
     }
 
     private boolean hasText(String value) {

@@ -24,6 +24,8 @@ import java.util.List;
 @Slf4j
 @RequiredArgsConstructor
 public class AnalysisAiClient {
+    private static final int MAX_REFERENCE_SECTION_LENGTH = 3000;
+    private static final int MAX_REFERENCE_FIELD_LENGTH = 300;
 
     private final OpenAIClient openAIClient;
     private final CorpusRetrievalService corpusRetrievalService;
@@ -32,7 +34,13 @@ public class AnalysisAiClient {
     private String analysisModel;
 
     public AnalysisLlmResponse analyze(JobPosting jobPosting, List<Question> questions) {
-        RetrievalContext referenceContext = corpusRetrievalService.retrieveForAnalysis(jobPosting, questions);
+        RetrievalContext referenceContext = emptyContext();
+        try {
+            referenceContext = corpusRetrievalService.retrieveForAnalysis(jobPosting, questions);
+        } catch (Exception e) {
+            log.warn("자소서 분석 retrieval 실패. mock analysis will continue without references. message={}", e.getMessage());
+            log.debug("analysis retrieval exception", e);
+        }
         var params = ResponseCreateParams.builder()
                 .model(analysisModel)
                 .input(buildPrompt(jobPosting, questions, referenceContext))
@@ -177,7 +185,7 @@ public class AnalysisAiClient {
         if (references == null || references.isEmpty()) {
             return "없음";
         }
-        return references.stream()
+        String formatted = references.stream()
                 .map(reference -> """
                         - 회사명: %s
                           직무명: %s
@@ -186,22 +194,23 @@ public class AnalysisAiClient {
                           우대 사항: %s
                           거리: %.4f
                         """.formatted(
-                        defaultString(reference.companyName()),
-                        defaultString(reference.roleName()),
-                        defaultString(reference.responsibilities()),
-                        defaultString(reference.requirements()),
-                        defaultString(reference.preferred()),
+                        truncate(defaultString(reference.companyName()), MAX_REFERENCE_FIELD_LENGTH),
+                        truncate(defaultString(reference.roleName()), MAX_REFERENCE_FIELD_LENGTH),
+                        truncate(defaultString(reference.responsibilities()), MAX_REFERENCE_FIELD_LENGTH),
+                        truncate(defaultString(reference.requirements()), MAX_REFERENCE_FIELD_LENGTH),
+                        truncate(defaultString(reference.preferred()), MAX_REFERENCE_FIELD_LENGTH),
                         reference.distance()
                 ))
                 .reduce("", (left, right) -> left + "\n" + right)
                 .trim();
+        return truncate(formatted, MAX_REFERENCE_SECTION_LENGTH);
     }
 
     private String formatQuestionReferences(List<RetrievedQuestionReference> references) {
         if (references == null || references.isEmpty()) {
             return "없음";
         }
-        return references.stream()
+        String formatted = references.stream()
                 .map(reference -> """
                         - 회사명: %s
                           직무명: %s
@@ -210,15 +219,16 @@ public class AnalysisAiClient {
                           문항: %s
                           거리: %.4f
                         """.formatted(
-                        defaultString(reference.companyName()),
-                        defaultString(reference.roleName()),
-                        defaultString(reference.questionType()),
+                        truncate(defaultString(reference.companyName()), MAX_REFERENCE_FIELD_LENGTH),
+                        truncate(defaultString(reference.roleName()), MAX_REFERENCE_FIELD_LENGTH),
+                        truncate(defaultString(reference.questionType()), MAX_REFERENCE_FIELD_LENGTH),
                         reference.charLimit() == null ? "" : reference.charLimit(),
-                        defaultString(reference.questionText()),
+                        truncate(defaultString(reference.questionText()), MAX_REFERENCE_FIELD_LENGTH),
                         reference.distance()
                 ))
                 .reduce("", (left, right) -> left + "\n" + right)
                 .trim();
+        return truncate(formatted, MAX_REFERENCE_SECTION_LENGTH);
     }
 
     private AnalysisLlmResponse extractStructuredContent(StructuredResponse<AnalysisLlmResponse> response) {
@@ -236,5 +246,16 @@ public class AnalysisAiClient {
 
     private String defaultString(String value) {
         return value == null ? "" : value;
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value == null || value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength) + "...";
+    }
+
+    private RetrievalContext emptyContext() {
+        return new RetrievalContext(List.of(), List.of());
     }
 }
