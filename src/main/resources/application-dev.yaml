@@ -67,6 +67,16 @@ mail:
 app:
   oauth2:
     redirect-uri: ${APP_OAUTH2_REDIRECT_URI:http://localhost:3000/oauth2/redirect}
+  admin:
+    bootstrap-emails: ${APP_ADMIN_BOOTSTRAP_EMAILS:}
+  corpus:
+    import:
+      run-on-startup: ${APP_CORPUS_IMPORT_RUN_ON_STARTUP:false}
+      xlsx-path: ${APP_CORPUS_IMPORT_XLSX_PATH:}
+    embedding:
+      sync-on-startup: ${APP_CORPUS_EMBEDDING_SYNC_ON_STARTUP:false}
+      model: ${APP_CORPUS_EMBEDDING_MODEL:text-embedding-3-small}
+      batch-size: ${APP_CORPUS_EMBEDDING_BATCH_SIZE:32}
 
 server:
   port: 8080

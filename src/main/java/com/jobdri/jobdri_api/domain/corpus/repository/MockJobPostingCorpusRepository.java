@@ -10,4 +10,6 @@ public interface MockJobPostingCorpusRepository extends JpaRepository<MockJobPos
     Optional<MockJobPostingCorpus> findBySourceAnalysisId(String sourceAnalysisId);
 
     List<MockJobPostingCorpus> findAllByCompanyId(Long companyId);
+
+    List<MockJobPostingCorpus> findAllByValidForEmbeddingTrueAndEmbeddingTextIsNotNullOrderByIdAsc();
 }
