@@ -4,6 +4,8 @@ import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
 import com.jobdri.jobdri_api.domain.corpus.entity.CorpusClassificationMapping;
 import com.jobdri.jobdri_api.domain.corpus.repository.CorpusClassificationMappingRepository;
+import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
+import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,8 +56,8 @@ public class CorpusClassificationResolver {
             }
         }
 
-        if (detailClassificationRepository.countByDetailName(normalizedRole) == 1) {
-            return detailClassificationRepository.findByDetailName(normalizedRole);
+        if (detailClassificationRepository.countByDetailNameIgnoreCase(normalizedRole) == 1) {
+            return detailClassificationRepository.findByDetailNameIgnoreCase(normalizedRole);
         }
 
         return Optional.empty();
@@ -71,6 +73,15 @@ public class CorpusClassificationResolver {
         String normalizedJobGroup = normalize(jobGroupL1);
         String normalizedJobFamily = normalize(jobFamilyL2);
         String normalizedRole = normalize(roleL3);
+
+        if (!StringUtils.hasText(normalizedJobGroup)
+                || !StringUtils.hasText(normalizedJobFamily)
+                || !StringUtils.hasText(normalizedRole)) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "분류 매핑을 등록하려면 대분류, 중분류, 소분류가 모두 필요합니다."
+            );
+        }
 
         return mappingRepository
                 .findBySourceJobGroupL1AndSourceJobFamilyL2AndSourceRoleL3(

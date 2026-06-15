@@ -74,6 +74,7 @@ app:
     import:
       run-on-startup: ${APP_CORPUS_IMPORT_RUN_ON_STARTUP:false}
       xlsx-path: ${APP_CORPUS_IMPORT_XLSX_PATH:}
+      allowed-root: ${APP_CORPUS_IMPORT_ALLOWED_ROOT:}
     embedding:
       sync-on-startup: ${APP_CORPUS_EMBEDDING_SYNC_ON_STARTUP:false}
       model: ${APP_CORPUS_EMBEDDING_MODEL:embed-v4.0}

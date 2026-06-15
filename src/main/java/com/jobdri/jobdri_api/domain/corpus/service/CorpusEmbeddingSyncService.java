@@ -8,8 +8,10 @@ import com.jobdri.jobdri_api.domain.corpus.repository.MockQuestionCorpusReposito
 import com.pgvector.PGvector;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.jdbc.datasource.DataSourceUtils;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
@@ -55,26 +57,26 @@ public class CorpusEmbeddingSyncService {
     private final CorpusEmbeddingClient corpusEmbeddingClient;
     private final DataSource dataSource;
 
-    @Transactional(readOnly = true)
+    @Transactional
     public CorpusEmbeddingSyncResponse syncAll(Integer limit) {
         int jobPostingCount = syncJobPostingEmbeddings(limit);
         int questionCount = syncQuestionEmbeddings(limit);
         return new CorpusEmbeddingSyncResponse(jobPostingCount, questionCount, embeddingModel);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public int syncJobPostingEmbeddings(Integer limit) {
-        List<MockJobPostingCorpus> all = mockJobPostingCorpusRepository
-                .findAllByValidForEmbeddingTrueAndEmbeddingTextIsNotNullOrderByIdAsc();
-        List<MockJobPostingCorpus> corpusList = applyLimit(all, limit);
+        List<MockJobPostingCorpus> corpusList = limit == null
+                ? mockJobPostingCorpusRepository.findAllByValidForEmbeddingTrueOrderByIdAsc()
+                : mockJobPostingCorpusRepository.findAllByValidForEmbeddingTrueOrderByIdAsc(PageRequest.of(0, limit));
         return upsertJobPostingEmbeddings(corpusList);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public int syncQuestionEmbeddings(Integer limit) {
-        List<MockQuestionCorpus> all = mockQuestionCorpusRepository
-                .findAllByValidForEmbeddingTrueAndEmbeddingTextIsNotNullOrderByIdAsc();
-        List<MockQuestionCorpus> corpusList = applyLimit(all, limit);
+        List<MockQuestionCorpus> corpusList = limit == null
+                ? mockQuestionCorpusRepository.findAllByValidForEmbeddingTrueOrderByIdAsc()
+                : mockQuestionCorpusRepository.findAllByValidForEmbeddingTrueOrderByIdAsc(PageRequest.of(0, limit));
         return upsertQuestionEmbeddings(corpusList);
     }
 
@@ -107,7 +109,8 @@ public class CorpusEmbeddingSyncService {
             throw new IllegalStateException("임베딩 결과 개수가 corpus 개수와 일치하지 않습니다.");
         }
 
-        try (Connection connection = dataSource.getConnection()) {
+        Connection connection = DataSourceUtils.getConnection(dataSource);
+        try {
             PGvector.registerTypes(connection);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 Timestamp now = Timestamp.valueOf(LocalDateTime.now());
@@ -123,14 +126,9 @@ public class CorpusEmbeddingSyncService {
             }
         } catch (SQLException e) {
             throw new IllegalStateException("임베딩 벡터 저장 중 오류가 발생했습니다.", e);
+        } finally {
+            DataSourceUtils.releaseConnection(connection, dataSource);
         }
-    }
-
-    private <T> List<T> applyLimit(List<T> items, Integer limit) {
-        if (limit == null || limit >= items.size()) {
-            return items;
-        }
-        return items.subList(0, limit);
     }
 
     private <T> List<List<T>> partition(List<T> items, int batchSize) {

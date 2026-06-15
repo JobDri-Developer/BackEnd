@@ -1,3 +1,5 @@
 spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
+  jpa:
+    defer-datasource-initialization: true

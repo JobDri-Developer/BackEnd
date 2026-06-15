@@ -11,8 +11,8 @@ import java.util.Optional;
 
 public interface DetailClassificationRepository extends JpaRepository<DetailClassification, Long> {
     List<DetailClassification> findAllByMiddleClassificationId(Long middleClassificationId);
-    Optional<DetailClassification> findByDetailName(String detailName);
-    long countByDetailName(String detailName);
+    Optional<DetailClassification> findByDetailNameIgnoreCase(String detailName);
+    long countByDetailNameIgnoreCase(String detailName);
 
     @Query("""
             SELECT dc

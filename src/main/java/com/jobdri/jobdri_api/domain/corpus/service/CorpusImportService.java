@@ -18,6 +18,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.text.DecimalFormat;
+import java.text.ParseException;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -47,9 +49,10 @@ public class CorpusImportService {
         DataFormatter formatter = new DataFormatter();
         FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
         ImportStats stats = new ImportStats();
+        Map<String, Company> companyCache = new HashMap<>();
 
-        importJobPostingSheet(workbook.getSheet(JD_SHEET_NAME), formatter, evaluator, stats);
-        importQuestionSheet(workbook.getSheet(QUESTION_SHEET_NAME), formatter, evaluator, stats);
+        importJobPostingSheet(workbook.getSheet(JD_SHEET_NAME), formatter, evaluator, stats, companyCache);
+        importQuestionSheet(workbook.getSheet(QUESTION_SHEET_NAME), formatter, evaluator, stats, companyCache);
 
         return stats.toResult();
     }
@@ -58,7 +61,8 @@ public class CorpusImportService {
             Sheet sheet,
             DataFormatter formatter,
             FormulaEvaluator evaluator,
-            ImportStats stats
+            ImportStats stats,
+            Map<String, Company> companyCache
     ) {
         if (sheet == null) {
             return;
@@ -70,6 +74,11 @@ public class CorpusImportService {
         }
 
         Map<String, Integer> headerMap = readHeaderMap(rows.next(), formatter, evaluator);
+        validateRequiredHeaders(
+                headerMap,
+                "analysis_id", "company_name", "job_group_l1", "job_family_l2", "role_l3",
+                "skills", "responsibilities", "requirements", "preferred", "embedding_text", "is_valid_for_embedding"
+        );
         while (rows.hasNext()) {
             Row row = rows.next();
             String sourceAnalysisId = getString(row, headerMap, "analysis_id", formatter, evaluator);
@@ -78,7 +87,7 @@ public class CorpusImportService {
             }
 
             String companyName = getString(row, headerMap, "company_name", formatter, evaluator);
-            Company company = resolveCompany(companyName, stats);
+            Company company = resolveCompany(companyName, stats, companyCache);
             Optional<DetailClassification> detailClassification = resolveClassification(row, headerMap, formatter, evaluator, stats);
 
             MockJobPostingCorpus corpus = mockJobPostingCorpusRepository.findBySourceAnalysisId(sourceAnalysisId)
@@ -130,7 +139,8 @@ public class CorpusImportService {
             Sheet sheet,
             DataFormatter formatter,
             FormulaEvaluator evaluator,
-            ImportStats stats
+            ImportStats stats,
+            Map<String, Company> companyCache
     ) {
         if (sheet == null) {
             return;
@@ -142,6 +152,11 @@ public class CorpusImportService {
         }
 
         Map<String, Integer> headerMap = readHeaderMap(rows.next(), formatter, evaluator);
+        validateRequiredHeaders(
+                headerMap,
+                "question_id", "analysis_id", "company_name", "job_group_l1", "job_family_l2", "role_l3",
+                "source", "question_text", "embedding_text", "is_valid_for_embedding"
+        );
         while (rows.hasNext()) {
             Row row = rows.next();
             String sourceQuestionId = getString(row, headerMap, "question_id", formatter, evaluator);
@@ -150,7 +165,7 @@ public class CorpusImportService {
             }
 
             String companyName = getString(row, headerMap, "company_name", formatter, evaluator);
-            Company company = resolveCompany(companyName, stats);
+            Company company = resolveCompany(companyName, stats, companyCache);
             Optional<DetailClassification> detailClassification = resolveClassification(row, headerMap, formatter, evaluator, stats);
 
             MockQuestionCorpus corpus = mockQuestionCorpusRepository.findBySourceQuestionId(sourceQuestionId)
@@ -219,16 +234,22 @@ public class CorpusImportService {
         return detailClassification;
     }
 
-    private Company resolveCompany(String companyName, ImportStats stats) {
+    private Company resolveCompany(String companyName, ImportStats stats, Map<String, Company> companyCache) {
         String normalizedCompanyName = normalize(companyName);
         if (!StringUtils.hasText(normalizedCompanyName)) {
             return null;
         }
-        return companyRepository.findByName(normalizedCompanyName)
+        Company cachedCompany = companyCache.get(normalizedCompanyName);
+        if (cachedCompany != null) {
+            return cachedCompany;
+        }
+        Company company = companyRepository.findByName(normalizedCompanyName)
                 .orElseGet(() -> {
                     stats.createdCompanies++;
                     return companyRepository.save(Company.create(normalizedCompanyName, null));
                 });
+        companyCache.put(normalizedCompanyName, company);
+        return company;
     }
 
     private Map<String, Integer> readHeaderMap(Row headerRow, DataFormatter formatter, FormulaEvaluator evaluator) {
@@ -242,6 +263,14 @@ public class CorpusImportService {
             }
         }
         return headerMap;
+    }
+
+    private void validateRequiredHeaders(Map<String, Integer> headerMap, String... requiredColumns) {
+        for (String requiredColumn : requiredColumns) {
+            if (!headerMap.containsKey(requiredColumn)) {
+                throw new IllegalArgumentException("필수 헤더가 누락되었습니다. column=" + requiredColumn);
+            }
+        }
     }
 
     private String getString(
@@ -269,7 +298,21 @@ public class CorpusImportService {
         if (!StringUtils.hasText(value)) {
             return null;
         }
-        return Integer.parseInt(value);
+        String normalized = value.replace(",", "").trim();
+        try {
+            if (normalized.contains(".")) {
+                double decimalValue = Double.parseDouble(normalized);
+                return (int) Math.round(decimalValue);
+            }
+            return Integer.parseInt(normalized);
+        } catch (NumberFormatException e) {
+            try {
+                Number parsed = DecimalFormat.getInstance().parse(normalized);
+                return parsed == null ? null : parsed.intValue();
+            } catch (ParseException ignored) {
+                return null;
+            }
+        }
     }
 
     private boolean getBoolean(

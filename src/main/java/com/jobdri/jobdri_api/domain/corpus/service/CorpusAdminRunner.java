@@ -33,12 +33,20 @@ public class CorpusAdminRunner implements ApplicationRunner {
         bootstrapAdminService.promoteConfiguredAdmins();
 
         if (runImportOnStartup && StringUtils.hasText(importXlsxPath)) {
-            CorpusImportResult result = corpusImportService.importFromXlsx(Path.of(importXlsxPath));
-            log.info("corpus import 완료: {}", result);
+            try {
+                CorpusImportResult result = corpusImportService.importFromXlsx(Path.of(importXlsxPath));
+                log.info("corpus import 완료: {}", result);
+            } catch (Exception e) {
+                log.error("startup corpus import 실패. path={}", importXlsxPath, e);
+            }
         }
 
         if (syncEmbeddingsOnStartup) {
-            log.info("corpus embedding sync 완료: {}", corpusEmbeddingSyncService.syncAll(null));
+            try {
+                log.info("corpus embedding sync 완료: {}", corpusEmbeddingSyncService.syncAll(null));
+            } catch (Exception e) {
+                log.error("startup corpus embedding sync 실패", e);
+            }
         }
     }
 }
