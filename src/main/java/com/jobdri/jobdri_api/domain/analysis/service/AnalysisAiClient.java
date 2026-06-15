@@ -2,10 +2,11 @@ package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedQuestionReference;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisReferenceRetrievalService.AnalysisReferenceContext;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisReferenceRetrievalService.RetrievedJobPostingReference;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisReferenceRetrievalService.RetrievedQuestionReference;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -25,13 +26,13 @@ import java.util.List;
 public class AnalysisAiClient {
 
     private final OpenAIClient openAIClient;
-    private final AnalysisReferenceRetrievalService analysisReferenceRetrievalService;
+    private final CorpusRetrievalService corpusRetrievalService;
 
     @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}")
     private String analysisModel;
 
     public AnalysisLlmResponse analyze(JobPosting jobPosting, List<Question> questions) {
-        AnalysisReferenceContext referenceContext = analysisReferenceRetrievalService.retrieve(jobPosting, questions);
+        RetrievalContext referenceContext = corpusRetrievalService.retrieveForAnalysis(jobPosting, questions);
         var params = ResponseCreateParams.builder()
                 .model(analysisModel)
                 .input(buildPrompt(jobPosting, questions, referenceContext))
@@ -56,7 +57,7 @@ public class AnalysisAiClient {
     private String buildPrompt(
             JobPosting jobPosting,
             List<Question> questions,
-            AnalysisReferenceContext referenceContext
+            RetrievalContext referenceContext
     ) {
         String questionText = questions.stream()
                 .map(question -> """

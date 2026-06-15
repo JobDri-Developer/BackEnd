@@ -4,6 +4,9 @@ import com.jobdri.jobdri_api.domain.classification.entity.Classification;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.entity.MiddleClassification;
 import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
+import com.jobdri.jobdri_api.domain.company.entity.Company;
+import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
+import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingMockGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockQuestionResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.MockQuestionCache;
@@ -34,6 +37,9 @@ class MockQuestionCacheServiceTest {
     private DetailClassificationRepository detailClassificationRepository;
 
     @Mock
+    private CompanyRepository companyRepository;
+
+    @Mock
     private JobPostingAiService jobPostingAiService;
 
     private MockQuestionCacheService mockQuestionCacheService;
@@ -43,6 +49,7 @@ class MockQuestionCacheServiceTest {
         mockQuestionCacheService = new MockQuestionCacheService(
                 mockQuestionCacheRepository,
                 detailClassificationRepository,
+                companyRepository,
                 jobPostingAiService
         );
     }
@@ -64,7 +71,10 @@ class MockQuestionCacheServiceTest {
         );
 
         assertThat(questions).containsExactly("질문 1", "질문 2");
-        verify(jobPostingAiService, never()).generateMockRecommendedQuestions(org.mockito.ArgumentMatchers.any());
+        verify(jobPostingAiService, never()).generateMockRecommendedQuestions(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()
+        );
     }
 
     @Test
@@ -77,7 +87,11 @@ class MockQuestionCacheServiceTest {
         when(mockQuestionCacheRepository.findByDetailClassification_IdAndPromptVersion(100L, MockQuestionCacheService.PROMPT_VERSION))
                 .thenReturn(Optional.empty());
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
-        when(jobPostingAiService.generateMockRecommendedQuestions(request)).thenReturn(aiResponse);
+        when(companyRepository.findById(1L)).thenReturn(Optional.of(Company.create("선택 기업", CompanySize.MEDIUM)));
+        when(jobPostingAiService.generateMockRecommendedQuestions(
+                org.mockito.ArgumentMatchers.eq(request),
+                org.mockito.ArgumentMatchers.any(Company.class)
+        )).thenReturn(aiResponse);
         when(mockQuestionCacheRepository.save(org.mockito.ArgumentMatchers.any(MockQuestionCache.class)))
                 .thenAnswer(invocation -> invocation.getArgument(0));
 
