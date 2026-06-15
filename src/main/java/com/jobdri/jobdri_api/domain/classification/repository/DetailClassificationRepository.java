@@ -12,6 +12,22 @@ import java.util.Optional;
 public interface DetailClassificationRepository extends JpaRepository<DetailClassification, Long> {
     List<DetailClassification> findAllByMiddleClassificationId(Long middleClassificationId);
     Optional<DetailClassification> findByDetailName(String detailName);
+    long countByDetailName(String detailName);
+
+    @Query("""
+            SELECT dc
+            FROM DetailClassification dc
+            JOIN dc.middleClassification mc
+            JOIN mc.classification c
+            WHERE lower(c.bigName) = lower(:bigName)
+              AND lower(mc.middleName) = lower(:middleName)
+              AND lower(dc.detailName) = lower(:detailName)
+            """)
+    Optional<DetailClassification> findByHierarchyNames(
+            @Param("bigName") String bigName,
+            @Param("middleName") String middleName,
+            @Param("detailName") String detailName
+    );
 
     @Query(value = """
             SELECT

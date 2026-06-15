@@ -106,4 +106,8 @@ public class User {
         }
         this.credit -= amount;
     }
+
+    public void promoteToAdmin() {
+        this.role = UserRole.ADMIN;
+    }
 }
