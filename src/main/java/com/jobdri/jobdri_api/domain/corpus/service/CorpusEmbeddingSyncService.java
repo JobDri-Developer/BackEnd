@@ -44,7 +44,7 @@ public class CorpusEmbeddingSyncService {
                 updated_at = EXCLUDED.updated_at
             """;
 
-    @Value("${app.corpus.embedding.model:text-embedding-3-small}")
+    @Value("${app.corpus.embedding.model:embed-v4.0}")
     private String embeddingModel;
 
     @Value("${app.corpus.embedding.batch-size:32}")

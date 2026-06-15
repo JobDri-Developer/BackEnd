@@ -12,6 +12,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: ${JPA_DDL_AUTO:update}
+    defer-datasource-initialization: true
     properties:
       hibernate:
         format_sql: true
@@ -67,6 +68,18 @@ mail:
 app:
   oauth2:
     redirect-uri: ${APP_OAUTH2_REDIRECT_URI}
+  admin:
+    bootstrap-emails: ${APP_ADMIN_BOOTSTRAP_EMAILS:}
+  corpus:
+    import:
+      run-on-startup: ${APP_CORPUS_IMPORT_RUN_ON_STARTUP:false}
+      xlsx-path: ${APP_CORPUS_IMPORT_XLSX_PATH:}
+    embedding:
+      sync-on-startup: ${APP_CORPUS_EMBEDDING_SYNC_ON_STARTUP:false}
+      model: ${APP_CORPUS_EMBEDDING_MODEL:embed-v4.0}
+      output-dimension: ${APP_CORPUS_EMBEDDING_OUTPUT_DIMENSION:1024}
+      document-input-type: ${APP_CORPUS_EMBEDDING_DOCUMENT_INPUT_TYPE:search_document}
+      batch-size: ${APP_CORPUS_EMBEDDING_BATCH_SIZE:32}
 
 server:
   port: 8080
@@ -95,6 +108,10 @@ openai:
     key: ${OPENAI_API_KEY}
   model:
     job-posting-extractor: ${OPENAI_JOB_POSTING_MODEL:gpt-4o-mini}
+
+cohere:
+  api:
+    key: ${COHERE_API_KEY:}
 
 payment:
   toss:
