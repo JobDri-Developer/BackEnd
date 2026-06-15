@@ -48,7 +48,7 @@ public class AnalysisReferenceRetrievalService {
     }
 
     private List<RetrievedJobPostingReference> findSimilarJobPostings(JobPosting jobPosting, String query, int limit) {
-        String sql = """
+        String companyAndDetailSql = """
                 SELECT
                     c.id,
                     c.company_name,
@@ -60,46 +60,96 @@ public class AnalysisReferenceRetrievalService {
                 FROM mock_job_posting_embeddings e
                 JOIN mock_job_posting_corpus c ON e.corpus_id = c.id
                 WHERE c.is_valid_for_embedding = true
-                  AND (c.detail_classification_id = ? OR c.job_group_l1 = ?)
+                  AND c.detail_classification_id = ?
+                  AND lower(c.company_name) = lower(?)
+                ORDER BY e.embedding <=> ?
+                LIMIT ?
+                """;
+        String detailOnlySql = """
+                SELECT
+                    c.id,
+                    c.company_name,
+                    c.role_l3,
+                    c.responsibilities,
+                    c.requirements,
+                    c.preferred,
+                    e.embedding <=> ? AS distance
+                FROM mock_job_posting_embeddings e
+                JOIN mock_job_posting_corpus c ON e.corpus_id = c.id
+                WHERE c.is_valid_for_embedding = true
+                  AND c.detail_classification_id = ?
+                ORDER BY e.embedding <=> ?
+                LIMIT ?
+                """;
+        String hierarchySql = """
+                SELECT
+                    c.id,
+                    c.company_name,
+                    c.role_l3,
+                    c.responsibilities,
+                    c.requirements,
+                    c.preferred,
+                    e.embedding <=> ? AS distance
+                FROM mock_job_posting_embeddings e
+                JOIN mock_job_posting_corpus c ON e.corpus_id = c.id
+                WHERE c.is_valid_for_embedding = true
+                  AND c.job_group_l1 = ?
+                  AND c.job_family_l2 = ?
                 ORDER BY e.embedding <=> ?
                 LIMIT ?
                 """;
 
         float[] vector = corpusEmbeddingClient.embedQuery(query);
-        List<RetrievedJobPostingReference> result = new ArrayList<>();
-
         try (Connection connection = dataSource.getConnection()) {
             PGvector.registerTypes(connection);
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setObject(1, new PGvector(vector));
-                statement.setObject(2, jobPosting.getDetailClassification().getId());
-                statement.setString(3, jobPosting.getDetailClassification().getMiddleClassification().getClassification().getBigName());
-                statement.setObject(4, new PGvector(vector));
-                statement.setInt(5, limit);
 
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        result.add(new RetrievedJobPostingReference(
-                                rs.getLong("id"),
-                                rs.getString("company_name"),
-                                rs.getString("role_l3"),
-                                rs.getString("responsibilities"),
-                                rs.getString("requirements"),
-                                rs.getString("preferred"),
-                                rs.getDouble("distance")
-                        ));
+            List<RetrievedJobPostingReference> companyAndDetail = queryJobPostingReferences(
+                    connection,
+                    companyAndDetailSql,
+                    vector,
+                    statement -> {
+                        statement.setObject(2, jobPosting.getDetailClassification().getId());
+                        statement.setString(3, jobPosting.getCompany().getName());
+                        statement.setObject(4, new PGvector(vector));
+                        statement.setInt(5, limit);
                     }
-                }
+            );
+            if (!companyAndDetail.isEmpty()) {
+                return companyAndDetail;
             }
+
+            List<RetrievedJobPostingReference> detailOnly = queryJobPostingReferences(
+                    connection,
+                    detailOnlySql,
+                    vector,
+                    statement -> {
+                        statement.setObject(2, jobPosting.getDetailClassification().getId());
+                        statement.setObject(3, new PGvector(vector));
+                        statement.setInt(4, limit);
+                    }
+            );
+            if (!detailOnly.isEmpty()) {
+                return detailOnly;
+            }
+
+            return queryJobPostingReferences(
+                    connection,
+                    hierarchySql,
+                    vector,
+                    statement -> {
+                        statement.setString(2, jobPosting.getDetailClassification().getMiddleClassification().getClassification().getBigName());
+                        statement.setString(3, jobPosting.getDetailClassification().getMiddleClassification().getMiddleName());
+                        statement.setObject(4, new PGvector(vector));
+                        statement.setInt(5, limit);
+                    }
+            );
         } catch (SQLException e) {
             throw new IllegalStateException("유사 JD 검색 중 오류가 발생했습니다.", e);
         }
-
-        return result;
     }
 
     private List<RetrievedQuestionReference> findSimilarQuestions(JobPosting jobPosting, String query, int limit) {
-        String sql = """
+        String companyAndDetailSql = """
                 SELECT
                     c.id,
                     c.company_name,
@@ -111,41 +161,145 @@ public class AnalysisReferenceRetrievalService {
                 FROM mock_question_embeddings e
                 JOIN mock_question_corpus c ON e.corpus_id = c.id
                 WHERE c.is_valid_for_embedding = true
-                  AND (c.detail_classification_id = ? OR c.job_group_l1 = ?)
+                  AND c.detail_classification_id = ?
+                  AND lower(c.company_name) = lower(?)
+                ORDER BY e.embedding <=> ?
+                LIMIT ?
+                """;
+        String detailOnlySql = """
+                SELECT
+                    c.id,
+                    c.company_name,
+                    c.role_l3,
+                    c.question_type,
+                    c.char_limit,
+                    c.question_text,
+                    e.embedding <=> ? AS distance
+                FROM mock_question_embeddings e
+                JOIN mock_question_corpus c ON e.corpus_id = c.id
+                WHERE c.is_valid_for_embedding = true
+                  AND c.detail_classification_id = ?
+                ORDER BY e.embedding <=> ?
+                LIMIT ?
+                """;
+        String hierarchySql = """
+                SELECT
+                    c.id,
+                    c.company_name,
+                    c.role_l3,
+                    c.question_type,
+                    c.char_limit,
+                    c.question_text,
+                    e.embedding <=> ? AS distance
+                FROM mock_question_embeddings e
+                JOIN mock_question_corpus c ON e.corpus_id = c.id
+                WHERE c.is_valid_for_embedding = true
+                  AND c.job_group_l1 = ?
+                  AND c.job_family_l2 = ?
                 ORDER BY e.embedding <=> ?
                 LIMIT ?
                 """;
 
         float[] vector = corpusEmbeddingClient.embedQuery(query);
-        List<RetrievedQuestionReference> result = new ArrayList<>();
-
         try (Connection connection = dataSource.getConnection()) {
             PGvector.registerTypes(connection);
-            try (PreparedStatement statement = connection.prepareStatement(sql)) {
-                statement.setObject(1, new PGvector(vector));
-                statement.setObject(2, jobPosting.getDetailClassification().getId());
-                statement.setString(3, jobPosting.getDetailClassification().getMiddleClassification().getClassification().getBigName());
-                statement.setObject(4, new PGvector(vector));
-                statement.setInt(5, limit);
 
-                try (ResultSet rs = statement.executeQuery()) {
-                    while (rs.next()) {
-                        result.add(new RetrievedQuestionReference(
-                                rs.getLong("id"),
-                                rs.getString("company_name"),
-                                rs.getString("role_l3"),
-                                rs.getString("question_type"),
-                                getNullableInt(rs, "char_limit"),
-                                rs.getString("question_text"),
-                                rs.getDouble("distance")
-                        ));
+            List<RetrievedQuestionReference> companyAndDetail = queryQuestionReferences(
+                    connection,
+                    companyAndDetailSql,
+                    vector,
+                    statement -> {
+                        statement.setObject(2, jobPosting.getDetailClassification().getId());
+                        statement.setString(3, jobPosting.getCompany().getName());
+                        statement.setObject(4, new PGvector(vector));
+                        statement.setInt(5, limit);
                     }
-                }
+            );
+            if (!companyAndDetail.isEmpty()) {
+                return companyAndDetail;
             }
+
+            List<RetrievedQuestionReference> detailOnly = queryQuestionReferences(
+                    connection,
+                    detailOnlySql,
+                    vector,
+                    statement -> {
+                        statement.setObject(2, jobPosting.getDetailClassification().getId());
+                        statement.setObject(3, new PGvector(vector));
+                        statement.setInt(4, limit);
+                    }
+            );
+            if (!detailOnly.isEmpty()) {
+                return detailOnly;
+            }
+
+            return queryQuestionReferences(
+                    connection,
+                    hierarchySql,
+                    vector,
+                    statement -> {
+                        statement.setString(2, jobPosting.getDetailClassification().getMiddleClassification().getClassification().getBigName());
+                        statement.setString(3, jobPosting.getDetailClassification().getMiddleClassification().getMiddleName());
+                        statement.setObject(4, new PGvector(vector));
+                        statement.setInt(5, limit);
+                    }
+            );
         } catch (SQLException e) {
             throw new IllegalStateException("유사 문항 검색 중 오류가 발생했습니다.", e);
         }
+    }
 
+    private List<RetrievedJobPostingReference> queryJobPostingReferences(
+            Connection connection,
+            String sql,
+            float[] vector,
+            StatementBinder binder
+    ) throws SQLException {
+        List<RetrievedJobPostingReference> result = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, new PGvector(vector));
+            binder.bind(statement);
+            try (ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    result.add(new RetrievedJobPostingReference(
+                            rs.getLong("id"),
+                            rs.getString("company_name"),
+                            rs.getString("role_l3"),
+                            rs.getString("responsibilities"),
+                            rs.getString("requirements"),
+                            rs.getString("preferred"),
+                            rs.getDouble("distance")
+                    ));
+                }
+            }
+        }
+        return result;
+    }
+
+    private List<RetrievedQuestionReference> queryQuestionReferences(
+            Connection connection,
+            String sql,
+            float[] vector,
+            StatementBinder binder
+    ) throws SQLException {
+        List<RetrievedQuestionReference> result = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, new PGvector(vector));
+            binder.bind(statement);
+            try (ResultSet rs = statement.executeQuery()) {
+                while (rs.next()) {
+                    result.add(new RetrievedQuestionReference(
+                            rs.getLong("id"),
+                            rs.getString("company_name"),
+                            rs.getString("role_l3"),
+                            rs.getString("question_type"),
+                            getNullableInt(rs, "char_limit"),
+                            rs.getString("question_text"),
+                            rs.getDouble("distance")
+                    ));
+                }
+            }
+        }
         return result;
     }
 
@@ -240,5 +394,10 @@ public class AnalysisReferenceRetrievalService {
             String questionText,
             double distance
     ) {
+    }
+
+    @FunctionalInterface
+    private interface StatementBinder {
+        void bind(PreparedStatement statement) throws SQLException;
     }
 }
