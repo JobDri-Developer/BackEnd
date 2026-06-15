@@ -80,6 +80,10 @@ app:
       output-dimension: ${APP_CORPUS_EMBEDDING_OUTPUT_DIMENSION:1024}
       document-input-type: ${APP_CORPUS_EMBEDDING_DOCUMENT_INPUT_TYPE:search_document}
       batch-size: ${APP_CORPUS_EMBEDDING_BATCH_SIZE:32}
+  analysis:
+    retrieval:
+      jd-limit: ${APP_ANALYSIS_RETRIEVAL_JD_LIMIT:3}
+      question-limit: ${APP_ANALYSIS_RETRIEVAL_QUESTION_LIMIT:5}
 
 server:
   port: 8080

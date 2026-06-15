@@ -81,7 +81,7 @@ public class CorpusEmbeddingSyncService {
     private int upsertJobPostingEmbeddings(List<MockJobPostingCorpus> corpusList) {
         int processed = 0;
         for (List<MockJobPostingCorpus> batch : partition(corpusList, batchSize)) {
-            List<float[]> embeddings = corpusEmbeddingClient.embed(
+            List<float[]> embeddings = corpusEmbeddingClient.embedDocuments(
                     batch.stream().map(MockJobPostingCorpus::getEmbeddingText).toList()
             );
             upsertVectors(UPSERT_JOB_POSTING_SQL, batch.stream().map(MockJobPostingCorpus::getId).toList(), embeddings);
@@ -93,7 +93,7 @@ public class CorpusEmbeddingSyncService {
     private int upsertQuestionEmbeddings(List<MockQuestionCorpus> corpusList) {
         int processed = 0;
         for (List<MockQuestionCorpus> batch : partition(corpusList, batchSize)) {
-            List<float[]> embeddings = corpusEmbeddingClient.embed(
+            List<float[]> embeddings = corpusEmbeddingClient.embedDocuments(
                     batch.stream().map(MockQuestionCorpus::getEmbeddingText).toList()
             );
             upsertVectors(UPSERT_QUESTION_SQL, batch.stream().map(MockQuestionCorpus::getId).toList(), embeddings);

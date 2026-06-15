@@ -25,11 +25,8 @@ public class CohereCorpusEmbeddingClient implements CorpusEmbeddingClient {
     @Value("${app.corpus.embedding.output-dimension:1024}")
     private int outputDimension;
 
-    @Value("${app.corpus.embedding.document-input-type:search_document}")
-    private String documentInputType;
-
     @Override
-    public List<float[]> embed(List<String> texts) {
+    public List<float[]> embed(List<String> texts, InputType inputType) {
         if (!StringUtils.hasText(cohereApiKey)) {
             throw new IllegalStateException("Cohere API 키가 설정되지 않았습니다.");
         }
@@ -48,7 +45,7 @@ public class CohereCorpusEmbeddingClient implements CorpusEmbeddingClient {
                 .body(new EmbedRequest(
                         texts,
                         embeddingModel,
-                        documentInputType,
+                        inputType.value(),
                         outputDimension,
                         List.of("float")
                 ))
