@@ -156,20 +156,33 @@ public class AnalysisReferenceRetrievalService {
 
     private String buildJobPostingQuery(JobPosting jobPosting) {
         return """
-                회사명: %s
                 직무명: %s
-                주요 업무:
-                %s
+
                 자격 요건:
                 %s
+
                 우대 사항:
                 %s
+
+                주요 업무:
+                %s
+
+                핵심 요구 역량 요약:
+                %s
+
+                우대 역량 요약:
+                %s
+
+                참고 회사명:
+                %s
                 """.formatted(
-                defaultString(jobPosting.getCompany().getName()),
                 defaultString(jobPosting.getDetailClassification().getDetailName()),
+                defaultString(jobPosting.getRequirement()),
+                defaultString(jobPosting.getPreferred()),
                 defaultString(jobPosting.getTask()),
                 defaultString(jobPosting.getRequirement()),
-                defaultString(jobPosting.getPreferred())
+                defaultString(jobPosting.getPreferred()),
+                defaultString(jobPosting.getCompany().getName())
         ).trim();
     }
 
@@ -182,14 +195,18 @@ public class AnalysisReferenceRetrievalService {
                 .trim();
 
         return """
-                회사명: %s
                 직무명: %s
+                자격 요건: %s
+                우대 사항: %s
                 자소서 문항:
                 %s
+                참고 회사명: %s
                 """.formatted(
-                defaultString(jobPosting.getCompany().getName()),
                 defaultString(jobPosting.getDetailClassification().getDetailName()),
-                questionText
+                defaultString(jobPosting.getRequirement()),
+                defaultString(jobPosting.getPreferred()),
+                questionText,
+                defaultString(jobPosting.getCompany().getName())
         ).trim();
     }
 
