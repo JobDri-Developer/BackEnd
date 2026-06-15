@@ -74,12 +74,17 @@ app:
     import:
       run-on-startup: ${APP_CORPUS_IMPORT_RUN_ON_STARTUP:false}
       xlsx-path: ${APP_CORPUS_IMPORT_XLSX_PATH:}
+      allowed-root: ${APP_CORPUS_IMPORT_ALLOWED_ROOT:}
     embedding:
       sync-on-startup: ${APP_CORPUS_EMBEDDING_SYNC_ON_STARTUP:false}
       model: ${APP_CORPUS_EMBEDDING_MODEL:embed-v4.0}
       output-dimension: ${APP_CORPUS_EMBEDDING_OUTPUT_DIMENSION:1024}
       document-input-type: ${APP_CORPUS_EMBEDDING_DOCUMENT_INPUT_TYPE:search_document}
       batch-size: ${APP_CORPUS_EMBEDDING_BATCH_SIZE:32}
+  analysis:
+    retrieval:
+      jd-limit: ${APP_ANALYSIS_RETRIEVAL_JD_LIMIT:3}
+      question-limit: ${APP_ANALYSIS_RETRIEVAL_QUESTION_LIMIT:5}
 
 server:
   port: 8080

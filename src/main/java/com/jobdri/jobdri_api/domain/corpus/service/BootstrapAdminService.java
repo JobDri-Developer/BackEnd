@@ -31,7 +31,11 @@ public class BootstrapAdminService {
                 .toList();
 
         for (String email : emails) {
-            userRepository.findByEmail(email).ifPresent(this::promoteIfNeeded);
+            userRepository.findByEmail(email)
+                    .ifPresentOrElse(
+                            this::promoteIfNeeded,
+                            () -> log.warn("bootstrap admin 대상 사용자를 찾지 못했습니다. email={}", email)
+                    );
         }
     }
 

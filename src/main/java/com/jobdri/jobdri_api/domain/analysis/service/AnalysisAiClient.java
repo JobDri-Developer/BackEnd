@@ -3,6 +3,9 @@ package com.jobdri.jobdri_api.domain.analysis.service;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisReferenceRetrievalService.AnalysisReferenceContext;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisReferenceRetrievalService.RetrievedJobPostingReference;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisReferenceRetrievalService.RetrievedQuestionReference;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -22,14 +25,16 @@ import java.util.List;
 public class AnalysisAiClient {
 
     private final OpenAIClient openAIClient;
+    private final AnalysisReferenceRetrievalService analysisReferenceRetrievalService;
 
     @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}")
     private String analysisModel;
 
     public AnalysisLlmResponse analyze(JobPosting jobPosting, List<Question> questions) {
+        AnalysisReferenceContext referenceContext = analysisReferenceRetrievalService.retrieve(jobPosting, questions);
         var params = ResponseCreateParams.builder()
                 .model(analysisModel)
-                .input(buildPrompt(jobPosting, questions))
+                .input(buildPrompt(jobPosting, questions, referenceContext))
                 .temperature(0.2)
                 .text(AnalysisLlmResponse.class)
                 .build();
@@ -48,7 +53,11 @@ public class AnalysisAiClient {
         }
     }
 
-    private String buildPrompt(JobPosting jobPosting, List<Question> questions) {
+    private String buildPrompt(
+            JobPosting jobPosting,
+            List<Question> questions,
+            AnalysisReferenceContext referenceContext
+    ) {
         String questionText = questions.stream()
                 .map(question -> """
                         - questionId: %d
@@ -60,6 +69,9 @@ public class AnalysisAiClient {
                         defaultString(question.getAnswer())
                 ))
                 .reduce("", (left, right) -> left + "\n" + right);
+
+        String similarJobPostingText = formatJobPostingReferences(referenceContext.jobPostingReferences());
+        String similarQuestionText = formatQuestionReferences(referenceContext.questionReferences());
 
         return """
                 [시스템 지시]
@@ -126,6 +138,12 @@ public class AnalysisAiClient {
                 우대 사항:
                 %s
 
+                [유사 JD 검색 결과]
+                %s
+
+                [유사 자소서 문항 검색 결과]
+                %s
+
                 [자소서 문항과 답변]
                 %s
 
@@ -148,8 +166,58 @@ public class AnalysisAiClient {
                 defaultString(jobPosting.getTask()),
                 defaultString(jobPosting.getRequirement()),
                 defaultString(jobPosting.getPreferred()),
+                similarJobPostingText,
+                similarQuestionText,
                 questionText
         );
+    }
+
+    private String formatJobPostingReferences(List<RetrievedJobPostingReference> references) {
+        if (references == null || references.isEmpty()) {
+            return "없음";
+        }
+        return references.stream()
+                .map(reference -> """
+                        - 회사명: %s
+                          직무명: %s
+                          주요 업무: %s
+                          자격 요건: %s
+                          우대 사항: %s
+                          거리: %.4f
+                        """.formatted(
+                        defaultString(reference.companyName()),
+                        defaultString(reference.roleName()),
+                        defaultString(reference.responsibilities()),
+                        defaultString(reference.requirements()),
+                        defaultString(reference.preferred()),
+                        reference.distance()
+                ))
+                .reduce("", (left, right) -> left + "\n" + right)
+                .trim();
+    }
+
+    private String formatQuestionReferences(List<RetrievedQuestionReference> references) {
+        if (references == null || references.isEmpty()) {
+            return "없음";
+        }
+        return references.stream()
+                .map(reference -> """
+                        - 회사명: %s
+                          직무명: %s
+                          문항 유형: %s
+                          글자 수 제한: %s
+                          문항: %s
+                          거리: %.4f
+                        """.formatted(
+                        defaultString(reference.companyName()),
+                        defaultString(reference.roleName()),
+                        defaultString(reference.questionType()),
+                        reference.charLimit() == null ? "" : reference.charLimit(),
+                        defaultString(reference.questionText()),
+                        reference.distance()
+                ))
+                .reduce("", (left, right) -> left + "\n" + right)
+                .trim();
     }
 
     private AnalysisLlmResponse extractStructuredContent(StructuredResponse<AnalysisLlmResponse> response) {

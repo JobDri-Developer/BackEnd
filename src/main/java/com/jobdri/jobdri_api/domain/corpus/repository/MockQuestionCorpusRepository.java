@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.corpus.repository;
 
 import com.jobdri.jobdri_api.domain.corpus.entity.MockQuestionCorpus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.domain.Pageable;
 
 import java.util.List;
 import java.util.Optional;
@@ -13,5 +14,7 @@ public interface MockQuestionCorpusRepository extends JpaRepository<MockQuestion
 
     List<MockQuestionCorpus> findAllByCompanyId(Long companyId);
 
-    List<MockQuestionCorpus> findAllByValidForEmbeddingTrueAndEmbeddingTextIsNotNullOrderByIdAsc();
+    List<MockQuestionCorpus> findAllByValidForEmbeddingTrueOrderByIdAsc(Pageable pageable);
+
+    List<MockQuestionCorpus> findAllByValidForEmbeddingTrueOrderByIdAsc();
 }

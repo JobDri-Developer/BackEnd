@@ -4,10 +4,12 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
 import java.util.List;
 
 @Component
@@ -25,11 +27,8 @@ public class CohereCorpusEmbeddingClient implements CorpusEmbeddingClient {
     @Value("${app.corpus.embedding.output-dimension:1024}")
     private int outputDimension;
 
-    @Value("${app.corpus.embedding.document-input-type:search_document}")
-    private String documentInputType;
-
     @Override
-    public List<float[]> embed(List<String> texts) {
+    public List<float[]> embed(List<String> texts, InputType inputType) {
         if (!StringUtils.hasText(cohereApiKey)) {
             throw new IllegalStateException("Cohere API 키가 설정되지 않았습니다.");
         }
@@ -37,8 +36,13 @@ public class CohereCorpusEmbeddingClient implements CorpusEmbeddingClient {
             return List.of();
         }
 
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(Duration.ofSeconds(5));
+        requestFactory.setReadTimeout(Duration.ofSeconds(10));
+
         RestClient client = restClientBuilder
                 .baseUrl("https://api.cohere.com")
+                .requestFactory(requestFactory)
                 .defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer " + cohereApiKey)
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
@@ -48,7 +52,7 @@ public class CohereCorpusEmbeddingClient implements CorpusEmbeddingClient {
                 .body(new EmbedRequest(
                         texts,
                         embeddingModel,
-                        documentInputType,
+                        inputType.value(),
                         outputDimension,
                         List.of("float")
                 ))
