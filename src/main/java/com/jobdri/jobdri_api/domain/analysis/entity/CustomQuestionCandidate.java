@@ -1,10 +1,9 @@
 package com.jobdri.jobdri_api.domain.analysis.entity;
 
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
+import com.jobdri.jobdri_api.global.entity.CreatedAtEntity;
 import jakarta.persistence.*;
 import lombok.*;
-
-import java.time.LocalDateTime;
 
 @Entity
 @Getter
@@ -20,7 +19,7 @@ import java.time.LocalDateTime;
                 )
         }
 )
-public class CustomQuestionCandidate {
+public class CustomQuestionCandidate extends CreatedAtEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -36,15 +35,11 @@ public class CustomQuestionCandidate {
     @Column(name = "char_limit", nullable = false)
     private int limit;
 
-    @Column(nullable = false)
-    private LocalDateTime createdAt;
-
     public static CustomQuestionCandidate create(MockApply mockApply, String content, int limit) {
         return CustomQuestionCandidate.builder()
                 .mockApply(mockApply)
                 .content(content)
                 .limit(limit)
-                .createdAt(LocalDateTime.now())
                 .build();
     }
 }

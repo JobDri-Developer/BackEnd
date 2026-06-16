@@ -1,10 +1,9 @@
 package com.jobdri.jobdri_api.domain.corpus.entity;
 
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
+import com.jobdri.jobdri_api.global.entity.CreatedAtEntity;
 import jakarta.persistence.*;
 import lombok.*;
-
-import java.time.LocalDateTime;
 
 @Entity
 @Getter
@@ -20,7 +19,7 @@ import java.time.LocalDateTime;
                 )
         }
 )
-public class CorpusClassificationMapping {
+public class CorpusClassificationMapping extends CreatedAtEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -39,9 +38,6 @@ public class CorpusClassificationMapping {
     @JoinColumn(name = "detail_classification_id", nullable = false)
     private DetailClassification detailClassification;
 
-    @Column(nullable = false)
-    private LocalDateTime createdAt;
-
     public static CorpusClassificationMapping create(
             String sourceJobGroupL1,
             String sourceJobFamilyL2,
@@ -53,7 +49,6 @@ public class CorpusClassificationMapping {
                 .sourceJobFamilyL2(sourceJobFamilyL2)
                 .sourceRoleL3(sourceRoleL3)
                 .detailClassification(detailClassification)
-                .createdAt(LocalDateTime.now())
                 .build();
     }
 }

@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.mockapply.entity;
 
+import com.jobdri.jobdri_api.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -19,7 +20,7 @@ import lombok.NoArgsConstructor;
                 columnNames = {"user_id", "job_posting_id"}
         )
 )
-public class MockApplySequence {
+public class MockApplySequence extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

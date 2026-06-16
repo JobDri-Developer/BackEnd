@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.experience.entity;
 
 import com.jobdri.jobdri_api.domain.skill.entity.Skill;
 import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -15,7 +16,7 @@ import java.util.List;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder(access = AccessLevel.PRIVATE)
 @Table(name = "experiences")
-public class Experience {
+public class Experience extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)

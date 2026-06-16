@@ -2,10 +2,9 @@ package com.jobdri.jobdri_api.domain.corpus.entity;
 
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
+import com.jobdri.jobdri_api.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
-
-import java.time.LocalDateTime;
 
 @Entity
 @Getter
@@ -21,7 +20,7 @@ import java.time.LocalDateTime;
                 @Index(name = "idx_mock_question_corpus_classification", columnList = "job_group_l1, job_family_l2, role_l3")
         }
 )
-public class MockQuestionCorpus {
+public class MockQuestionCorpus extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -71,9 +70,6 @@ public class MockQuestionCorpus {
     @Column(name = "is_valid_for_embedding", nullable = false)
     private boolean validForEmbedding;
 
-    @Column(name = "created_at", nullable = false)
-    private LocalDateTime createdAt;
-
     public static MockQuestionCorpus create(
             String sourceQuestionId,
             String sourceAnalysisId,
@@ -105,7 +101,6 @@ public class MockQuestionCorpus {
                 .questionText(questionText)
                 .embeddingText(embeddingText)
                 .validForEmbedding(validForEmbedding)
-                .createdAt(LocalDateTime.now())
                 .build();
     }
 

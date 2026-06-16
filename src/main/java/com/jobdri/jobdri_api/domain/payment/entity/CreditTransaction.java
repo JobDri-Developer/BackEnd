@@ -1,10 +1,9 @@
 package com.jobdri.jobdri_api.domain.payment.entity;
 
 import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.global.entity.CreatedAtEntity;
 import jakarta.persistence.*;
 import lombok.*;
-
-import java.time.LocalDateTime;
 
 @Entity
 @Getter
@@ -12,7 +11,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder(access = AccessLevel.PRIVATE)
 @Table(name = "credit_transactions")
-public class CreditTransaction {
+public class CreditTransaction extends CreatedAtEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -37,9 +36,6 @@ public class CreditTransaction {
 
     private String referenceId;
 
-    @Column(nullable = false)
-    private LocalDateTime createdAt;
-
     public static CreditTransaction create(
             User user,
             CreditTransactionType type,
@@ -55,7 +51,6 @@ public class CreditTransaction {
                 .balanceAfter(balanceAfter)
                 .description(description)
                 .referenceId(referenceId)
-                .createdAt(LocalDateTime.now())
                 .build();
     }
 }

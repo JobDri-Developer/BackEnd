@@ -4,10 +4,10 @@ import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
 
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -23,7 +23,7 @@ import java.util.List;
                 columnNames = {"user_id", "job_posting_id", "sequence"}
         )
 )
-public class MockApply {
+public class MockApply extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -47,9 +47,6 @@ public class MockApply {
 
     private Integer sequence;
 
-    @Column(nullable = false)
-    private LocalDateTime createdAt;
-
     @OneToOne(mappedBy = "mockApply", cascade = CascadeType.ALL, orphanRemoval = true)
     private Analysis analysis;
 
@@ -68,7 +65,6 @@ public class MockApply {
                 .applyType(applyType)
                 .status(MockApplyStatus.APPLICATION_CREATED)
                 .sequence(sequence)
-                .createdAt(LocalDateTime.now())
                 .build();
     }
 

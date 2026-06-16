@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.jobposting.entity;
 
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
+import com.jobdri.jobdri_api.global.entity.BaseEntity;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
@@ -36,7 +37,7 @@ import java.util.List;
                 columnNames = {"company_id", "detail_classification_id", "prompt_version"}
         )
 )
-public class MockQuestionCache {
+public class MockQuestionCache extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
