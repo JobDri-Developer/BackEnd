@@ -7,6 +7,8 @@ import com.jobdri.jobdri_api.domain.corpus.entity.MockJobPostingCorpus;
 import com.jobdri.jobdri_api.domain.corpus.entity.MockQuestionCorpus;
 import com.jobdri.jobdri_api.domain.corpus.repository.MockJobPostingCorpusRepository;
 import com.jobdri.jobdri_api.domain.corpus.repository.MockQuestionCorpusRepository;
+import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
+import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.xssf.usermodel.XSSFWorkbook;
@@ -22,6 +24,7 @@ import java.text.DecimalFormat;
 import java.text.ParseException;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -268,7 +271,10 @@ public class CorpusImportService {
     private void validateRequiredHeaders(Map<String, Integer> headerMap, String... requiredColumns) {
         for (String requiredColumn : requiredColumns) {
             if (!headerMap.containsKey(requiredColumn)) {
-                throw new IllegalArgumentException("필수 헤더가 누락되었습니다. column=" + requiredColumn);
+                throw new GeneralException(
+                        GeneralErrorCode.INVALID_PARAMETER,
+                        "필수 헤더가 누락되었습니다. column=" + requiredColumn
+                );
             }
         }
     }
@@ -307,7 +313,7 @@ public class CorpusImportService {
             return Integer.parseInt(normalized);
         } catch (NumberFormatException e) {
             try {
-                Number parsed = DecimalFormat.getInstance().parse(normalized);
+                Number parsed = DecimalFormat.getInstance(Locale.US).parse(normalized);
                 return parsed == null ? null : parsed.intValue();
             } catch (ParseException ignored) {
                 return null;

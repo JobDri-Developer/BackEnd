@@ -2,6 +2,8 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
+import com.jobdri.jobdri_api.domain.company.entity.Company;
+import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingMockGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockQuestionResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.MockQuestionCache;
@@ -23,18 +25,27 @@ public class MockQuestionCacheService {
 
     private final MockQuestionCacheRepository mockQuestionCacheRepository;
     private final DetailClassificationRepository detailClassificationRepository;
+    private final CompanyRepository companyRepository;
     private final JobPostingAiService jobPostingAiService;
 
     public List<String> getRecommendedQuestions(JobPostingMockGenerateRequest request) {
         return mockQuestionCacheRepository
-                .findByDetailClassification_IdAndPromptVersion(request.detailClassificationId(), PROMPT_VERSION)
+                .findByCompany_IdAndDetailClassification_IdAndPromptVersion(
+                        request.companyId(),
+                        request.detailClassificationId(),
+                        PROMPT_VERSION
+                )
                 .map(MockQuestionCache::getQuestions)
                 .orElseGet(() -> createAndCacheQuestions(request));
     }
 
     public List<String> createAndCacheQuestions(JobPostingMockGenerateRequest request) {
         return mockQuestionCacheRepository
-                .findByDetailClassification_IdAndPromptVersion(request.detailClassificationId(), PROMPT_VERSION)
+                .findByCompany_IdAndDetailClassification_IdAndPromptVersion(
+                        request.companyId(),
+                        request.detailClassificationId(),
+                        PROMPT_VERSION
+                )
                 .map(MockQuestionCache::getQuestions)
                 .orElseGet(() -> {
                     DetailClassification detailClassification = detailClassificationRepository.findById(request.detailClassificationId())
@@ -42,11 +53,17 @@ public class MockQuestionCacheService {
                                     GeneralErrorCode.CLASSIFICATION_NOT_FOUND,
                                     "해당 소분류를 찾을 수 없습니다. detailClassificationId=" + request.detailClassificationId()
                             ));
+                    Company company = companyRepository.findById(request.companyId())
+                            .orElseThrow(() -> new GeneralException(
+                                    GeneralErrorCode.COMPANY_NOT_FOUND,
+                                    "해당 회사를 찾을 수 없습니다. companyId=" + request.companyId()
+                            ));
 
                     JobPostingMockQuestionResponse generated =
-                            jobPostingAiService.generateMockRecommendedQuestions(request);
+                            jobPostingAiService.generateMockRecommendedQuestions(request, company);
                     MockQuestionCache saved = mockQuestionCacheRepository.save(
                             MockQuestionCache.create(
+                                    company,
                                     detailClassification,
                                     PROMPT_VERSION,
                                     generated.recommendedQuestions()

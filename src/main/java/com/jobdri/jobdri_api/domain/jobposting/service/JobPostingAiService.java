@@ -13,7 +13,10 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateRe
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockQuestionResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
-import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedQuestionReference;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -36,7 +39,7 @@ public class JobPostingAiService {
 
     private final OpenAIClient openAIClient;
     private final DetailClassificationRepository detailClassificationRepository;
-    private final JobPostingRepository jobPostingRepository;
+    private final CorpusRetrievalService corpusRetrievalService;
     private final JobPostingImageStorageService jobPostingImageStorageService;
 
     @Value("${openai.model.job-posting-extractor:gpt-4o-mini}")
@@ -78,11 +81,17 @@ public class JobPostingAiService {
         DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
         validateMiddleClassification(request, detailClassification);
 
-        List<JobPosting> referencePostings = findMockReferencePostings(request, company);
+        RetrievalContext retrievalContext = emptyRetrievalContext();
+        try {
+            retrievalContext = corpusRetrievalService.retrieveForMockGeneration(company, detailClassification);
+        } catch (Exception e) {
+            log.warn("모의 공고 생성 retrieval 실패. fallback without corpus references. message={}", e.getMessage());
+            log.debug("mock job posting retrieval exception", e);
+        }
 
         var params = ResponseCreateParams.builder()
                 .model(extractionModel)
-                .input(buildMockGenerationPrompt(request, company, detailClassification, referencePostings))
+                .input(buildMockGenerationPrompt(request, company, detailClassification, retrievalContext))
                 .temperature(0.7)
                 .text(JobPostingMockGenerateResponse.class)
                 .build();
@@ -96,19 +105,28 @@ public class JobPostingAiService {
             return normalizeMockGeneratedResponse(generated, company, detailClassification);
         } catch (Exception e) {
             log.error("모의 공고 생성 OpenAI API 호출 오류: {}", e.getMessage(), e);
-            return createFallbackMockGeneratedResponse(company, detailClassification, referencePostings);
+            return createFallbackMockGeneratedResponse(company, detailClassification, retrievalContext.jobPostingReferences());
         }
     }
 
-    public JobPostingMockQuestionResponse generateMockRecommendedQuestions(JobPostingMockGenerateRequest request) {
+    public JobPostingMockQuestionResponse generateMockRecommendedQuestions(
+            JobPostingMockGenerateRequest request,
+            Company company
+    ) {
         DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
         validateMiddleClassification(request, detailClassification);
 
-        List<JobPosting> referencePostings = findMockReferencePostings(request, null);
+        RetrievalContext retrievalContext = emptyRetrievalContext();
+        try {
+            retrievalContext = corpusRetrievalService.retrieveForMockGeneration(company, detailClassification);
+        } catch (Exception e) {
+            log.warn("추천 질문 생성 retrieval 실패. fallback without corpus references. message={}", e.getMessage());
+            log.debug("mock question retrieval exception", e);
+        }
 
         var params = ResponseCreateParams.builder()
                 .model(extractionModel)
-                .input(buildMockQuestionPrompt(request, detailClassification, referencePostings))
+                .input(buildMockQuestionPrompt(request, detailClassification, retrievalContext))
                 .temperature(0.4)
                 .text(JobPostingMockQuestionResponse.class)
                 .build();
@@ -424,11 +442,12 @@ public class JobPostingAiService {
             JobPostingMockGenerateRequest request,
             Company company,
             DetailClassification detailClassification,
-            List<JobPosting> referencePostings
+            RetrievalContext retrievalContext
     ) {
         String middleName = detailClassification.getMiddleClassification().getMiddleName();
         String detailName = detailClassification.getDetailName();
-        String referenceText = buildReferencePostingText(referencePostings);
+        String referenceText = buildReferencePostingText(retrievalContext.jobPostingReferences());
+        String questionReferenceText = buildReferenceQuestionText(retrievalContext.questionReferences());
 
         return """
                 아래 직무 분류를 바탕으로 한국어 모의 채용 공고 초안을 작성해주세요.
@@ -471,24 +490,29 @@ public class JobPostingAiService {
 
                 [같은 소분류의 기존 공고 참고 자료]
                 %s
+
+                [같은 조건의 유사 자소서 문항 참고 자료]
+                %s
                 """.formatted(
                 company.getName(),
                 request.middleClassificationId(),
                 middleName,
                 request.detailClassificationId(),
                 detailName,
-                referenceText
+                referenceText,
+                questionReferenceText
         );
     }
 
     private String buildMockQuestionPrompt(
             JobPostingMockGenerateRequest request,
             DetailClassification detailClassification,
-            List<JobPosting> referencePostings
+            RetrievalContext retrievalContext
     ) {
         String middleName = detailClassification.getMiddleClassification().getMiddleName();
         String detailName = detailClassification.getDetailName();
-        String referenceText = buildReferencePostingText(referencePostings);
+        String referenceText = buildReferencePostingText(retrievalContext.jobPostingReferences());
+        String questionReferenceText = buildReferenceQuestionText(retrievalContext.questionReferences());
 
         return """
                 아래 직무 분류와 참고 공고를 바탕으로, 모의 지원자에게 제시할 추천 질문 5개를 작성해주세요.
@@ -522,22 +546,30 @@ public class JobPostingAiService {
 
                 [같은 소분류의 기존 공고 참고 자료]
                 %s
+
+                [같은 조건의 유사 자소서 문항 참고 자료]
+                %s
                 """.formatted(
                 request.middleClassificationId(),
                 middleName,
                 request.detailClassificationId(),
                 detailName,
-                referenceText
+                referenceText,
+                questionReferenceText
         );
     }
 
-    private String buildReferencePostingText(List<JobPosting> referencePostings) {
+    private String buildReferencePostingText(List<RetrievedJobPostingReference> referencePostings) {
         if (referencePostings == null || referencePostings.isEmpty()) {
             return "참고 가능한 기존 공고가 없습니다.";
         }
 
         return referencePostings.stream()
                 .map(jobPosting -> """
+                        - 회사명:
+                        %s
+                        - 직무명:
+                        %s
                         - 주요 업무:
                         %s
                         - 자격 요건:
@@ -545,18 +577,40 @@ public class JobPostingAiService {
                         - 우대 사항:
                         %s
                         """.formatted(
-                        truncateForPrompt(jobPosting.getTask()),
-                        truncateForPrompt(jobPosting.getRequirement()),
-                        truncateForPrompt(jobPosting.getPreferred())
+                        truncateForPrompt(jobPosting.companyName()),
+                        truncateForPrompt(jobPosting.roleName()),
+                        truncateForPrompt(jobPosting.responsibilities()),
+                        truncateForPrompt(jobPosting.requirements()),
+                        truncateForPrompt(jobPosting.preferred())
                 ))
                 .collect(Collectors.joining("\n"));
     }
 
-    private List<JobPosting> findMockReferencePostings(JobPostingMockGenerateRequest request, Company company) {
-        return jobPostingRepository.findTop5ReferencePostings(
-                company == null ? null : company.getId(),
-                request.detailClassificationId()
-        );
+    private String buildReferenceQuestionText(List<RetrievedQuestionReference> referenceQuestions) {
+        if (referenceQuestions == null || referenceQuestions.isEmpty()) {
+            return "참고 가능한 유사 자소서 문항이 없습니다.";
+        }
+
+        return referenceQuestions.stream()
+                .map(question -> """
+                        - 회사명:
+                        %s
+                        - 직무명:
+                        %s
+                        - 문항 유형:
+                        %s
+                        - 글자 수 제한:
+                        %s
+                        - 문항:
+                        %s
+                        """.formatted(
+                        truncateForPrompt(question.companyName()),
+                        truncateForPrompt(question.roleName()),
+                        truncateForPrompt(question.questionType()),
+                        question.charLimit() == null ? "" : question.charLimit(),
+                        truncateForPrompt(question.questionText())
+                ))
+                .collect(Collectors.joining("\n"));
     }
 
     private JobPostingGenerateResponse normalizeGeneratedResponse(JobPostingGenerateResponse response, JobPostingGenerateRequest request) {
@@ -711,9 +765,9 @@ public class JobPostingAiService {
     private JobPostingMockGenerateResponse createFallbackMockGeneratedResponse(
             Company company,
             DetailClassification detailClassification,
-            List<JobPosting> referencePostings
+            List<RetrievedJobPostingReference> referencePostings
     ) {
-        JobPosting referencePosting = referencePostings == null || referencePostings.isEmpty()
+        RetrievedJobPostingReference referencePosting = referencePostings == null || referencePostings.isEmpty()
                 ? null
                 : referencePostings.getFirst();
         String middleName = detailClassification.getMiddleClassification().getMiddleName();
@@ -724,13 +778,13 @@ public class JobPostingAiService {
                 detailName,
                 referencePosting == null
                         ? "%s 직무의 기본 업무를 수행하며, 서비스 개발과 운영 과정에 참여합니다.".formatted(detailName)
-                        : defaultString(referencePosting.getTask()),
+                        : defaultString(referencePosting.responsibilities()),
                 referencePosting == null
                         ? "%s 분야에 대한 기본 이해와 협업 역량을 갖춘 분을 찾습니다.".formatted(detailName)
-                        : defaultString(referencePosting.getRequirement()),
+                        : defaultString(referencePosting.requirements()),
                 referencePosting == null
                         ? "관련 프로젝트 경험 또는 %s 분야 학습 경험이 있으면 좋습니다.".formatted(middleName)
-                        : defaultString(referencePosting.getPreferred()),
+                        : defaultString(referencePosting.preferred()),
                 "%s/%s 직무 기반으로 생성된 신입 및 주니어 대상 모의 공고입니다.".formatted(middleName, detailName),
                 List.of()
         );
@@ -765,6 +819,10 @@ public class JobPostingAiService {
 
     private String defaultString(String value) {
         return value == null ? "" : value;
+    }
+
+    private RetrievalContext emptyRetrievalContext() {
+        return new RetrievalContext(List.of(), List.of());
     }
 
     private boolean hasText(String value) {

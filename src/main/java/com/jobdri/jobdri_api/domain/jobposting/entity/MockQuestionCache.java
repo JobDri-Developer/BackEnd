@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobposting.entity;
 
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
+import com.jobdri.jobdri_api.domain.company.entity.Company;
 import jakarta.persistence.CollectionTable;
 import jakarta.persistence.Column;
 import jakarta.persistence.ElementCollection;
@@ -31,8 +32,8 @@ import java.util.List;
 @Table(
         name = "mock_question_caches",
         uniqueConstraints = @UniqueConstraint(
-                name = "uk_mock_question_cache_detail_version",
-                columnNames = {"detail_classification_id", "prompt_version"}
+                name = "uk_mock_question_cache_company_detail_version",
+                columnNames = {"company_id", "detail_classification_id", "prompt_version"}
         )
 )
 public class MockQuestionCache {
@@ -44,6 +45,10 @@ public class MockQuestionCache {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "detail_classification_id", nullable = false)
     private DetailClassification detailClassification;
+
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "company_id", nullable = false)
+    private Company company;
 
     @Column(name = "prompt_version", nullable = false, length = 50)
     private String promptVersion;
@@ -59,11 +64,13 @@ public class MockQuestionCache {
     private List<String> questions = new ArrayList<>();
 
     public static MockQuestionCache create(
+            Company company,
             DetailClassification detailClassification,
             String promptVersion,
             List<String> questions
     ) {
         return MockQuestionCache.builder()
+                .company(company)
                 .detailClassification(detailClassification)
                 .promptVersion(promptVersion)
                 .questions(new ArrayList<>(questions))

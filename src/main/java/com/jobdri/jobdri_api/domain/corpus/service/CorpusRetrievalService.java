@@ -1,7 +1,8 @@
-package com.jobdri.jobdri_api.domain.analysis.service;
+package com.jobdri.jobdri_api.domain.corpus.service;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
-import com.jobdri.jobdri_api.domain.corpus.service.CorpusEmbeddingClient;
+import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
+import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.pgvector.PGvector;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +22,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class AnalysisReferenceRetrievalService {
+public class CorpusRetrievalService {
 
     @Value("${app.analysis.retrieval.jd-limit:3}")
     private int jdLimit;
@@ -32,22 +33,47 @@ public class AnalysisReferenceRetrievalService {
     private final CorpusEmbeddingClient corpusEmbeddingClient;
     private final DataSource dataSource;
 
-    public AnalysisReferenceContext retrieve(JobPosting jobPosting, List<Question> questions) {
-        String jdQuery = buildJobPostingQuery(jobPosting);
-        String questionQuery = buildQuestionQuery(jobPosting, questions);
+    public RetrievalContext retrieveForAnalysis(JobPosting jobPosting, List<Question> questions) {
+        String jdQuery = buildAnalysisJobPostingQuery(jobPosting);
+        String questionQuery = buildAnalysisQuestionQuery(jobPosting, questions);
 
-        List<RetrievedJobPostingReference> jobPostingReferences = StringUtils.hasText(jdQuery)
-                ? findSimilarJobPostings(jobPosting, jdQuery, jdLimit)
-                : List.of();
-
-        List<RetrievedQuestionReference> questionReferences = StringUtils.hasText(questionQuery)
-                ? findSimilarQuestions(jobPosting, questionQuery, questionLimit)
-                : List.of();
-
-        return new AnalysisReferenceContext(jobPostingReferences, questionReferences);
+        return new RetrievalContext(
+                StringUtils.hasText(jdQuery) ? findSimilarJobPostings(jobPosting.getCompany(), jobPosting.getDetailClassification(), jdQuery, jdLimit) : List.of(),
+                StringUtils.hasText(questionQuery) ? findSimilarQuestions(jobPosting.getCompany(), jobPosting.getDetailClassification(), questionQuery, questionLimit) : List.of()
+        );
     }
 
-    private List<RetrievedJobPostingReference> findSimilarJobPostings(JobPosting jobPosting, String query, int limit) {
+    public RetrievalContext retrieveForMockGeneration(Company company, DetailClassification detailClassification) {
+        String baseQuery = buildMockBaseQuery(company, detailClassification);
+        float[] vector = corpusEmbeddingClient.embedQuery(baseQuery);
+        return new RetrievalContext(
+                findSimilarJobPostings(company, detailClassification, baseQuery, vector, jdLimit),
+                findSimilarQuestions(company, detailClassification, baseQuery, vector, questionLimit)
+        );
+    }
+
+    private List<RetrievedJobPostingReference> findSimilarJobPostings(
+            Company company,
+            DetailClassification detailClassification,
+            String query,
+            int limit
+    ) {
+        return findSimilarJobPostings(
+                company,
+                detailClassification,
+                query,
+                corpusEmbeddingClient.embedQuery(query),
+                limit
+        );
+    }
+
+    private List<RetrievedJobPostingReference> findSimilarJobPostings(
+            Company company,
+            DetailClassification detailClassification,
+            String query,
+            float[] vector,
+            int limit
+    ) {
         String companyAndDetailSql = """
                 SELECT
                     c.id,
@@ -98,8 +124,6 @@ public class AnalysisReferenceRetrievalService {
                 ORDER BY e.embedding <=> ?
                 LIMIT ?
                 """;
-
-        float[] vector = corpusEmbeddingClient.embedQuery(query);
         try (Connection connection = dataSource.getConnection()) {
             PGvector.registerTypes(connection);
 
@@ -108,8 +132,8 @@ public class AnalysisReferenceRetrievalService {
                     companyAndDetailSql,
                     vector,
                     statement -> {
-                        statement.setObject(2, jobPosting.getDetailClassification().getId());
-                        statement.setString(3, jobPosting.getCompany().getName());
+                        statement.setObject(2, detailClassification.getId());
+                        statement.setString(3, company.getName());
                         statement.setObject(4, new PGvector(vector));
                         statement.setInt(5, limit);
                     }
@@ -123,7 +147,7 @@ public class AnalysisReferenceRetrievalService {
                     detailOnlySql,
                     vector,
                     statement -> {
-                        statement.setObject(2, jobPosting.getDetailClassification().getId());
+                        statement.setObject(2, detailClassification.getId());
                         statement.setObject(3, new PGvector(vector));
                         statement.setInt(4, limit);
                     }
@@ -137,8 +161,8 @@ public class AnalysisReferenceRetrievalService {
                     hierarchySql,
                     vector,
                     statement -> {
-                        statement.setString(2, jobPosting.getDetailClassification().getMiddleClassification().getClassification().getBigName());
-                        statement.setString(3, jobPosting.getDetailClassification().getMiddleClassification().getMiddleName());
+                        statement.setString(2, detailClassification.getMiddleClassification().getClassification().getBigName());
+                        statement.setString(3, detailClassification.getMiddleClassification().getMiddleName());
                         statement.setObject(4, new PGvector(vector));
                         statement.setInt(5, limit);
                     }
@@ -148,7 +172,28 @@ public class AnalysisReferenceRetrievalService {
         }
     }
 
-    private List<RetrievedQuestionReference> findSimilarQuestions(JobPosting jobPosting, String query, int limit) {
+    private List<RetrievedQuestionReference> findSimilarQuestions(
+            Company company,
+            DetailClassification detailClassification,
+            String query,
+            int limit
+    ) {
+        return findSimilarQuestions(
+                company,
+                detailClassification,
+                query,
+                corpusEmbeddingClient.embedQuery(query),
+                limit
+        );
+    }
+
+    private List<RetrievedQuestionReference> findSimilarQuestions(
+            Company company,
+            DetailClassification detailClassification,
+            String query,
+            float[] vector,
+            int limit
+    ) {
         String companyAndDetailSql = """
                 SELECT
                     c.id,
@@ -199,8 +244,6 @@ public class AnalysisReferenceRetrievalService {
                 ORDER BY e.embedding <=> ?
                 LIMIT ?
                 """;
-
-        float[] vector = corpusEmbeddingClient.embedQuery(query);
         try (Connection connection = dataSource.getConnection()) {
             PGvector.registerTypes(connection);
 
@@ -209,8 +252,8 @@ public class AnalysisReferenceRetrievalService {
                     companyAndDetailSql,
                     vector,
                     statement -> {
-                        statement.setObject(2, jobPosting.getDetailClassification().getId());
-                        statement.setString(3, jobPosting.getCompany().getName());
+                        statement.setObject(2, detailClassification.getId());
+                        statement.setString(3, company.getName());
                         statement.setObject(4, new PGvector(vector));
                         statement.setInt(5, limit);
                     }
@@ -224,7 +267,7 @@ public class AnalysisReferenceRetrievalService {
                     detailOnlySql,
                     vector,
                     statement -> {
-                        statement.setObject(2, jobPosting.getDetailClassification().getId());
+                        statement.setObject(2, detailClassification.getId());
                         statement.setObject(3, new PGvector(vector));
                         statement.setInt(4, limit);
                     }
@@ -238,8 +281,8 @@ public class AnalysisReferenceRetrievalService {
                     hierarchySql,
                     vector,
                     statement -> {
-                        statement.setString(2, jobPosting.getDetailClassification().getMiddleClassification().getClassification().getBigName());
-                        statement.setString(3, jobPosting.getDetailClassification().getMiddleClassification().getMiddleName());
+                        statement.setString(2, detailClassification.getMiddleClassification().getClassification().getBigName());
+                        statement.setString(3, detailClassification.getMiddleClassification().getMiddleName());
                         statement.setObject(4, new PGvector(vector));
                         statement.setInt(5, limit);
                     }
@@ -308,27 +351,15 @@ public class AnalysisReferenceRetrievalService {
         return rs.wasNull() ? null : value;
     }
 
-    private String buildJobPostingQuery(JobPosting jobPosting) {
+    private String buildAnalysisJobPostingQuery(JobPosting jobPosting) {
         return """
                 직무명: %s
-
-                자격 요건:
-                %s
-
-                우대 사항:
-                %s
-
-                주요 업무:
-                %s
-
-                핵심 요구 역량 요약:
-                %s
-
-                우대 역량 요약:
-                %s
-
-                참고 회사명:
-                %s
+                자격 요건: %s
+                우대 사항: %s
+                주요 업무: %s
+                핵심 요구 역량 요약: %s
+                우대 역량 요약: %s
+                참고 회사명: %s
                 """.formatted(
                 defaultString(jobPosting.getDetailClassification().getDetailName()),
                 defaultString(jobPosting.getRequirement()),
@@ -340,7 +371,7 @@ public class AnalysisReferenceRetrievalService {
         ).trim();
     }
 
-    private String buildQuestionQuery(JobPosting jobPosting, List<Question> questions) {
+    private String buildAnalysisQuestionQuery(JobPosting jobPosting, List<Question> questions) {
         String questionText = questions.stream()
                 .map(Question::getContent)
                 .filter(StringUtils::hasText)
@@ -364,11 +395,25 @@ public class AnalysisReferenceRetrievalService {
         ).trim();
     }
 
+    private String buildMockBaseQuery(Company company, DetailClassification detailClassification) {
+        return """
+                직무명: %s
+                중분류: %s
+                대분류: %s
+                회사명: %s
+                """.formatted(
+                defaultString(detailClassification.getDetailName()),
+                defaultString(detailClassification.getMiddleClassification().getMiddleName()),
+                defaultString(detailClassification.getMiddleClassification().getClassification().getBigName()),
+                defaultString(company.getName())
+        ).trim();
+    }
+
     private String defaultString(String value) {
         return value == null ? "" : value;
     }
 
-    public record AnalysisReferenceContext(
+    public record RetrievalContext(
             List<RetrievedJobPostingReference> jobPostingReferences,
             List<RetrievedQuestionReference> questionReferences
     ) {

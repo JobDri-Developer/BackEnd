@@ -67,19 +67,25 @@ public class CorpusAdminController {
         }
 
         try {
-            Path normalizedPath = Path.of(rawPath).toAbsolutePath().normalize();
-            Path allowedRootPath = Path.of(allowedImportRoot).toAbsolutePath().normalize();
-            if (!normalizedPath.startsWith(allowedRootPath)) {
+            Path requestedPath = Path.of(rawPath).toAbsolutePath().normalize();
+            Path allowedRootPath = Path.of(allowedImportRoot).toAbsolutePath().normalize().toRealPath();
+            Path resolvedPath = requestedPath.toRealPath();
+            if (!resolvedPath.startsWith(allowedRootPath)) {
                 throw new GeneralException(
                         GeneralErrorCode.INVALID_PARAMETER,
                         "허용된 import 경로 밖의 파일에는 접근할 수 없습니다."
                 );
             }
-            return normalizedPath;
+            return resolvedPath;
         } catch (InvalidPathException e) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
                     "유효하지 않은 파일 경로입니다."
+            );
+        } catch (IOException e) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "접근 가능한 import 파일 경로가 아닙니다."
             );
         }
     }

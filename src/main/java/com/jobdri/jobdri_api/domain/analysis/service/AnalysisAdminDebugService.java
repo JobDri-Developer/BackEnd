@@ -3,7 +3,8 @@ package com.jobdri.jobdri_api.domain.analysis.service;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisRetrievalPreviewResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisReferenceRetrievalService.AnalysisReferenceContext;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
@@ -22,7 +23,7 @@ public class AnalysisAdminDebugService {
 
     private final MockApplyRepository mockApplyRepository;
     private final QuestionRepository questionRepository;
-    private final AnalysisReferenceRetrievalService analysisReferenceRetrievalService;
+    private final CorpusRetrievalService corpusRetrievalService;
 
     public AnalysisRetrievalPreviewResponse previewRetrieval(Long mockApplyId) {
         MockApply mockApply = mockApplyRepository.findByIdWithJobPosting(mockApplyId)
@@ -33,8 +34,7 @@ public class AnalysisAdminDebugService {
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApplyId);
         JobPosting jobPosting = mockApply.getJobPosting();
 
-        AnalysisReferenceContext referenceContext =
-                analysisReferenceRetrievalService.retrieve(jobPosting, questions);
+        RetrievalContext referenceContext = corpusRetrievalService.retrieveForAnalysis(jobPosting, questions);
 
         return new AnalysisRetrievalPreviewResponse(
                 mockApply.getId(),

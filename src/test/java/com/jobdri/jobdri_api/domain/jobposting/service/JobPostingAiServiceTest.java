@@ -6,13 +6,14 @@ import com.jobdri.jobdri_api.domain.classification.entity.MiddleClassification;
 import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingMockGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockQuestionResponse;
-import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
-import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingImageStorageService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
@@ -46,7 +47,7 @@ class JobPostingAiServiceTest {
     private DetailClassificationRepository detailClassificationRepository;
 
     @Mock
-    private JobPostingRepository jobPostingRepository;
+    private CorpusRetrievalService corpusRetrievalService;
 
     @Mock
     private JobPostingImageStorageService jobPostingImageStorageService;
@@ -58,7 +59,7 @@ class JobPostingAiServiceTest {
         jobPostingAiService = new JobPostingAiService(
                 openAIClient,
                 detailClassificationRepository,
-                jobPostingRepository,
+                corpusRetrievalService,
                 jobPostingImageStorageService
         );
         ReflectionTestUtils.setField(TEST_COMPANY, "id", 1L);
@@ -100,7 +101,8 @@ class JobPostingAiServiceTest {
     void generateMockJobPostingUsesFallbackWhenNoReferencePostings() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
-        when(jobPostingRepository.findTop5ReferencePostings(1L, 100L)).thenReturn(List.of());
+        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
+                .thenReturn(new RetrievalContext(List.of(), List.of()));
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
                 new JobPostingMockGenerateRequest(1L, 10L, 100L),
@@ -117,16 +119,18 @@ class JobPostingAiServiceTest {
     @DisplayName("기존 공고가 있으면 fallback에서도 참고 공고 내용을 반영한다")
     void generateMockJobPostingUsesReferencePostingFallback() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "데이터", "데이터 분석");
-        JobPosting referencePosting = JobPosting.create(
-                TEST_USER,
-                Company.create("참고 기업", CompanySize.MEDIUM),
-                detailClassification,
+        RetrievedJobPostingReference referencePosting = new RetrievedJobPostingReference(
+                1L,
+                "참고 기업",
+                "데이터 분석",
                 "기존 주요 업무",
                 "기존 자격 요건",
-                "기존 우대 사항"
+                "기존 우대 사항",
+                0.1
         );
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
-        when(jobPostingRepository.findTop5ReferencePostings(1L, 100L)).thenReturn(List.of(referencePosting));
+        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
+                .thenReturn(new RetrievalContext(List.of(referencePosting), List.of()));
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
                 new JobPostingMockGenerateRequest(1L, 10L, 100L),
@@ -144,17 +148,18 @@ class JobPostingAiServiceTest {
     @DisplayName("같은 회사와 소분류 공고가 있으면 그 공고를 우선 참고한다")
     void generateMockJobPostingPrefersCompanyAndDetailReferences() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "데이터", "데이터 분석");
-        JobPosting companySpecificPosting = JobPosting.create(
-                TEST_USER,
-                Company.create("선택 기업", CompanySize.MEDIUM),
-                detailClassification,
+        RetrievedJobPostingReference companySpecificPosting = new RetrievedJobPostingReference(
+                1L,
+                "선택 기업",
+                "데이터 분석",
                 "회사 맞춤 주요 업무",
                 "회사 맞춤 자격 요건",
-                "회사 맞춤 우대 사항"
+                "회사 맞춤 우대 사항",
+                0.1
         );
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
-        when(jobPostingRepository.findTop5ReferencePostings(1L, 100L))
-                .thenReturn(List.of(companySpecificPosting));
+        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
+                .thenReturn(new RetrievalContext(List.of(companySpecificPosting), List.of()));
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
                 new JobPostingMockGenerateRequest(1L, 10L, 100L),
@@ -171,10 +176,12 @@ class JobPostingAiServiceTest {
     void generateMockRecommendedQuestionsUsesFallback() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
-        when(jobPostingRepository.findTop5ReferencePostings(null, 100L)).thenReturn(List.of());
+        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
+                .thenReturn(new RetrievalContext(List.of(), List.of()));
 
         JobPostingMockQuestionResponse response = jobPostingAiService.generateMockRecommendedQuestions(
-                new JobPostingMockGenerateRequest(1L, 10L, 100L)
+                new JobPostingMockGenerateRequest(1L, 10L, 100L),
+                TEST_COMPANY
         );
 
         assertThat(response.recommendedQuestions()).hasSize(5);
@@ -185,25 +192,27 @@ class JobPostingAiServiceTest {
     @DisplayName("점수화된 참고 공고 목록의 첫 공고를 우선 사용한다")
     void generateMockJobPostingUsesTopScoredReferenceFirst() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
-        JobPosting topScoredPosting = JobPosting.create(
-                TEST_USER,
-                Company.create("선택 기업", CompanySize.MEDIUM),
-                detailClassification,
+        RetrievedJobPostingReference topScoredPosting = new RetrievedJobPostingReference(
+                1L,
+                "선택 기업",
+                "Java/Spring",
                 "회사 기반 주요 업무",
                 "회사 기반 자격 요건",
-                "회사 기반 우대 사항"
+                "회사 기반 우대 사항",
+                0.1
         );
-        JobPosting lowerPriorityPosting = JobPosting.create(
-                TEST_USER,
-                Company.create("다른 기업", CompanySize.MEDIUM),
-                detailClassification,
+        RetrievedJobPostingReference lowerPriorityPosting = new RetrievedJobPostingReference(
+                2L,
+                "다른 기업",
+                "Java/Spring",
                 "직무 기반 주요 업무",
                 "직무 기반 자격 요건",
-                "직무 기반 우대 사항"
+                "직무 기반 우대 사항",
+                0.2
         );
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
-        when(jobPostingRepository.findTop5ReferencePostings(1L, 100L))
-                .thenReturn(List.of(topScoredPosting, lowerPriorityPosting));
+        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
+                .thenReturn(new RetrievalContext(List.of(topScoredPosting, lowerPriorityPosting), List.of()));
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
                 new JobPostingMockGenerateRequest(1L, 10L, 100L),
