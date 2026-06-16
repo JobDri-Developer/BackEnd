@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.audit.entity;
 
 import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.global.entity.CreatedAtEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -15,13 +16,11 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 @Entity
 @Table(name = "audit_logs")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
-public class AuditLog {
+public class AuditLog extends CreatedAtEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -51,9 +50,6 @@ public class AuditLog {
     @Column(length = 500)
     private String userAgent;
 
-    @Column(nullable = false)
-    private LocalDateTime createdAt;
-
     @Builder(access = AccessLevel.PRIVATE)
     private AuditLog(
             User user,
@@ -63,8 +59,7 @@ public class AuditLog {
             String beforeValue,
             String afterValue,
             String ipAddress,
-            String userAgent,
-            LocalDateTime createdAt
+            String userAgent
     ) {
         this.user = user;
         this.action = action;
@@ -74,7 +69,6 @@ public class AuditLog {
         this.afterValue = afterValue;
         this.ipAddress = ipAddress;
         this.userAgent = userAgent;
-        this.createdAt = createdAt;
     }
 
     public static AuditLog create(
@@ -96,7 +90,6 @@ public class AuditLog {
                 .afterValue(afterValue)
                 .ipAddress(ipAddress)
                 .userAgent(userAgent)
-                .createdAt(LocalDateTime.now())
                 .build();
     }
 }

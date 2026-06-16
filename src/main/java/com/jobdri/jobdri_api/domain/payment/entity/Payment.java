@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.payment.entity;
 
 import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
 
@@ -12,7 +13,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder(access = AccessLevel.PRIVATE)
 @Table(name = "payments")
-public class Payment {
+public class Payment extends BaseEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -44,9 +45,6 @@ public class Payment {
     @Column(nullable = false)
     private PaymentStatus status;
 
-    @Column(nullable = false)
-    private LocalDateTime createdAt;
-
     private LocalDateTime approvedAt;
 
     public static Payment createPending(
@@ -65,7 +63,6 @@ public class Payment {
                 .creditAmount(creditAmount)
                 .price(price)
                 .status(PaymentStatus.PENDING)
-                .createdAt(LocalDateTime.now())
                 .build();
     }
 

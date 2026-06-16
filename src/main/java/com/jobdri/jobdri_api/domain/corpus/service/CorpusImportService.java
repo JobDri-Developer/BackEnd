@@ -48,6 +48,13 @@ public class CorpusImportService {
         }
     }
 
+    public CorpusImportResult importFromXlsx(InputStream inputStream) throws IOException {
+        try (InputStream managedInputStream = inputStream;
+             Workbook workbook = new XSSFWorkbook(managedInputStream)) {
+            return importWorkbook(workbook);
+        }
+    }
+
     public CorpusImportResult importWorkbook(Workbook workbook) {
         DataFormatter formatter = new DataFormatter();
         FormulaEvaluator evaluator = workbook.getCreationHelper().createFormulaEvaluator();
