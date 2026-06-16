@@ -14,10 +14,14 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.nio.file.InvalidPathException;
@@ -44,6 +48,18 @@ public class CorpusAdminController {
         return ApiResponse.onSuccess(
                 "corpus 엑셀 적재에 성공했습니다.",
                 corpusImportService.importFromXlsx(validatedPath)
+        );
+    }
+
+    @Operation(summary = "corpus 엑셀 업로드 적재", description = "관리자가 xlsx 파일을 직접 업로드해 corpus 원본 테이블에 적재합니다.")
+    @PostMapping(value = "/import/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ApiResponse<CorpusImportResult> importCorpusByUpload(
+            @RequestParam("file") MultipartFile file
+    ) throws IOException {
+        validateUploadFile(file);
+        return ApiResponse.onSuccess(
+                "업로드한 corpus 엑셀 적재에 성공했습니다.",
+                corpusImportService.importFromXlsx(file.getInputStream())
         );
     }
 
@@ -86,6 +102,23 @@ public class CorpusAdminController {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
                     "접근 가능한 import 파일 경로가 아닙니다."
+            );
+        }
+    }
+
+    private void validateUploadFile(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new GeneralException(
+                    GeneralErrorCode.MISSING_PARAMETER,
+                    "업로드할 엑셀 파일이 필요합니다."
+            );
+        }
+
+        String originalFilename = file.getOriginalFilename();
+        if (!StringUtils.hasText(originalFilename) || !originalFilename.toLowerCase().endsWith(".xlsx")) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "xlsx 파일만 업로드할 수 있습니다."
             );
         }
     }
