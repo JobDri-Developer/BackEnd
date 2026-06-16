@@ -55,12 +55,19 @@ public class CorpusAdminController {
     @PostMapping(value = "/import/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<CorpusImportResult> importCorpusByUpload(
             @RequestParam("file") MultipartFile file
-    ) throws IOException {
+    ) {
         validateUploadFile(file);
-        return ApiResponse.onSuccess(
-                "업로드한 corpus 엑셀 적재에 성공했습니다.",
-                corpusImportService.importFromXlsx(file.getInputStream())
-        );
+        try {
+            return ApiResponse.onSuccess(
+                    "업로드한 corpus 엑셀 적재에 성공했습니다.",
+                    corpusImportService.importFromXlsx(file.getInputStream())
+            );
+        } catch (IOException e) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "파일 형식이 올바르지 않습니다."
+            );
+        }
     }
 
     @Operation(summary = "corpus 임베딩 동기화", description = "유효한 corpus 데이터를 읽어 pgvector 테이블에 임베딩을 저장합니다.")

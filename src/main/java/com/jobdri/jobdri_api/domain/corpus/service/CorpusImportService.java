@@ -49,7 +49,8 @@ public class CorpusImportService {
     }
 
     public CorpusImportResult importFromXlsx(InputStream inputStream) throws IOException {
-        try (Workbook workbook = new XSSFWorkbook(inputStream)) {
+        try (InputStream managedInputStream = inputStream;
+             Workbook workbook = new XSSFWorkbook(managedInputStream)) {
             return importWorkbook(workbook);
         }
     }
