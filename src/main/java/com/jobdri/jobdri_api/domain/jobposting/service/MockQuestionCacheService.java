@@ -35,7 +35,7 @@ public class MockQuestionCacheService {
                         request.detailClassificationId(),
                         PROMPT_VERSION
                 )
-                .map(MockQuestionCache::getQuestions)
+                .map(this::copyQuestions)
                 .orElseGet(() -> createAndCacheQuestions(request));
     }
 
@@ -46,7 +46,7 @@ public class MockQuestionCacheService {
                         request.detailClassificationId(),
                         PROMPT_VERSION
                 )
-                .map(MockQuestionCache::getQuestions)
+                .map(this::copyQuestions)
                 .orElseGet(() -> {
                     DetailClassification detailClassification = detailClassificationRepository.findById(request.detailClassificationId())
                             .orElseThrow(() -> new GeneralException(
@@ -69,7 +69,11 @@ public class MockQuestionCacheService {
                                     generated.recommendedQuestions()
                             )
                     );
-                    return saved.getQuestions();
+                    return copyQuestions(saved);
                 });
+    }
+
+    private List<String> copyQuestions(MockQuestionCache cache) {
+        return List.copyOf(cache.getQuestions());
     }
 }
