@@ -66,6 +66,11 @@ public class Payment extends BaseEntity {
                 .build();
     }
 
+    public void markProcessing(String paymentKey) {
+        this.paymentKey = paymentKey;
+        this.status = PaymentStatus.PROCESSING;
+    }
+
     public void complete(String paymentKey) {
         this.paymentKey = paymentKey;
         this.status = PaymentStatus.COMPLETED;
@@ -74,5 +79,13 @@ public class Payment extends BaseEntity {
 
     public void fail() {
         this.status = PaymentStatus.FAILED;
+    }
+
+    public boolean belongsTo(Long userId) {
+        return user != null && user.getId() != null && user.getId().equals(userId);
+    }
+
+    public boolean hasPaymentKey(String paymentKey) {
+        return this.paymentKey != null && this.paymentKey.equals(paymentKey);
     }
 }
