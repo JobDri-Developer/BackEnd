@@ -13,9 +13,11 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -48,8 +50,31 @@ public class MockJobPostingController {
             summary = "모의 공고 추천 질문 조회",
             description = "선택한 회사/직무 기준으로 모의 공고 추천 질문을 조회합니다. 질문은 직무 기준 캐시를 재사용합니다."
     )
-    @PostMapping("/questions")
+    @GetMapping("/questions")
     public ApiResponse<JobPostingMockQuestionResponse> getMockRecommendedQuestions(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @RequestParam Long companyId,
+            @RequestParam Long middleClassificationId,
+            @RequestParam Long detailClassificationId
+    ) {
+        validateAuthenticatedUser(userDetails);
+        JobPostingMockGenerateRequest request = new JobPostingMockGenerateRequest(
+                companyId,
+                middleClassificationId,
+                detailClassificationId
+        );
+        return ApiResponse.onSuccess(
+                "모의 공고 추천 질문 조회에 성공했습니다.",
+                new JobPostingMockQuestionResponse(mockQuestionCacheService.getRecommendedQuestions(request))
+        );
+    }
+
+    @Operation(
+            summary = "모의 공고 추천 질문 조회",
+            description = "선택한 회사/직무 기준으로 모의 공고 추천 질문을 조회합니다. 하위 호환을 위해 POST 요청도 지원합니다."
+    )
+    @PostMapping("/questions")
+    public ApiResponse<JobPostingMockQuestionResponse> getMockRecommendedQuestionsByPost(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @Valid @RequestBody JobPostingMockGenerateRequest request
     ) {

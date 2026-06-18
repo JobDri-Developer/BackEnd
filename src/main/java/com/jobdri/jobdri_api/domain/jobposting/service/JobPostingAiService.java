@@ -126,7 +126,7 @@ public class JobPostingAiService {
 
         var params = ResponseCreateParams.builder()
                 .model(extractionModel)
-                .input(buildMockQuestionPrompt(request, detailClassification, retrievalContext))
+                .input(buildMockQuestionPrompt(company, request, detailClassification, retrievalContext))
                 .temperature(0.4)
                 .text(JobPostingMockQuestionResponse.class)
                 .build();
@@ -505,6 +505,7 @@ public class JobPostingAiService {
     }
 
     private String buildMockQuestionPrompt(
+            Company company,
             JobPostingMockGenerateRequest request,
             DetailClassification detailClassification,
             RetrievalContext retrievalContext
@@ -531,6 +532,11 @@ public class JobPostingAiService {
                 3. 질문은 서로 중복되지 않게 작성하세요.
                 4. 참고 공고가 있으면 직무 맥락과 자주 요구되는 역량을 반영하세요.
                 5. 참고 공고가 없으면 중분류/소분류명만 기반으로 일반적인 직무 질문을 작성하세요.
+                6. 질문에 회사명을 포함해야 한다면 반드시 아래 제공된 회사명만 사용하세요.
+                7. 참고 자료에 등장하는 다른 회사명은 절대 질문에 쓰지 마세요.
+
+                [회사명]
+                %s
 
                 [중분류 ID]
                 %d
@@ -550,6 +556,7 @@ public class JobPostingAiService {
                 [같은 조건의 유사 자소서 문항 참고 자료]
                 %s
                 """.formatted(
+                company.getName(),
                 request.middleClassificationId(),
                 middleName,
                 request.detailClassificationId(),
