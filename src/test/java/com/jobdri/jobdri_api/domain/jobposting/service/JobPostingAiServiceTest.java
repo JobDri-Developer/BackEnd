@@ -70,7 +70,7 @@ class JobPostingAiServiceTest {
     @Test
     @DisplayName("존재하지 않는 소분류 ID로 모의 공고 생성 시 예외를 던진다")
     void generateMockJobPostingThrowsWhenDetailClassificationNotFound() {
-        when(detailClassificationRepository.findById(999L)).thenReturn(Optional.empty());
+        when(detailClassificationRepository.findWithHierarchyById(999L)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> jobPostingAiService.generateMockJobPosting(
                 new JobPostingMockGenerateRequest(1L, 10L, 999L),
@@ -85,7 +85,7 @@ class JobPostingAiServiceTest {
     @DisplayName("소분류가 요청 중분류 하위가 아니면 예외를 던진다")
     void generateMockJobPostingThrowsWhenDetailDoesNotBelongToMiddle() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
-        when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(detailClassificationRepository.findWithHierarchyById(100L)).thenReturn(Optional.of(detailClassification));
 
         assertThatThrownBy(() -> jobPostingAiService.generateMockJobPosting(
                 new JobPostingMockGenerateRequest(1L, 11L, 100L),
@@ -100,7 +100,7 @@ class JobPostingAiServiceTest {
     @DisplayName("기존 공고가 없으면 분류명 기반 fallback 모의 공고를 생성한다")
     void generateMockJobPostingUsesFallbackWhenNoReferencePostings() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
-        when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(detailClassificationRepository.findWithHierarchyById(100L)).thenReturn(Optional.of(detailClassification));
         when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
                 .thenReturn(new RetrievalContext(List.of(), List.of()));
 
@@ -128,7 +128,7 @@ class JobPostingAiServiceTest {
                 "기존 우대 사항",
                 0.1
         );
-        when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(detailClassificationRepository.findWithHierarchyById(100L)).thenReturn(Optional.of(detailClassification));
         when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
                 .thenReturn(new RetrievalContext(List.of(referencePosting), List.of()));
 
@@ -157,7 +157,7 @@ class JobPostingAiServiceTest {
                 "회사 맞춤 우대 사항",
                 0.1
         );
-        when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(detailClassificationRepository.findWithHierarchyById(100L)).thenReturn(Optional.of(detailClassification));
         when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
                 .thenReturn(new RetrievalContext(List.of(companySpecificPosting), List.of()));
 
@@ -175,7 +175,7 @@ class JobPostingAiServiceTest {
     @DisplayName("추천 질문 생성 실패 시 소분류 기반 fallback 질문을 반환한다")
     void generateMockRecommendedQuestionsUsesFallback() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
-        when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(detailClassificationRepository.findWithHierarchyById(100L)).thenReturn(Optional.of(detailClassification));
         when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
                 .thenReturn(new RetrievalContext(List.of(), List.of()));
 
@@ -210,7 +210,7 @@ class JobPostingAiServiceTest {
                 "직무 기반 우대 사항",
                 0.2
         );
-        when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(detailClassificationRepository.findWithHierarchyById(100L)).thenReturn(Optional.of(detailClassification));
         when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
                 .thenReturn(new RetrievalContext(List.of(topScoredPosting, lowerPriorityPosting), List.of()));
 
