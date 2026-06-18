@@ -19,6 +19,30 @@ docker compose -f docker-compose.prod.yml up -d
 
 `prod` 프로필은 `/actuator/health`를 노출합니다.
 
+## Corpus Import Script
+
+대용량 corpus 엑셀 적재는 관리자 API 대신 Python 스크립트로 직접 실행할 수 있습니다.
+
+설치:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r scripts/requirements-corpus-import.txt
+```
+
+실행:
+
+```bash
+cp .env.example .env
+python scripts/import_corpus.py /absolute/path/to/file.xlsx
+```
+
+- `.env`의 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`를 사용합니다.
+- 기본 env 파일 경로를 바꾸려면 `--env-file /path/to/.env` 옵션을 사용할 수 있습니다.
+- 엑셀 시트명은 `jd_embed_corpus`, `question_embed_corpus`를 사용합니다.
+- `source_analysis_id`, `source_question_id` 기준으로 `INSERT ... ON CONFLICT DO UPDATE` 방식으로 적재합니다.
+
 ## CI/CD
 
 - `CI`: `main`, `develop` 브랜치 push 및 PR에서 테스트와 Docker 이미지 빌드를 실행합니다.
