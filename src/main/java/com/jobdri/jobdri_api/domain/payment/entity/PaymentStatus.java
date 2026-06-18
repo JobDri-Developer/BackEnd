@@ -5,6 +5,7 @@ import lombok.Getter;
 @Getter
 public enum PaymentStatus {
     PENDING,
+    PROCESSING,
     FAILED,
     COMPLETED
 }

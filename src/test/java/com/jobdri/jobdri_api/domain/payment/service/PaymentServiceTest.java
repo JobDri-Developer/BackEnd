@@ -113,6 +113,36 @@ class PaymentServiceTest {
     }
 
     @Test
+    @DisplayName("이미 완료된 동일 결제 승인 재시도는 기존 결과를 반환하고 중복 충전하지 않는다")
+    void confirmReturnsExistingResultWhenAlreadyCompleted() {
+        User user = saveUser("payment-confirm-idempotent@example.com");
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        String paymentKey = "payment-key-" + prepared.orderId();
+        when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
+                .thenReturn(new TossPaymentConfirmResponse(
+                        paymentKey,
+                        prepared.orderId(),
+                        prepared.orderName(),
+                        "DONE",
+                        2500,
+                        "CARD"
+                ));
+        PaymentConfirmRequest request = new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500);
+
+        PaymentConfirmResponse first = paymentService.confirm(user, request);
+        PaymentConfirmResponse second = paymentService.confirm(user, request);
+
+        assertThat(first.status()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(second.status()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(second.paymentId()).isEqualTo(first.paymentId());
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(1);
+    }
+
+    @Test
     @DisplayName("결제 승인 요청 금액이 준비 금액과 다르면 예외를 던진다")
     void confirmThrowsWhenAmountMismatch() {
         User user = saveUser("payment-amount-mismatch@example.com");
@@ -125,6 +155,32 @@ class PaymentServiceTest {
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")
                 .isEqualTo(GeneralErrorCode.PAYMENT_AMOUNT_MISMATCH);
+    }
+
+    @Test
+    @DisplayName("토스 결제 승인 실패 시 결제 상태를 FAILED로 변경한다")
+    void confirmMarksPaymentAsFailedWhenTossConfirmFails() {
+        User user = saveUser("payment-confirm-fail@example.com");
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        String paymentKey = "payment-key-" + prepared.orderId();
+        when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
+                .thenThrow(new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스 승인 실패"));
+
+        assertThatThrownBy(() -> paymentService.confirm(
+                user,
+                new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500)
+        ))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.PAYMENT_CONFIRM_FAILED);
+
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).isEmpty();
     }
 
     @Test

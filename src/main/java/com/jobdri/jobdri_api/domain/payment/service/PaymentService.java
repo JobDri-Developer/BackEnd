@@ -7,7 +7,6 @@ import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
-import com.jobdri.jobdri_api.domain.payment.entity.PaymentStatus;
 import com.jobdri.jobdri_api.domain.payment.repository.CreditTransactionRepository;
 import com.jobdri.jobdri_api.domain.payment.repository.PaymentRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
@@ -18,6 +17,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Arrays;
@@ -32,8 +32,8 @@ public class PaymentService {
     private final UserService userService;
     private final PaymentRepository paymentRepository;
     private final CreditTransactionRepository creditTransactionRepository;
+    private final PaymentTransactionService paymentTransactionService;
     private final TossPaymentClient tossPaymentClient;
-    private final CreditService creditService;
 
     @Value("${payment.toss.client-key:}")
     private String tossClientKey;
@@ -68,38 +68,24 @@ public class PaymentService {
         return PaymentPrepareResponse.of(payment, tossClientKey);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PaymentConfirmResponse confirm(User user, PaymentConfirmRequest request) {
         User validatedUser = userService.validateUser(user);
-        Payment payment = paymentRepository.findByOrderIdForUpdate(request.orderId())
-                .orElseThrow(() -> new GeneralException(
-                        GeneralErrorCode.PAYMENT_NOT_FOUND,
-                        "결제 정보를 찾을 수 없습니다. orderId=" + request.orderId()
-                ));
-
-        if (!payment.getUser().getId().equals(validatedUser.getId())) {
-            throw new GeneralException(GeneralErrorCode.FORBIDDEN, "해당 결제에 접근할 수 없습니다.");
-        }
-        if (payment.getStatus() != PaymentStatus.PENDING) {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED, "이미 처리된 결제입니다.");
-        }
-        if (payment.getPrice() != request.amount()) {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_AMOUNT_MISMATCH, "결제 금액이 일치하지 않습니다.");
+        PaymentTransactionService.PaymentConfirmationStart start =
+                paymentTransactionService.startConfirmation(validatedUser.getId(), request);
+        if (start.alreadyCompleted()) {
+            return PaymentConfirmResponse.of(start.payment(), userService.getUser(validatedUser.getId()).getCredit());
         }
 
-        TossPaymentConfirmResponse tossResponse =
-                tossPaymentClient.confirm(request.paymentKey(), request.orderId(), request.amount());
-        validateTossResponse(request, tossResponse);
-
-        payment.complete(request.paymentKey());
-        int creditBalance = creditService.charge(
-                validatedUser,
-                payment.getCreditAmount(),
-                payment.getContent(),
-                payment.getOrderId()
-        );
-
-        return PaymentConfirmResponse.of(payment, creditBalance);
+        try {
+            TossPaymentConfirmResponse tossResponse =
+                    tossPaymentClient.confirm(request.paymentKey(), request.orderId(), request.amount());
+            validateTossResponse(request, tossResponse);
+        } catch (RuntimeException e) {
+            paymentTransactionService.failConfirmation(validatedUser.getId(), request.orderId(), request.paymentKey());
+            throw e;
+        }
+        return paymentTransactionService.completeConfirmation(validatedUser.getId(), request);
     }
 
     public CreditBalanceResponse getBalance(User user) {

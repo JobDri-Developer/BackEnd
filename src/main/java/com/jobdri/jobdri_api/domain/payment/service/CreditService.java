@@ -10,6 +10,7 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 @Service
 @RequiredArgsConstructor
@@ -20,32 +21,33 @@ public class CreditService {
 
     @Transactional
     public int charge(User user, int amount, String description, String referenceId) {
-        validatePositiveAmount(amount);
-        User managedUser = getManagedUser(user);
-        managedUser.increaseCredit(amount);
-        saveTransaction(managedUser, CreditTransactionType.CHARGE, amount, description, referenceId);
-        return managedUser.getCredit();
+        return apply(user, CreditTransactionType.CHARGE, amount, description, referenceId);
     }
 
     @Transactional
     public int use(User user, int amount, String description, String referenceId) {
-        validatePositiveAmount(amount);
-        User managedUser = getManagedUser(user);
-        try {
-            managedUser.decreaseCredit(amount);
-        } catch (IllegalArgumentException e) {
-            throw new GeneralException(GeneralErrorCode.INSUFFICIENT_CREDIT, "크레딧이 부족합니다.");
-        }
-        saveTransaction(managedUser, CreditTransactionType.USE, -amount, description, referenceId);
-        return managedUser.getCredit();
+        return apply(user, CreditTransactionType.USE, amount, description, referenceId);
     }
 
     @Transactional
     public int refund(User user, int amount, String description, String referenceId) {
+        return apply(user, CreditTransactionType.REFUND, amount, description, referenceId);
+    }
+
+    private int apply(User user, CreditTransactionType type, int amount, String description, String referenceId) {
         validatePositiveAmount(amount);
+        validateReferenceId(referenceId);
         User managedUser = getManagedUser(user);
-        managedUser.increaseCredit(amount);
-        saveTransaction(managedUser, CreditTransactionType.REFUND, amount, description, referenceId);
+        CreditTransaction existingTransaction = creditTransactionRepository
+                .findByUserIdAndTypeAndReferenceId(managedUser.getId(), type, referenceId)
+                .orElse(null);
+        if (existingTransaction != null) {
+            return existingTransaction.getBalanceAfter();
+        }
+
+        int transactionAmount = resolveTransactionAmount(type, amount);
+        applyCreditChange(managedUser, type, amount);
+        saveTransaction(managedUser, type, transactionAmount, description, referenceId);
         return managedUser.getCredit();
     }
 
@@ -53,6 +55,28 @@ public class CreditService {
         if (amount <= 0) {
             throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "amount는 1 이상이어야 합니다.");
         }
+    }
+
+    private void validateReferenceId(String referenceId) {
+        if (!StringUtils.hasText(referenceId)) {
+            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "referenceId는 필수입니다.");
+        }
+    }
+
+    private void applyCreditChange(User user, CreditTransactionType type, int amount) {
+        if (type == CreditTransactionType.USE) {
+            try {
+                user.decreaseCredit(amount);
+            } catch (IllegalArgumentException e) {
+                throw new GeneralException(GeneralErrorCode.INSUFFICIENT_CREDIT, "크레딧이 부족합니다.");
+            }
+            return;
+        }
+        user.increaseCredit(amount);
+    }
+
+    private int resolveTransactionAmount(CreditTransactionType type, int amount) {
+        return type == CreditTransactionType.USE ? -amount : amount;
     }
 
     private void saveTransaction(

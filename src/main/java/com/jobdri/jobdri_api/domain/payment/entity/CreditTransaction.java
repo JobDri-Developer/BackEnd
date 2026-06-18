@@ -10,7 +10,15 @@ import lombok.*;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Builder(access = AccessLevel.PRIVATE)
-@Table(name = "credit_transactions")
+@Table(
+        name = "credit_transactions",
+        uniqueConstraints = {
+                @UniqueConstraint(
+                        name = "uk_credit_transactions_user_type_reference",
+                        columnNames = {"user_id", "type", "reference_id"}
+                )
+        }
+)
 public class CreditTransaction extends CreatedAtEntity {
 
     @Id
@@ -34,6 +42,7 @@ public class CreditTransaction extends CreatedAtEntity {
     @Column(nullable = false)
     private String description;
 
+    @Column(nullable = false, name = "reference_id")
     private String referenceId;
 
     public static CreditTransaction create(
