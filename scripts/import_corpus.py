@@ -208,7 +208,7 @@ def resolve_detail_classification_id(cur, cache: dict[tuple[str | None, str | No
     row = fetch_one(
         cur,
         """
-        select dcm.detail_classification_id as id
+        select ccm.detail_classification_id as id
         from corpus_classification_mappings ccm
         join detail_classifications dcm on dcm.id = ccm.detail_classification_id
         where ccm.source_job_group_l1 = %s

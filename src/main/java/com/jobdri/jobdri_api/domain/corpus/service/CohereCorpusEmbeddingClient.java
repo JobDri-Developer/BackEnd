@@ -1,5 +1,7 @@
 package com.jobdri.jobdri_api.domain.corpus.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
@@ -17,6 +19,7 @@ import java.util.List;
 public class CohereCorpusEmbeddingClient implements CorpusEmbeddingClient {
 
     private final RestClient.Builder restClientBuilder;
+    private final ObjectMapper objectMapper;
 
     @Value("${cohere.api.key:}")
     private String cohereApiKey;
@@ -47,7 +50,7 @@ public class CohereCorpusEmbeddingClient implements CorpusEmbeddingClient {
                 .defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
                 .build();
 
-        EmbedResponse response = client.post()
+        String responseBody = client.post()
                 .uri("/v2/embed")
                 .body(new EmbedRequest(
                         texts,
@@ -57,15 +60,9 @@ public class CohereCorpusEmbeddingClient implements CorpusEmbeddingClient {
                         List.of("float")
                 ))
                 .retrieve()
-                .body(EmbedResponse.class);
+                .body(String.class);
 
-        if (response == null || response.embeddings() == null || response.embeddings().floatEmbeddings() == null) {
-            throw new IllegalStateException("Cohere 임베딩 응답이 비어 있습니다.");
-        }
-
-        return response.embeddings().floatEmbeddings().stream()
-                .map(this::toFloatArray)
-                .toList();
+        return parseEmbeddings(responseBody);
     }
 
     private float[] toFloatArray(List<Double> values) {
@@ -74,6 +71,36 @@ public class CohereCorpusEmbeddingClient implements CorpusEmbeddingClient {
             array[i] = values.get(i).floatValue();
         }
         return array;
+    }
+
+    private List<float[]> parseEmbeddings(String responseBody) {
+        if (!StringUtils.hasText(responseBody)) {
+            throw new IllegalStateException("Cohere 임베딩 응답이 비어 있습니다.");
+        }
+
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+            JsonNode floatEmbeddings = root.path("embeddings").path("float");
+            if (!floatEmbeddings.isArray()) {
+                throw new IllegalStateException("Cohere 임베딩 응답 형식이 예상과 다릅니다.");
+            }
+
+            List<float[]> result = new java.util.ArrayList<>();
+            for (JsonNode embeddingNode : floatEmbeddings) {
+                if (!embeddingNode.isArray()) {
+                    throw new IllegalStateException("Cohere 임베딩 벡터 형식이 예상과 다릅니다.");
+                }
+
+                float[] vector = new float[embeddingNode.size()];
+                for (int i = 0; i < embeddingNode.size(); i++) {
+                    vector[i] = embeddingNode.get(i).floatValue();
+                }
+                result.add(vector);
+            }
+            return result;
+        } catch (Exception e) {
+            throw new IllegalStateException("Cohere 임베딩 응답 파싱에 실패했습니다.", e);
+        }
     }
 
     private record EmbedRequest(
@@ -85,12 +112,4 @@ public class CohereCorpusEmbeddingClient implements CorpusEmbeddingClient {
     ) {
     }
 
-    private record EmbedResponse(Embeddings embeddings) {
-    }
-
-    private record Embeddings(
-            @com.fasterxml.jackson.annotation.JsonProperty("float")
-            List<List<Double>> floatEmbeddings
-    ) {
-    }
 }
