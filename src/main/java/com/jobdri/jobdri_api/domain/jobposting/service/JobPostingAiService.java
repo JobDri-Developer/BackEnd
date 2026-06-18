@@ -695,7 +695,7 @@ public class JobPostingAiService {
     }
 
     private DetailClassification findDetailClassification(Long detailClassificationId) {
-        return detailClassificationRepository.findById(detailClassificationId)
+        return detailClassificationRepository.findWithHierarchyById(detailClassificationId)
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.CLASSIFICATION_NOT_FOUND,
                         "해당 소분류를 찾을 수 없습니다. detailClassificationId=" + detailClassificationId
