@@ -43,30 +43,6 @@ python scripts/import_corpus.py /absolute/path/to/file.xlsx
 - 엑셀 시트명은 `jd_embed_corpus`, `question_embed_corpus`를 사용합니다.
 - `source_analysis_id`, `source_question_id` 기준으로 `INSERT ... ON CONFLICT DO UPDATE` 방식으로 적재합니다.
 
-## Corpus Embedding Sync Script
-
-관리자 API 대신 Python 스크립트로 corpus 임베딩을 일괄 동기화할 수 있습니다.
-
-실행:
-
-```bash
-source .venv/bin/activate
-pip install -r scripts/requirements-corpus-import.txt
-python scripts/sync_corpus_embeddings.py --env-file .env
-```
-
-옵션 예시:
-
-```bash
-python scripts/sync_corpus_embeddings.py --env-file .env --limit 100
-python scripts/sync_corpus_embeddings.py --env-file .env --job-only
-python scripts/sync_corpus_embeddings.py --env-file .env --question-only --batch-size 16
-```
-
-- `.env`의 `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`, `COHERE_API_KEY`를 사용합니다.
-- 기본 모델은 `embed-v4.0`, 기본 배치 크기는 `32`입니다.
-- `mock_job_posting_embeddings`, `mock_question_embeddings` 테이블에 `INSERT ... ON CONFLICT DO UPDATE` 방식으로 적재합니다.
-
 ## CI/CD
 
 - `CI`: `main`, `develop` 브랜치 push 및 PR에서 테스트와 Docker 이미지 빌드를 실행합니다.
