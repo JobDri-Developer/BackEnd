@@ -1,7 +1,9 @@
 package com.jobdri.jobdri_api.domain.corpus.service;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.classification.dto.ClassificationHierarchy;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
+import com.jobdri.jobdri_api.domain.classification.mapper.ClassificationHierarchyMapper;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.pgvector.PGvector;
@@ -36,31 +38,37 @@ public class CorpusRetrievalService {
     public RetrievalContext retrieveForAnalysis(JobPosting jobPosting, List<Question> questions) {
         String jdQuery = buildAnalysisJobPostingQuery(jobPosting);
         String questionQuery = buildAnalysisQuestionQuery(jobPosting, questions);
+        ClassificationHierarchy classificationHierarchy =
+                ClassificationHierarchyMapper.toHierarchy(jobPosting.getDetailClassification());
 
         return new RetrievalContext(
-                StringUtils.hasText(jdQuery) ? findSimilarJobPostings(jobPosting.getCompany(), jobPosting.getDetailClassification(), jdQuery, jdLimit) : List.of(),
-                StringUtils.hasText(questionQuery) ? findSimilarQuestions(jobPosting.getCompany(), jobPosting.getDetailClassification(), questionQuery, questionLimit) : List.of()
+                StringUtils.hasText(jdQuery)
+                        ? findSimilarJobPostings(jobPosting.getCompany(), classificationHierarchy, jdQuery, jdLimit)
+                        : List.of(),
+                StringUtils.hasText(questionQuery)
+                        ? findSimilarQuestions(jobPosting.getCompany(), classificationHierarchy, questionQuery, questionLimit)
+                        : List.of()
         );
     }
 
-    public RetrievalContext retrieveForMockGeneration(Company company, DetailClassification detailClassification) {
-        String baseQuery = buildMockBaseQuery(company, detailClassification);
+    public RetrievalContext retrieveForMockGeneration(Company company, ClassificationHierarchy classificationHierarchy) {
+        String baseQuery = buildMockBaseQuery(company, classificationHierarchy);
         float[] vector = corpusEmbeddingClient.embedQuery(baseQuery);
         return new RetrievalContext(
-                findSimilarJobPostings(company, detailClassification, baseQuery, vector, jdLimit),
-                findSimilarQuestions(company, detailClassification, baseQuery, vector, questionLimit)
+                findSimilarJobPostings(company, classificationHierarchy, baseQuery, vector, jdLimit),
+                findSimilarQuestions(company, classificationHierarchy, baseQuery, vector, questionLimit)
         );
     }
 
     private List<RetrievedJobPostingReference> findSimilarJobPostings(
             Company company,
-            DetailClassification detailClassification,
+            ClassificationHierarchy classificationHierarchy,
             String query,
             int limit
     ) {
         return findSimilarJobPostings(
                 company,
-                detailClassification,
+                classificationHierarchy,
                 query,
                 corpusEmbeddingClient.embedQuery(query),
                 limit
@@ -69,7 +77,7 @@ public class CorpusRetrievalService {
 
     private List<RetrievedJobPostingReference> findSimilarJobPostings(
             Company company,
-            DetailClassification detailClassification,
+            ClassificationHierarchy classificationHierarchy,
             String query,
             float[] vector,
             int limit
@@ -132,7 +140,7 @@ public class CorpusRetrievalService {
                     companyAndDetailSql,
                     vector,
                     statement -> {
-                        statement.setObject(2, detailClassification.getId());
+                        statement.setObject(2, classificationHierarchy.detailClassificationId());
                         statement.setString(3, company.getName());
                         statement.setObject(4, new PGvector(vector));
                         statement.setInt(5, limit);
@@ -147,7 +155,7 @@ public class CorpusRetrievalService {
                     detailOnlySql,
                     vector,
                     statement -> {
-                        statement.setObject(2, detailClassification.getId());
+                        statement.setObject(2, classificationHierarchy.detailClassificationId());
                         statement.setObject(3, new PGvector(vector));
                         statement.setInt(4, limit);
                     }
@@ -161,8 +169,8 @@ public class CorpusRetrievalService {
                     hierarchySql,
                     vector,
                     statement -> {
-                        statement.setString(2, detailClassification.getMiddleClassification().getClassification().getBigName());
-                        statement.setString(3, detailClassification.getMiddleClassification().getMiddleName());
+                        statement.setString(2, classificationHierarchy.bigClassificationName());
+                        statement.setString(3, classificationHierarchy.middleClassificationName());
                         statement.setObject(4, new PGvector(vector));
                         statement.setInt(5, limit);
                     }
@@ -174,13 +182,13 @@ public class CorpusRetrievalService {
 
     private List<RetrievedQuestionReference> findSimilarQuestions(
             Company company,
-            DetailClassification detailClassification,
+            ClassificationHierarchy classificationHierarchy,
             String query,
             int limit
     ) {
         return findSimilarQuestions(
                 company,
-                detailClassification,
+                classificationHierarchy,
                 query,
                 corpusEmbeddingClient.embedQuery(query),
                 limit
@@ -189,7 +197,7 @@ public class CorpusRetrievalService {
 
     private List<RetrievedQuestionReference> findSimilarQuestions(
             Company company,
-            DetailClassification detailClassification,
+            ClassificationHierarchy classificationHierarchy,
             String query,
             float[] vector,
             int limit
@@ -252,7 +260,7 @@ public class CorpusRetrievalService {
                     companyAndDetailSql,
                     vector,
                     statement -> {
-                        statement.setObject(2, detailClassification.getId());
+                        statement.setObject(2, classificationHierarchy.detailClassificationId());
                         statement.setString(3, company.getName());
                         statement.setObject(4, new PGvector(vector));
                         statement.setInt(5, limit);
@@ -267,7 +275,7 @@ public class CorpusRetrievalService {
                     detailOnlySql,
                     vector,
                     statement -> {
-                        statement.setObject(2, detailClassification.getId());
+                        statement.setObject(2, classificationHierarchy.detailClassificationId());
                         statement.setObject(3, new PGvector(vector));
                         statement.setInt(4, limit);
                     }
@@ -281,8 +289,8 @@ public class CorpusRetrievalService {
                     hierarchySql,
                     vector,
                     statement -> {
-                        statement.setString(2, detailClassification.getMiddleClassification().getClassification().getBigName());
-                        statement.setString(3, detailClassification.getMiddleClassification().getMiddleName());
+                        statement.setString(2, classificationHierarchy.bigClassificationName());
+                        statement.setString(3, classificationHierarchy.middleClassificationName());
                         statement.setObject(4, new PGvector(vector));
                         statement.setInt(5, limit);
                     }
@@ -395,16 +403,16 @@ public class CorpusRetrievalService {
         ).trim();
     }
 
-    private String buildMockBaseQuery(Company company, DetailClassification detailClassification) {
+    private String buildMockBaseQuery(Company company, ClassificationHierarchy classificationHierarchy) {
         return """
                 직무명: %s
                 중분류: %s
                 대분류: %s
                 회사명: %s
                 """.formatted(
-                defaultString(detailClassification.getDetailName()),
-                defaultString(detailClassification.getMiddleClassification().getMiddleName()),
-                defaultString(detailClassification.getMiddleClassification().getClassification().getBigName()),
+                defaultString(classificationHierarchy.detailClassificationName()),
+                defaultString(classificationHierarchy.middleClassificationName()),
+                defaultString(classificationHierarchy.bigClassificationName()),
                 defaultString(company.getName())
         ).trim();
     }

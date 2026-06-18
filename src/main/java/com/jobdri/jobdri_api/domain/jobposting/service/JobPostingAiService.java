@@ -1,6 +1,8 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
+import com.jobdri.jobdri_api.domain.classification.dto.ClassificationHierarchy;
+import com.jobdri.jobdri_api.domain.classification.mapper.ClassificationHierarchyMapper;
 import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractRequest;
@@ -78,12 +80,12 @@ public class JobPostingAiService {
     }
 
     public JobPostingMockGenerateResponse generateMockJobPosting(JobPostingMockGenerateRequest request, Company company) {
-        DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
-        validateMiddleClassification(request, detailClassification);
+        ClassificationHierarchy classificationHierarchy = findClassificationHierarchy(request.detailClassificationId());
+        validateMiddleClassification(request, classificationHierarchy);
 
         RetrievalContext retrievalContext = emptyRetrievalContext();
         try {
-            retrievalContext = corpusRetrievalService.retrieveForMockGeneration(company, detailClassification);
+            retrievalContext = corpusRetrievalService.retrieveForMockGeneration(company, classificationHierarchy);
         } catch (Exception e) {
             log.warn("모의 공고 생성 retrieval 실패. fallback without corpus references. message={}", e.getMessage());
             log.debug("mock job posting retrieval exception", e);
@@ -91,7 +93,7 @@ public class JobPostingAiService {
 
         var params = ResponseCreateParams.builder()
                 .model(extractionModel)
-                .input(buildMockGenerationPrompt(request, company, detailClassification, retrievalContext))
+                .input(buildMockGenerationPrompt(request, company, classificationHierarchy, retrievalContext))
                 .temperature(0.7)
                 .text(JobPostingMockGenerateResponse.class)
                 .build();
@@ -102,10 +104,10 @@ public class JobPostingAiService {
                     response,
                     JobPostingMockGenerateResponse.class
             );
-            return normalizeMockGeneratedResponse(generated, company, detailClassification);
+            return normalizeMockGeneratedResponse(generated, company, classificationHierarchy);
         } catch (Exception e) {
             log.error("모의 공고 생성 OpenAI API 호출 오류: {}", e.getMessage(), e);
-            return createFallbackMockGeneratedResponse(company, detailClassification, retrievalContext.jobPostingReferences());
+            return createFallbackMockGeneratedResponse(company, classificationHierarchy, retrievalContext.jobPostingReferences());
         }
     }
 
@@ -113,12 +115,12 @@ public class JobPostingAiService {
             JobPostingMockGenerateRequest request,
             Company company
     ) {
-        DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
-        validateMiddleClassification(request, detailClassification);
+        ClassificationHierarchy classificationHierarchy = findClassificationHierarchy(request.detailClassificationId());
+        validateMiddleClassification(request, classificationHierarchy);
 
         RetrievalContext retrievalContext = emptyRetrievalContext();
         try {
-            retrievalContext = corpusRetrievalService.retrieveForMockGeneration(company, detailClassification);
+            retrievalContext = corpusRetrievalService.retrieveForMockGeneration(company, classificationHierarchy);
         } catch (Exception e) {
             log.warn("추천 질문 생성 retrieval 실패. fallback without corpus references. message={}", e.getMessage());
             log.debug("mock question retrieval exception", e);
@@ -126,7 +128,7 @@ public class JobPostingAiService {
 
         var params = ResponseCreateParams.builder()
                 .model(extractionModel)
-                .input(buildMockQuestionPrompt(request, detailClassification, retrievalContext))
+                .input(buildMockQuestionPrompt(request, classificationHierarchy, retrievalContext))
                 .temperature(0.4)
                 .text(JobPostingMockQuestionResponse.class)
                 .build();
@@ -137,10 +139,10 @@ public class JobPostingAiService {
                     response,
                     JobPostingMockQuestionResponse.class
             );
-            return normalizeMockQuestionResponse(generated, detailClassification);
+            return normalizeMockQuestionResponse(generated, classificationHierarchy);
         } catch (Exception e) {
             log.error("모의 공고 추천 질문 생성 OpenAI API 호출 오류: {}", e.getMessage(), e);
-            return createFallbackMockQuestionResponse(detailClassification);
+            return createFallbackMockQuestionResponse(classificationHierarchy);
         }
     }
 
@@ -441,11 +443,11 @@ public class JobPostingAiService {
     private String buildMockGenerationPrompt(
             JobPostingMockGenerateRequest request,
             Company company,
-            DetailClassification detailClassification,
+            ClassificationHierarchy classificationHierarchy,
             RetrievalContext retrievalContext
     ) {
-        String middleName = detailClassification.getMiddleClassification().getMiddleName();
-        String detailName = detailClassification.getDetailName();
+        String middleName = classificationHierarchy.middleClassificationName();
+        String detailName = classificationHierarchy.detailClassificationName();
         String referenceText = buildReferencePostingText(retrievalContext.jobPostingReferences());
         String questionReferenceText = buildReferenceQuestionText(retrievalContext.questionReferences());
 
@@ -506,11 +508,11 @@ public class JobPostingAiService {
 
     private String buildMockQuestionPrompt(
             JobPostingMockGenerateRequest request,
-            DetailClassification detailClassification,
+            ClassificationHierarchy classificationHierarchy,
             RetrievalContext retrievalContext
     ) {
-        String middleName = detailClassification.getMiddleClassification().getMiddleName();
-        String detailName = detailClassification.getDetailName();
+        String middleName = classificationHierarchy.middleClassificationName();
+        String detailName = classificationHierarchy.detailClassificationName();
         String referenceText = buildReferencePostingText(retrievalContext.jobPostingReferences());
         String questionReferenceText = buildReferenceQuestionText(retrievalContext.questionReferences());
 
@@ -639,7 +641,7 @@ public class JobPostingAiService {
     private JobPostingMockGenerateResponse normalizeMockGeneratedResponse(
             JobPostingMockGenerateResponse response,
             Company company,
-            DetailClassification detailClassification
+            ClassificationHierarchy classificationHierarchy
     ) {
         if (response == null) {
             throw new GeneralException(
@@ -655,7 +657,7 @@ public class JobPostingAiService {
 
         String jobTitle = response.jobTitle();
         if (jobTitle == null || jobTitle.isBlank()) {
-            jobTitle = detailClassification.getDetailName();
+            jobTitle = classificationHierarchy.detailClassificationName();
         }
 
         return new JobPostingMockGenerateResponse(
@@ -671,7 +673,7 @@ public class JobPostingAiService {
 
     private JobPostingMockQuestionResponse normalizeMockQuestionResponse(
             JobPostingMockQuestionResponse response,
-            DetailClassification detailClassification
+            ClassificationHierarchy classificationHierarchy
     ) {
         if (response == null) {
             throw new GeneralException(
@@ -691,11 +693,12 @@ public class JobPostingAiService {
             return new JobPostingMockQuestionResponse(questions);
         }
 
-        return createFallbackMockQuestionResponse(detailClassification);
+        return createFallbackMockQuestionResponse(classificationHierarchy);
     }
 
-    private DetailClassification findDetailClassification(Long detailClassificationId) {
+    private ClassificationHierarchy findClassificationHierarchy(Long detailClassificationId) {
         return detailClassificationRepository.findWithHierarchyById(detailClassificationId)
+                .map(ClassificationHierarchyMapper::toHierarchy)
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.CLASSIFICATION_NOT_FOUND,
                         "해당 소분류를 찾을 수 없습니다. detailClassificationId=" + detailClassificationId
@@ -704,9 +707,9 @@ public class JobPostingAiService {
 
     private void validateMiddleClassification(
             JobPostingMockGenerateRequest request,
-            DetailClassification detailClassification
+            ClassificationHierarchy classificationHierarchy
     ) {
-        Long actualMiddleClassificationId = detailClassification.getMiddleClassification().getId();
+        Long actualMiddleClassificationId = classificationHierarchy.middleClassificationId();
         if (!actualMiddleClassificationId.equals(request.middleClassificationId())) {
             throw new GeneralException(
                     GeneralErrorCode.CLASSIFICATION_NOT_FOUND,
@@ -764,14 +767,14 @@ public class JobPostingAiService {
 
     private JobPostingMockGenerateResponse createFallbackMockGeneratedResponse(
             Company company,
-            DetailClassification detailClassification,
+            ClassificationHierarchy classificationHierarchy,
             List<RetrievedJobPostingReference> referencePostings
     ) {
         RetrievedJobPostingReference referencePosting = referencePostings == null || referencePostings.isEmpty()
                 ? null
                 : referencePostings.getFirst();
-        String middleName = detailClassification.getMiddleClassification().getMiddleName();
-        String detailName = detailClassification.getDetailName();
+        String middleName = classificationHierarchy.middleClassificationName();
+        String detailName = classificationHierarchy.detailClassificationName();
 
         return new JobPostingMockGenerateResponse(
                 company.getName(),
@@ -790,9 +793,11 @@ public class JobPostingAiService {
         );
     }
 
-    private JobPostingMockQuestionResponse createFallbackMockQuestionResponse(DetailClassification detailClassification) {
-        String middleName = detailClassification.getMiddleClassification().getMiddleName();
-        String detailName = detailClassification.getDetailName();
+    private JobPostingMockQuestionResponse createFallbackMockQuestionResponse(
+            ClassificationHierarchy classificationHierarchy
+    ) {
+        String middleName = classificationHierarchy.middleClassificationName();
+        String detailName = classificationHierarchy.detailClassificationName();
 
         return new JobPostingMockQuestionResponse(List.of(
                 "%s 직무에 지원한 이유와 가장 관심 있는 업무를 설명해주세요.".formatted(detailName),

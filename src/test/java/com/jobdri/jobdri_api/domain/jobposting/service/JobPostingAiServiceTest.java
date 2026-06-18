@@ -3,6 +3,8 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 import com.jobdri.jobdri_api.domain.classification.entity.Classification;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.entity.MiddleClassification;
+import com.jobdri.jobdri_api.domain.classification.dto.ClassificationHierarchy;
+import com.jobdri.jobdri_api.domain.classification.mapper.ClassificationHierarchyMapper;
 import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
@@ -100,8 +102,9 @@ class JobPostingAiServiceTest {
     @DisplayName("기존 공고가 없으면 분류명 기반 fallback 모의 공고를 생성한다")
     void generateMockJobPostingUsesFallbackWhenNoReferencePostings() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
+        ClassificationHierarchy hierarchy = createHierarchy(detailClassification);
         when(detailClassificationRepository.findWithHierarchyById(100L)).thenReturn(Optional.of(detailClassification));
-        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
+        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, hierarchy))
                 .thenReturn(new RetrievalContext(List.of(), List.of()));
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
@@ -119,6 +122,7 @@ class JobPostingAiServiceTest {
     @DisplayName("기존 공고가 있으면 fallback에서도 참고 공고 내용을 반영한다")
     void generateMockJobPostingUsesReferencePostingFallback() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "데이터", "데이터 분석");
+        ClassificationHierarchy hierarchy = createHierarchy(detailClassification);
         RetrievedJobPostingReference referencePosting = new RetrievedJobPostingReference(
                 1L,
                 "참고 기업",
@@ -129,7 +133,7 @@ class JobPostingAiServiceTest {
                 0.1
         );
         when(detailClassificationRepository.findWithHierarchyById(100L)).thenReturn(Optional.of(detailClassification));
-        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
+        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, hierarchy))
                 .thenReturn(new RetrievalContext(List.of(referencePosting), List.of()));
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
@@ -148,6 +152,7 @@ class JobPostingAiServiceTest {
     @DisplayName("같은 회사와 소분류 공고가 있으면 그 공고를 우선 참고한다")
     void generateMockJobPostingPrefersCompanyAndDetailReferences() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "데이터", "데이터 분석");
+        ClassificationHierarchy hierarchy = createHierarchy(detailClassification);
         RetrievedJobPostingReference companySpecificPosting = new RetrievedJobPostingReference(
                 1L,
                 "선택 기업",
@@ -158,7 +163,7 @@ class JobPostingAiServiceTest {
                 0.1
         );
         when(detailClassificationRepository.findWithHierarchyById(100L)).thenReturn(Optional.of(detailClassification));
-        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
+        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, hierarchy))
                 .thenReturn(new RetrievalContext(List.of(companySpecificPosting), List.of()));
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
@@ -175,8 +180,9 @@ class JobPostingAiServiceTest {
     @DisplayName("추천 질문 생성 실패 시 소분류 기반 fallback 질문을 반환한다")
     void generateMockRecommendedQuestionsUsesFallback() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
+        ClassificationHierarchy hierarchy = createHierarchy(detailClassification);
         when(detailClassificationRepository.findWithHierarchyById(100L)).thenReturn(Optional.of(detailClassification));
-        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
+        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, hierarchy))
                 .thenReturn(new RetrievalContext(List.of(), List.of()));
 
         JobPostingMockQuestionResponse response = jobPostingAiService.generateMockRecommendedQuestions(
@@ -192,6 +198,7 @@ class JobPostingAiServiceTest {
     @DisplayName("점수화된 참고 공고 목록의 첫 공고를 우선 사용한다")
     void generateMockJobPostingUsesTopScoredReferenceFirst() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
+        ClassificationHierarchy hierarchy = createHierarchy(detailClassification);
         RetrievedJobPostingReference topScoredPosting = new RetrievedJobPostingReference(
                 1L,
                 "선택 기업",
@@ -211,7 +218,7 @@ class JobPostingAiServiceTest {
                 0.2
         );
         when(detailClassificationRepository.findWithHierarchyById(100L)).thenReturn(Optional.of(detailClassification));
-        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
+        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, hierarchy))
                 .thenReturn(new RetrievalContext(List.of(topScoredPosting, lowerPriorityPosting), List.of()));
 
         JobPostingMockGenerateResponse response = jobPostingAiService.generateMockJobPosting(
@@ -260,5 +267,9 @@ class JobPostingAiServiceTest {
         ReflectionTestUtils.setField(middleClassification, "id", middleClassificationId);
         ReflectionTestUtils.setField(detailClassification, "id", detailClassificationId);
         return detailClassification;
+    }
+
+    private ClassificationHierarchy createHierarchy(DetailClassification detailClassification) {
+        return ClassificationHierarchyMapper.toHierarchy(detailClassification);
     }
 }
