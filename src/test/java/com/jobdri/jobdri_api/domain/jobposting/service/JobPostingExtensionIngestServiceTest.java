@@ -20,6 +20,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -30,6 +31,9 @@ class JobPostingExtensionIngestServiceTest {
 
     @Mock
     private JobPostingIngestService jobPostingIngestService;
+
+    @Mock
+    private JobPostingService jobPostingService;
 
     @Mock
     private MockApplyService mockApplyService;
@@ -117,5 +121,74 @@ class JobPostingExtensionIngestServiceTest {
         verify(mockApplyService, never()).createMockApplyFromJobPosting(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         assertThat(response.savedToDatabase()).isFalse();
         assertThat(response.mockApply()).isNull();
+    }
+
+    @Test
+    @DisplayName("공고 저장 성공 응답에 저장 공고가 없으면 모의 서류 지원을 생성하지 않는다")
+    void ingestSkipsMockApplyWhenSavedJobPostingIsNull() {
+        JobPostingExtensionIngestRequest request = new JobPostingExtensionIngestRequest(
+                "https://www.wanted.co.kr/wd/123",
+                "WANTED",
+                "채용 공고 원문"
+        );
+        JobPostingIngestResponse ingest = new JobPostingIngestResponse(
+                true,
+                "저장 성공",
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+
+        when(jobPostingIngestService.ingestAndCreate(eq(user), org.mockito.ArgumentMatchers.any(JobPostingIngestRequest.class)))
+                .thenReturn(ingest);
+
+        JobPostingExtensionIngestResponse response = jobPostingExtensionIngestService.ingest(user, request);
+
+        verify(mockApplyService, never()).createMockApplyFromJobPosting(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+        assertThat(response.savedToDatabase()).isTrue();
+        assertThat(response.mockApply()).isNull();
+    }
+
+    @Test
+    @DisplayName("모의 서류 지원 생성 실패 시 저장된 공고를 보상 삭제한다")
+    void ingestDeletesSavedJobPostingWhenMockApplyCreationFails() {
+        JobPostingExtensionIngestRequest request = new JobPostingExtensionIngestRequest(
+                "https://www.wanted.co.kr/wd/123",
+                "WANTED",
+                "채용 공고 원문"
+        );
+        JobPostingResponse saved = JobPostingResponse.builder()
+                .jobPostingId(10L)
+                .userId(1L)
+                .companyId(2L)
+                .companyName("테스트 회사")
+                .detailClassificationId(3L)
+                .detailClassificationName("백엔드 개발")
+                .task("주요 업무")
+                .requirement("자격 요건")
+                .preferred("우대 사항")
+                .build();
+        JobPostingIngestResponse ingest = new JobPostingIngestResponse(
+                true,
+                "저장 성공",
+                null,
+                null,
+                null,
+                null,
+                saved
+        );
+        RuntimeException failure = new RuntimeException("mock apply create failed");
+
+        when(jobPostingIngestService.ingestAndCreate(eq(user), org.mockito.ArgumentMatchers.any(JobPostingIngestRequest.class)))
+                .thenReturn(ingest);
+        when(mockApplyService.createMockApplyFromJobPosting(user, 10L))
+                .thenThrow(failure);
+
+        assertThatThrownBy(() -> jobPostingExtensionIngestService.ingest(user, request))
+                .isSameAs(failure);
+
+        verify(jobPostingService).deleteJobPosting(user, 10L);
     }
 }

@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 public class JobPostingExtensionIngestService {
 
     private final JobPostingIngestService jobPostingIngestService;
+    private final JobPostingService jobPostingService;
     private final MockApplyService mockApplyService;
 
     public JobPostingExtensionIngestResponse ingest(User user, JobPostingExtensionIngestRequest request) {
@@ -25,10 +26,13 @@ public class JobPostingExtensionIngestService {
 
         MockApplyCreateResponse mockApply = null;
         if (ingest.isSavedToDatabase() && ingest.getSaved() != null) {
-            mockApply = mockApplyService.createMockApplyFromJobPosting(
-                    user,
-                    ingest.getSaved().getJobPostingId()
-            );
+            Long jobPostingId = ingest.getSaved().getJobPostingId();
+            try {
+                mockApply = mockApplyService.createMockApplyFromJobPosting(user, jobPostingId);
+            } catch (RuntimeException e) {
+                jobPostingService.deleteJobPosting(user, jobPostingId);
+                throw e;
+            }
         }
 
         return JobPostingExtensionIngestResponse.of(

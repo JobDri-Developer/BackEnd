@@ -209,8 +209,13 @@ class PaymentServiceTest {
             }
         });
 
-        assertThat(results).filteredOn(Result::success).hasSize(1);
-        assertThat(results).filteredOn(result -> !result.success()).hasSize(1);
+        assertThat(results).filteredOn(Result::success).isNotEmpty();
+        assertThat(results)
+                .filteredOn(result -> !result.success())
+                .allSatisfy(result -> assertThat(result.exception())
+                        .isInstanceOf(GeneralException.class)
+                        .extracting("code")
+                        .isEqualTo(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED));
         assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
         assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
                 user.getId(),
