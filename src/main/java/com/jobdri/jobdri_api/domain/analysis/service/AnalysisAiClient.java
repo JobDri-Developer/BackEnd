@@ -26,6 +26,127 @@ import java.util.List;
 public class AnalysisAiClient {
     private static final int MAX_REFERENCE_SECTION_LENGTH = 3000;
     private static final int MAX_REFERENCE_FIELD_LENGTH = 300;
+    private static final String OUTPUT_SCHEMA = """
+            [출력 형식]
+            {
+              "jobFit": 70,
+              "impact": 55,
+              "completeness": 67,
+              "feedback": "한 줄 피드백",
+              "questionAnalyses": [
+                {
+                  "questionId": 1,
+                  "sentence": "자소서 답변 안에 실제 존재하는 정확한 부분 문자열",
+                  "status": "mentioned",
+                  "reason": "문제 이유",
+                  "improvement": "사용자가 그대로 붙여 넣을 수 있는 완성된 개선 예시 문장"
+                }
+              ]
+            }
+            """;
+    private static final String EVALUATION_CRITERIA = """
+            [평가 절차]
+            1. JD의 주요 업무, 필수 자격요건, 우대사항을 구분한다.
+            2. 각 요건에 대응하는 자기소개서 원문 근거를 찾는다.
+            3. 근거를 proven, mentioned, missing, fabricated 중 하나로 판정한다.
+            4. jobFit, impact, completeness를 각각 평가한다.
+            5. 감점 금지 조건과 status 오남용 여부를 확인한다.
+            6. 보완이 필요한 원문 문장을 문항당 최대 3개만 추출한다.
+            7. 지정된 JSON만 반환한다.
+
+            [jobFit 평가 기준]
+            JD가 요구하는 역량, 경험, 기술을 자기소개서가 얼마나 증명하는지 평가한다.
+            체크 항목:
+            - 필수 자격요건 매칭
+            - 우대사항 반영
+            - 주요 업무 연관성
+            - 직무 키워드 활용
+            - 암묵적 직무 역량 충족
+            점수 구간:
+            - 85~100: 필수 자격요건 대부분 proven, 직무 키워드가 풍부하고 업무 경험과 JD가 직접 연결됨
+            - 70~84: 주요 자격요건이 증명되고 일부 우대사항도 반영됨
+            - 55~69: 자격요건 일부만 증명되고 JD와 간접적으로 연결됨
+            - 40~54: 자격요건 증명이 거의 없고 직무 관련성이 낮음
+            - 40 미만: JD와 자기소개서가 거의 무관함
+
+            [impact 평가 기준]
+            주장을 뒷받침하는 근거가 얼마나 구체적이고 설득력 있는지 평가한다.
+            체크 항목:
+            - 정량적 성과
+            - STAR 구조 활용
+            - 주장과 근거의 연결
+            - Before-After 비교
+            - 차별적 경험
+            점수 구간:
+            - 85~100: 주요 주장에 정량 성과 또는 구체적 에피소드가 있고 STAR 구조가 명확함
+            - 70~84: 핵심 주장 대부분에 근거가 있고 일부 수치와 STAR 구조가 존재함
+            - 55~69: 경험은 있으나 근거가 모호하고 수치가 거의 없음
+            - 40~54: 대부분 근거 없는 주장과 추상 표현으로 구성됨
+            - 40 미만: 구체적 근거가 전혀 없음
+            감점 금지:
+            - 문제 상황 설명에 수치가 없다는 이유만으로 감점하지 않는다.
+            - 과정이나 학습 경험에 정량 지표가 없다는 이유만으로 감점하지 않는다.
+            - STAR 구조를 형식적으로 완벽하게 따르지 않는다는 이유만으로 감점하지 않는다.
+            단, 전체 맥락과 행동, 결과는 이해 가능해야 한다.
+
+            [completeness 평가 기준]
+            질문 적합성, 논리 흐름, 문장 표현 품질을 종합 평가한다.
+            체크 항목:
+            - 질문 적합성
+            - 문단 구조와 흐름
+            - 논리적 일관성
+            - 문장 가독성
+            - 설득력 있는 마무리
+            점수 구간:
+            - 85~100: 모든 문항에 정확히 답하고 논리 흐름과 마무리가 매우 자연스러움
+            - 70~84: 대부분 적절하게 답하고 전반적으로 읽기 좋음
+            - 55~69: 일부 동문서답, 논리 비약, 반복 표현 또는 마무리 부족이 있음
+            - 40~54: 질문과 답변 불일치가 많고 구조와 논리 문제가 큼
+            - 40 미만: 대부분 질문 의도와 무관하거나 미완성임
+            """;
+    private static final String STATUS_AND_WRITING_RULES = """
+            [status 판정 기준]
+            - proven: 구체적인 경험, 행동, 기술, 프로젝트, 수치 또는 결과로 역량을 실질적으로 입증함
+            - mentioned: 관련 키워드나 경험은 언급했지만 구체적인 근거, 에피소드 또는 결과가 부족함
+            - missing: 해당 역량이나 요건을 자기소개서에서 전혀 다루지 않음
+            - fabricated: 주장 내용이 앞뒤 맥락과 명백히 충돌하거나 현실적으로 불가능한 수준의 비일관성이 있음
+
+            [status 중요 규칙]
+            - 직접적인 증거가 부족해도 관련 경험이 있으면 mentioned로 분류한다.
+            - missing은 관련 언급이 전혀 없을 때만 사용한다.
+            - fabricated는 단순히 근거가 부족하다는 이유로 사용하지 않는다.
+            - fabricated는 명백한 모순이나 비현실적 과장이 있을 때만 사용한다.
+            - 구체적인 경험이나 수치가 부족하다는 이유만으로 fabricated를 사용하지 않는다.
+
+            [sentence 규칙]
+            - questionAnalyses의 sentence는 반드시 해당 questionId의 answer에 실제 포함된 정확한 substring이어야 한다.
+            - 원문에 없는 문장을 생성하지 않는다.
+            - sentence를 요약하거나 수정하지 않는다.
+            - 원문 매칭이 불확실하면 questionAnalyses에 포함하지 않는다.
+            - 분석 대상 문장은 문항당 최대 3개만 반환한다.
+            - 동일하거나 거의 동일한 문장을 중복 반환하지 않는다.
+            - start/end index는 출력하지 않는다. 서버가 Java String character index 기준으로 계산한다.
+            - missing은 원문에 해당 문장이 없을 수 있으므로 sentence를 임의로 만들지 않는다.
+
+            [reason 작성 규칙]
+            - 사용자가 왜 해당 문장이 보완 대상인지 이해할 수 있게 작성한다.
+            - 가능하면 JD의 어떤 업무, 자격요건, 우대사항과 관련된 문제인지 설명한다.
+            - 1~2문장으로 간결하게 작성한다.
+            - 사용자의 경험을 부정하거나 비난하지 않는다.
+            - "잘못되었다"보다 "근거가 부족하다", "결과가 드러나지 않는다"처럼 진단형 표현을 사용한다.
+            - 단순 문법 교정보다 직무 적합성, 구체성, 논리 완성도 관점의 이유를 우선한다.
+
+            [improvement 작성 규칙]
+            - improvement는 첨삭 조언이 아니라 사용자가 sentence를 대체해 사용할 수 있는 완성된 한국어 문장이어야 한다.
+            - 반드시 한국어 평서문으로 작성한다.
+            - "추가하세요", "보완하세요", "수정해주세요", "필요합니다" 같은 지시문을 사용하지 않는다.
+            - 사용자가 언급하지 않은 경험, 기술, 도구명, 인원수, 금액, 성과 수치를 임의로 만들지 않는다.
+            - 수치가 필요하지만 원문에 없다면 N건, X%, 약 N시간 같은 빈칸 표현을 사용한다.
+            - 원래 경험과 맥락을 최대한 유지한다.
+            - 가능하면 행동, 역할, 결과가 드러나도록 개선한다.
+            - 너무 길거나 과도하게 화려한 문장으로 만들지 않는다.
+            - 금지 표현: %s
+            """;
 
     private final OpenAIClient openAIClient;
     private final CorpusRetrievalService corpusRetrievalService;
@@ -88,52 +209,13 @@ public class AnalysisAiClient {
                 반드시 JSON만 출력한다.
                 자소서 원문에 없는 sentence를 만들지 않는다.
                 sentence는 반드시 해당 question의 answer에 포함된 정확한 부분 문자열이어야 한다.
+                한국어 사용자 노출 라벨을 만들거나 추정하지 않는다.
 
-                [출력 형식]
-                {
-                  "score": 64,
-                  "jobFit": 70,
-                  "impact": 55,
-                  "completeness": 67,
-                  "feedback": "한 줄 피드백",
-                  "questionAnalyses": [
-                    {
-                      "questionId": 1,
-                      "sentence": "자소서 답변 안에 실제 존재하는 정확한 부분 문자열",
-                      "status": "mentioned",
-                      "reason": "문제 이유",
-                      "improvement": "사용자가 그대로 붙여 넣을 수 있는 완성된 개선 예시 문장"
-                    }
-                  ]
-                }
+                %s
 
-                [평가 절차]
-                1. JD의 주요 업무, 자격 요건, 우대 사항을 읽고 핵심 역량을 정리한다.
-                2. 각 문항 답변이 JD와 얼마나 연결되는지 평가한다.
-                3. 주장, 경험, 성과가 구체적 근거로 입증되는지 평가한다.
-                4. 질문에 맞게 답했는지, 문장 흐름과 완성도가 충분한지 평가한다.
-                5. 보완이 필요한 원문 문장을 최대 2~3개만 추출한다.
+                %s
 
-                [점수 기준]
-                - 85~100: 매우 우수
-                - 70~84: 양호
-                - 55~69: 개선 필요
-                - 40~54: 대폭 수정 필요
-                - 40 미만: 직무/JD와 거의 무관
-
-                [세부 기준]
-                - jobFit: JD와 직무 역량 매칭
-                - impact: 성과 구체성, 수치, 결과
-                - completeness: 문장 완성도, 논리 흐름, 질문 적합성
-
-                [상태 라벨 참고]
-                - proven: 구체적 경험/수치로 충분히 입증됨
-                - mentioned: 관련 내용을 언급은 했지만 구체 근거가 부족함
-                - missing: 자소서에서 아예 다루지 않음
-                - fabricated: 주장은 하지만 신뢰할 수 있는 근거가 부족함
-
-                [약점 유형 참고]
-                unsupported_claim, vague_evidence, exaggeration, missing_outcome
+                %s
 
                 [채용 공고]
                 회사명: %s
@@ -156,20 +238,19 @@ public class AnalysisAiClient {
                 [자소서 문항과 답변]
                 %s
 
-                [중요 규칙]
+                [출력 전 자체 검증]
                 - JSON 외 텍스트, 마크다운, 코드블럭을 출력하지 않는다.
                 - questionAnalyses의 questionId는 입력된 questionId 중 하나만 사용한다.
                 - questionAnalyses의 status는 proven, mentioned, missing, fabricated 중 하나만 사용한다.
                 - sentence는 answer에 포함된 정확한 substring만 사용한다.
-                - improvement는 첨삭 조언이 아니라 sentence를 대체할 수 있는 완성된 예시 문장이어야 한다.
-                - improvement에는 "하세요.", "해주세요.", "해야 합니다.", "필요합니다."로 끝나는 지시문을 쓰지 않는다.
-                - improvement에는 "추가하세요.", "보완하세요.", "수정해주세요.", "명확히 해야 합니다." 같은 첨삭 조언 표현을 쓰지 않는다.
-                - improvement는 반드시 한국어 평서문으로 작성하고, 가능하면 수치/성과/행동을 포함한다.
-                - 좋은 improvement 예: "저는 쿼리 실행 계획을 분석해 누락된 인덱스를 추가했고, 평균 응답 시간을 1.8초에서 0.6초로 단축했습니다."
-                - 나쁜 improvement 예: "성과 수치를 추가하여 문제 해결의 효과를 명확히 하세요."
-                - start/end index는 출력하지 않는다. 서버가 Java에서 계산한다.
-                - 원문 매칭이 불확실하면 questionAnalyses에 포함하지 않는다.
+                - improvement가 지시문이 아닌 완성된 한국어 평서문인지 확인한다.
+                - 원문에 없는 경험, 기술, 도구명, 인원수, 금액, 성과 수치를 만들지 않았는지 확인한다.
+                - fabricated를 단순 근거 부족에 사용하지 않았는지 확인한다.
+                - jobFit, impact, completeness는 0~100 정수로 출력한다.
                 """.formatted(
+                OUTPUT_SCHEMA,
+                EVALUATION_CRITERIA,
+                STATUS_AND_WRITING_RULES.formatted(AnalysisImprovementRules.bannedPhrasesText()),
                 defaultString(jobPosting.getCompany().getName()),
                 defaultString(jobPosting.getDetailClassification().getDetailName()),
                 defaultString(jobPosting.getTask()),
