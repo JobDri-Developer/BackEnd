@@ -11,6 +11,8 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -47,13 +49,35 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     @Column(length = 2000)
     private String error;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "failure_reason", length = 40)
+    private FailureReason failureReason;
+
+    @Column(name = "worker_id", length = 100)
+    private String workerId;
+
+    @Column(name = "retry_count", nullable = false)
+    private int retryCount;
+
+    @Column(name = "max_retry_count", nullable = false)
+    private int maxRetryCount;
+
+    @Column(name = "submitted_at")
+    private LocalDateTime submittedAt;
+
+    @Column(name = "last_attempt_at")
+    private LocalDateTime lastAttemptAt;
+
+    @Column(name = "queue_latency_millis")
+    private Long queueLatencyMillis;
+
     @Column(name = "started_at")
     private LocalDateTime startedAt;
 
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
-    public static AnalysisAsyncTask pending(Long userId, Long mockApplyId) {
+    public static AnalysisAsyncTask pending(Long userId, Long mockApplyId, int maxRetryCount) {
         AnalysisAsyncTask task = new AnalysisAsyncTask();
         task.taskId = UUID.randomUUID().toString();
         task.userId = userId;
@@ -61,6 +85,9 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         task.creditStatus = CreditStatus.NONE;
         task.status = TaskStatus.PENDING;
         task.message = "자소서 분석 비동기 작업이 접수되었습니다.";
+        task.retryCount = 0;
+        task.maxRetryCount = Math.max(0, maxRetryCount);
+        task.submittedAt = LocalDateTime.now();
         return task;
     }
 
@@ -77,23 +104,43 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         this.creditStatus = CreditStatus.RELEASED;
     }
 
-    public void markRunning() {
+    public void markRunning(String workerId, int retryCount, Instant messageSubmittedAt) {
         this.status = TaskStatus.RUNNING;
         this.message = "자소서 분석을 진행 중입니다.";
-        this.startedAt = LocalDateTime.now();
+        this.failureReason = null;
+        this.error = null;
+        this.workerId = workerId;
+        this.retryCount = Math.max(0, retryCount);
+        this.lastAttemptAt = LocalDateTime.now();
+        this.startedAt = this.lastAttemptAt;
+        if (messageSubmittedAt != null) {
+            this.queueLatencyMillis = Math.max(0L, Duration.between(messageSubmittedAt, Instant.now()).toMillis());
+        }
     }
 
     public void markSuccess() {
         this.status = TaskStatus.SUCCEEDED;
         this.message = "자소서 분석이 완료되었습니다.";
         this.error = null;
+        this.failureReason = null;
         this.completedAt = LocalDateTime.now();
     }
 
-    public void markFailed(String errorMessage) {
+    public void markRetryScheduled(FailureReason failureReason, String errorMessage, int retryCount) {
+        this.status = TaskStatus.PENDING;
+        this.message = "자소서 분석 재시도를 대기 중입니다.";
+        this.failureReason = failureReason;
+        this.error = errorMessage;
+        this.retryCount = Math.max(0, retryCount);
+        this.completedAt = null;
+    }
+
+    public void markFailed(FailureReason failureReason, String errorMessage, int retryCount) {
         this.status = TaskStatus.FAILED;
         this.message = "자소서 분석에 실패했습니다.";
+        this.failureReason = failureReason;
         this.error = errorMessage;
+        this.retryCount = Math.max(0, retryCount);
         this.completedAt = LocalDateTime.now();
     }
 
@@ -109,5 +156,13 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         RESERVED,
         CONFIRMED,
         RELEASED
+    }
+
+    public enum FailureReason {
+        RATE_LIMIT,
+        QUEUE_TIMEOUT,
+        OPENAI_TIMEOUT,
+        VALIDATION_ERROR,
+        INTERNAL_ERROR
     }
 }

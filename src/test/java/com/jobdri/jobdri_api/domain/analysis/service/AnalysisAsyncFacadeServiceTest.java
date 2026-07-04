@@ -47,7 +47,7 @@ class AnalysisAsyncFacadeServiceTest {
         User user = User.signup("테스트 사용자", "analysis-async@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 1L);
 
-        AnalysisAsyncTask existingTask = AnalysisAsyncTask.pending(1L, 10L);
+        AnalysisAsyncTask existingTask = AnalysisAsyncTask.pending(1L, 10L, 3);
 
         when(userService.validateUser(user)).thenReturn(user);
         when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty(), Optional.of(existingTask));
@@ -59,7 +59,7 @@ class AnalysisAsyncFacadeServiceTest {
         assertThat(response.taskId()).isEqualTo(existingTask.getTaskId());
         assertThat(response.status()).isEqualTo("PENDING");
         verify(analysisService, never()).reserveAnalysisCredit(eq(user), anyString());
-        verify(analysisAsyncProcessor, never()).process(eq(existingTask.getTaskId()), eq(1L), eq(10L), anyString());
+        verify(analysisAsyncProcessor, never()).process(eq(existingTask.getTaskId()), eq(1L), eq(10L), anyString(), eq(3));
     }
 
     @Test
