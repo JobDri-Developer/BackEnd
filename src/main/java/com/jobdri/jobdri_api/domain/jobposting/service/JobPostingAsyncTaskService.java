@@ -2,107 +2,117 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
-import lombok.Getter;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
-
-import java.time.LocalDateTime;
-import java.util.Map;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@RequiredArgsConstructor
 public class JobPostingAsyncTaskService {
 
-    private final Map<String, TaskState> tasks = new ConcurrentHashMap<>();
+    private final JobPostingAsyncTaskRepository jobPostingAsyncTaskRepository;
+    private final ObjectMapper objectMapper;
 
+    @Transactional
     public String createPendingTask() {
-        String taskId = UUID.randomUUID().toString();
-        tasks.put(taskId, TaskState.pending(taskId));
-        return taskId;
+        JobPostingAsyncTask task = jobPostingAsyncTaskRepository.save(JobPostingAsyncTask.pending());
+        return task.getTaskId();
     }
 
+    @Transactional
+    public void deleteTask(String taskId) {
+        jobPostingAsyncTaskRepository.deleteById(taskId);
+    }
+
+    @Transactional
     public void markRunning(String taskId) {
-        TaskState current = getTaskState(taskId);
-        current.status = TaskStatus.RUNNING;
-        current.message = "채용 공고 비동기 처리를 진행 중입니다.";
-        current.startedAt = LocalDateTime.now();
+        JobPostingAsyncTask task = getTaskState(taskId);
+        if (isTerminal(task)) {
+            return;
+        }
+        task.markRunning();
     }
 
-    public void markSuccess(String taskId, JobPostingIngestResponse result) {
-        TaskState current = getTaskState(taskId);
-        current.status = TaskStatus.SUCCEEDED;
-        current.message = "채용 공고 비동기 처리에 성공했습니다.";
-        current.result = result;
-        current.error = null;
-        current.completedAt = LocalDateTime.now();
+    @Transactional
+    public JobPostingIngestResponse markSuccess(String taskId, JobPostingIngestResponse result) {
+        JobPostingAsyncTask task = getTaskState(taskId);
+        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+            return deserializeResult(task.getResultPayload());
+        }
+        if (task.getStatus() == TaskStatus.FAILED) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "이미 실패 처리된 채용 공고 비동기 작업입니다. taskId=" + taskId
+            );
+        }
+        task.markSuccess(serializeResult(result));
+        return result;
     }
 
+    @Transactional
     public void markFailed(String taskId, String errorMessage) {
-        TaskState current = getTaskState(taskId);
-        current.status = TaskStatus.FAILED;
-        current.message = "채용 공고 비동기 처리에 실패했습니다.";
-        current.error = errorMessage;
-        current.completedAt = LocalDateTime.now();
+        JobPostingAsyncTask task = getTaskState(taskId);
+        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+            return;
+        }
+        task.markFailed(errorMessage);
     }
 
+    @Transactional(readOnly = true)
     public JobPostingAsyncStatusResponse getTask(String taskId) {
-        TaskState taskState = getTaskState(taskId);
+        JobPostingAsyncTask taskState = getTaskState(taskId);
         return JobPostingAsyncStatusResponse.builder()
-                .taskId(taskState.taskId)
-                .status(taskState.status.name())
-                .message(taskState.message)
-                .error(taskState.error)
-                .createdAt(taskState.createdAt)
-                .startedAt(taskState.startedAt)
-                .completedAt(taskState.completedAt)
-                .result(taskState.result)
+                .taskId(taskState.getTaskId())
+                .status(taskState.getStatus().name())
+                .message(taskState.getMessage())
+                .error(taskState.getError())
+                .createdAt(taskState.getCreatedAt())
+                .startedAt(taskState.getStartedAt())
+                .completedAt(taskState.getCompletedAt())
+                .result(deserializeResult(taskState.getResultPayload()))
                 .build();
     }
 
-    private TaskState getTaskState(String taskId) {
-        TaskState taskState = tasks.get(taskId);
-        if (taskState == null) {
+    private JobPostingAsyncTask getTaskState(String taskId) {
+        return jobPostingAsyncTaskRepository.findById(taskId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.JOB_POSTING_ASYNC_TASK_NOT_FOUND,
+                        "해당 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
+                ));
+    }
+
+    private boolean isTerminal(JobPostingAsyncTask task) {
+        return task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED;
+    }
+
+    private String serializeResult(JobPostingIngestResponse result) {
+        try {
+            return objectMapper.writeValueAsString(result);
+        } catch (JsonProcessingException e) {
             throw new GeneralException(
-                    GeneralErrorCode.JOB_POSTING_ASYNC_TASK_NOT_FOUND,
-                    "해당 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "채용 공고 비동기 결과 직렬화에 실패했습니다."
             );
         }
-        return taskState;
     }
 
-    private enum TaskStatus {
-        PENDING,
-        RUNNING,
-        SUCCEEDED,
-        FAILED
-    }
-
-    @Getter
-    private static class TaskState {
-        private final String taskId;
-        private final LocalDateTime createdAt;
-        private volatile TaskStatus status;
-        private volatile String message;
-        private volatile String error;
-        private volatile LocalDateTime startedAt;
-        private volatile LocalDateTime completedAt;
-        private volatile JobPostingIngestResponse result;
-
-        private TaskState(String taskId, LocalDateTime createdAt, TaskStatus status, String message) {
-            this.taskId = taskId;
-            this.createdAt = createdAt;
-            this.status = status;
-            this.message = message;
+    private JobPostingIngestResponse deserializeResult(String resultPayload) {
+        if (resultPayload == null || resultPayload.isBlank()) {
+            return null;
         }
-
-        private static TaskState pending(String taskId) {
-            return new TaskState(
-                    taskId,
-                    LocalDateTime.now(),
-                    TaskStatus.PENDING,
-                    "채용 공고 비동기 작업이 접수되었습니다."
+        try {
+            return objectMapper.readValue(resultPayload, JobPostingIngestResponse.class);
+        } catch (JsonProcessingException e) {
+            throw new GeneralException(
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "채용 공고 비동기 결과 역직렬화에 실패했습니다."
             );
         }
     }

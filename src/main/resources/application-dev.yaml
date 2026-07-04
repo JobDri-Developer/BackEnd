@@ -24,6 +24,12 @@ spring:
       password: ${REDIS_PASSWORD:}
       ssl:
         enabled: ${REDIS_SSL_ENABLED:false}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    virtual-host: ${RABBITMQ_VHOST:/}
   mail:
     host: ${MAIL_HOST:smtp.gmail.com}
     port: ${MAIL_PORT:587}
@@ -68,6 +74,13 @@ mail:
 app:
   oauth2:
     redirect-uri: ${APP_OAUTH2_REDIRECT_URI:http://localhost:3000/oauth2/redirect}
+  worker:
+    internal-api-key: ${APP_WORKER_INTERNAL_API_KEY:change-me-internal-worker-key}
+    job-posting:
+      exchange: ${APP_WORKER_JOB_POSTING_EXCHANGE:jobdri.worker.exchange}
+      queue: ${APP_WORKER_JOB_POSTING_QUEUE:jobdri.job-posting.ingest}
+      routing-key: ${APP_WORKER_JOB_POSTING_ROUTING_KEY:job-posting.ingest}
+      dlq: ${APP_WORKER_JOB_POSTING_DLQ:jobdri.job-posting.ingest.dlq}
   admin:
     bootstrap-emails: ${APP_ADMIN_BOOTSTRAP_EMAILS:}
   corpus:
