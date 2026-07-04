@@ -82,3 +82,14 @@ payment:
     client-key: test-toss-client-key
     secret-key: test-toss-secret-key
     base-url: https://api.tosspayments.com
+
+async:
+  llm:
+    core-pool-size: 2
+    max-pool-size: 4
+    queue-capacity: 20
+
+llm:
+  concurrency:
+    max-concurrent-requests: 4
+    acquire-timeout-millis: 1000

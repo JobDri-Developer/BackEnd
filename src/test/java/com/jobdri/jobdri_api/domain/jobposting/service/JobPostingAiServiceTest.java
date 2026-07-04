@@ -15,6 +15,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateRe
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockQuestionResponse;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingImageStorageService;
+import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -52,6 +53,9 @@ class JobPostingAiServiceTest {
     @Mock
     private JobPostingImageStorageService jobPostingImageStorageService;
 
+    @Mock
+    private LlmConcurrencyLimiter llmConcurrencyLimiter;
+
     private JobPostingAiService jobPostingAiService;
 
     @BeforeEach
@@ -60,7 +64,8 @@ class JobPostingAiServiceTest {
                 openAIClient,
                 detailClassificationRepository,
                 corpusRetrievalService,
-                jobPostingImageStorageService
+                jobPostingImageStorageService,
+                llmConcurrencyLimiter
         );
         ReflectionTestUtils.setField(TEST_COMPANY, "id", 1L);
         ReflectionTestUtils.setField(TEST_USER, "id", 1L);

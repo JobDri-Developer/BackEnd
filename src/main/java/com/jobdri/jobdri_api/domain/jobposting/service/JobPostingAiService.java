@@ -17,6 +17,7 @@ import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedQuestionReference;
+import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -41,6 +42,7 @@ public class JobPostingAiService {
     private final DetailClassificationRepository detailClassificationRepository;
     private final CorpusRetrievalService corpusRetrievalService;
     private final JobPostingImageStorageService jobPostingImageStorageService;
+    private final LlmConcurrencyLimiter llmConcurrencyLimiter;
 
     @Value("${openai.model.job-posting-extractor:gpt-4o-mini}")
     private String extractionModel;
@@ -68,7 +70,10 @@ public class JobPostingAiService {
                 .build();
 
         try {
-            StructuredResponse<JobPostingGenerateResponse> response = openAIClient.responses().create(params);
+            StructuredResponse<JobPostingGenerateResponse> response = llmConcurrencyLimiter.execute(
+                    "job-posting-generate",
+                    () -> openAIClient.responses().create(params)
+            );
             JobPostingGenerateResponse generated = extractStructuredContent(response, JobPostingGenerateResponse.class);
             return normalizeGeneratedResponse(generated, request);
         } catch (Exception e) {
@@ -97,7 +102,10 @@ public class JobPostingAiService {
                 .build();
 
         try {
-            StructuredResponse<JobPostingMockGenerateResponse> response = openAIClient.responses().create(params);
+            StructuredResponse<JobPostingMockGenerateResponse> response = llmConcurrencyLimiter.execute(
+                    "mock-job-posting-generate",
+                    () -> openAIClient.responses().create(params)
+            );
             JobPostingMockGenerateResponse generated = extractStructuredContent(
                     response,
                     JobPostingMockGenerateResponse.class
@@ -132,7 +140,10 @@ public class JobPostingAiService {
                 .build();
 
         try {
-            StructuredResponse<JobPostingMockQuestionResponse> response = openAIClient.responses().create(params);
+            StructuredResponse<JobPostingMockQuestionResponse> response = llmConcurrencyLimiter.execute(
+                    "mock-question-generate",
+                    () -> openAIClient.responses().create(params)
+            );
             JobPostingMockQuestionResponse generated = extractStructuredContent(
                     response,
                     JobPostingMockQuestionResponse.class
@@ -156,8 +167,10 @@ public class JobPostingAiService {
                 .build();
 
         try {
-            StructuredResponse<JobPostingClassificationResultResponse> response =
-                    openAIClient.responses().create(params);
+            StructuredResponse<JobPostingClassificationResultResponse> response = llmConcurrencyLimiter.execute(
+                    "job-posting-classification",
+                    () -> openAIClient.responses().create(params)
+            );
             JobPostingClassificationResultResponse classification =
                     extractStructuredContent(response, JobPostingClassificationResultResponse.class);
             return normalizeClassificationResponse(classification, candidates);
@@ -199,7 +212,10 @@ public class JobPostingAiService {
                 .build();
 
         try {
-            StructuredResponse<JobPostingExtractResponse> response = openAIClient.responses().create(params);
+            StructuredResponse<JobPostingExtractResponse> response = llmConcurrencyLimiter.execute(
+                    "job-posting-extract",
+                    () -> openAIClient.responses().create(params)
+            );
             JobPostingExtractResponse extracted = extractStructuredContent(response, JobPostingExtractResponse.class);
             return normalizeResponse(extracted, rawText);
         } catch (Exception e) {

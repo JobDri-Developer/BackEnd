@@ -20,9 +20,8 @@ public class AnalysisAsyncTaskService {
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
 
     @Transactional
-    public String createPendingTask(Long userId, Long mockApplyId) {
-        AnalysisAsyncTask task = analysisAsyncTaskRepository.save(AnalysisAsyncTask.pending(userId, mockApplyId));
-        return task.getTaskId();
+    public AnalysisAsyncTask createPendingTask(Long userId, Long mockApplyId) {
+        return analysisAsyncTaskRepository.saveAndFlush(AnalysisAsyncTask.pending(userId, mockApplyId));
     }
 
     @Transactional

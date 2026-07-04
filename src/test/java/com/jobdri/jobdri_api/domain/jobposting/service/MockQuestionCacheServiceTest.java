@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -42,6 +43,9 @@ class MockQuestionCacheServiceTest {
     @Mock
     private JobPostingAiService jobPostingAiService;
 
+    @Mock
+    private MockQuestionInflightRegistry mockQuestionInflightRegistry;
+
     private MockQuestionCacheService mockQuestionCacheService;
 
     @BeforeEach
@@ -50,7 +54,8 @@ class MockQuestionCacheServiceTest {
                 mockQuestionCacheRepository,
                 detailClassificationRepository,
                 companyRepository,
-                jobPostingAiService
+                jobPostingAiService,
+                mockQuestionInflightRegistry
         );
     }
 
@@ -109,6 +114,41 @@ class MockQuestionCacheServiceTest {
 
         assertThat(questions).containsExactly("질문 A", "질문 B");
         verify(mockQuestionCacheRepository).save(org.mockito.ArgumentMatchers.any(MockQuestionCache.class));
+    }
+
+    @Test
+    @DisplayName("캐시 저장 충돌 시 재조회한 캐시를 반환한다")
+    void createAndCacheQuestionsReturnsRefetchedCacheWhenSaveConflicts() {
+        DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
+        JobPostingMockGenerateRequest request = new JobPostingMockGenerateRequest(1L, 10L, 100L);
+        Company company = Company.create("선택 기업", CompanySize.MEDIUM);
+        JobPostingMockQuestionResponse aiResponse = new JobPostingMockQuestionResponse(List.of("질문 A", "질문 B"));
+        MockQuestionCache savedCache = MockQuestionCache.create(
+                company,
+                detailClassification,
+                MockQuestionCacheService.PROMPT_VERSION,
+                List.of("질문 A", "질문 B")
+        );
+
+        when(mockQuestionCacheRepository.findByCompany_IdAndDetailClassification_IdAndPromptVersion(
+                1L,
+                100L,
+                MockQuestionCacheService.PROMPT_VERSION
+        ))
+                .thenReturn(Optional.empty())
+                .thenReturn(Optional.of(savedCache));
+        when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
+        when(jobPostingAiService.generateMockRecommendedQuestions(
+                org.mockito.ArgumentMatchers.eq(request),
+                org.mockito.ArgumentMatchers.eq(company)
+        )).thenReturn(aiResponse);
+        when(mockQuestionCacheRepository.save(org.mockito.ArgumentMatchers.any(MockQuestionCache.class)))
+                .thenThrow(new DataIntegrityViolationException("duplicate cache"));
+
+        List<String> questions = mockQuestionCacheService.createAndCacheQuestions(request);
+
+        assertThat(questions).containsExactly("질문 A", "질문 B");
     }
 
     private DetailClassification createDetailClassification(
