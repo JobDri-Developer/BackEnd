@@ -35,6 +35,10 @@ public class AnalysisAiClient {
     @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}")
     private String analysisModel;
 
+    public AnalysisLlmResponse analyze(AnalysisExecutionPayload payload) {
+        return analyze(payload.jobPosting(), payload.answeredQuestions());
+    }
+
     public AnalysisLlmResponse analyze(JobPosting jobPosting, List<Question> questions) {
         RetrievalContext referenceContext = emptyContext();
         try {

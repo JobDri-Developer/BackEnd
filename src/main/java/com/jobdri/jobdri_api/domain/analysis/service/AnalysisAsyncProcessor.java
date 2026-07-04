@@ -22,7 +22,9 @@ public class AnalysisAsyncProcessor {
 
         try {
             User user = userService.getUser(userId);
-            analysisService.runAnalysis(user, mockApplyId);
+            AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApplyId);
+            var llmResponse = analysisService.executeAnalysis(payload);
+            analysisService.finalizeAnalysis(user, mockApplyId, payload, llmResponse);
             analysisAsyncTaskService.markSuccess(taskId);
         } catch (Exception e) {
             log.error("자소서 분석 비동기 처리 실패: taskId={}, mockApplyId={}", taskId, mockApplyId, e);

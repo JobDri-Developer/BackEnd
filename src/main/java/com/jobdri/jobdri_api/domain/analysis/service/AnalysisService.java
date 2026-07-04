@@ -55,7 +55,9 @@ public class AnalysisService {
         creditService.use(user, 1, "자소서 분석 크레딧 차감", referenceId);
 
         try {
-            return runAnalysis(user, mockApplyId);
+            AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
+            AnalysisLlmResponse llmResponse = executeAnalysis(payload);
+            return finalizeAnalysis(user, mockApplyId, payload, llmResponse);
         } catch (RuntimeException e) {
             creditService.refund(user, 1, "자소서 분석 실패 환불", referenceId);
             throw e;
@@ -87,8 +89,8 @@ public class AnalysisService {
         creditService.refund(user, 1, "자소서 분석 실패 환불", referenceId);
     }
 
-    @Transactional
-    public AnalysisResponse runAnalysis(User user, Long mockApplyId) {
+    @Transactional(readOnly = true)
+    public AnalysisExecutionPayload prepareAnalysisExecution(User user, Long mockApplyId) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         List<Question> answeredQuestions = questions.stream()
@@ -102,7 +104,32 @@ public class AnalysisService {
             );
         }
 
-        AnalysisLlmResponse llmResponse = analysisAiClient.analyze(mockApply.getJobPosting(), answeredQuestions);
+        // Initialize hierarchy before leaving the read transaction so detached payload can be used safely.
+        mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName();
+        mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getClassification().getBigName();
+
+        return new AnalysisExecutionPayload(
+                user.getId(),
+                mockApplyId,
+                mockApply.getJobPosting(),
+                List.copyOf(questions),
+                List.copyOf(answeredQuestions)
+        );
+    }
+
+    public AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
+        return analysisAiClient.analyze(payload.jobPosting(), payload.answeredQuestions());
+    }
+
+    @Transactional
+    public AnalysisResponse finalizeAnalysis(
+            User user,
+            Long mockApplyId,
+            AnalysisExecutionPayload payload,
+            AnalysisLlmResponse llmResponse
+    ) {
+        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
+        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         replaceExistingAnalysis(mockApply);
 
         Analysis analysis = analysisRepository.save(Analysis.create(
@@ -114,7 +141,12 @@ public class AnalysisService {
                 normalizeFeedback(llmResponse.feedback())
         ));
 
-        List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(analysis, answeredQuestions, llmResponse);
+        List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(
+                analysis,
+                questions,
+                payload.answeredQuestions(),
+                llmResponse
+        );
         questionAnalysisRepository.saveAll(questionAnalyses);
         mockApply.updateStatus(MockApplyStatus.COMPLETED);
 
@@ -200,10 +232,13 @@ public class AnalysisService {
     private List<QuestionAnalysis> buildQuestionAnalyses(
             Analysis analysis,
             List<Question> questions,
+            List<Question> answeredQuestions,
             AnalysisLlmResponse llmResponse
     ) {
         Map<Long, Question> questionMap = questions.stream()
                 .collect(Collectors.toMap(Question::getId, Function.identity()));
+        Map<Long, String> answerByQuestionId = answeredQuestions.stream()
+                .collect(Collectors.toMap(Question::getId, Question::getAnswer));
         List<QuestionAnalysis> result = new ArrayList<>();
 
         if (llmResponse.questionAnalyses() == null) {
@@ -220,7 +255,10 @@ public class AnalysisService {
                 continue;
             }
 
-            String answer = question.getAnswer();
+            String answer = answerByQuestionId.get(item.questionId());
+            if (!StringUtils.hasText(answer)) {
+                continue;
+            }
             String sentence = item.sentence();
             int start = answer.indexOf(sentence);
             if (start < 0) {
