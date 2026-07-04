@@ -3,7 +3,6 @@ package com.jobdri.jobdri_api.domain.analysis.dto.llm;
 import java.util.List;
 
 public record AnalysisLlmResponse(
-        Integer score,
         Integer jobFit,
         Integer impact,
         Integer completeness,

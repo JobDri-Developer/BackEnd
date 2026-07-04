@@ -92,7 +92,6 @@ class AnalysisServiceTest {
         Question question = saveQuestion(mockApply, "지원 직무 경험을 작성해주세요.", "Spring Boot API를 개발했습니다.");
         int initialCredit = userRepository.findById(user.getId()).orElseThrow().getCredit();
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
-                120,
                 82,
                 71,
                 80,
@@ -133,13 +132,12 @@ class AnalysisServiceTest {
     }
 
     @Test
-    @DisplayName("총점은 LLM score가 아니라 하위 점수 가중합으로 계산한다")
+    @DisplayName("총점은 하위 점수 가중합으로 계산한다")
     void analyzeCalculatesScoreFromDimensionScores() {
         User user = saveUser("analysis-score-calculation@example.com");
         MockApply mockApply = saveMockApply(user);
         Question question = saveQuestion(mockApply, "지원 직무 경험을 작성해주세요.", "Spring Boot API를 개발했습니다.");
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
-                0,
                 100,
                 0,
                 0,
@@ -169,7 +167,6 @@ class AnalysisServiceTest {
         saveQuestion(mockApply, "지원 직무 경험을 작성해주세요.", "Spring Boot API를 개발했습니다.");
         int initialCredit = userRepository.findById(user.getId()).orElseThrow().getCredit();
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
-                80,
                 101,
                 70,
                 70,
@@ -194,7 +191,6 @@ class AnalysisServiceTest {
         MockApply secondMockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
         Question question = saveQuestion(secondMockApply, "재지원 분석 문항입니다.", "Spring Boot API를 개발했습니다.");
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
-                80,
                 81,
                 82,
                 83,
@@ -224,7 +220,6 @@ class AnalysisServiceTest {
                 70,
                 70,
                 70,
-                70,
                 "잘못된 status 항목은 제외됩니다.",
                 List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
                         question.getId(),
@@ -250,7 +245,6 @@ class AnalysisServiceTest {
                 70,
                 70,
                 70,
-                70,
                 "missing 항목은 제외됩니다.",
                 List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
                         question.getId(),
@@ -273,7 +267,6 @@ class AnalysisServiceTest {
         MockApply mockApply = saveMockApply(user);
         Question question = saveQuestion(mockApply, "성과 경험", "API 응답 속도를 개선했습니다.");
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
-                70,
                 70,
                 70,
                 70,
@@ -316,7 +309,6 @@ class AnalysisServiceTest {
                 70,
                 70,
                 70,
-                70,
                 "최대 개수 제한입니다.",
                 List.of(
                         analysisItem(question.getId(), "첫 번째 문장입니다."),
@@ -342,7 +334,6 @@ class AnalysisServiceTest {
         MockApply mockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL, 4));
         Question question = saveQuestion(mockApply, "재지원 분석 문항입니다.", "Spring Boot API를 개발했습니다.");
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
-                80,
                 81,
                 82,
                 83,
@@ -414,7 +405,6 @@ class AnalysisServiceTest {
         MockApply mockApply = saveMockApply(user);
         Question question = saveQuestion(mockApply, "문제 해결 경험", "장애 로그를 분석해 원인을 찾았습니다.");
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
-                64,
                 70,
                 55,
                 67,
@@ -444,7 +434,6 @@ class AnalysisServiceTest {
         MockApply mockApply = saveMockApply(user);
         Question question = saveQuestion(mockApply, "문제 해결 경험", "저는 로그를 확인하고 쿼리 실행 계획을 분석했습니다.");
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
-                64,
                 70,
                 55,
                 67,
@@ -472,7 +461,6 @@ class AnalysisServiceTest {
         Question question = saveQuestion(mockApply, "문제 해결 경험", "저는 로그를 확인했습니다.");
         String validImprovement = "저는 로그를 분석하고 누락된 인덱스를 추가하여 응답 시간을 1.8초에서 0.6초로 단축했습니다.";
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
-                70,
                 75,
                 65,
                 70,
@@ -500,7 +488,6 @@ class AnalysisServiceTest {
         MockApply mockApply = saveMockApply(user);
         Question question = saveQuestion(mockApply, "문제 해결 경험", "저는 로그를 확인했습니다.");
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
-                64,
                 70,
                 55,
                 67,
@@ -528,7 +515,6 @@ class AnalysisServiceTest {
         Question firstQuestion = saveQuestion(mockApply, "문제 해결 경험", "저는 로그를 확인했습니다.");
         Question secondQuestion = saveQuestion(mockApply, "성과 경험", "저는 API 응답 속도를 개선했습니다.");
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
-                64,
                 70,
                 55,
                 67,
@@ -566,7 +552,6 @@ class AnalysisServiceTest {
         Question question = saveQuestion(mockApply, "성과 경험", "가입 완료율을 개선했습니다. API 응답 속도를 개선했습니다.");
         when(analysisAiClient.analyze(any(), any()))
                 .thenReturn(new AnalysisLlmResponse(
-                        60,
                         61,
                         62,
                         63,
@@ -580,7 +565,6 @@ class AnalysisServiceTest {
                         ))
                 ))
                 .thenReturn(new AnalysisLlmResponse(
-                        88,
                         89,
                         90,
                         91,
@@ -613,7 +597,6 @@ class AnalysisServiceTest {
         MockApply mockApply = saveMockApply(user);
         Question question = saveQuestion(mockApply, "지원 동기", "서비스 개선 경험이 있습니다.");
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
-                75,
                 76,
                 77,
                 78,
@@ -647,7 +630,6 @@ class AnalysisServiceTest {
         Question secondQuestion = saveQuestion(secondMockApply, "두 번째 지원 동기", "두 번째 답변입니다.");
         when(analysisAiClient.analyze(any(), any()))
                 .thenReturn(new AnalysisLlmResponse(
-                        61,
                         62,
                         63,
                         64,
@@ -655,7 +637,6 @@ class AnalysisServiceTest {
                         List.of()
                 ))
                 .thenReturn(new AnalysisLlmResponse(
-                        81,
                         82,
                         83,
                         84,
@@ -691,7 +672,6 @@ class AnalysisServiceTest {
         Question secondQuestion = saveQuestion(secondMockApply, "두 번째 지원 동기", "두 번째 답변입니다.");
         when(analysisAiClient.analyze(any(), any()))
                 .thenReturn(new AnalysisLlmResponse(
-                        61,
                         62,
                         63,
                         64,
@@ -699,7 +679,6 @@ class AnalysisServiceTest {
                         List.of()
                 ))
                 .thenReturn(new AnalysisLlmResponse(
-                        81,
                         82,
                         83,
                         84,
@@ -750,7 +729,6 @@ class AnalysisServiceTest {
         Question secondQuestion = saveQuestion(secondMockApply, "문제 해결 경험을 작성해주세요.", "장애 로그를 분석했습니다.");
         when(analysisAiClient.analyze(any(), any()))
                 .thenReturn(new AnalysisLlmResponse(
-                        80,
                         81,
                         82,
                         83,
@@ -764,7 +742,6 @@ class AnalysisServiceTest {
                         ))
                 ))
                 .thenReturn(new AnalysisLlmResponse(
-                        70,
                         71,
                         72,
                         73,

@@ -354,13 +354,7 @@ public class AnalysisService {
     }
 
     private boolean isInstructionLikeImprovement(String improvement) {
-        return improvement.matches(".*(추가|보완|수정|작성)\\s*(하|해)\\s*(세요|주세요|주십시오|십시오).*")
-                || improvement.matches(".*(해주세요|해 주세요|하십시오|해주십시오|해 주십시오).*")
-                || improvement.matches(".*(하세요|십시오)\\.?$")
-                || improvement.contains("필요합니다")
-                || improvement.contains("해야 합니다")
-                || improvement.contains("명확히 해야")
-                || improvement.contains("명확히 하세요");
+        return AnalysisImprovementRules.isInstructionLike(improvement);
     }
 
     private QuestionAnalysisStatus parseStatus(String status) {

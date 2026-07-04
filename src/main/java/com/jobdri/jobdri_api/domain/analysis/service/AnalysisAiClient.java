@@ -29,7 +29,6 @@ public class AnalysisAiClient {
     private static final String OUTPUT_SCHEMA = """
             [출력 형식]
             {
-              "score": 64,
               "jobFit": 70,
               "impact": 55,
               "completeness": 67,
@@ -146,7 +145,7 @@ public class AnalysisAiClient {
             - 원래 경험과 맥락을 최대한 유지한다.
             - 가능하면 행동, 역할, 결과가 드러나도록 개선한다.
             - 너무 길거나 과도하게 화려한 문장으로 만들지 않는다.
-            - 금지 표현: 추가하세요, 보완하세요, 수정해주세요, 수정하세요, 작성해주세요, 작성하세요, 필요합니다, 해야 합니다, 해주세요, 명확히 해야
+            - 금지 표현: %s
             """;
 
     private final OpenAIClient openAIClient;
@@ -247,11 +246,11 @@ public class AnalysisAiClient {
                 - improvement가 지시문이 아닌 완성된 한국어 평서문인지 확인한다.
                 - 원문에 없는 경험, 기술, 도구명, 인원수, 금액, 성과 수치를 만들지 않았는지 확인한다.
                 - fabricated를 단순 근거 부족에 사용하지 않았는지 확인한다.
-                - score, jobFit, impact, completeness는 0~100 정수로 출력한다.
+                - jobFit, impact, completeness는 0~100 정수로 출력한다.
                 """.formatted(
                 OUTPUT_SCHEMA,
                 EVALUATION_CRITERIA,
-                STATUS_AND_WRITING_RULES,
+                STATUS_AND_WRITING_RULES.formatted(AnalysisImprovementRules.bannedPhrasesText()),
                 defaultString(jobPosting.getCompany().getName()),
                 defaultString(jobPosting.getDetailClassification().getDetailName()),
                 defaultString(jobPosting.getTask()),
