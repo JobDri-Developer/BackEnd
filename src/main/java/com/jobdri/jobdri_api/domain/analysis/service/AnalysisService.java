@@ -50,6 +50,45 @@ public class AnalysisService {
     @Transactional
     @AuditLogEvent(action = "ANALYSIS_RUN", targetType = "MOCK_APPLY", targetId = "#arg1")
     public AnalysisResponse analyze(User user, Long mockApplyId) {
+        validateAnalysisRequest(user, mockApplyId);
+        String referenceId = "mockApplyId=" + mockApplyId;
+        creditService.use(user, 1, "자소서 분석 크레딧 차감", referenceId);
+
+        try {
+            return runAnalysis(user, mockApplyId);
+        } catch (RuntimeException e) {
+            creditService.refund(user, 1, "자소서 분석 실패 환불", referenceId);
+            throw e;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void validateAnalysisRequest(User user, Long mockApplyId) {
+        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
+        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        boolean hasAnsweredQuestion = questions.stream()
+                .anyMatch(question -> StringUtils.hasText(question.getAnswer()));
+
+        if (!hasAnsweredQuestion) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "분석할 자소서 답변이 1개 이상 필요합니다."
+            );
+        }
+    }
+
+    @Transactional
+    public void chargeAnalysisCredit(User user, String referenceId) {
+        creditService.use(user, 1, "자소서 분석 크레딧 차감", referenceId);
+    }
+
+    @Transactional
+    public void refundAnalysisCredit(User user, String referenceId) {
+        creditService.refund(user, 1, "자소서 분석 실패 환불", referenceId);
+    }
+
+    @Transactional
+    public AnalysisResponse runAnalysis(User user, Long mockApplyId) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         List<Question> answeredQuestions = questions.stream()
@@ -63,31 +102,23 @@ public class AnalysisService {
             );
         }
 
-        String referenceId = "mockApplyId=" + mockApply.getId();
-        creditService.use(user, 1, "자소서 분석 크레딧 차감", referenceId);
+        AnalysisLlmResponse llmResponse = analysisAiClient.analyze(mockApply.getJobPosting(), answeredQuestions);
+        replaceExistingAnalysis(mockApply);
 
-        try {
-            AnalysisLlmResponse llmResponse = analysisAiClient.analyze(mockApply.getJobPosting(), answeredQuestions);
-            replaceExistingAnalysis(mockApply);
+        Analysis analysis = analysisRepository.save(Analysis.create(
+                mockApply,
+                clampScore(llmResponse.score()),
+                clampScore(llmResponse.jobFit()),
+                clampScore(llmResponse.impact()),
+                clampScore(llmResponse.completeness()),
+                normalizeFeedback(llmResponse.feedback())
+        ));
 
-            Analysis analysis = analysisRepository.save(Analysis.create(
-                    mockApply,
-                    clampScore(llmResponse.score()),
-                    clampScore(llmResponse.jobFit()),
-                    clampScore(llmResponse.impact()),
-                    clampScore(llmResponse.completeness()),
-                    normalizeFeedback(llmResponse.feedback())
-            ));
+        List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(analysis, answeredQuestions, llmResponse);
+        questionAnalysisRepository.saveAll(questionAnalyses);
+        mockApply.updateStatus(MockApplyStatus.COMPLETED);
 
-            List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(analysis, answeredQuestions, llmResponse);
-            questionAnalysisRepository.saveAll(questionAnalyses);
-            mockApply.updateStatus(MockApplyStatus.COMPLETED);
-
-            return toResponse(mockApply, analysis, questions, questionAnalyses);
-        } catch (RuntimeException e) {
-            creditService.refund(user, 1, "자소서 분석 실패 환불", referenceId);
-            throw e;
-        }
+        return toResponse(mockApply, analysis, questions, questionAnalyses);
     }
 
     public AnalysisResponse getAnalysis(User user, Long mockApplyId) {
