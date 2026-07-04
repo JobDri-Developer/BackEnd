@@ -112,7 +112,7 @@ class AnalysisServiceTest {
 
         assertThat(response.status()).isEqualTo(MockApplyStatus.COMPLETED);
         assertThat(response.sequence()).isEqualTo(1);
-        assertThat(response.score()).isEqualTo(100);
+        assertThat(response.score()).isEqualTo(78);
         assertThat(response.jobFit()).isEqualTo(82);
         assertThat(response.impact()).isEqualTo(71);
         assertThat(response.completeness()).isEqualTo(80);
@@ -130,6 +130,59 @@ class AnalysisServiceTest {
                 user.getId(),
                 CreditTransactionType.USE
         )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("총점은 LLM score가 아니라 하위 점수 가중합으로 계산한다")
+    void analyzeCalculatesScoreFromDimensionScores() {
+        User user = saveUser("analysis-score-calculation@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "지원 직무 경험을 작성해주세요.", "Spring Boot API를 개발했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                0,
+                100,
+                0,
+                0,
+                "총점 서버 계산입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "Spring Boot API를 개발했습니다.",
+                        "mentioned",
+                        "성과 지표가 부족합니다.",
+                        "Spring Boot API를 개발해 응답 시간을 약 X% 개선했습니다."
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.score()).isEqualTo(40);
+        assertThat(response.jobFit()).isEqualTo(100);
+        assertThat(response.impact()).isZero();
+        assertThat(response.completeness()).isZero();
+    }
+
+    @Test
+    @DisplayName("하위 점수가 0~100 범위를 벗어나면 분석을 실패 처리하고 크레딧을 환불한다")
+    void analyzeThrowsAndRefundsWhenDimensionScoreOutOfRange() {
+        User user = saveUser("analysis-score-range@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험을 작성해주세요.", "Spring Boot API를 개발했습니다.");
+        int initialCredit = userRepository.findById(user.getId()).orElseThrow().getCredit();
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                101,
+                70,
+                70,
+                "잘못된 점수입니다.",
+                List.of()
+        ));
+
+        assertThatThrownBy(() -> analysisService.analyze(user, mockApply.getId()))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.SERVICE_UNAVAILABLE);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(initialCredit);
+        assertThat(analysisRepository.findByMockApplyId(mockApply.getId())).isEmpty();
     }
 
     @Test
@@ -159,6 +212,126 @@ class AnalysisServiceTest {
 
         assertThat(response.mockApplyId()).isEqualTo(secondMockApply.getId());
         assertThat(response.sequence()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("invalid status 문항 분석은 MENTIONED로 변환하지 않고 제외한다")
+    void analyzeSkipsInvalidStatus() {
+        User user = saveUser("analysis-invalid-status@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "문제 해결 경험", "장애 로그를 분석해 원인을 찾았습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                70,
+                70,
+                70,
+                70,
+                "잘못된 status 항목은 제외됩니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "장애 로그를 분석해 원인을 찾았습니다.",
+                        "uncertain",
+                        "status가 잘못되었습니다.",
+                        "장애 로그를 분석해 원인을 찾고 복구 시간을 약 X분 단축했습니다."
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("missing status는 원문 sentence 저장이 안전하지 않아 문항 분석에서 제외한다")
+    void analyzeSkipsMissingStatus() {
+        User user = saveUser("analysis-missing-status@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                70,
+                70,
+                70,
+                70,
+                "missing 항목은 제외됩니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "Spring Boot API를 개발했습니다.",
+                        "missing",
+                        "SQL 활용 경험이 드러나지 않습니다.",
+                        "Spring Boot API 개발 과정에서 SQL 쿼리를 분석해 응답 시간을 약 X% 개선했습니다."
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("동일 sentence가 중복되면 첫 번째 유효 항목만 저장한다")
+    void analyzeDeduplicatesSameSentence() {
+        User user = saveUser("analysis-deduplicate-sentence@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "성과 경험", "API 응답 속도를 개선했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                70,
+                70,
+                70,
+                70,
+                "중복 문장 제거입니다.",
+                List.of(
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "API 응답 속도를 개선했습니다.",
+                                "mentioned",
+                                "개선 전후 수치가 부족합니다.",
+                                "API 응답 속도를 약 X% 개선했습니다."
+                        ),
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "API 응답 속도를 개선했습니다.",
+                                "mentioned",
+                                "중복 항목입니다.",
+                                "API 응답 속도를 약 Nms 단축했습니다."
+                        )
+                )
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).reason()).isEqualTo("개선 전후 수치가 부족합니다.");
+    }
+
+    @Test
+    @DisplayName("questionAnalyses는 문항당 최대 3개까지만 저장한다")
+    void analyzeLimitsQuestionAnalysesPerQuestion() {
+        User user = saveUser("analysis-limit-per-question@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(
+                mockApply,
+                "성과 경험",
+                "첫 번째 문장입니다. 두 번째 문장입니다. 세 번째 문장입니다. 네 번째 문장입니다."
+        );
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                70,
+                70,
+                70,
+                70,
+                "최대 개수 제한입니다.",
+                List.of(
+                        analysisItem(question.getId(), "첫 번째 문장입니다."),
+                        analysisItem(question.getId(), "두 번째 문장입니다."),
+                        analysisItem(question.getId(), "세 번째 문장입니다."),
+                        analysisItem(question.getId(), "네 번째 문장입니다.")
+                )
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).hasSize(3);
+        assertThat(response.questions().get(0).analyses())
+                .extracting("sentence")
+                .containsExactly("첫 번째 문장입니다.", "두 번째 문장입니다.", "세 번째 문장입니다.");
     }
 
     @Test
@@ -425,10 +598,10 @@ class AnalysisServiceTest {
         AnalysisResponse second = analysisService.analyze(user, mockApply.getId());
 
         assertThat(second.analysisId()).isNotEqualTo(first.analysisId());
-        assertThat(second.score()).isEqualTo(88);
+        assertThat(second.score()).isEqualTo(90);
         assertThat(second.feedback()).isEqualTo("두 번째 분석");
         assertThat(second.questions().get(0).analyses().get(0).status()).isEqualTo("proven");
-        assertThat(analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow().getScore()).isEqualTo(88);
+        assertThat(analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow().getScore()).isEqualTo(90);
         assertThat(questionAnalysisRepository.findAllByAnalysisId(second.analysisId())).hasSize(1);
         assertThat(questionAnalysisRepository.findAllByAnalysisId(first.analysisId())).isEmpty();
     }
@@ -458,7 +631,7 @@ class AnalysisServiceTest {
         AnalysisResponse response = analysisService.getAnalysis(user, mockApply.getId());
 
         assertThat(response.analysisId()).isEqualTo(saved.analysisId());
-        assertThat(response.score()).isEqualTo(75);
+        assertThat(response.score()).isEqualTo(77);
         assertThat(response.questions()).hasSize(1);
         assertThat(response.questions().get(0).analyses()).hasSize(1);
     }
@@ -638,6 +811,16 @@ class AnalysisServiceTest {
 
     private Question saveQuestion(MockApply mockApply, String content, String answer) {
         return questionRepository.save(Question.create(mockApply, content, 1000, answer));
+    }
+
+    private AnalysisLlmResponse.QuestionAnalysisItem analysisItem(Long questionId, String sentence) {
+        return new AnalysisLlmResponse.QuestionAnalysisItem(
+                questionId,
+                sentence,
+                "mentioned",
+                "구체적 결과가 부족합니다.",
+                sentence.replace("입니다.", "이며 관련 결과를 약 X% 개선했습니다.")
+        );
     }
 
     private JobPosting saveJobPosting(User user) {
