@@ -1,27 +1,27 @@
-package com.jobdri.jobdri_api.domain.jobposting.service;
+package com.jobdri.jobdri_api.domain.analysis.service;
 
-import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingIngestTaskMessage;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisTaskMessage;
 import com.jobdri.jobdri_api.global.mq.service.RabbitPublishSupport;
 import lombok.RequiredArgsConstructor;
-import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.MessageDeliveryMode;
+import org.springframework.amqp.core.DirectExchange;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
-public class JobPostingTaskMessagePublisher {
+public class AnalysisTaskMessagePublisher {
 
     private final RabbitPublishSupport rabbitPublishSupport;
     private final DirectExchange workerExchange;
-    private final JobPostingQueueProperties jobPostingQueueProperties;
+    private final AnalysisQueueProperties analysisQueueProperties;
 
-    public void publish(JobPostingIngestTaskMessage message) {
+    public void publish(AnalysisTaskMessage message) {
         rabbitPublishSupport.publish(
                 workerExchange.getName(),
-                jobPostingQueueProperties.routingKey(),
+                analysisQueueProperties.routingKey(),
                 message,
                 message.messageId(),
-                "채용 공고 작업 메시지 발행에 실패했습니다.",
+                "자소서 분석 작업 메시지 발행에 실패했습니다.",
                 outgoingMessage -> {
                     outgoingMessage.getMessageProperties().setDeliveryMode(MessageDeliveryMode.PERSISTENT);
                     outgoingMessage.getMessageProperties().setMessageId(message.messageId());

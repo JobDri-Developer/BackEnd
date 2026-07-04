@@ -81,6 +81,11 @@ public class Payment extends BaseEntity {
         this.status = PaymentStatus.FAILED;
     }
 
+    public void resetToPending() {
+        this.paymentKey = null;
+        this.status = PaymentStatus.PENDING;
+    }
+
     public boolean belongsTo(Long userId) {
         return user != null && user.getId() != null && user.getId().equals(userId);
     }

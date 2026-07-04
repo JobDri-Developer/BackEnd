@@ -104,7 +104,7 @@ public class JobPostingAiController {
         validateAuthenticatedUser(userDetails);
         return ApiResponse.onSuccess(
                 "채용 공고 비동기 작업 상태 조회에 성공했습니다.",
-                jobPostingAsyncFacadeService.getTask(taskId)
+                jobPostingAsyncFacadeService.getTask(userDetails.getUser(), taskId)
         );
     }
 

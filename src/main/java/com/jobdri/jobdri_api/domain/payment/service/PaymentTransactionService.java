@@ -76,6 +76,17 @@ public class PaymentTransactionService {
         }
     }
 
+    @Transactional
+    public void rollbackConfirmationToPending(Long userId, String orderId, String paymentKey) {
+        Payment payment = getOwnedPaymentForUpdate(userId, orderId);
+        if (!payment.hasPaymentKey(paymentKey)) {
+            return;
+        }
+        if (payment.getStatus() == PaymentStatus.PROCESSING) {
+            payment.resetToPending();
+        }
+    }
+
     private Payment getOwnedPaymentForUpdate(Long userId, String orderId) {
         Payment payment = paymentRepository.findByOrderIdForUpdate(orderId)
                 .orElseThrow(() -> new GeneralException(

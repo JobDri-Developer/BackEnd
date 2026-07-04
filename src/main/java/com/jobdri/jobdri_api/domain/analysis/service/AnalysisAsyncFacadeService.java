@@ -48,7 +48,14 @@ public class AnalysisAsyncFacadeService {
                 .status(status.status())
                 .message(status.message())
                 .error(status.error())
+                .failureReason(status.failureReason())
+                .workerId(status.workerId())
+                .retryCount(status.retryCount())
+                .maxRetryCount(status.maxRetryCount())
+                .queueLatencyMillis(status.queueLatencyMillis())
                 .createdAt(status.createdAt())
+                .submittedAt(status.submittedAt())
+                .lastAttemptAt(status.lastAttemptAt())
                 .startedAt(status.startedAt())
                 .completedAt(status.completedAt())
                 .result(analysisService.getAnalysis(validatedUser, status.mockApplyId()))
@@ -63,12 +70,14 @@ public class AnalysisAsyncFacadeService {
 
         AnalysisAsyncTask task = pendingTaskResult.task();
         String taskId = task.getTaskId();
-        String creditReferenceId = "analysisTaskId=" + taskId;
 
         try {
-            analysisService.reserveAnalysisCredit(user, creditReferenceId);
-            analysisAsyncTaskService.markCreditReserved(taskId, creditReferenceId);
-            analysisAsyncProcessor.process(taskId, user.getId(), mockApplyId, creditReferenceId);
+            analysisAsyncProcessor.process(
+                    taskId,
+                    user.getId(),
+                    mockApplyId,
+                    task.getMaxRetryCount()
+            );
             return new AnalysisAsyncSubmitResponse(
                     taskId,
                     "PENDING",

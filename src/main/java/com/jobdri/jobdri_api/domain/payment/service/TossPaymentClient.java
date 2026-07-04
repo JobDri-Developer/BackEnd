@@ -13,6 +13,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
@@ -73,6 +74,13 @@ public class TossPaymentClient {
             throw new GeneralException(
                     GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
                     "토스페이먼츠 결제 승인 실패"
+            );
+        } catch (ResourceAccessException e) {
+            log.warn("Toss payment confirm request timed out. message={}", truncate(e.getMessage()));
+            log.warn("Toss payment confirm timeout exception", e);
+            throw new GeneralException(
+                    GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT,
+                    "토스페이먼츠 결제 승인 응답이 지연되고 있습니다."
             );
         } catch (RestClientException e) {
             log.warn("Toss payment confirm request failed. message={}", truncate(e.getMessage()));

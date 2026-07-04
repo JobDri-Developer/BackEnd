@@ -4,6 +4,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestComma
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncSubmitResponse;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -21,11 +22,12 @@ public class JobPostingAsyncFacadeService {
 
     public JobPostingAsyncSubmitResponse submit(User user, JobPostingIngestRequest request) {
         User validatedUser = userService.validateUser(user);
-        String taskId = jobPostingAsyncTaskService.createPendingTask();
+        JobPostingAsyncTask task = jobPostingAsyncTaskService.createPendingTask(validatedUser.getId());
+        String taskId = task.getTaskId();
         JobPostingIngestCommand command = snapshot(validatedUser, request);
 
         try {
-            jobPostingAsyncProcessor.process(taskId, command);
+            jobPostingAsyncProcessor.process(taskId, command, task.getMaxRetryCount());
             return new JobPostingAsyncSubmitResponse(
                     taskId,
                     "PENDING",
@@ -40,7 +42,12 @@ public class JobPostingAsyncFacadeService {
         }
     }
 
-    public JobPostingAsyncStatusResponse getTask(String taskId) {
+    public JobPostingAsyncStatusResponse getTask(User user, String taskId) {
+        User validatedUser = userService.validateUser(user);
+        return jobPostingAsyncTaskService.getTask(validatedUser, taskId);
+    }
+
+    public JobPostingAsyncStatusResponse getTaskInternal(String taskId) {
         return jobPostingAsyncTaskService.getTask(taskId);
     }
 

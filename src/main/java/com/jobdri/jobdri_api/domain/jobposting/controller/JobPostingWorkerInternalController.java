@@ -8,6 +8,8 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerContex
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerContextResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerFailureRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerFinalizeRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerRetryRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerRunningRequest;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAsyncFacadeService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingWorkerBridgeService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
@@ -38,11 +40,23 @@ public class JobPostingWorkerInternalController {
     @PostMapping("/tasks/{taskId}/running")
     public ApiResponse<Void> markRunning(
             @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
-            @PathVariable String taskId
+            @PathVariable String taskId,
+            @Valid @RequestBody JobPostingWorkerRunningRequest request
     ) {
         internalApiKeyValidator.validate(internalApiKey);
-        jobPostingWorkerBridgeService.markRunning(taskId);
+        jobPostingWorkerBridgeService.markRunning(taskId, request.workerId(), request.retryCount(), request.submittedAt());
         return ApiResponse.onSuccess("채용 공고 worker 작업 시작 상태를 반영했습니다.");
+    }
+
+    @PostMapping("/tasks/{taskId}/retry")
+    public ApiResponse<Void> markRetry(
+            @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
+            @PathVariable String taskId,
+            @Valid @RequestBody JobPostingWorkerRetryRequest request
+    ) {
+        internalApiKeyValidator.validate(internalApiKey);
+        jobPostingWorkerBridgeService.markRetry(taskId, request.failureReason(), request.errorMessage(), request.retryCount());
+        return ApiResponse.onSuccess("채용 공고 worker 작업 재시도 상태를 반영했습니다.");
     }
 
     @PostMapping("/tasks/{taskId}/complete")
@@ -65,7 +79,7 @@ public class JobPostingWorkerInternalController {
             @Valid @RequestBody JobPostingWorkerFailureRequest request
     ) {
         internalApiKeyValidator.validate(internalApiKey);
-        jobPostingWorkerBridgeService.failTask(taskId, request.errorMessage());
+        jobPostingWorkerBridgeService.failTask(taskId, request.failureReason(), request.errorMessage(), request.retryCount());
         return ApiResponse.onSuccess("채용 공고 worker 작업 실패 상태를 반영했습니다.");
     }
 
@@ -125,7 +139,7 @@ public class JobPostingWorkerInternalController {
         internalApiKeyValidator.validate(internalApiKey);
         return ApiResponse.onSuccess(
                 "채용 공고 worker 작업 상태 조회에 성공했습니다.",
-                jobPostingAsyncFacadeService.getTask(taskId)
+                jobPostingAsyncFacadeService.getTaskInternal(taskId)
         );
     }
 }

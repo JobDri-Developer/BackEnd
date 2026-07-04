@@ -3,14 +3,17 @@ package com.jobdri.jobdri_api.domain.analysis.service;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
+import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Optional;
 
@@ -19,10 +22,15 @@ import java.util.Optional;
 public class AnalysisAsyncTaskService {
 
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
+    
+    @Value("${app.worker.analysis.max-retry-count:3}")
+    private int maxRetryCount;
 
     @Transactional
     public AnalysisAsyncTask createPendingTask(Long userId, Long mockApplyId) {
-        return analysisAsyncTaskRepository.saveAndFlush(AnalysisAsyncTask.pending(userId, mockApplyId));
+        return analysisAsyncTaskRepository.saveAndFlush(
+                AnalysisAsyncTask.pending(userId, mockApplyId, maxRetryCount)
+        );
     }
 
     @Transactional
@@ -40,8 +48,8 @@ public class AnalysisAsyncTaskService {
     }
 
     @Transactional
-    public void markRunning(String taskId) {
-        getTask(taskId).markRunning();
+    public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
+        getTask(taskId).markRunning(workerId, retryCount, submittedAt);
     }
 
     @Transactional
@@ -50,8 +58,18 @@ public class AnalysisAsyncTaskService {
     }
 
     @Transactional
-    public void markFailed(String taskId, String errorMessage) {
-        getTask(taskId).markFailed(errorMessage);
+    public void markRetryScheduled(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
+        getTask(taskId).markRetryScheduled(failureReason, errorMessage, retryCount);
+    }
+
+    @Transactional
+    public void markFailed(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
+        getTask(taskId).markFailed(failureReason, errorMessage, retryCount);
+    }
+
+    @Transactional
+    public void updateWorkerMetadata(String taskId, String workerId, Long queueLatencyMillis) {
+        getTask(taskId).updateWorkerMetadata(workerId, queueLatencyMillis);
     }
 
     @Transactional
@@ -81,18 +99,12 @@ public class AnalysisAsyncTaskService {
                         GeneralErrorCode.ANALYSIS_ASYNC_TASK_NOT_FOUND,
                         "해당 자소서 분석 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
                 ));
+        return toStatusResponse(task);
+    }
 
-        return AnalysisAsyncStatusResponse.builder()
-                .taskId(task.getTaskId())
-                .mockApplyId(task.getMockApplyId())
-                .status(task.getStatus().name())
-                .message(task.getMessage())
-                .error(task.getError())
-                .createdAt(task.getCreatedAt())
-                .startedAt(task.getStartedAt())
-                .completedAt(task.getCompletedAt())
-                .result(null)
-                .build();
+    @Transactional(readOnly = true)
+    public AnalysisAsyncStatusResponse getTaskStatusByTaskId(String taskId) {
+        return toStatusResponse(getTask(taskId));
     }
 
     private AnalysisAsyncTask getTask(String taskId) {
@@ -101,5 +113,26 @@ public class AnalysisAsyncTaskService {
                         GeneralErrorCode.ANALYSIS_ASYNC_TASK_NOT_FOUND,
                         "해당 자소서 분석 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
                 ));
+    }
+
+    private AnalysisAsyncStatusResponse toStatusResponse(AnalysisAsyncTask task) {
+        return AnalysisAsyncStatusResponse.builder()
+                .taskId(task.getTaskId())
+                .mockApplyId(task.getMockApplyId())
+                .status(task.getStatus().name())
+                .message(task.getMessage())
+                .error(task.getError())
+                .failureReason(task.getFailureReason() != null ? task.getFailureReason().name() : null)
+                .workerId(task.getWorkerId())
+                .retryCount(task.getRetryCount())
+                .maxRetryCount(task.getMaxRetryCount())
+                .queueLatencyMillis(task.getQueueLatencyMillis())
+                .createdAt(task.getCreatedAt())
+                .submittedAt(task.getSubmittedAt())
+                .lastAttemptAt(task.getLastAttemptAt())
+                .startedAt(task.getStartedAt())
+                .completedAt(task.getCompletedAt())
+                .result(null)
+                .build();
     }
 }

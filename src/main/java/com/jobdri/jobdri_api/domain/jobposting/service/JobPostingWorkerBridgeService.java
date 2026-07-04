@@ -6,6 +6,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractRes
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.TaskStatus;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
@@ -15,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 
 @Service
@@ -28,8 +30,8 @@ public class JobPostingWorkerBridgeService {
     private final JobPostingService jobPostingService;
     private final UserService userService;
 
-    public void markRunning(String taskId) {
-        jobPostingAsyncTaskService.markRunning(taskId);
+    public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
+        jobPostingAsyncTaskService.markRunning(taskId, workerId, retryCount, submittedAt);
     }
 
     @Transactional
@@ -37,8 +39,12 @@ public class JobPostingWorkerBridgeService {
         return jobPostingAsyncTaskService.markSuccess(taskId, result);
     }
 
-    public void failTask(String taskId, String errorMessage) {
-        jobPostingAsyncTaskService.markFailed(taskId, errorMessage);
+    public void markRetry(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
+        jobPostingAsyncTaskService.markRetryScheduled(taskId, failureReason, errorMessage, retryCount);
+    }
+
+    public void failTask(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
+        jobPostingAsyncTaskService.markFailed(taskId, failureReason, errorMessage, retryCount);
     }
 
     public String createReadableImageUrl(Long userId, String imageObjectKey) {
