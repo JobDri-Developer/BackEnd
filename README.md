@@ -10,6 +10,13 @@ cp .env.example .env
 docker compose up --build
 ```
 
+포함 서비스:
+
+- Spring Boot API: `http://localhost:8080`
+- FastAPI worker health: `http://localhost:8000/health`
+- RabbitMQ: `amqp://localhost:5672`
+- RabbitMQ management: `http://localhost:15672`
+
 배포 서버 실행:
 
 ```bash
@@ -18,6 +25,47 @@ docker compose -f docker-compose.prod.yml up -d
 ```
 
 `prod` 프로필은 `/actuator/health`를 노출합니다.
+
+## Async Worker Architecture
+
+현재 비동기 구조는 아래처럼 분리됩니다.
+
+- API 서버: task row 생성, 상태 조회 API 제공, RabbitMQ publish, 최종 DB 저장
+- RabbitMQ: `job posting ingest` 작업 버퍼링과 재전달
+- FastAPI worker: MQ consume, OpenAI 기반 추출/분류/생성 수행, 내부 API callback
+
+로컬에 필요한 추가 env:
+
+```bash
+RABBITMQ_HOST=localhost
+RABBITMQ_PORT=5672
+RABBITMQ_USERNAME=guest
+RABBITMQ_PASSWORD=guest
+RABBITMQ_VHOST=/
+APP_WORKER_INTERNAL_API_KEY=change-me-internal-worker-key
+APP_WORKER_JOB_POSTING_EXCHANGE=jobdri.worker.exchange
+APP_WORKER_JOB_POSTING_QUEUE=jobdri.job-posting.ingest
+APP_WORKER_JOB_POSTING_ROUTING_KEY=job-posting.ingest
+APP_WORKER_JOB_POSTING_DLQ=jobdri.job-posting.ingest.dlq
+WORKER_MAX_RETRY_COUNT=3
+```
+
+스모크 테스트:
+
+1. `docker compose up --build`
+2. 로그인 토큰을 준비합니다.
+3. `POST /api/job-postings/ingest` 로 `rawText` 또는 `imageObjectKey`를 전송합니다.
+4. 응답의 `taskId`로 `GET /api/job-postings/ingest/async/{taskId}` 를 조회합니다.
+5. worker가 성공하면 `SUCCEEDED`, 실패하면 `FAILED` 와 에러 메시지가 반환됩니다.
+
+worker 단독 실행:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r worker/requirements.txt
+uvicorn worker.app.main:app --host 0.0.0.0 --port 8000
+```
 
 ## Corpus Import Script
 

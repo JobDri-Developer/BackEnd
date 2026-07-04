@@ -1,6 +1,9 @@
 package com.jobdri.jobdri_api.domain.analysis.controller;
 
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAsyncFacadeService;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -23,16 +26,30 @@ import org.springframework.web.bind.annotation.RestController;
 public class AnalysisController {
 
     private final AnalysisService analysisService;
+    private final AnalysisAsyncFacadeService analysisAsyncFacadeService;
 
-    @Operation(summary = "자소서 분석 실행", description = "저장된 문항 답변과 공고 정보를 기반으로 자소서를 분석하고 결과를 저장합니다.")
+    @Operation(summary = "자소서 분석 비동기 실행", description = "저장된 문항 답변과 공고 정보를 기반으로 자소서 분석 작업을 접수합니다.")
     @PostMapping
-    public ApiResponse<AnalysisResponse> analyze(
+    public ApiResponse<AnalysisAsyncSubmitResponse> analyze(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @PathVariable Long mockApplyId
     ) {
         return ApiResponse.onSuccess(
-                "자소서 분석이 완료되었습니다.",
-                analysisService.analyze(getAuthenticatedUser(userDetails), mockApplyId)
+                "자소서 분석 비동기 작업이 접수되었습니다.",
+                analysisAsyncFacadeService.submit(getAuthenticatedUser(userDetails), mockApplyId)
+        );
+    }
+
+    @Operation(summary = "자소서 분석 비동기 작업 상태 조회", description = "taskId로 자소서 분석 비동기 작업 상태를 조회합니다.")
+    @GetMapping("/async/{taskId}")
+    public ApiResponse<AnalysisAsyncStatusResponse> getAnalysisTask(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId,
+            @PathVariable String taskId
+    ) {
+        return ApiResponse.onSuccess(
+                "자소서 분석 비동기 작업 상태 조회에 성공했습니다.",
+                analysisAsyncFacadeService.getTask(getAuthenticatedUser(userDetails), mockApplyId, taskId)
         );
     }
 

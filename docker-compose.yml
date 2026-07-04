@@ -16,7 +16,13 @@ services:
       REDIS_PORT: 6379
       REDIS_PASSWORD:
       REDIS_SSL_ENABLED: false
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      APP_WORKER_INTERNAL_API_KEY: ${APP_WORKER_INTERNAL_API_KEY:-change-me-internal-worker-key}
     ports:
       - "8080:8080"
     depends_on:
@@ -24,6 +30,41 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    container_name: jobdri-worker
+    env_file:
+      - .env
+    environment:
+      WORKER_ENV: docker
+      SPRING_API_BASE_URL: http://api:8080
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      APP_WORKER_JOB_POSTING_EXCHANGE: ${APP_WORKER_JOB_POSTING_EXCHANGE:-jobdri.worker.exchange}
+      APP_WORKER_JOB_POSTING_QUEUE: ${APP_WORKER_JOB_POSTING_QUEUE:-jobdri.job-posting.ingest}
+      APP_WORKER_JOB_POSTING_ROUTING_KEY: ${APP_WORKER_JOB_POSTING_ROUTING_KEY:-job-posting.ingest}
+      APP_WORKER_JOB_POSTING_DLQ: ${APP_WORKER_JOB_POSTING_DLQ:-jobdri.job-posting.ingest.dlq}
+      APP_WORKER_INTERNAL_API_KEY: ${APP_WORKER_INTERNAL_API_KEY:-change-me-internal-worker-key}
+      JOB_POSTING_CLASSIFICATION_CONFIDENCE_THRESHOLD: ${JOB_POSTING_CLASSIFICATION_CONFIDENCE_THRESHOLD:-0.65}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_JOB_POSTING_MODEL: ${OPENAI_JOB_POSTING_MODEL:-gpt-4o-mini}
+      WORKER_MAX_RETRY_COUNT: ${WORKER_MAX_RETRY_COUNT:-3}
+    depends_on:
+      api:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
     restart: unless-stopped
 
   redis:
@@ -54,6 +95,23 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: jobdri-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
 volumes:
