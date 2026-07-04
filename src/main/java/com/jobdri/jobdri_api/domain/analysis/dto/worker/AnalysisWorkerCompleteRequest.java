@@ -10,7 +10,6 @@ public record AnalysisWorkerCompleteRequest(
         @NotNull Long mockApplyId,
         @Valid @NotNull AnalysisLlmResponse llmResponse,
         @NotBlank String workerId,
-        Long queueLatencyMillis,
-        String openAiRequestId
+        Long queueLatencyMillis
 ) {
 }

@@ -1,11 +1,14 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
+import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -17,6 +20,8 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -115,5 +120,45 @@ class AnalysisWorkerBridgeServiceTest {
         verify(analysisService, never()).reserveAnalysisCredit(eq(user), anyString());
         verify(analysisAsyncTaskService, never()).markCreditReserved(eq(task.getTaskId()), anyString());
         verify(analysisService).prepareAnalysisExecution(user, 10L);
+    }
+
+    @Test
+    @DisplayName("완료된 작업은 running이나 retry로 되돌리지 않는다")
+    void terminalTaskDoesNotReopen() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        task.markSuccess();
+
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        analysisWorkerBridgeService.markRunning(task.getTaskId(), "worker-1", 1, java.time.Instant.now());
+        analysisWorkerBridgeService.markRetry(
+                task.getTaskId(),
+                FailureReason.INTERNAL_ERROR,
+                "retry",
+                1,
+                "worker-1",
+                10L
+        );
+
+        verify(analysisAsyncTaskService, never()).markRunning(eq(task.getTaskId()), eq("worker-1"), eq(1), any());
+        verify(analysisAsyncTaskService, never()).markRetryScheduled(eq(task.getTaskId()), eq(FailureReason.INTERNAL_ERROR), eq("retry"), eq(1));
+    }
+
+    @Test
+    @DisplayName("완료 요청의 사용자나 mockApply가 task와 다르면 거부한다")
+    void completeTaskRejectsMismatchedIdentity() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
+                2L,
+                11L,
+                mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class),
+                "worker-1",
+                10L
+        );
+
+        assertThatThrownBy(() -> analysisWorkerBridgeService.completeTask(task.getTaskId(), request))
+                .isInstanceOf(GeneralException.class);
     }
 }

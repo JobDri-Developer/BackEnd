@@ -3,8 +3,8 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingIngestTaskMessage;
 import com.jobdri.jobdri_api.global.mq.service.RabbitPublishSupport;
 import lombok.RequiredArgsConstructor;
+import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.MessageDeliveryMode;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -12,17 +12,13 @@ import org.springframework.stereotype.Service;
 public class JobPostingTaskMessagePublisher {
 
     private final RabbitPublishSupport rabbitPublishSupport;
-
-    @Value("${app.worker.job-posting.exchange:jobdri.worker.exchange}")
-    private String exchange;
-
-    @Value("${app.worker.job-posting.routing-key:job-posting.ingest}")
-    private String routingKey;
+    private final DirectExchange workerExchange;
+    private final JobPostingQueueProperties jobPostingQueueProperties;
 
     public void publish(JobPostingIngestTaskMessage message) {
         rabbitPublishSupport.publish(
-                exchange,
-                routingKey,
+                workerExchange.getName(),
+                jobPostingQueueProperties.routingKey(),
                 message,
                 message.messageId(),
                 "채용 공고 작업 메시지 발행에 실패했습니다.",

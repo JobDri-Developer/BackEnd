@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
+import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import org.junit.jupiter.api.DisplayName;
@@ -98,5 +99,18 @@ class AnalysisAsyncFacadeServiceTest {
         assertThat(response.status()).isEqualTo("PENDING");
         verify(analysisAsyncProcessor, times(1)).process(createdTask.getTaskId(), 1L, 10L, 3);
         verify(analysisService, never()).reserveAnalysisCredit(eq(user), anyString());
+    }
+
+    @Test
+    @DisplayName("재시도 횟수가 maxRetryCount에 도달하면 task를 FAILED로 전환한다")
+    void retryAtLimitMarksTaskFailed() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+
+        task.markRetryScheduled(FailureReason.INTERNAL_ERROR, "retry-1", 1);
+        task.markRetryScheduled(FailureReason.INTERNAL_ERROR, "retry-2", 2);
+        task.markRetryScheduled(FailureReason.INTERNAL_ERROR, "retry-3", 3);
+
+        assertThat(task.getStatus()).isEqualTo(AnalysisAsyncTask.TaskStatus.FAILED);
+        assertThat(task.getRetryCount()).isEqualTo(3);
     }
 }

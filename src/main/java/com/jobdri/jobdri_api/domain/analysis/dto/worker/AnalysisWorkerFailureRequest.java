@@ -10,7 +10,6 @@ public record AnalysisWorkerFailureRequest(
         @NotNull FailureReason failureReason,
         @Min(0) int retryCount,
         @NotBlank String workerId,
-        Long queueLatencyMillis,
-        String openAiRequestId
+        Long queueLatencyMillis
 ) {
 }

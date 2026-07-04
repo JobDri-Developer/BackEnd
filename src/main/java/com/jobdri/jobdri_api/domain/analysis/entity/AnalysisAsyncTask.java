@@ -105,6 +105,9 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     }
 
     public void markRunning(String workerId, int retryCount, Instant messageSubmittedAt) {
+        if (isTerminal()) {
+            return;
+        }
         this.status = TaskStatus.RUNNING;
         this.message = "자소서 분석을 진행 중입니다.";
         this.failureReason = null;
@@ -127,6 +130,13 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     }
 
     public void markRetryScheduled(FailureReason failureReason, String errorMessage, int retryCount) {
+        if (isTerminal()) {
+            return;
+        }
+        if (retryCount >= maxRetryCount) {
+            markFailed(failureReason, errorMessage, retryCount);
+            return;
+        }
         this.status = TaskStatus.PENDING;
         this.message = "자소서 분석 재시도를 대기 중입니다.";
         this.failureReason = failureReason;
@@ -136,12 +146,28 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     }
 
     public void markFailed(FailureReason failureReason, String errorMessage, int retryCount) {
+        if (status == TaskStatus.SUCCEEDED) {
+            return;
+        }
         this.status = TaskStatus.FAILED;
         this.message = "자소서 분석에 실패했습니다.";
         this.failureReason = failureReason;
         this.error = errorMessage;
         this.retryCount = Math.max(0, retryCount);
         this.completedAt = LocalDateTime.now();
+    }
+
+    public void updateWorkerMetadata(String workerId, Long queueLatencyMillis) {
+        if (workerId != null && !workerId.isBlank()) {
+            this.workerId = workerId;
+        }
+        if (queueLatencyMillis != null) {
+            this.queueLatencyMillis = Math.max(0L, queueLatencyMillis);
+        }
+    }
+
+    private boolean isTerminal() {
+        return status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED;
     }
 
     public enum TaskStatus {

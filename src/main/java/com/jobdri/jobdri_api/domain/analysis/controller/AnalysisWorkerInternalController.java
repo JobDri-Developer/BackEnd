@@ -51,7 +51,14 @@ public class AnalysisWorkerInternalController {
             @Valid @RequestBody AnalysisWorkerRetryRequest request
     ) {
         internalApiKeyValidator.validate(internalApiKey);
-        analysisWorkerBridgeService.markRetry(taskId, request.failureReason(), request.errorMessage(), request.retryCount());
+        analysisWorkerBridgeService.markRetry(
+                taskId,
+                request.failureReason(),
+                request.errorMessage(),
+                request.retryCount(),
+                request.workerId(),
+                request.queueLatencyMillis()
+        );
         return ApiResponse.onSuccess("자소서 분석 worker 작업 재시도 상태를 반영했습니다.");
     }
 
@@ -62,7 +69,14 @@ public class AnalysisWorkerInternalController {
             @Valid @RequestBody AnalysisWorkerFailureRequest request
     ) {
         internalApiKeyValidator.validate(internalApiKey);
-        analysisWorkerBridgeService.failTask(taskId, request.failureReason(), request.errorMessage(), request.retryCount());
+        analysisWorkerBridgeService.failTask(
+                taskId,
+                request.failureReason(),
+                request.errorMessage(),
+                request.retryCount(),
+                request.workerId(),
+                request.queueLatencyMillis()
+        );
         return ApiResponse.onSuccess("자소서 분석 worker 작업 실패 상태를 반영했습니다.");
     }
 

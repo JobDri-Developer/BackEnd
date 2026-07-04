@@ -68,6 +68,11 @@ public class AnalysisAsyncTaskService {
     }
 
     @Transactional
+    public void updateWorkerMetadata(String taskId, String workerId, Long queueLatencyMillis) {
+        getTask(taskId).updateWorkerMetadata(workerId, queueLatencyMillis);
+    }
+
+    @Transactional
     public void markCreditReserved(String taskId, String creditReferenceId) {
         getTask(taskId).markCreditReserved(creditReferenceId);
     }

@@ -4,7 +4,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisTaskMessage;
 import com.jobdri.jobdri_api.global.mq.service.RabbitPublishSupport;
 import lombok.RequiredArgsConstructor;
 import org.springframework.amqp.core.MessageDeliveryMode;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.amqp.core.DirectExchange;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -12,17 +12,13 @@ import org.springframework.stereotype.Service;
 public class AnalysisTaskMessagePublisher {
 
     private final RabbitPublishSupport rabbitPublishSupport;
-
-    @Value("${app.worker.analysis.exchange:jobdri.worker.exchange}")
-    private String exchange;
-
-    @Value("${app.worker.analysis.routing-key:analysis.execute}")
-    private String routingKey;
+    private final DirectExchange workerExchange;
+    private final AnalysisQueueProperties analysisQueueProperties;
 
     public void publish(AnalysisTaskMessage message) {
         rabbitPublishSupport.publish(
-                exchange,
-                routingKey,
+                workerExchange.getName(),
+                analysisQueueProperties.routingKey(),
                 message,
                 message.messageId(),
                 "자소서 분석 작업 메시지 발행에 실패했습니다.",

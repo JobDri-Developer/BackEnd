@@ -31,20 +31,44 @@ public class AnalysisWorkerBridgeService {
     private final UserService userService;
 
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
+        AnalysisAsyncTask task = getTask(taskId);
+        if (task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED) {
+            return;
+        }
         analysisAsyncTaskService.markRunning(taskId, workerId, retryCount, submittedAt);
     }
 
-    public void markRetry(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
+    public void markRetry(
+            String taskId,
+            FailureReason failureReason,
+            String errorMessage,
+            int retryCount,
+            String workerId,
+            Long queueLatencyMillis
+    ) {
+        AnalysisAsyncTask task = getTask(taskId);
+        if (task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED) {
+            return;
+        }
+        analysisAsyncTaskService.updateWorkerMetadata(taskId, workerId, queueLatencyMillis);
         analysisAsyncTaskService.markRetryScheduled(taskId, failureReason, errorMessage, retryCount);
     }
 
     @Transactional
-    public void failTask(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
+    public void failTask(
+            String taskId,
+            FailureReason failureReason,
+            String errorMessage,
+            int retryCount,
+            String workerId,
+            Long queueLatencyMillis
+    ) {
         AnalysisAsyncTask task = getTask(taskId);
         if (task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED) {
             return;
         }
 
+        analysisAsyncTaskService.updateWorkerMetadata(taskId, workerId, queueLatencyMillis);
         releaseCreditIfNeeded(task);
         analysisAsyncTaskService.markFailed(taskId, failureReason, errorMessage, retryCount);
     }
@@ -80,6 +104,12 @@ public class AnalysisWorkerBridgeService {
     @Transactional
     public AnalysisResponse completeTask(String taskId, AnalysisWorkerCompleteRequest request) {
         AnalysisAsyncTask task = getTask(taskId);
+        if (!task.getUserId().equals(request.userId()) || !task.getMockApplyId().equals(request.mockApplyId())) {
+            throw new GeneralException(
+                    GeneralErrorCode.FORBIDDEN,
+                    "자소서 분석 worker 완료 요청 정보가 작업 정보와 일치하지 않습니다."
+            );
+        }
         if (task.getStatus() == TaskStatus.SUCCEEDED) {
             return analysisService.getAnalysis(userService.getUser(request.userId()), request.mockApplyId());
         }
@@ -94,6 +124,7 @@ public class AnalysisWorkerBridgeService {
         AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, request.mockApplyId());
         AnalysisLlmResponse llmResponse = request.llmResponse();
         AnalysisResponse response = analysisService.finalizeAnalysis(user, request.mockApplyId(), payload, llmResponse);
+        analysisAsyncTaskService.updateWorkerMetadata(taskId, request.workerId(), request.queueLatencyMillis());
         confirmCreditIfNeeded(task, user);
         analysisAsyncTaskService.markSuccess(taskId);
         return response;
