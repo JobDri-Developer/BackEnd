@@ -148,14 +148,18 @@ public class AnalysisService {
     ) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        validateRequiredScores(llmResponse);
+        int jobFit = validateScore("jobFit", llmResponse.jobFit());
+        int impact = validateScore("impact", llmResponse.impact());
+        int completeness = validateScore("completeness", llmResponse.completeness());
         replaceExistingAnalysis(mockApply);
 
         Analysis analysis = analysisRepository.save(Analysis.create(
                 mockApply,
-                clampScore(llmResponse.score()),
-                clampScore(llmResponse.jobFit()),
-                clampScore(llmResponse.impact()),
-                clampScore(llmResponse.completeness()),
+                calculateScore(jobFit, impact, completeness),
+                jobFit,
+                impact,
+                completeness,
                 normalizeFeedback(llmResponse.feedback())
         ));
 
@@ -280,12 +284,27 @@ public class AnalysisService {
             if (!StringUtils.hasText(answer)) {
                 continue;
             }
+            QuestionAnalysisStatus status = parseStatus(item.status());
+            if (status == null || status == QuestionAnalysisStatus.MISSING) {
+                continue;
+            }
+            int currentCount = analysisCountByQuestionId.getOrDefault(question.getId(), 0);
+            if (currentCount >= MAX_ANALYSES_PER_QUESTION) {
+                continue;
+            }
             String sentence = item.sentence();
-            int start = answer.indexOf(sentence);
+            String dedupeKey = question.getId() + ":" + sentence.trim();
+            if (!seenSentences.add(dedupeKey)) {
+                continue;
+            }
+            int start = findNextSentenceStart(
+                    answer,
+                    sentence,
+                    nextSearchIndexByQuestionId.getOrDefault(question.getId(), 0)
+            );
             if (start < 0) {
                 continue;
             }
-            seenSentences.add(dedupeKey);
             nextSearchIndexByQuestionId.put(question.getId(), start + sentence.length());
             analysisCountByQuestionId.put(question.getId(), currentCount + 1);
 
