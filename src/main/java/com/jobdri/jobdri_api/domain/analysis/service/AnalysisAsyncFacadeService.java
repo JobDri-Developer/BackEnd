@@ -70,16 +70,12 @@ public class AnalysisAsyncFacadeService {
 
         AnalysisAsyncTask task = pendingTaskResult.task();
         String taskId = task.getTaskId();
-        String creditReferenceId = "analysisTaskId=" + taskId;
 
         try {
-            analysisService.reserveAnalysisCredit(user, creditReferenceId);
-            analysisAsyncTaskService.markCreditReserved(taskId, creditReferenceId);
             analysisAsyncProcessor.process(
                     taskId,
                     user.getId(),
                     mockApplyId,
-                    creditReferenceId,
                     task.getMaxRetryCount()
             );
             return new AnalysisAsyncSubmitResponse(

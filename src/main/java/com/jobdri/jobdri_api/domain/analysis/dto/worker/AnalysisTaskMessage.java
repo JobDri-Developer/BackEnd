@@ -12,7 +12,6 @@ public record AnalysisTaskMessage(
         String taskId,
         Long userId,
         Long mockApplyId,
-        String creditReferenceId,
         int retryCount,
         int maxRetryCount,
         Instant submittedAt
@@ -22,7 +21,6 @@ public record AnalysisTaskMessage(
             String taskId,
             Long userId,
             Long mockApplyId,
-            String creditReferenceId,
             int maxRetryCount
     ) {
         return AnalysisTaskMessage.builder()
@@ -31,7 +29,6 @@ public record AnalysisTaskMessage(
                 .taskId(taskId)
                 .userId(userId)
                 .mockApplyId(mockApplyId)
-                .creditReferenceId(creditReferenceId)
                 .retryCount(0)
                 .maxRetryCount(Math.max(0, maxRetryCount))
                 .submittedAt(Instant.now())

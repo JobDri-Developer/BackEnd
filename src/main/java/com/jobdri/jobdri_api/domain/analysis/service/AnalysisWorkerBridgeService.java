@@ -49,7 +49,7 @@ public class AnalysisWorkerBridgeService {
         analysisAsyncTaskService.markFailed(taskId, failureReason, errorMessage, retryCount);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AnalysisWorkerContextResponse getContext(String taskId, Long userId, Long mockApplyId) {
         AnalysisAsyncTask task = getTask(taskId);
         if (!task.getUserId().equals(userId) || !task.getMockApplyId().equals(mockApplyId)) {
@@ -58,6 +58,7 @@ public class AnalysisWorkerBridgeService {
                     "자소서 분석 worker 컨텍스트 요청 정보가 작업 정보와 일치하지 않습니다."
             );
         }
+        reserveCreditIfNeeded(task);
         User user = userService.getUser(userId);
         AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApplyId);
 
@@ -93,8 +94,7 @@ public class AnalysisWorkerBridgeService {
         AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, request.mockApplyId());
         AnalysisLlmResponse llmResponse = request.llmResponse();
         AnalysisResponse response = analysisService.finalizeAnalysis(user, request.mockApplyId(), payload, llmResponse);
-        analysisService.confirmAnalysisCredit(user, task.getCreditReferenceId());
-        analysisAsyncTaskService.markCreditConfirmed(taskId);
+        confirmCreditIfNeeded(task, user);
         analysisAsyncTaskService.markSuccess(taskId);
         return response;
     }
@@ -116,6 +116,26 @@ public class AnalysisWorkerBridgeService {
                         GeneralErrorCode.ANALYSIS_ASYNC_TASK_NOT_FOUND,
                         "해당 자소서 분석 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
                 ));
+    }
+
+    private void reserveCreditIfNeeded(AnalysisAsyncTask task) {
+        if (task.getCreditStatus() != CreditStatus.NONE) {
+            return;
+        }
+
+        User user = userService.getUser(task.getUserId());
+        String creditReferenceId = "analysisTaskId=" + task.getTaskId();
+        analysisService.reserveAnalysisCredit(user, creditReferenceId);
+        analysisAsyncTaskService.markCreditReserved(task.getTaskId(), creditReferenceId);
+    }
+
+    private void confirmCreditIfNeeded(AnalysisAsyncTask task, User user) {
+        if (task.getCreditStatus() != CreditStatus.RESERVED || task.getCreditReferenceId() == null) {
+            return;
+        }
+
+        analysisService.confirmAnalysisCredit(user, task.getCreditReferenceId());
+        analysisAsyncTaskService.markCreditConfirmed(task.getTaskId());
     }
 
     private void releaseCreditIfNeeded(AnalysisAsyncTask task) {

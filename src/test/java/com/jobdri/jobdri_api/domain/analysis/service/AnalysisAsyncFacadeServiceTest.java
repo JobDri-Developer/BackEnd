@@ -20,6 +20,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -59,7 +60,7 @@ class AnalysisAsyncFacadeServiceTest {
         assertThat(response.taskId()).isEqualTo(existingTask.getTaskId());
         assertThat(response.status()).isEqualTo("PENDING");
         verify(analysisService, never()).reserveAnalysisCredit(eq(user), anyString());
-        verify(analysisAsyncProcessor, never()).process(eq(existingTask.getTaskId()), eq(1L), eq(10L), anyString(), eq(3));
+        verify(analysisAsyncProcessor, never()).process(eq(existingTask.getTaskId()), eq(1L), eq(10L), eq(3));
     }
 
     @Test
@@ -77,5 +78,25 @@ class AnalysisAsyncFacadeServiceTest {
 
         assertThatThrownBy(() -> analysisAsyncFacadeService.submit(user, 10L))
                 .isSameAs(exception);
+    }
+
+    @Test
+    @DisplayName("메시지 발행이 성공해도 submit 단계에서는 크레딧을 바로 예약하지 않는다")
+    void submitDoesNotReserveCreditBeforeWorkerStarts() {
+        User user = User.signup("테스트 사용자", "analysis-async-submit@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+
+        AnalysisAsyncTask createdTask = AnalysisAsyncTask.pending(1L, 10L, 3);
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty());
+        when(analysisAsyncTaskService.createPendingTask(1L, 10L)).thenReturn(createdTask);
+
+        AnalysisAsyncSubmitResponse response = analysisAsyncFacadeService.submit(user, 10L);
+
+        assertThat(response.taskId()).isEqualTo(createdTask.getTaskId());
+        assertThat(response.status()).isEqualTo("PENDING");
+        verify(analysisAsyncProcessor, times(1)).process(createdTask.getTaskId(), 1L, 10L, 3);
+        verify(analysisService, never()).reserveAnalysisCredit(eq(user), anyString());
     }
 }

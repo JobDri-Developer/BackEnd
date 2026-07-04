@@ -30,6 +30,10 @@ spring:
     username: ${RABBITMQ_USERNAME}
     password: ${RABBITMQ_PASSWORD}
     virtual-host: ${RABBITMQ_VHOST:/}
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    template:
+      mandatory: true
   mail:
     host: ${MAIL_HOST}
     port: ${MAIL_PORT}
@@ -77,6 +81,7 @@ app:
   worker:
     exchange: ${APP_WORKER_EXCHANGE:jobdri.worker.exchange}
     internal-api-key: ${APP_WORKER_INTERNAL_API_KEY}
+    publish-confirm-timeout-millis: ${APP_WORKER_PUBLISH_CONFIRM_TIMEOUT_MILLIS:5000}
     job-posting:
       exchange: ${APP_WORKER_JOB_POSTING_EXCHANGE:${APP_WORKER_EXCHANGE:jobdri.worker.exchange}}
       queue: ${APP_WORKER_JOB_POSTING_QUEUE:jobdri.job-posting.ingest}

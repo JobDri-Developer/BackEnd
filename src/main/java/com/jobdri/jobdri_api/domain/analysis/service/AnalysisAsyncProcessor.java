@@ -10,9 +10,9 @@ public class AnalysisAsyncProcessor {
 
     private final AnalysisTaskMessagePublisher analysisTaskMessagePublisher;
 
-    public void process(String taskId, Long userId, Long mockApplyId, String creditReferenceId, int maxRetryCount) {
+    public void process(String taskId, Long userId, Long mockApplyId, int maxRetryCount) {
         analysisTaskMessagePublisher.publish(
-                AnalysisTaskMessage.of(taskId, userId, mockApplyId, creditReferenceId, maxRetryCount)
+                AnalysisTaskMessage.of(taskId, userId, mockApplyId, maxRetryCount)
         );
     }
 }
