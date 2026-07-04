@@ -81,6 +81,17 @@ public class PaymentService {
             TossPaymentConfirmResponse tossResponse =
                     tossPaymentClient.confirm(request.paymentKey(), request.orderId(), request.amount());
             validateTossResponse(request, tossResponse);
+        } catch (GeneralException e) {
+            if (e.getCode() == GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT) {
+                paymentTransactionService.rollbackConfirmationToPending(
+                        validatedUser.getId(),
+                        request.orderId(),
+                        request.paymentKey()
+                );
+                throw e;
+            }
+            paymentTransactionService.failConfirmation(validatedUser.getId(), request.orderId(), request.paymentKey());
+            throw e;
         } catch (RuntimeException e) {
             paymentTransactionService.failConfirmation(validatedUser.getId(), request.orderId(), request.paymentKey());
             throw e;

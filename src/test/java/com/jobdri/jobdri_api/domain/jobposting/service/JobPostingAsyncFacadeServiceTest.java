@@ -3,8 +3,11 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncSubmitResponse;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
+import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -14,7 +17,11 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,15 +46,16 @@ class JobPostingAsyncFacadeServiceTest {
         User user = User.signup("테스트 사용자", "job-posting-submit@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 7L);
         JobPostingIngestRequest request = new JobPostingIngestRequest("공고 원문", null);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
 
         when(userService.validateUser(user)).thenReturn(user);
-        when(jobPostingAsyncTaskService.createPendingTask(7L)).thenReturn("task-1");
+        when(jobPostingAsyncTaskService.createPendingTask(7L)).thenReturn(task);
 
         JobPostingAsyncSubmitResponse response = jobPostingAsyncFacadeService.submit(user, request);
 
-        assertThat(response.getTaskId()).isEqualTo("task-1");
+        assertThat(response.getTaskId()).isEqualTo(task.getTaskId());
         verify(jobPostingAsyncTaskService).createPendingTask(7L);
-        verify(jobPostingAsyncProcessor).process(any(), any());
+        verify(jobPostingAsyncProcessor).process(eq(task.getTaskId()), any(), eq(3));
     }
 
     @Test
@@ -85,5 +93,27 @@ class JobPostingAsyncFacadeServiceTest {
 
         assertThat(result.getTaskId()).isEqualTo("task-1");
         verify(jobPostingAsyncTaskService).getTask("task-1");
+    }
+
+    @Test
+    @DisplayName("메시지 발행 실패 시 생성했던 task를 삭제하고 접수 실패를 반환한다")
+    void submitDeletesTaskWhenPublishFails() {
+        User user = User.signup("테스트 사용자", "job-posting-submit-fail@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        JobPostingIngestRequest request = new JobPostingIngestRequest("공고 원문", null);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(jobPostingAsyncTaskService.createPendingTask(7L)).thenReturn(task);
+        doThrow(new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "publish failed"))
+                .when(jobPostingAsyncProcessor)
+                .process(eq(task.getTaskId()), any(), eq(3));
+
+        assertThatThrownBy(() -> jobPostingAsyncFacadeService.submit(user, request))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.SERVICE_UNAVAILABLE);
+
+        verify(jobPostingAsyncTaskService, times(1)).deleteTask(task.getTaskId());
     }
 }

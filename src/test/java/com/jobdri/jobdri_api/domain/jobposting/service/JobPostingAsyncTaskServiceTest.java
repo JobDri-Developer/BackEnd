@@ -1,7 +1,9 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
@@ -38,7 +40,7 @@ class JobPostingAsyncTaskServiceTest {
     void getTaskAllowsOwnerOnly() {
         User user = User.signup("테스트 사용자", "job-posting-owner-task@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 7L);
-        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
 
         when(jobPostingAsyncTaskRepository.findByTaskIdAndUserId(task.getTaskId(), 7L)).thenReturn(Optional.of(task));
 
@@ -66,7 +68,7 @@ class JobPostingAsyncTaskServiceTest {
         User admin = User.signup("관리자", "admin-task@example.com", "encoded-password");
         ReflectionTestUtils.setField(admin, "id", 99L);
         admin.promoteToAdmin();
-        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
 
         when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
 
@@ -74,5 +76,36 @@ class JobPostingAsyncTaskServiceTest {
 
         assertThat(response.getTaskId()).isEqualTo(task.getTaskId());
         verify(jobPostingAsyncTaskRepository).findById(task.getTaskId());
+    }
+
+    @Test
+    @DisplayName("대기 시간이 임계치를 넘은 task는 QUEUE_TIMEOUT으로 실패 처리한다")
+    void getTaskMarksPendingTimeout() {
+        ReflectionTestUtils.setField(jobPostingAsyncTaskService, "queueTimeoutMinutes", 1L);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+        ReflectionTestUtils.setField(task, "submittedAt", java.time.LocalDateTime.now().minusMinutes(2));
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        var response = jobPostingAsyncTaskService.getTask(task.getTaskId());
+
+        assertThat(response.getStatus()).isEqualTo("FAILED");
+        assertThat(response.getFailureReason()).isEqualTo(FailureReason.QUEUE_TIMEOUT.name());
+    }
+
+    @Test
+    @DisplayName("실행 중 시간이 임계치를 넘은 task는 WORKER_TIMEOUT으로 실패 처리한다")
+    void getTaskMarksRunningTimeout() {
+        ReflectionTestUtils.setField(jobPostingAsyncTaskService, "processingTimeoutMinutes", 1L);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+        task.markRunning("worker-1", 1, java.time.Instant.now().minusSeconds(120));
+        ReflectionTestUtils.setField(task, "lastAttemptAt", java.time.LocalDateTime.now().minusMinutes(2));
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        var response = jobPostingAsyncTaskService.getTask(task.getTaskId());
+
+        assertThat(response.getStatus()).isEqualTo("FAILED");
+        assertThat(response.getFailureReason()).isEqualTo(FailureReason.WORKER_TIMEOUT.name());
     }
 }
