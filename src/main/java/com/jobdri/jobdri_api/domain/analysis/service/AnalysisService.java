@@ -28,9 +28,12 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -38,6 +41,12 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class AnalysisService {
+    private static final int MIN_SCORE = 0;
+    private static final int MAX_SCORE = 100;
+    private static final int MAX_ANALYSES_PER_QUESTION = 3;
+    private static final double JOB_FIT_WEIGHT = 0.40;
+    private static final double IMPACT_WEIGHT = 0.35;
+    private static final double COMPLETENESS_WEIGHT = 0.25;
 
     private final MockApplyRepository mockApplyRepository;
     private final QuestionRepository questionRepository;
@@ -249,6 +258,9 @@ public class AnalysisService {
         Map<Long, String> answerByQuestionId = answeredQuestions.stream()
                 .collect(Collectors.toMap(Question::getId, Question::getAnswer));
         List<QuestionAnalysis> result = new ArrayList<>();
+        Map<Long, Integer> analysisCountByQuestionId = new HashMap<>();
+        Map<Long, Integer> nextSearchIndexByQuestionId = new HashMap<>();
+        Set<String> seenSentences = new HashSet<>();
 
         if (llmResponse.questionAnalyses() == null) {
             return result;
@@ -273,6 +285,9 @@ public class AnalysisService {
             if (start < 0) {
                 continue;
             }
+            seenSentences.add(dedupeKey);
+            nextSearchIndexByQuestionId.put(question.getId(), start + sentence.length());
+            analysisCountByQuestionId.put(question.getId(), currentCount + 1);
 
             result.add(QuestionAnalysis.create(
                     question,
@@ -280,7 +295,7 @@ public class AnalysisService {
                     sentence,
                     defaultString(item.reason()),
                     normalizeImprovement(item.improvement()),
-                    normalizeStatus(item.status()),
+                    status,
                     start,
                     start + sentence.length()
             ));
@@ -331,11 +346,42 @@ public class AnalysisService {
         return mockApply;
     }
 
-    private int clampScore(Integer score) {
-        if (score == null) {
-            return 0;
+    private void validateRequiredScores(AnalysisLlmResponse llmResponse) {
+        if (llmResponse == null
+                || llmResponse.jobFit() == null
+                || llmResponse.impact() == null
+                || llmResponse.completeness() == null) {
+            throw new GeneralException(
+                    GeneralErrorCode.SERVICE_UNAVAILABLE,
+                    "자소서 분석 AI 응답에 필수 점수 필드가 누락되었습니다."
+            );
         }
-        return Math.max(0, Math.min(100, score));
+    }
+
+    private int validateScore(String fieldName, Integer score) {
+        if (score == null || score < MIN_SCORE || score > MAX_SCORE) {
+            throw new GeneralException(
+                    GeneralErrorCode.SERVICE_UNAVAILABLE,
+                    "자소서 분석 AI 응답의 " + fieldName + " 점수 범위가 올바르지 않습니다."
+            );
+        }
+        return score;
+    }
+
+    private int calculateScore(int jobFit, int impact, int completeness) {
+        return (int) Math.round(
+                jobFit * JOB_FIT_WEIGHT
+                        + impact * IMPACT_WEIGHT
+                        + completeness * COMPLETENESS_WEIGHT
+        );
+    }
+
+    private int findNextSentenceStart(String answer, String sentence, int fromIndex) {
+        int start = answer.indexOf(sentence, Math.max(0, fromIndex));
+        if (start >= 0) {
+            return start;
+        }
+        return answer.indexOf(sentence);
     }
 
     private String normalizeFeedback(String feedback) {
@@ -362,28 +408,18 @@ public class AnalysisService {
     }
 
     private boolean isInstructionLikeImprovement(String improvement) {
-        return improvement.endsWith("하세요.")
-                || improvement.endsWith("해주세요.")
-                || improvement.endsWith("해 주세요.")
-                || improvement.endsWith("하십시오.")
-                || improvement.endsWith("해주십시오.")
-                || improvement.endsWith("해 주십시오.")
-                || improvement.endsWith("해야 합니다.")
-                || improvement.endsWith("필요합니다.")
-                || improvement.matches(".*[을를]\\s+(추가|보완|수정)하\\s*(세요|십시오).*")
-                || improvement.matches(".*명확히\\s+(하\\s*(세요|십시오|야 합니다)|해\\s*(주세요|주십시오|야 합니다)).*")
-                || improvement.matches("^(추가|보완|수정).*(하세요|해주세요|해 주세요|하십시오|해주십시오|해 주십시오)(\\.|$)");
+        return AnalysisImprovementRules.isInstructionLike(improvement);
     }
 
-    private QuestionAnalysisStatus normalizeStatus(String status) {
+    private QuestionAnalysisStatus parseStatus(String status) {
         if (!StringUtils.hasText(status)) {
-            return QuestionAnalysisStatus.MENTIONED;
+            return null;
         }
 
         try {
             return QuestionAnalysisStatus.valueOf(status.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
-            return QuestionAnalysisStatus.MENTIONED;
+            return null;
         }
     }
 
