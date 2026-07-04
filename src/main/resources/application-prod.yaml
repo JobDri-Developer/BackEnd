@@ -152,3 +152,12 @@ async:
     core-pool-size: ${MAIL_ASYNC_CORE_POOL_SIZE:1}
     max-pool-size: ${MAIL_ASYNC_MAX_POOL_SIZE:2}
     queue-capacity: ${MAIL_ASYNC_QUEUE_CAPACITY:50}
+  llm:
+    core-pool-size: ${LLM_ASYNC_CORE_POOL_SIZE:2}
+    max-pool-size: ${LLM_ASYNC_MAX_POOL_SIZE:4}
+    queue-capacity: ${LLM_ASYNC_QUEUE_CAPACITY:20}
+
+llm:
+  concurrency:
+    max-concurrent-requests: ${LLM_MAX_CONCURRENT_REQUESTS:4}
+    acquire-timeout-millis: ${LLM_CONCURRENCY_ACQUIRE_TIMEOUT_MILLIS:3000}

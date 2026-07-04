@@ -2,16 +2,21 @@ package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncSubmitResponse;
+import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
+
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
 public class AnalysisAsyncFacadeService {
+    private static final String ACTIVE_TASK_UNIQUE_CONSTRAINT = "uk_analysis_async_tasks_active_user_mock_apply";
 
     private final AnalysisAsyncTaskService analysisAsyncTaskService;
     private final AnalysisAsyncProcessor analysisAsyncProcessor;
@@ -23,11 +28,7 @@ public class AnalysisAsyncFacadeService {
         analysisService.validateAnalysisRequest(validatedUser, mockApplyId);
 
         return analysisAsyncTaskService.findActiveTask(validatedUser.getId(), mockApplyId)
-                .map(existingTask -> new AnalysisAsyncSubmitResponse(
-                        existingTask.getTaskId(),
-                        existingTask.getStatus().name(),
-                        "이미 진행 중인 자소서 분석 작업이 있습니다."
-                ))
+                .map(this::toInProgressResponse)
                 .orElseGet(() -> createAndProcessTask(validatedUser, mockApplyId));
     }
 
@@ -55,11 +56,18 @@ public class AnalysisAsyncFacadeService {
     }
 
     private AnalysisAsyncSubmitResponse createAndProcessTask(User user, Long mockApplyId) {
-        String taskId = analysisAsyncTaskService.createPendingTask(user.getId(), mockApplyId);
+        PendingTaskResult pendingTaskResult = createPendingTask(user, mockApplyId);
+        if (!pendingTaskResult.created()) {
+            return toInProgressResponse(pendingTaskResult.task());
+        }
+
+        AnalysisAsyncTask task = pendingTaskResult.task();
+        String taskId = task.getTaskId();
         String creditReferenceId = "analysisTaskId=" + taskId;
 
         try {
-            analysisService.chargeAnalysisCredit(user, creditReferenceId);
+            analysisService.reserveAnalysisCredit(user, creditReferenceId);
+            analysisAsyncTaskService.markCreditReserved(taskId, creditReferenceId);
             analysisAsyncProcessor.process(taskId, user.getId(), mockApplyId, creditReferenceId);
             return new AnalysisAsyncSubmitResponse(
                     taskId,
@@ -70,5 +78,51 @@ public class AnalysisAsyncFacadeService {
             analysisAsyncTaskService.deleteTask(taskId);
             throw e;
         }
+    }
+
+    private PendingTaskResult createPendingTask(User user, Long mockApplyId) {
+        try {
+            return new PendingTaskResult(
+                    analysisAsyncTaskService.createPendingTask(user.getId(), mockApplyId),
+                    true
+            );
+        } catch (DataIntegrityViolationException e) {
+            if (!isActiveTaskUniqueConflict(e)) {
+                throw e;
+            }
+            AnalysisAsyncTask existingTask = analysisAsyncTaskService.findActiveTask(user.getId(), mockApplyId)
+                    .orElseThrow(() -> e);
+            return new PendingTaskResult(existingTask, false);
+        }
+    }
+
+    private AnalysisAsyncSubmitResponse toInProgressResponse(AnalysisAsyncTask task) {
+        return new AnalysisAsyncSubmitResponse(
+                task.getTaskId(),
+                task.getStatus().name(),
+                "이미 진행 중인 자소서 분석 작업이 있습니다."
+        );
+    }
+
+    private boolean isActiveTaskUniqueConflict(DataIntegrityViolationException exception) {
+        Throwable cause = exception;
+        while (cause != null) {
+            if (cause instanceof org.hibernate.exception.ConstraintViolationException constraintViolation
+                    && containsConstraintName(constraintViolation.getConstraintName())) {
+                return true;
+            }
+            if (containsConstraintName(cause.getMessage())) {
+                return true;
+            }
+            cause = cause.getCause();
+        }
+        return false;
+    }
+
+    private boolean containsConstraintName(String value) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(ACTIVE_TASK_UNIQUE_CONSTRAINT);
+    }
+
+    private record PendingTaskResult(AnalysisAsyncTask task, boolean created) {
     }
 }
