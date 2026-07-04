@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
+import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -51,6 +52,26 @@ public class AnalysisAsyncTaskService {
     @Transactional
     public void markFailed(String taskId, String errorMessage) {
         getTask(taskId).markFailed(errorMessage);
+    }
+
+    @Transactional
+    public void markCreditReserved(String taskId, String creditReferenceId) {
+        getTask(taskId).markCreditReserved(creditReferenceId);
+    }
+
+    @Transactional
+    public void markCreditConfirmed(String taskId) {
+        getTask(taskId).markCreditConfirmed();
+    }
+
+    @Transactional
+    public void markCreditReleased(String taskId) {
+        getTask(taskId).markCreditReleased();
+    }
+
+    @Transactional(readOnly = true)
+    public CreditStatus getCreditStatus(String taskId) {
+        return getTask(taskId).getCreditStatus();
     }
 
     @Transactional(readOnly = true)

@@ -66,7 +66,8 @@ public class AnalysisAsyncFacadeService {
         String creditReferenceId = "analysisTaskId=" + taskId;
 
         try {
-            analysisService.chargeAnalysisCredit(user, creditReferenceId);
+            analysisService.reserveAnalysisCredit(user, creditReferenceId);
+            analysisAsyncTaskService.markCreditReserved(taskId, creditReferenceId);
             analysisAsyncProcessor.process(taskId, user.getId(), mockApplyId, creditReferenceId);
             return new AnalysisAsyncSubmitResponse(
                     taskId,

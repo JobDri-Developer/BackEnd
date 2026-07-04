@@ -2,6 +2,8 @@ CREATE TABLE IF NOT EXISTS analysis_async_tasks (
     task_id VARCHAR(36) PRIMARY KEY,
     user_id BIGINT NOT NULL,
     mock_apply_id BIGINT NOT NULL,
+    credit_reference_id VARCHAR(100),
+    credit_status VARCHAR(20) NOT NULL DEFAULT 'NONE',
     status VARCHAR(20) NOT NULL,
     message VARCHAR(255) NOT NULL,
     error VARCHAR(2000),

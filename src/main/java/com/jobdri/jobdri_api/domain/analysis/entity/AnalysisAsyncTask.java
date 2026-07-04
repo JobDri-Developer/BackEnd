@@ -30,6 +30,13 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     @Column(name = "mock_apply_id", nullable = false)
     private Long mockApplyId;
 
+    @Column(name = "credit_reference_id", length = 100)
+    private String creditReferenceId;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "credit_status", nullable = false, length = 20)
+    private CreditStatus creditStatus;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private TaskStatus status;
@@ -51,9 +58,23 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         task.taskId = UUID.randomUUID().toString();
         task.userId = userId;
         task.mockApplyId = mockApplyId;
+        task.creditStatus = CreditStatus.NONE;
         task.status = TaskStatus.PENDING;
         task.message = "자소서 분석 비동기 작업이 접수되었습니다.";
         return task;
+    }
+
+    public void markCreditReserved(String creditReferenceId) {
+        this.creditReferenceId = creditReferenceId;
+        this.creditStatus = CreditStatus.RESERVED;
+    }
+
+    public void markCreditConfirmed() {
+        this.creditStatus = CreditStatus.CONFIRMED;
+    }
+
+    public void markCreditReleased() {
+        this.creditStatus = CreditStatus.RELEASED;
     }
 
     public void markRunning() {
@@ -81,5 +102,12 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         RUNNING,
         SUCCEEDED,
         FAILED
+    }
+
+    public enum CreditStatus {
+        NONE,
+        RESERVED,
+        CONFIRMED,
+        RELEASED
     }
 }

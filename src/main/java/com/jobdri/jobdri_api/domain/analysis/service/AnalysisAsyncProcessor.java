@@ -25,11 +25,14 @@ public class AnalysisAsyncProcessor {
             AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApplyId);
             var llmResponse = analysisService.executeAnalysis(payload);
             analysisService.finalizeAnalysis(user, mockApplyId, payload, llmResponse);
+            analysisService.confirmAnalysisCredit(user, creditReferenceId);
+            analysisAsyncTaskService.markCreditConfirmed(taskId);
             analysisAsyncTaskService.markSuccess(taskId);
         } catch (Exception e) {
             log.error("자소서 분석 비동기 처리 실패: taskId={}, mockApplyId={}", taskId, mockApplyId, e);
             try {
-                analysisService.refundAnalysisCredit(userService.getUser(userId), creditReferenceId);
+                analysisService.releaseAnalysisCredit(userService.getUser(userId), creditReferenceId);
+                analysisAsyncTaskService.markCreditReleased(taskId);
             } catch (Exception refundException) {
                 log.error("자소서 분석 실패 환불 처리 실패: taskId={}, userId={}", taskId, userId, refundException);
             }

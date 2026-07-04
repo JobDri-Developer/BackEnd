@@ -52,14 +52,16 @@ public class AnalysisService {
     public AnalysisResponse analyze(User user, Long mockApplyId) {
         validateAnalysisRequest(user, mockApplyId);
         String referenceId = "mockApplyId=" + mockApplyId;
-        creditService.use(user, 1, "자소서 분석 크레딧 차감", referenceId);
+        reserveAnalysisCredit(user, referenceId);
 
         try {
             AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
             AnalysisLlmResponse llmResponse = executeAnalysis(payload);
-            return finalizeAnalysis(user, mockApplyId, payload, llmResponse);
+            AnalysisResponse response = finalizeAnalysis(user, mockApplyId, payload, llmResponse);
+            confirmAnalysisCredit(user, referenceId);
+            return response;
         } catch (RuntimeException e) {
-            creditService.refund(user, 1, "자소서 분석 실패 환불", referenceId);
+            releaseAnalysisCredit(user, referenceId);
             throw e;
         }
     }
@@ -80,13 +82,20 @@ public class AnalysisService {
     }
 
     @Transactional
-    public void chargeAnalysisCredit(User user, String referenceId) {
-        creditService.use(user, 1, "자소서 분석 크레딧 차감", referenceId);
+    public void reserveAnalysisCredit(User user, String referenceId) {
+        creditService.use(user, 1, "자소서 분석 크레딧 예약", referenceId);
     }
 
     @Transactional
-    public void refundAnalysisCredit(User user, String referenceId) {
-        creditService.refund(user, 1, "자소서 분석 실패 환불", referenceId);
+    public void confirmAnalysisCredit(User user, String referenceId) {
+        if (user == null || referenceId == null) {
+            return;
+        }
+    }
+
+    @Transactional
+    public void releaseAnalysisCredit(User user, String referenceId) {
+        creditService.refund(user, 1, "자소서 분석 크레딧 예약 해제", referenceId);
     }
 
     @Transactional(readOnly = true)

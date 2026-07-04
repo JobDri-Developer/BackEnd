@@ -58,7 +58,7 @@ class AnalysisAsyncFacadeServiceTest {
 
         assertThat(response.taskId()).isEqualTo(existingTask.getTaskId());
         assertThat(response.status()).isEqualTo("PENDING");
-        verify(analysisService, never()).chargeAnalysisCredit(eq(user), anyString());
+        verify(analysisService, never()).reserveAnalysisCredit(eq(user), anyString());
         verify(analysisAsyncProcessor, never()).process(eq(existingTask.getTaskId()), eq(1L), eq(10L), anyString());
     }
 
