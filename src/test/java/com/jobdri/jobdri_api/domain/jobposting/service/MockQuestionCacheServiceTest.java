@@ -9,8 +9,6 @@ import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingMockGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockQuestionResponse;
-import com.jobdri.jobdri_api.domain.jobposting.entity.MockQuestionCache;
-import com.jobdri.jobdri_api.domain.jobposting.repository.MockQuestionCacheRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,9 +30,6 @@ import static org.mockito.Mockito.when;
 class MockQuestionCacheServiceTest {
 
     @Mock
-    private MockQuestionCacheRepository mockQuestionCacheRepository;
-
-    @Mock
     private DetailClassificationRepository detailClassificationRepository;
 
     @Mock
@@ -46,16 +41,19 @@ class MockQuestionCacheServiceTest {
     @Mock
     private MockQuestionInflightRegistry mockQuestionInflightRegistry;
 
+    @Mock
+    private MockQuestionCacheTransactionalService mockQuestionCacheTransactionalService;
+
     private MockQuestionCacheService mockQuestionCacheService;
 
     @BeforeEach
     void setUp() {
-        mockQuestionCacheService = new MockQuestionCacheService(
-                mockQuestionCacheRepository,
+        this.mockQuestionCacheService = new MockQuestionCacheService(
                 detailClassificationRepository,
                 companyRepository,
                 jobPostingAiService,
-                mockQuestionInflightRegistry
+                mockQuestionInflightRegistry,
+                mockQuestionCacheTransactionalService
         );
     }
 
@@ -64,18 +62,12 @@ class MockQuestionCacheServiceTest {
     void getRecommendedQuestionsUsesCache() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
         Company company = Company.create("선택 기업", CompanySize.MEDIUM);
-        MockQuestionCache cache = MockQuestionCache.create(
-                company,
-                detailClassification,
-                MockQuestionCacheService.PROMPT_VERSION,
-                List.of("질문 1", "질문 2")
-        );
-        when(mockQuestionCacheRepository.findByCompany_IdAndDetailClassification_IdAndPromptVersion(
+        when(mockQuestionCacheTransactionalService.findQuestions(
                 1L,
                 100L,
                 MockQuestionCacheService.PROMPT_VERSION
         ))
-                .thenReturn(Optional.of(cache));
+                .thenReturn(Optional.of(List.of("질문 1", "질문 2")));
 
         List<String> questions = mockQuestionCacheService.getRecommendedQuestions(
                 new JobPostingMockGenerateRequest(1L, 10L, 100L)
@@ -95,7 +87,7 @@ class MockQuestionCacheServiceTest {
         JobPostingMockGenerateRequest request = new JobPostingMockGenerateRequest(1L, 10L, 100L);
         JobPostingMockQuestionResponse aiResponse = new JobPostingMockQuestionResponse(List.of("질문 A", "질문 B"));
 
-        when(mockQuestionCacheRepository.findByCompany_IdAndDetailClassification_IdAndPromptVersion(
+        when(mockQuestionCacheTransactionalService.findQuestions(
                 1L,
                 100L,
                 MockQuestionCacheService.PROMPT_VERSION
@@ -107,13 +99,22 @@ class MockQuestionCacheServiceTest {
                 org.mockito.ArgumentMatchers.eq(request),
                 org.mockito.ArgumentMatchers.any(Company.class)
         )).thenReturn(aiResponse);
-        when(mockQuestionCacheRepository.save(org.mockito.ArgumentMatchers.any(MockQuestionCache.class)))
-                .thenAnswer(invocation -> invocation.getArgument(0));
+        when(mockQuestionCacheTransactionalService.saveQuestions(
+                org.mockito.ArgumentMatchers.any(Company.class),
+                org.mockito.ArgumentMatchers.eq(detailClassification),
+                org.mockito.ArgumentMatchers.eq(MockQuestionCacheService.PROMPT_VERSION),
+                org.mockito.ArgumentMatchers.eq(List.of("질문 A", "질문 B"))
+        )).thenReturn(List.of("질문 A", "질문 B"));
 
         List<String> questions = mockQuestionCacheService.createAndCacheQuestions(request);
 
         assertThat(questions).containsExactly("질문 A", "질문 B");
-        verify(mockQuestionCacheRepository).save(org.mockito.ArgumentMatchers.any(MockQuestionCache.class));
+        verify(mockQuestionCacheTransactionalService).saveQuestions(
+                org.mockito.ArgumentMatchers.any(Company.class),
+                org.mockito.ArgumentMatchers.eq(detailClassification),
+                org.mockito.ArgumentMatchers.eq(MockQuestionCacheService.PROMPT_VERSION),
+                org.mockito.ArgumentMatchers.eq(List.of("질문 A", "질문 B"))
+        );
     }
 
     @Test
@@ -123,32 +124,70 @@ class MockQuestionCacheServiceTest {
         JobPostingMockGenerateRequest request = new JobPostingMockGenerateRequest(1L, 10L, 100L);
         Company company = Company.create("선택 기업", CompanySize.MEDIUM);
         JobPostingMockQuestionResponse aiResponse = new JobPostingMockQuestionResponse(List.of("질문 A", "질문 B"));
-        MockQuestionCache savedCache = MockQuestionCache.create(
-                company,
-                detailClassification,
-                MockQuestionCacheService.PROMPT_VERSION,
-                List.of("질문 A", "질문 B")
-        );
 
-        when(mockQuestionCacheRepository.findByCompany_IdAndDetailClassification_IdAndPromptVersion(
+        when(mockQuestionCacheTransactionalService.findQuestions(
                 1L,
                 100L,
                 MockQuestionCacheService.PROMPT_VERSION
         ))
                 .thenReturn(Optional.empty())
-                .thenReturn(Optional.of(savedCache));
+                .thenReturn(Optional.of(List.of("질문 A", "질문 B")));
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
         when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
         when(jobPostingAiService.generateMockRecommendedQuestions(
                 org.mockito.ArgumentMatchers.eq(request),
                 org.mockito.ArgumentMatchers.eq(company)
         )).thenReturn(aiResponse);
-        when(mockQuestionCacheRepository.save(org.mockito.ArgumentMatchers.any(MockQuestionCache.class)))
-                .thenThrow(new DataIntegrityViolationException("duplicate cache"));
+        when(mockQuestionCacheTransactionalService.saveQuestions(
+                org.mockito.ArgumentMatchers.eq(company),
+                org.mockito.ArgumentMatchers.eq(detailClassification),
+                org.mockito.ArgumentMatchers.eq(MockQuestionCacheService.PROMPT_VERSION),
+                org.mockito.ArgumentMatchers.eq(List.of("질문 A", "질문 B"))
+        )).thenThrow(new DataIntegrityViolationException("uk_mock_question_cache_company_detail_version"));
 
         List<String> questions = mockQuestionCacheService.createAndCacheQuestions(request);
 
         assertThat(questions).containsExactly("질문 A", "질문 B");
+    }
+
+    @Test
+    @DisplayName("캐시 미스 시 inflight registry를 통해 생성 경로로 진입한다")
+    void getRecommendedQuestionsUsesInflightRegistryOnCacheMiss() {
+        DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
+        JobPostingMockGenerateRequest request = new JobPostingMockGenerateRequest(1L, 10L, 100L);
+        Company company = Company.create("선택 기업", CompanySize.MEDIUM);
+        JobPostingMockQuestionResponse aiResponse = new JobPostingMockQuestionResponse(List.of("질문 A", "질문 B"));
+
+        when(mockQuestionCacheTransactionalService.findQuestions(1L, 100L, MockQuestionCacheService.PROMPT_VERSION))
+                .thenReturn(Optional.empty(), Optional.empty());
+        when(mockQuestionInflightRegistry.execute(
+                org.mockito.ArgumentMatchers.eq("1:100:v1"),
+                org.mockito.ArgumentMatchers.any()
+        )).thenAnswer(invocation -> {
+            MockQuestionInflightRegistry.TaskSupplier supplier = invocation.getArgument(1);
+            try {
+                return supplier.get();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+        when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(companyRepository.findById(1L)).thenReturn(Optional.of(company));
+        when(jobPostingAiService.generateMockRecommendedQuestions(request, company)).thenReturn(aiResponse);
+        when(mockQuestionCacheTransactionalService.saveQuestions(
+                company,
+                detailClassification,
+                MockQuestionCacheService.PROMPT_VERSION,
+                List.of("질문 A", "질문 B")
+        )).thenReturn(List.of("질문 A", "질문 B"));
+
+        List<String> questions = mockQuestionCacheService.getRecommendedQuestions(request);
+
+        assertThat(questions).containsExactly("질문 A", "질문 B");
+        verify(mockQuestionInflightRegistry).execute(
+                org.mockito.ArgumentMatchers.eq("1:100:v1"),
+                org.mockito.ArgumentMatchers.any()
+        );
     }
 
     private DetailClassification createDetailClassification(

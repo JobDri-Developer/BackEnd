@@ -154,8 +154,8 @@ async:
     queue-capacity: ${MAIL_ASYNC_QUEUE_CAPACITY:50}
   llm:
     core-pool-size: ${LLM_ASYNC_CORE_POOL_SIZE:2}
-    max-pool-size: ${LLM_ASYNC_MAX_POOL_SIZE:6}
-    queue-capacity: ${LLM_ASYNC_QUEUE_CAPACITY:40}
+    max-pool-size: ${LLM_ASYNC_MAX_POOL_SIZE:4}
+    queue-capacity: ${LLM_ASYNC_QUEUE_CAPACITY:20}
 
 llm:
   concurrency:

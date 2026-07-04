@@ -76,6 +76,8 @@ public class JobPostingAiService {
             );
             JobPostingGenerateResponse generated = extractStructuredContent(response, JobPostingGenerateResponse.class);
             return normalizeGeneratedResponse(generated, request);
+        } catch (GeneralException e) {
+            throw e;
         } catch (Exception e) {
             log.error("채용 공고 생성 OpenAI API 호출 오류: {}", e.getMessage(), e);
             return createFallbackGeneratedResponse(request);
@@ -111,6 +113,8 @@ public class JobPostingAiService {
                     JobPostingMockGenerateResponse.class
             );
             return normalizeMockGeneratedResponse(generated, company, detailClassification);
+        } catch (GeneralException e) {
+            throw e;
         } catch (Exception e) {
             log.error("모의 공고 생성 OpenAI API 호출 오류: {}", e.getMessage(), e);
             return createFallbackMockGeneratedResponse(company, detailClassification, retrievalContext.jobPostingReferences());
@@ -149,6 +153,8 @@ public class JobPostingAiService {
                     JobPostingMockQuestionResponse.class
             );
             return normalizeMockQuestionResponse(generated, detailClassification);
+        } catch (GeneralException e) {
+            throw e;
         } catch (Exception e) {
             log.error("모의 공고 추천 질문 생성 OpenAI API 호출 오류: {}", e.getMessage(), e);
             return createFallbackMockQuestionResponse(detailClassification);
@@ -174,6 +180,8 @@ public class JobPostingAiService {
             JobPostingClassificationResultResponse classification =
                     extractStructuredContent(response, JobPostingClassificationResultResponse.class);
             return normalizeClassificationResponse(classification, candidates);
+        } catch (GeneralException e) {
+            throw e;
         } catch (Exception e) {
             log.error("채용 공고 소분류 분류 OpenAI API 호출 오류: {}", e.getMessage(), e);
             return fallbackClassification(candidates);
@@ -218,6 +226,8 @@ public class JobPostingAiService {
             );
             JobPostingExtractResponse extracted = extractStructuredContent(response, JobPostingExtractResponse.class);
             return normalizeResponse(extracted, rawText);
+        } catch (GeneralException e) {
+            throw e;
         } catch (Exception e) {
             log.error("채용 공고 추출 OpenAI API 호출 오류: {}", e.getMessage(), e);
             return createFallbackResponse(rawText);

@@ -16,6 +16,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -51,7 +52,7 @@ class AnalysisAsyncFacadeServiceTest {
         when(userService.validateUser(user)).thenReturn(user);
         when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty(), Optional.of(existingTask));
         when(analysisAsyncTaskService.createPendingTask(1L, 10L))
-                .thenThrow(new DataIntegrityViolationException("duplicate active task"));
+                .thenThrow(new DataIntegrityViolationException("uk_analysis_async_tasks_active_user_mock_apply"));
 
         AnalysisAsyncSubmitResponse response = analysisAsyncFacadeService.submit(user, 10L);
 
@@ -59,5 +60,22 @@ class AnalysisAsyncFacadeServiceTest {
         assertThat(response.status()).isEqualTo("PENDING");
         verify(analysisService, never()).chargeAnalysisCredit(eq(user), anyString());
         verify(analysisAsyncProcessor, never()).process(eq(existingTask.getTaskId()), eq(1L), eq(10L), anyString());
+    }
+
+    @Test
+    @DisplayName("task 생성 충돌 후에도 진행 중 작업이 없으면 원래 예외를 전파한다")
+    void submitPropagatesExceptionWhenTaskDisappearsAfterConflict() {
+        User user = User.signup("테스트 사용자", "analysis-async-missing@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+
+        DataIntegrityViolationException exception =
+                new DataIntegrityViolationException("uk_analysis_async_tasks_active_user_mock_apply");
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty(), Optional.empty());
+        when(analysisAsyncTaskService.createPendingTask(1L, 10L)).thenThrow(exception);
+
+        assertThatThrownBy(() -> analysisAsyncFacadeService.submit(user, 10L))
+                .isSameAs(exception);
     }
 }
