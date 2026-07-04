@@ -21,7 +21,7 @@ public class JobPostingAsyncFacadeService {
 
     public JobPostingAsyncSubmitResponse submit(User user, JobPostingIngestRequest request) {
         User validatedUser = userService.validateUser(user);
-        String taskId = jobPostingAsyncTaskService.createPendingTask();
+        String taskId = jobPostingAsyncTaskService.createPendingTask(validatedUser.getId());
         JobPostingIngestCommand command = snapshot(validatedUser, request);
 
         try {
@@ -40,7 +40,12 @@ public class JobPostingAsyncFacadeService {
         }
     }
 
-    public JobPostingAsyncStatusResponse getTask(String taskId) {
+    public JobPostingAsyncStatusResponse getTask(User user, String taskId) {
+        User validatedUser = userService.validateUser(user);
+        return jobPostingAsyncTaskService.getTask(validatedUser, taskId);
+    }
+
+    public JobPostingAsyncStatusResponse getTaskInternal(String taskId) {
         return jobPostingAsyncTaskService.getTask(taskId);
     }
 

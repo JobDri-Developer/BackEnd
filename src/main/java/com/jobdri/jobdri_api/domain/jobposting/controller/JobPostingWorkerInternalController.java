@@ -125,7 +125,7 @@ public class JobPostingWorkerInternalController {
         internalApiKeyValidator.validate(internalApiKey);
         return ApiResponse.onSuccess(
                 "채용 공고 worker 작업 상태 조회에 성공했습니다.",
-                jobPostingAsyncFacadeService.getTask(taskId)
+                jobPostingAsyncFacadeService.getTaskInternal(taskId)
         );
     }
 }

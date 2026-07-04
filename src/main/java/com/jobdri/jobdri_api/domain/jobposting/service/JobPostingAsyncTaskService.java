@@ -5,6 +5,8 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResp
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.TaskStatus;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRepository;
+import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.domain.user.entity.UserRole;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -21,8 +23,8 @@ public class JobPostingAsyncTaskService {
     private final ObjectMapper objectMapper;
 
     @Transactional
-    public String createPendingTask() {
-        JobPostingAsyncTask task = jobPostingAsyncTaskRepository.save(JobPostingAsyncTask.pending());
+    public String createPendingTask(Long userId) {
+        JobPostingAsyncTask task = jobPostingAsyncTaskRepository.save(JobPostingAsyncTask.pending(userId));
         return task.getTaskId();
     }
 
@@ -68,6 +70,24 @@ public class JobPostingAsyncTaskService {
     @Transactional(readOnly = true)
     public JobPostingAsyncStatusResponse getTask(String taskId) {
         JobPostingAsyncTask taskState = getTaskState(taskId);
+        return toStatusResponse(taskState);
+    }
+
+    @Transactional(readOnly = true)
+    public JobPostingAsyncStatusResponse getTask(User user, String taskId) {
+        if (user.getRole() == UserRole.ADMIN) {
+            return getTask(taskId);
+        }
+
+        JobPostingAsyncTask taskState = jobPostingAsyncTaskRepository.findByTaskIdAndUserId(taskId, user.getId())
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.JOB_POSTING_ASYNC_TASK_NOT_FOUND,
+                        "해당 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
+                ));
+        return toStatusResponse(taskState);
+    }
+
+    private JobPostingAsyncStatusResponse toStatusResponse(JobPostingAsyncTask taskState) {
         return JobPostingAsyncStatusResponse.builder()
                 .taskId(taskState.getTaskId())
                 .status(taskState.getStatus().name())

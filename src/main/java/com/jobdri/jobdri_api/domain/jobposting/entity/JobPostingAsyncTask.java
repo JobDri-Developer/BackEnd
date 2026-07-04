@@ -25,6 +25,9 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
     @Column(name = "task_id", nullable = false, updatable = false, length = 36)
     private String taskId;
 
+    @Column(name = "user_id")
+    private Long userId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private TaskStatus status;
@@ -45,9 +48,10 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
     @Column(name = "result_payload")
     private String resultPayload;
 
-    public static JobPostingAsyncTask pending() {
+    public static JobPostingAsyncTask pending(Long userId) {
         JobPostingAsyncTask task = new JobPostingAsyncTask();
         task.taskId = UUID.randomUUID().toString();
+        task.userId = userId;
         task.status = TaskStatus.PENDING;
         task.message = "채용 공고 비동기 작업이 접수되었습니다.";
         return task;
