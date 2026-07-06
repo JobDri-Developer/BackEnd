@@ -161,7 +161,7 @@ public class AnalysisAiClient {
             - 반드시 한국어 평서문으로 작성한다.
             - "추가하세요", "보완하세요", "수정해주세요", "필요합니다" 같은 지시문을 사용하지 않는다.
             - 사용자가 언급하지 않은 경험, 기술, 도구명, 인원수, 금액, 성과 수치를 임의로 만들지 않는다.
-            - 수치가 필요하지만 원문에 없다면 N건, X%, 약 N시간 같은 빈칸 표현을 사용한다.
+            - 수치가 필요하지만 원문에 없다면 N건, X%%, 약 N시간 같은 빈칸 표현을 사용한다.
             - 원래 경험과 맥락을 최대한 유지한다.
             - 가능하면 행동, 역할, 결과가 드러나도록 개선한다.
             - 너무 길거나 과도하게 화려한 문장으로 만들지 않는다.
@@ -278,7 +278,7 @@ public class AnalysisAiClient {
                 - 원문에 없는 경험, 기술, 도구명, 인원수, 금액, 성과 수치를 만들지 않았는지 확인한다.
                 - fabricated를 단순 근거 부족에 사용하지 않았는지 확인한다.
                 - jobFit, impact, completeness는 0~100 정수로 출력한다.
-                - 총점 score는 서버가 jobFit 50%, impact 30%, completeness 20%로 계산하므로 출력하지 않는다.
+                - 총점 score는 서버가 jobFit 50%%, impact 30%%, completeness 20%%로 계산하므로 출력하지 않는다.
                 """.formatted(
                 OUTPUT_SCHEMA,
                 EVALUATION_CRITERIA,
