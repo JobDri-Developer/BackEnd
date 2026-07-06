@@ -18,8 +18,13 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.TestPropertySource;
 
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.Socket;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -33,6 +38,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         "spring.rabbitmq.template.mandatory=true"
 })
 class RabbitPublishSupportIntegrationTest {
+    private static final String RABBITMQ_HOST = "localhost";
+    private static final int RABBITMQ_PORT = 5672;
+    private static final int RABBITMQ_CONNECT_TIMEOUT_MILLIS = 500;
 
     @Autowired
     private RabbitPublishSupport rabbitPublishSupport;
@@ -54,7 +62,23 @@ class RabbitPublishSupportIntegrationTest {
 
     @BeforeEach
     void purgeQueue() {
+        assumeTrue(
+                isRabbitMqAvailable(),
+                "RabbitMQ is not available on localhost:5672. Skipping RabbitMQ integration test."
+        );
         rabbitAdmin.purgeQueue(queueName, true);
+    }
+
+    private boolean isRabbitMqAvailable() {
+        try (Socket socket = new Socket()) {
+            socket.connect(
+                    new InetSocketAddress(RABBITMQ_HOST, RABBITMQ_PORT),
+                    RABBITMQ_CONNECT_TIMEOUT_MILLIS
+            );
+            return true;
+        } catch (IOException e) {
+            return false;
+        }
     }
 
     @Test
