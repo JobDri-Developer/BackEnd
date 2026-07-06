@@ -7,8 +7,25 @@ public record AnalysisLlmResponse(
         Integer impact,
         Integer completeness,
         String feedback,
+        List<MissingKeywordItem> missingKeywords,
         List<QuestionAnalysisItem> questionAnalyses
 ) {
+    public AnalysisLlmResponse(
+            Integer jobFit,
+            Integer impact,
+            Integer completeness,
+            String feedback,
+            List<QuestionAnalysisItem> questionAnalyses
+    ) {
+        this(jobFit, impact, completeness, feedback, List.of(), questionAnalyses);
+    }
+
+    public record MissingKeywordItem(
+            String keyword,
+            String source
+    ) {
+    }
+
     public record QuestionAnalysisItem(
             Long questionId,
             String sentence,

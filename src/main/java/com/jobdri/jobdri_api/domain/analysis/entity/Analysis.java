@@ -40,6 +40,10 @@ public class Analysis extends BaseEntity {
     private String feedback;
 
     @Builder.Default
+    @Column(name = "missing_keywords", nullable = false, columnDefinition = "TEXT DEFAULT '[]'")
+    private String missingKeywordsJson = "[]";
+
+    @Builder.Default
     @OneToMany(mappedBy = "analysis", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<QuestionAnalysis> questionAnalyses = new ArrayList<>();
 
@@ -51,6 +55,18 @@ public class Analysis extends BaseEntity {
             int completeness,
             String feedback
     ) {
+        return create(mockApply, score, jobFit, impact, completeness, feedback, "[]");
+    }
+
+    public static Analysis create(
+            MockApply mockApply,
+            int score,
+            int jobFit,
+            int impact,
+            int completeness,
+            String feedback,
+            String missingKeywordsJson
+    ) {
         return Analysis.builder()
                 .mockApply(mockApply)
                 .score(score)
@@ -58,6 +74,7 @@ public class Analysis extends BaseEntity {
                 .impact(impact)
                 .completeness(completeness)
                 .feedback(feedback)
+                .missingKeywordsJson(missingKeywordsJson == null ? "[]" : missingKeywordsJson)
                 .build();
     }
 }

@@ -33,6 +33,12 @@ public class AnalysisAiClient {
               "impact": 55,
               "completeness": 67,
               "feedback": "한 줄 피드백",
+              "missingKeywords": [
+                {
+                  "keyword": "SQL 활용 경험",
+                  "source": "qualification"
+                }
+              ],
               "questionAnalyses": [
                 {
                   "questionId": 1,
@@ -52,7 +58,8 @@ public class AnalysisAiClient {
             4. jobFit, impact, completeness를 각각 평가한다.
             5. 감점 금지 조건과 status 오남용 여부를 확인한다.
             6. 보완이 필요한 원문 문장을 문항당 최대 3개만 추출한다.
-            7. 지정된 JSON만 반환한다.
+            7. JD에는 있지만 자소서에 충분히 드러나지 않은 역량을 missingKeywords로 최대 3개 추출한다.
+            8. 지정된 JSON만 반환한다.
 
             [jobFit 평가 기준]
             JD가 요구하는 역량, 경험, 기술을 자기소개서가 얼마나 증명하는지 평가한다.
@@ -127,6 +134,18 @@ public class AnalysisAiClient {
             - 동일하거나 거의 동일한 문장을 중복 반환하지 않는다.
             - start/end index는 출력하지 않는다. 서버가 Java String character index 기준으로 계산한다.
             - missing은 원문에 해당 문장이 없을 수 있으므로 sentence를 임의로 만들지 않는다.
+            - missing은 questionAnalyses에 억지로 넣지 않는다.
+
+            [missingKeywords 규칙]
+            - JD에는 있지만 자소서에 충분히 드러나지 않은 요건이나 역량을 추출한다.
+            - questionAnalyses와 분리해서 missingKeywords에만 넣는다.
+            - 최대 3개만 반환한다.
+            - 누락 키워드가 없으면 null이나 필드 생략이 아니라 빈 배열 []을 반환한다.
+            - 우선순위는 자격요건(qualification) > 우대사항(preference) > 주요 업무(mainTask)다.
+            - keyword는 단순 단어보다 짧은 역량 문구 형태로 작성한다.
+            - 가능하면 JD에 실제 들어간 표현을 유지한다.
+            - 중복되거나 유사한 keyword는 하나로 묶고, 대표 문구는 자격요건 표현을 우선한다.
+            - source는 qualification, preference, mainTask 중 하나만 사용한다.
 
             [reason 작성 규칙]
             - 사용자가 왜 해당 문장이 보완 대상인지 이해할 수 있게 작성한다.
@@ -243,10 +262,14 @@ public class AnalysisAiClient {
                 - questionAnalyses의 questionId는 입력된 questionId 중 하나만 사용한다.
                 - questionAnalyses의 status는 proven, mentioned, missing, fabricated 중 하나만 사용한다.
                 - sentence는 answer에 포함된 정확한 substring만 사용한다.
+                - missing 상태를 questionAnalyses에 넣기 위해 원문에 없는 sentence를 만들지 않는다.
+                - missingKeywords는 최대 3개이며, 없으면 []로 출력한다.
+                - missingKeywords의 source는 qualification, preference, mainTask 중 하나만 사용한다.
                 - improvement가 지시문이 아닌 완성된 한국어 평서문인지 확인한다.
                 - 원문에 없는 경험, 기술, 도구명, 인원수, 금액, 성과 수치를 만들지 않았는지 확인한다.
                 - fabricated를 단순 근거 부족에 사용하지 않았는지 확인한다.
                 - jobFit, impact, completeness는 0~100 정수로 출력한다.
+                - 총점 score는 서버가 jobFit 50%, impact 30%, completeness 20%로 계산하므로 출력하지 않는다.
                 """.formatted(
                 OUTPUT_SCHEMA,
                 EVALUATION_CRITERIA,

@@ -1,8 +1,13 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisQuestionResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
@@ -22,6 +27,7 @@ import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -38,15 +44,20 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class AnalysisService {
     private static final int MIN_SCORE = 0;
     private static final int MAX_SCORE = 100;
     private static final int MAX_ANALYSES_PER_QUESTION = 3;
-    private static final double JOB_FIT_WEIGHT = 0.40;
-    private static final double IMPACT_WEIGHT = 0.35;
-    private static final double COMPLETENESS_WEIGHT = 0.25;
+    private static final int MAX_MISSING_KEYWORDS = 3;
+    private static final int MAX_MISSING_KEYWORD_LENGTH = 60;
+    private static final double JOB_FIT_WEIGHT = 0.50;
+    private static final double IMPACT_WEIGHT = 0.30;
+    private static final double COMPLETENESS_WEIGHT = 0.20;
+    private static final TypeReference<List<MissingKeywordResponse>> MISSING_KEYWORDS_TYPE = new TypeReference<>() {
+    };
 
     private final MockApplyRepository mockApplyRepository;
     private final QuestionRepository questionRepository;
@@ -55,6 +66,7 @@ public class AnalysisService {
     private final JobPostingService jobPostingService;
     private final AnalysisAiClient analysisAiClient;
     private final CreditService creditService;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     @AuditLogEvent(action = "ANALYSIS_RUN", targetType = "MOCK_APPLY", targetId = "#arg1")
@@ -82,6 +94,7 @@ public class AnalysisService {
             int impact = validateScore("impact", llmResponse.impact());
             int completeness = validateScore("completeness", llmResponse.completeness());
             int score = calculateScore(jobFit, impact, completeness);
+            List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(llmResponse);
             replaceExistingAnalysis(mockApply);
 
             Analysis analysis = analysisRepository.save(Analysis.create(
@@ -90,14 +103,15 @@ public class AnalysisService {
                     jobFit,
                     impact,
                     completeness,
-                    normalizeFeedback(llmResponse.feedback())
+                    normalizeFeedback(llmResponse.feedback()),
+                    serializeMissingKeywords(missingKeywords)
             ));
 
             List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(analysis, answeredQuestions, llmResponse);
             questionAnalysisRepository.saveAll(questionAnalyses);
             mockApply.updateStatus(MockApplyStatus.COMPLETED);
 
-            return toResponse(mockApply, analysis, questions, questionAnalyses);
+            return toResponse(mockApply, analysis, questions, questionAnalyses, readMissingKeywords(analysis));
         } catch (RuntimeException e) {
             creditService.refund(user, 1, "자소서 분석 실패 환불", referenceId);
             throw e;
@@ -115,7 +129,13 @@ public class AnalysisService {
         List<QuestionAnalysis> questionAnalyses =
                 questionAnalysisRepository.findAllByAnalysisIdOrderByQuestionIdAscIdAsc(analysis.getId());
 
-        return toResponse(mockApply, analysis, questions, questionAnalyses);
+        return toResponse(
+                mockApply,
+                analysis,
+                questions,
+                questionAnalyses,
+                readMissingKeywords(analysis)
+        );
     }
 
     public AnalysisResponse getAnalysisByJobPostingSequence(User user, Long jobPostingId, int sequence) {
@@ -130,7 +150,13 @@ public class AnalysisService {
         List<QuestionAnalysis> questionAnalyses =
                 questionAnalysisRepository.findAllByAnalysisIdOrderByQuestionIdAscIdAsc(analysis.getId());
 
-        return toResponse(mockApply, analysis, questions, questionAnalyses);
+        return toResponse(
+                mockApply,
+                analysis,
+                questions,
+                questionAnalyses,
+                readMissingKeywords(analysis)
+        );
     }
 
     private MockApply resolveMockApplyBySequence(JobPosting jobPosting, int sequence) {
@@ -254,7 +280,8 @@ public class AnalysisService {
             MockApply mockApply,
             Analysis analysis,
             List<Question> questions,
-            List<QuestionAnalysis> questionAnalyses
+            List<QuestionAnalysis> questionAnalyses,
+            List<MissingKeywordResponse> missingKeywords
     ) {
         Map<Long, List<QuestionAnalysisResponse>> analysesByQuestionId = questionAnalyses.stream()
                 .collect(Collectors.groupingBy(
@@ -274,8 +301,112 @@ public class AnalysisService {
                 analysis,
                 mockApply.getStatus(),
                 mockApplyRepository.calculateSequence(mockApply),
+                missingKeywords,
                 questionResponses
         );
+    }
+
+    private List<MissingKeywordResponse> buildMissingKeywords(AnalysisLlmResponse llmResponse) {
+        if (llmResponse == null || llmResponse.missingKeywords() == null) {
+            return List.of();
+        }
+
+        List<MissingKeywordResponse> result = new ArrayList<>();
+        Set<String> seenKeywords = new HashSet<>();
+
+        for (AnalysisLlmResponse.MissingKeywordItem item : llmResponse.missingKeywords()) {
+            if (item == null || !StringUtils.hasText(item.keyword())) {
+                continue;
+            }
+
+            String keyword = item.keyword().trim();
+            if (keyword.length() > MAX_MISSING_KEYWORD_LENGTH) {
+                continue;
+            }
+
+            Optional<MissingKeywordSource> source = MissingKeywordSource.from(item.source());
+            if (source.isEmpty()) {
+                continue;
+            }
+
+            String dedupeKey = normalizeKeyword(keyword);
+            if (!seenKeywords.add(dedupeKey)) {
+                continue;
+            }
+
+            result.add(new MissingKeywordResponse(keyword, source.get()));
+            if (result.size() >= MAX_MISSING_KEYWORDS) {
+                break;
+            }
+        }
+
+        return result;
+    }
+
+    private String normalizeKeyword(String keyword) {
+        return keyword == null ? "" : keyword.replaceAll("\\s+", "").toLowerCase();
+    }
+
+    private String serializeMissingKeywords(List<MissingKeywordResponse> missingKeywords) {
+        try {
+            return objectMapper.writeValueAsString(missingKeywords == null ? List.of() : missingKeywords);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize missingKeywords. Fallback to empty array.", e);
+            return "[]";
+        }
+    }
+
+    private List<MissingKeywordResponse> readMissingKeywords(Analysis analysis) {
+        if (analysis == null || !StringUtils.hasText(analysis.getMissingKeywordsJson())) {
+            return List.of();
+        }
+
+        try {
+            List<MissingKeywordResponse> missingKeywords = objectMapper.readValue(
+                    analysis.getMissingKeywordsJson(),
+                    MISSING_KEYWORDS_TYPE
+            );
+            return sanitizeStoredMissingKeywords(missingKeywords);
+        } catch (Exception e) {
+            log.warn(
+                    "Failed to deserialize missingKeywords. analysisId={}, fallback to empty array.",
+                    analysis.getId(),
+                    e
+            );
+            return List.of();
+        }
+    }
+
+    private List<MissingKeywordResponse> sanitizeStoredMissingKeywords(List<MissingKeywordResponse> missingKeywords) {
+        if (missingKeywords == null) {
+            return List.of();
+        }
+
+        List<MissingKeywordResponse> result = new ArrayList<>();
+        Set<String> seenKeywords = new HashSet<>();
+
+        for (MissingKeywordResponse item : missingKeywords) {
+            if (item == null || !StringUtils.hasText(item.keyword()) || item.source() == null) {
+                continue;
+            }
+
+            String keyword = item.keyword().trim();
+            if (keyword.length() > MAX_MISSING_KEYWORD_LENGTH) {
+                continue;
+            }
+
+            String dedupeKey = normalizeKeyword(keyword);
+            if (!seenKeywords.add(dedupeKey)) {
+                continue;
+            }
+
+            result.add(new MissingKeywordResponse(keyword, item.source()));
+            if (result.size() >= MAX_MISSING_KEYWORDS) {
+                break;
+            }
+        }
+
+        return result;
     }
 
     private MockApply getOwnedMockApply(User user, Long mockApplyId) {
