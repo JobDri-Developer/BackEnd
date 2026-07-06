@@ -71,6 +71,56 @@ public class AnalysisService {
     @Transactional
     @AuditLogEvent(action = "ANALYSIS_RUN", targetType = "MOCK_APPLY", targetId = "#arg1")
     public AnalysisResponse analyze(User user, Long mockApplyId) {
+        validateAnalysisRequest(user, mockApplyId);
+        String referenceId = "mockApplyId=" + mockApplyId;
+        reserveAnalysisCredit(user, referenceId);
+
+        try {
+            AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
+            AnalysisLlmResponse llmResponse = executeAnalysis(payload);
+            AnalysisResponse response = finalizeAnalysis(user, mockApplyId, payload, llmResponse);
+            confirmAnalysisCredit(user, referenceId);
+            return response;
+        } catch (RuntimeException e) {
+            releaseAnalysisCredit(user, referenceId);
+            throw e;
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public void validateAnalysisRequest(User user, Long mockApplyId) {
+        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
+        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        boolean hasAnsweredQuestion = questions.stream()
+                .anyMatch(question -> StringUtils.hasText(question.getAnswer()));
+
+        if (!hasAnsweredQuestion) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "분석할 자소서 답변이 1개 이상 필요합니다."
+            );
+        }
+    }
+
+    @Transactional
+    public void reserveAnalysisCredit(User user, String referenceId) {
+        creditService.use(user, 1, "자소서 분석 크레딧 예약", referenceId);
+    }
+
+    @Transactional
+    public void confirmAnalysisCredit(User user, String referenceId) {
+        if (user == null || referenceId == null) {
+            return;
+        }
+    }
+
+    @Transactional
+    public void releaseAnalysisCredit(User user, String referenceId) {
+        creditService.refund(user, 1, "자소서 분석 크레딧 예약 해제", referenceId);
+    }
+
+    @Transactional(readOnly = true)
+    public AnalysisExecutionPayload prepareAnalysisExecution(User user, Long mockApplyId) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         List<Question> answeredQuestions = questions.stream()
@@ -84,38 +134,59 @@ public class AnalysisService {
             );
         }
 
-        String referenceId = "mockApplyId=" + mockApply.getId();
-        creditService.use(user, 1, "자소서 분석 크레딧 차감", referenceId);
+        // Initialize hierarchy before leaving the read transaction so detached payload can be used safely.
+        mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName();
+        mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getClassification().getBigName();
 
-        try {
-            AnalysisLlmResponse llmResponse = analysisAiClient.analyze(mockApply.getJobPosting(), answeredQuestions);
-            validateRequiredScores(llmResponse);
-            int jobFit = validateScore("jobFit", llmResponse.jobFit());
-            int impact = validateScore("impact", llmResponse.impact());
-            int completeness = validateScore("completeness", llmResponse.completeness());
-            int score = calculateScore(jobFit, impact, completeness);
-            List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(llmResponse);
-            replaceExistingAnalysis(mockApply);
+        return new AnalysisExecutionPayload(
+                user.getId(),
+                mockApplyId,
+                mockApply.getJobPosting(),
+                List.copyOf(questions),
+                List.copyOf(answeredQuestions)
+        );
+    }
 
-            Analysis analysis = analysisRepository.save(Analysis.create(
-                    mockApply,
-                    score,
-                    jobFit,
-                    impact,
-                    completeness,
-                    normalizeFeedback(llmResponse.feedback()),
-                    serializeMissingKeywords(missingKeywords)
-            ));
+    public AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
+        return analysisAiClient.analyze(payload.jobPosting(), payload.answeredQuestions());
+    }
 
-            List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(analysis, answeredQuestions, llmResponse);
-            questionAnalysisRepository.saveAll(questionAnalyses);
-            mockApply.updateStatus(MockApplyStatus.COMPLETED);
+    @Transactional
+    public AnalysisResponse finalizeAnalysis(
+            User user,
+            Long mockApplyId,
+            AnalysisExecutionPayload payload,
+            AnalysisLlmResponse llmResponse
+    ) {
+        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
+        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        validateRequiredScores(llmResponse);
+        int jobFit = validateScore("jobFit", llmResponse.jobFit());
+        int impact = validateScore("impact", llmResponse.impact());
+        int completeness = validateScore("completeness", llmResponse.completeness());
+        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(llmResponse);
+        replaceExistingAnalysis(mockApply);
 
-            return toResponse(mockApply, analysis, questions, questionAnalyses, readMissingKeywords(analysis));
-        } catch (RuntimeException e) {
-            creditService.refund(user, 1, "자소서 분석 실패 환불", referenceId);
-            throw e;
-        }
+        Analysis analysis = analysisRepository.save(Analysis.create(
+                mockApply,
+                calculateScore(jobFit, impact, completeness),
+                jobFit,
+                impact,
+                completeness,
+                normalizeFeedback(llmResponse.feedback()),
+                serializeMissingKeywords(missingKeywords)
+        ));
+
+        List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(
+                analysis,
+                questions,
+                payload.answeredQuestions(),
+                llmResponse
+        );
+        questionAnalysisRepository.saveAll(questionAnalyses);
+        mockApply.updateStatus(MockApplyStatus.COMPLETED);
+
+        return toResponse(mockApply, analysis, questions, questionAnalyses, readMissingKeywords(analysis));
     }
 
     public AnalysisResponse getAnalysis(User user, Long mockApplyId) {
@@ -209,10 +280,13 @@ public class AnalysisService {
     private List<QuestionAnalysis> buildQuestionAnalyses(
             Analysis analysis,
             List<Question> questions,
+            List<Question> answeredQuestions,
             AnalysisLlmResponse llmResponse
     ) {
         Map<Long, Question> questionMap = questions.stream()
                 .collect(Collectors.toMap(Question::getId, Function.identity()));
+        Map<Long, String> answerByQuestionId = answeredQuestions.stream()
+                .collect(Collectors.toMap(Question::getId, Question::getAnswer));
         List<QuestionAnalysis> result = new ArrayList<>();
         Map<Long, Integer> analysisCountByQuestionId = new HashMap<>();
         Map<Long, Integer> nextSearchIndexByQuestionId = new HashMap<>();
@@ -232,32 +306,31 @@ public class AnalysisService {
                 continue;
             }
 
-            String answer = question.getAnswer();
-            String sentence = item.sentence().trim();
-            if (!StringUtils.hasText(answer) || !StringUtils.hasText(sentence)) {
+            String answer = answerByQuestionId.get(item.questionId());
+            if (!StringUtils.hasText(answer)) {
                 continue;
             }
-
             QuestionAnalysisStatus status = parseStatus(item.status());
             if (status == null || status == QuestionAnalysisStatus.MISSING) {
                 continue;
             }
-
-            String dedupeKey = question.getId() + "\n" + sentence;
-            if (seenSentences.contains(dedupeKey)) {
-                continue;
-            }
-
             int currentCount = analysisCountByQuestionId.getOrDefault(question.getId(), 0);
             if (currentCount >= MAX_ANALYSES_PER_QUESTION) {
                 continue;
             }
-
-            int start = findNextSentenceStart(answer, sentence, nextSearchIndexByQuestionId.getOrDefault(question.getId(), 0));
+            String sentence = item.sentence();
+            String dedupeKey = question.getId() + ":" + sentence.trim();
+            if (!seenSentences.add(dedupeKey)) {
+                continue;
+            }
+            int start = findNextSentenceStart(
+                    answer,
+                    sentence,
+                    nextSearchIndexByQuestionId.getOrDefault(question.getId(), 0)
+            );
             if (start < 0) {
                 continue;
             }
-            seenSentences.add(dedupeKey);
             nextSearchIndexByQuestionId.put(question.getId(), start + sentence.length());
             analysisCountByQuestionId.put(question.getId(), currentCount + 1);
 

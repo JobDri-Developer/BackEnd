@@ -1,11 +1,15 @@
 package com.jobdri.jobdri_api.domain.jobposting.dto.response;
 
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Getter
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class JobPostingResponse {
 
     private Long jobPostingId;

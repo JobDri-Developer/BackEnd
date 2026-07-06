@@ -7,6 +7,7 @@ import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.Retrie
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedQuestionReference;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -169,9 +170,14 @@ public class AnalysisAiClient {
 
     private final OpenAIClient openAIClient;
     private final CorpusRetrievalService corpusRetrievalService;
+    private final LlmConcurrencyLimiter llmConcurrencyLimiter;
 
     @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}")
     private String analysisModel;
+
+    public AnalysisLlmResponse analyze(AnalysisExecutionPayload payload) {
+        return analyze(payload.jobPosting(), payload.answeredQuestions());
+    }
 
     public AnalysisLlmResponse analyze(JobPosting jobPosting, List<Question> questions) {
         RetrievalContext referenceContext = emptyContext();
@@ -189,7 +195,10 @@ public class AnalysisAiClient {
                 .build();
 
         try {
-            StructuredResponse<AnalysisLlmResponse> response = openAIClient.responses().create(params);
+            StructuredResponse<AnalysisLlmResponse> response = llmConcurrencyLimiter.execute(
+                    "cover-letter-analysis",
+                    () -> openAIClient.responses().create(params)
+            );
             return extractStructuredContent(response);
         } catch (GeneralException e) {
             throw e;

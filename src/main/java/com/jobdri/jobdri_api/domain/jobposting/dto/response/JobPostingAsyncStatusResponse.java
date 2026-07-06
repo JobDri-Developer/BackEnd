@@ -15,7 +15,14 @@ public class JobPostingAsyncStatusResponse {
     private String status;
     private String message;
     private String error;
+    private String failureReason;
+    private String workerId;
+    private Integer retryCount;
+    private Integer maxRetryCount;
+    private Long queueLatencyMillis;
     private LocalDateTime createdAt;
+    private LocalDateTime submittedAt;
+    private LocalDateTime lastAttemptAt;
     private LocalDateTime startedAt;
     private LocalDateTime completedAt;
     private JobPostingIngestResponse result;

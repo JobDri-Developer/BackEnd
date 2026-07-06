@@ -15,6 +15,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateRe
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockQuestionResponse;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingImageStorageService;
+import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -31,6 +32,11 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -52,6 +58,9 @@ class JobPostingAiServiceTest {
     @Mock
     private JobPostingImageStorageService jobPostingImageStorageService;
 
+    @Mock
+    private LlmConcurrencyLimiter llmConcurrencyLimiter;
+
     private JobPostingAiService jobPostingAiService;
 
     @BeforeEach
@@ -60,11 +69,17 @@ class JobPostingAiServiceTest {
                 openAIClient,
                 detailClassificationRepository,
                 corpusRetrievalService,
-                jobPostingImageStorageService
+                jobPostingImageStorageService,
+                llmConcurrencyLimiter
         );
         ReflectionTestUtils.setField(TEST_COMPANY, "id", 1L);
         ReflectionTestUtils.setField(TEST_USER, "id", 1L);
         ReflectionTestUtils.setField(jobPostingAiService, "extractionModel", "gpt-4o-mini");
+        lenient().when(llmConcurrencyLimiter.execute(anyString(), any()))
+                .thenAnswer(invocation -> {
+                    LlmConcurrencyLimiter.CheckedSupplier<?> supplier = invocation.getArgument(1);
+                    return supplier.get();
+                });
     }
 
     @Test
@@ -186,6 +201,7 @@ class JobPostingAiServiceTest {
 
         assertThat(response.recommendedQuestions()).hasSize(5);
         assertThat(response.recommendedQuestions().getFirst()).contains("Java/Spring");
+        verify(llmConcurrencyLimiter).execute(eq("mock-question-generate"), any());
     }
 
     @Test
@@ -246,6 +262,26 @@ class JobPostingAiServiceTest {
 
         assertThat(response.companyName()).isEqualTo("테스트 기업");
         assertThat(response.jobTitle()).isEqualTo("백엔드 개발자");
+        verify(llmConcurrencyLimiter).execute(eq("job-posting-generate"), any());
+    }
+
+    @Test
+    @DisplayName("limiter 예외는 fallback으로 삼키지 않고 전파한다")
+    void generateMockRecommendedQuestionsPropagatesLimiterFailure() {
+        DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
+        when(detailClassificationRepository.findWithHierarchyById(100L)).thenReturn(Optional.of(detailClassification));
+        when(corpusRetrievalService.retrieveForMockGeneration(TEST_COMPANY, detailClassification))
+                .thenReturn(new RetrievalContext(List.of(), List.of()));
+        when(llmConcurrencyLimiter.execute(eq("mock-question-generate"), any()))
+                .thenThrow(new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "busy"));
+
+        assertThatThrownBy(() -> jobPostingAiService.generateMockRecommendedQuestions(
+                new JobPostingMockGenerateRequest(1L, 10L, 100L),
+                TEST_COMPANY
+        ))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.SERVICE_UNAVAILABLE);
     }
 
     private DetailClassification createDetailClassification(

@@ -1,0 +1,119 @@
+package com.jobdri.jobdri_api.domain.analysis.controller;
+
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerContextRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerContextResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerFailureRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerRetryRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerRunningRequest;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAsyncTaskService;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisWorkerBridgeService;
+import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
+import com.jobdri.jobdri_api.global.security.InternalApiKeyValidator;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequiredArgsConstructor
+@RequestMapping("/api/internal/worker/analysis")
+public class AnalysisWorkerInternalController {
+
+    private static final String INTERNAL_API_KEY_HEADER = "X-Internal-Api-Key";
+
+    private final InternalApiKeyValidator internalApiKeyValidator;
+    private final AnalysisWorkerBridgeService analysisWorkerBridgeService;
+    private final AnalysisAsyncTaskService analysisAsyncTaskService;
+
+    @PostMapping("/tasks/{taskId}/running")
+    public ApiResponse<Void> markRunning(
+            @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
+            @PathVariable String taskId,
+            @Valid @RequestBody AnalysisWorkerRunningRequest request
+    ) {
+        internalApiKeyValidator.validate(internalApiKey);
+        analysisWorkerBridgeService.markRunning(taskId, request.workerId(), request.retryCount(), request.submittedAt());
+        return ApiResponse.onSuccess("자소서 분석 worker 작업 시작 상태를 반영했습니다.");
+    }
+
+    @PostMapping("/tasks/{taskId}/retry")
+    public ApiResponse<Void> markRetry(
+            @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
+            @PathVariable String taskId,
+            @Valid @RequestBody AnalysisWorkerRetryRequest request
+    ) {
+        internalApiKeyValidator.validate(internalApiKey);
+        analysisWorkerBridgeService.markRetry(
+                taskId,
+                request.failureReason(),
+                request.errorMessage(),
+                request.retryCount(),
+                request.workerId(),
+                request.queueLatencyMillis()
+        );
+        return ApiResponse.onSuccess("자소서 분석 worker 작업 재시도 상태를 반영했습니다.");
+    }
+
+    @PostMapping("/tasks/{taskId}/failed")
+    public ApiResponse<Void> failTask(
+            @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
+            @PathVariable String taskId,
+            @Valid @RequestBody AnalysisWorkerFailureRequest request
+    ) {
+        internalApiKeyValidator.validate(internalApiKey);
+        analysisWorkerBridgeService.failTask(
+                taskId,
+                request.failureReason(),
+                request.errorMessage(),
+                request.retryCount(),
+                request.workerId(),
+                request.queueLatencyMillis()
+        );
+        return ApiResponse.onSuccess("자소서 분석 worker 작업 실패 상태를 반영했습니다.");
+    }
+
+    @PostMapping("/context")
+    public ApiResponse<AnalysisWorkerContextResponse> getContext(
+            @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
+            @Valid @RequestBody AnalysisWorkerContextRequest request
+    ) {
+        internalApiKeyValidator.validate(internalApiKey);
+        return ApiResponse.onSuccess(
+                "자소서 분석 worker 컨텍스트 조회에 성공했습니다.",
+                analysisWorkerBridgeService.getContext(request.taskId(), request.userId(), request.mockApplyId())
+        );
+    }
+
+    @PostMapping("/tasks/{taskId}/complete")
+    public ApiResponse<AnalysisResponse> completeTask(
+            @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
+            @PathVariable String taskId,
+            @Valid @RequestBody AnalysisWorkerCompleteRequest request
+    ) {
+        internalApiKeyValidator.validate(internalApiKey);
+        return ApiResponse.onSuccess(
+                "자소서 분석 worker 작업 완료 상태를 반영했습니다.",
+                analysisWorkerBridgeService.completeTask(taskId, request)
+        );
+    }
+
+    @GetMapping("/tasks/{taskId}")
+    public ApiResponse<AnalysisAsyncStatusResponse> getTask(
+            @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
+            @PathVariable String taskId
+    ) {
+        internalApiKeyValidator.validate(internalApiKey);
+        return ApiResponse.onSuccess(
+                "자소서 분석 worker 작업 상태 조회에 성공했습니다.",
+                analysisAsyncTaskService.getTaskStatusByTaskId(taskId)
+        );
+    }
+}

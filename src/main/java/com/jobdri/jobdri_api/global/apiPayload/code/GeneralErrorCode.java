@@ -43,6 +43,7 @@ public enum GeneralErrorCode implements BaseErrorCode {
     MOCK_APPLY_NOT_FOUND(HttpStatus.NOT_FOUND, "MOCK_APPLY_4041", "모의 서류 지원을 찾을 수 없습니다."),
     QUESTION_NOT_FOUND(HttpStatus.NOT_FOUND, "QUESTION_4041", "문항을 찾을 수 없습니다."),
     ANALYSIS_NOT_FOUND(HttpStatus.NOT_FOUND, "ANALYSIS_4041", "자소서 분석 결과를 찾을 수 없습니다."),
+    ANALYSIS_ASYNC_TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "ANALYSIS_4042", "자소서 분석 비동기 작업을 찾을 수 없습니다."),
 
     // 결제/크레딧 에러
     PAYMENT_NOT_FOUND(HttpStatus.NOT_FOUND, "PAYMENT_4041", "결제 정보를 찾을 수 없습니다."),
