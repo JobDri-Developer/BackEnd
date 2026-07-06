@@ -27,11 +27,13 @@ import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
@@ -81,6 +83,12 @@ class AnalysisServiceTest {
     @Autowired
     private CreditTransactionRepository creditTransactionRepository;
 
+    @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
+
     @MockBean
     private AnalysisAiClient analysisAiClient;
 
@@ -115,6 +123,7 @@ class AnalysisServiceTest {
         assertThat(response.jobFit()).isEqualTo(82);
         assertThat(response.impact()).isEqualTo(71);
         assertThat(response.completeness()).isEqualTo(80);
+        assertThat(response.missingKeywords()).isEmpty();
         assertThat(response.questions()).hasSize(1);
         assertThat(response.questions().get(0).analyses()).hasSize(1);
         assertThat(response.questions().get(0).analyses().get(0).status()).isEqualTo("mentioned");
@@ -153,7 +162,7 @@ class AnalysisServiceTest {
 
         AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
 
-        assertThat(response.score()).isEqualTo(40);
+        assertThat(response.score()).isEqualTo(50);
         assertThat(response.jobFit()).isEqualTo(100);
         assertThat(response.impact()).isZero();
         assertThat(response.completeness()).isZero();
@@ -180,6 +189,71 @@ class AnalysisServiceTest {
                 .isEqualTo(GeneralErrorCode.SERVICE_UNAVAILABLE);
         assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(initialCredit);
         assertThat(analysisRepository.findByMockApplyId(mockApply.getId())).isEmpty();
+    }
+
+    @Test
+    @DisplayName("missingKeywords는 검증 후 최대 3개까지 응답에 포함한다")
+    void analyzeReturnsValidatedMissingKeywords() {
+        User user = saveUser("analysis-missing-keywords@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "누락 키워드 검증입니다.",
+                List.of(
+                        new AnalysisLlmResponse.MissingKeywordItem("SQL 활용 경험", "qualification"),
+                        new AnalysisLlmResponse.MissingKeywordItem(" ", "qualification"),
+                        new AnalysisLlmResponse.MissingKeywordItem("SQL 활용 경험", "preference"),
+                        new AnalysisLlmResponse.MissingKeywordItem("잘못된 출처", "unknown"),
+                        new AnalysisLlmResponse.MissingKeywordItem(
+                                "이 키워드는 너무 길어서 응답에서 제외되어야 하는 매우 긴 역량 문구이며 허용 길이를 명확하게 초과하는 잘못된 누락 키워드입니다",
+                                "mainTask"
+                        ),
+                        new AnalysisLlmResponse.MissingKeywordItem("대용량 트래픽 처리 경험", "preference"),
+                        new AnalysisLlmResponse.MissingKeywordItem("테스트 자동화 경험", "mainTask")
+                ),
+                List.of()
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.missingKeywords()).hasSize(3);
+        assertThat(response.missingKeywords()).extracting("keyword")
+                .containsExactly("SQL 활용 경험", "대용량 트래픽 처리 경험", "테스트 자동화 경험");
+        assertThat(response.missingKeywords()).extracting(keyword -> keyword.source().value())
+                .containsExactly("qualification", "preference", "mainTask");
+
+        Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
+        assertThat(analysis.getMissingKeywordsJson())
+                .contains("\"keyword\":\"SQL 활용 경험\"", "\"source\":\"qualification\"")
+                .contains("\"keyword\":\"대용량 트래픽 처리 경험\"", "\"source\":\"preference\"")
+                .contains("\"keyword\":\"테스트 자동화 경험\"", "\"source\":\"mainTask\"")
+                .doesNotContain("잘못된 출처")
+                .doesNotContain("이 키워드는 너무 길어서");
+    }
+
+    @Test
+    @DisplayName("missingKeywords가 null이면 빈 배열로 응답한다")
+    void analyzeReturnsEmptyMissingKeywordsWhenLlmMissingKeywordsIsNull() {
+        User user = saveUser("analysis-missing-keywords-null@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "누락 키워드가 없습니다.",
+                null,
+                List.of()
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.missingKeywords()).isEmpty();
+        Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
+        assertThat(analysis.getMissingKeywordsJson()).isEqualTo("[]");
     }
 
     @Test
@@ -620,6 +694,73 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("조회 응답은 JD와 답변으로 재계산하지 않고 DB에 저장된 missingKeywords를 반환한다")
+    void getAnalysisReturnsPersistedMissingKeywordsWithoutRecalculation() {
+        User user = saveUser("analysis-get-missing-keywords@example.com");
+        JobPosting jobPosting = saveJobPosting(
+                user,
+                "- 테스트 자동화 경험",
+                "- SQL 활용 경험",
+                "- 대용량 트래픽 처리 경험"
+        );
+        MockApply mockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "저장된 분석입니다.",
+                List.of(new AnalysisLlmResponse.MissingKeywordItem("LLM 저장 키워드", "qualification")),
+                List.of()
+        ));
+        AnalysisResponse saved = analysisService.analyze(user, mockApply.getId());
+        entityManager.clear();
+
+        Analysis persisted = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
+        assertThat(persisted.getMissingKeywordsJson())
+                .contains("\"keyword\":\"LLM 저장 키워드\"", "\"source\":\"qualification\"");
+        entityManager.clear();
+
+        AnalysisResponse response = analysisService.getAnalysis(user, mockApply.getId());
+
+        assertThat(saved.missingKeywords()).extracting("keyword")
+                .containsExactly("LLM 저장 키워드");
+        assertThat(response.missingKeywords()).extracting("keyword")
+                .containsExactly("LLM 저장 키워드");
+        assertThat(response.missingKeywords()).extracting(keyword -> keyword.source().value())
+                .containsExactly("qualification");
+    }
+
+    @Test
+    @DisplayName("저장된 missingKeywords JSON이 깨져 있어도 조회 응답은 빈 배열로 fallback한다")
+    void getAnalysisReturnsEmptyMissingKeywordsWhenPersistedJsonIsMalformed() {
+        User user = saveUser("analysis-get-malformed-missing-keywords@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "저장된 분석입니다.",
+                List.of(new AnalysisLlmResponse.MissingKeywordItem("SQL 활용 경험", "qualification")),
+                List.of()
+        ));
+        AnalysisResponse saved = analysisService.analyze(user, mockApply.getId());
+
+        jdbcTemplate.update(
+                "UPDATE analyses SET missing_keywords = ? WHERE id = ?",
+                "not-json",
+                saved.analysisId()
+        );
+        entityManager.clear();
+
+        AnalysisResponse response = analysisService.getAnalysis(user, mockApply.getId());
+
+        assertThat(response.analysisId()).isEqualTo(saved.analysisId());
+        assertThat(response.missingKeywords()).isEmpty();
+    }
+
+    @Test
     @DisplayName("jobPosting 기준 sequence로 특정 회차 분석 결과를 조회한다")
     void getAnalysisByJobPostingSequence() {
         User user = saveUser("analysis-get-sequence@example.com");
@@ -801,15 +942,19 @@ class AnalysisServiceTest {
     }
 
     private JobPosting saveJobPosting(User user) {
+        return saveJobPosting(user, "주요 업무", "자격 요건", "우대 사항");
+    }
+
+    private JobPosting saveJobPosting(User user, String task, String requirement, String preferred) {
         Company company = companyRepository.save(Company.create("분석 테스트 기업", CompanySize.MEDIUM));
         DetailClassification detailClassification = saveDetailClassification();
         return jobPostingRepository.save(JobPosting.create(
                 user,
                 company,
                 detailClassification,
-                "주요 업무",
-                "자격 요건",
-                "우대 사항"
+                task,
+                requirement,
+                preferred
         ));
     }
 
