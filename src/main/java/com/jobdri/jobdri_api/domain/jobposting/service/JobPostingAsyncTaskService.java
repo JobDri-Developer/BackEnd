@@ -16,10 +16,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 
 @Service
 @RequiredArgsConstructor
@@ -27,6 +30,7 @@ public class JobPostingAsyncTaskService {
 
     private final JobPostingAsyncTaskRepository jobPostingAsyncTaskRepository;
     private final ObjectMapper objectMapper;
+    private final JobPostingAsyncSseService jobPostingAsyncSseService;
 
     @Value("${app.worker.job-posting.max-retry-count:3}")
     private int maxRetryCount;
@@ -54,6 +58,7 @@ public class JobPostingAsyncTaskService {
             return;
         }
         task.markRunning(workerId, retryCount, submittedAt);
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
@@ -69,6 +74,7 @@ public class JobPostingAsyncTaskService {
             );
         }
         task.markSuccess(serializeResult(result));
+        publishAfterCommit(toStatusResponse(task));
         return result;
     }
 
@@ -79,6 +85,7 @@ public class JobPostingAsyncTaskService {
             return;
         }
         task.markRetryScheduled(failureReason, errorMessage, retryCount);
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
@@ -88,6 +95,12 @@ public class JobPostingAsyncTaskService {
             return;
         }
         task.markFailed(failureReason, errorMessage, retryCount);
+        publishAfterCommit(toStatusResponse(task));
+    }
+
+    @Transactional
+    public void updateWorkerMetadata(String taskId, String workerId, Long queueLatencyMillis) {
+        getTaskState(taskId).updateWorkerMetadata(workerId, queueLatencyMillis);
     }
 
     @Transactional
@@ -110,6 +123,20 @@ public class JobPostingAsyncTaskService {
                 ));
         expireTimedOutTaskIfNeeded(taskState);
         return toStatusResponse(taskState);
+    }
+
+    @Transactional
+    public int sweepTimedOutTasks() {
+        int expiredCount = 0;
+        for (JobPostingAsyncTask task : jobPostingAsyncTaskRepository.findByStatusIn(EnumSet.of(TaskStatus.PENDING, TaskStatus.RUNNING))) {
+            TaskStatus beforeStatus = task.getStatus();
+            expireTimedOutTaskIfNeeded(task);
+            if (beforeStatus != task.getStatus() && task.getStatus() == TaskStatus.FAILED) {
+                publishAfterCommit(toStatusResponse(task));
+                expiredCount++;
+            }
+        }
+        return expiredCount;
     }
 
     private JobPostingAsyncStatusResponse toStatusResponse(JobPostingAsyncTask taskState) {
@@ -201,5 +228,18 @@ public class JobPostingAsyncTaskService {
                     "채용 공고 비동기 결과 역직렬화에 실패했습니다."
             );
         }
+    }
+
+    private void publishAfterCommit(JobPostingAsyncStatusResponse statusResponse) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            jobPostingAsyncSseService.publish(statusResponse);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                jobPostingAsyncSseService.publish(statusResponse);
+            }
+        });
     }
 }

@@ -6,6 +6,7 @@ import lombok.Getter;
 public enum PaymentStatus {
     PENDING,
     PROCESSING,
+    UNKNOWN,
     FAILED,
     COMPLETED
 }

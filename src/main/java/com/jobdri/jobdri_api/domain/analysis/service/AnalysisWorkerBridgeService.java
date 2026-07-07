@@ -23,6 +23,7 @@ import java.util.List;
 
 @Service
 @RequiredArgsConstructor
+// 외부 분석 워커와 내부 분석 도메인 상태를 연결해 주는 브리지 서비스다.
 public class AnalysisWorkerBridgeService {
 
     private final AnalysisAsyncTaskService analysisAsyncTaskService;
@@ -156,7 +157,7 @@ public class AnalysisWorkerBridgeService {
 
         User user = userService.getUser(task.getUserId());
         String creditReferenceId = "analysisTaskId=" + task.getTaskId();
-        analysisService.reserveAnalysisCredit(user, creditReferenceId);
+        analysisService.deductAnalysisCredit(user, creditReferenceId);
         analysisAsyncTaskService.markCreditReserved(task.getTaskId(), creditReferenceId);
     }
 
@@ -164,8 +165,6 @@ public class AnalysisWorkerBridgeService {
         if (task.getCreditStatus() != CreditStatus.RESERVED || task.getCreditReferenceId() == null) {
             return;
         }
-
-        analysisService.confirmAnalysisCredit(user, task.getCreditReferenceId());
         analysisAsyncTaskService.markCreditConfirmed(task.getTaskId());
     }
 
@@ -174,7 +173,7 @@ public class AnalysisWorkerBridgeService {
             return;
         }
         User user = userService.getUser(task.getUserId());
-        analysisService.releaseAnalysisCredit(user, task.getCreditReferenceId());
+        analysisService.refundAnalysisCredit(user, task.getCreditReferenceId());
         analysisAsyncTaskService.markCreditReleased(task.getTaskId());
     }
 }

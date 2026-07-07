@@ -24,6 +24,7 @@ import java.util.List;
 @Component
 @Slf4j
 @RequiredArgsConstructor
+// 자소서 분석에 필요한 프롬프트를 만들고 LLM 호출을 수행하는 클라이언트다.
 public class AnalysisAiClient {
     private static final int MAX_REFERENCE_SECTION_LENGTH = 3000;
     private static final int MAX_REFERENCE_FIELD_LENGTH = 300;

@@ -60,7 +60,7 @@ class AnalysisAsyncFacadeServiceTest {
 
         assertThat(response.taskId()).isEqualTo(existingTask.getTaskId());
         assertThat(response.status()).isEqualTo("PENDING");
-        verify(analysisService, never()).reserveAnalysisCredit(eq(user), anyString());
+        verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
         verify(analysisAsyncProcessor, never()).process(eq(existingTask.getTaskId()), eq(1L), eq(10L), eq(3));
     }
 
@@ -98,7 +98,7 @@ class AnalysisAsyncFacadeServiceTest {
         assertThat(response.taskId()).isEqualTo(createdTask.getTaskId());
         assertThat(response.status()).isEqualTo("PENDING");
         verify(analysisAsyncProcessor, times(1)).process(createdTask.getTaskId(), 1L, 10L, 3);
-        verify(analysisService, never()).reserveAnalysisCredit(eq(user), anyString());
+        verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
     }
 
     @Test

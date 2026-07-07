@@ -47,6 +47,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
+// 자소서 분석의 핵심 비즈니스 로직과 결과 저장을 담당하는 메인 서비스다.
 public class AnalysisService {
     private static final int MIN_SCORE = 0;
     private static final int MAX_SCORE = 100;
@@ -73,16 +74,15 @@ public class AnalysisService {
     public AnalysisResponse analyze(User user, Long mockApplyId) {
         validateAnalysisRequest(user, mockApplyId);
         String referenceId = "mockApplyId=" + mockApplyId;
-        reserveAnalysisCredit(user, referenceId);
+        deductAnalysisCredit(user, referenceId);
 
         try {
             AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
             AnalysisLlmResponse llmResponse = executeAnalysis(payload);
             AnalysisResponse response = finalizeAnalysis(user, mockApplyId, payload, llmResponse);
-            confirmAnalysisCredit(user, referenceId);
             return response;
         } catch (RuntimeException e) {
-            releaseAnalysisCredit(user, referenceId);
+            refundAnalysisCredit(user, referenceId);
             throw e;
         }
     }
@@ -103,20 +103,13 @@ public class AnalysisService {
     }
 
     @Transactional
-    public void reserveAnalysisCredit(User user, String referenceId) {
-        creditService.use(user, 1, "자소서 분석 크레딧 예약", referenceId);
+    public void deductAnalysisCredit(User user, String referenceId) {
+        creditService.use(user, 1, "자소서 분석 크레딧 차감", referenceId);
     }
 
     @Transactional
-    public void confirmAnalysisCredit(User user, String referenceId) {
-        if (user == null || referenceId == null) {
-            return;
-        }
-    }
-
-    @Transactional
-    public void releaseAnalysisCredit(User user, String referenceId) {
-        creditService.refund(user, 1, "자소서 분석 크레딧 예약 해제", referenceId);
+    public void refundAnalysisCredit(User user, String referenceId) {
+        creditService.refund(user, 1, "자소서 분석 크레딧 환불", referenceId);
     }
 
     @Transactional(readOnly = true)

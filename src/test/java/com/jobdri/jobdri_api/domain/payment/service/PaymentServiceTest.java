@@ -184,7 +184,7 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("토스 승인 타임아웃이면 결제를 PENDING으로 되돌리고 재시도를 허용한다")
+    @DisplayName("토스 승인 타임아웃이면 결제를 UNKNOWN으로 남기고 재시도를 허용한다")
     void confirmAllowsRetryWhenTossConfirmTimesOut() {
         User user = saveUser("payment-confirm-timeout@example.com");
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
@@ -208,7 +208,7 @@ class PaymentServiceTest {
                 .isEqualTo(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT);
 
         Payment timedOutPayment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
-        assertThat(timedOutPayment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(timedOutPayment.getStatus()).isEqualTo(PaymentStatus.UNKNOWN);
 
         PaymentConfirmResponse retryResponse = paymentService.confirm(user, request);
 

@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.EnumSet;
@@ -19,9 +21,11 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+// 분석 비동기 task 엔티티의 생성, 상태 전이, 조회를 전담하는 서비스다.
 public class AnalysisAsyncTaskService {
 
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
+    private final AnalysisAsyncSseService analysisAsyncSseService;
     
     @Value("${app.worker.analysis.max-retry-count:3}")
     private int maxRetryCount;
@@ -49,22 +53,30 @@ public class AnalysisAsyncTaskService {
 
     @Transactional
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
-        getTask(taskId).markRunning(workerId, retryCount, submittedAt);
+        AnalysisAsyncTask task = getTask(taskId);
+        task.markRunning(workerId, retryCount, submittedAt);
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
     public void markSuccess(String taskId) {
-        getTask(taskId).markSuccess();
+        AnalysisAsyncTask task = getTask(taskId);
+        task.markSuccess();
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
     public void markRetryScheduled(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
-        getTask(taskId).markRetryScheduled(failureReason, errorMessage, retryCount);
+        AnalysisAsyncTask task = getTask(taskId);
+        task.markRetryScheduled(failureReason, errorMessage, retryCount);
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
     public void markFailed(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
-        getTask(taskId).markFailed(failureReason, errorMessage, retryCount);
+        AnalysisAsyncTask task = getTask(taskId);
+        task.markFailed(failureReason, errorMessage, retryCount);
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
@@ -134,5 +146,18 @@ public class AnalysisAsyncTaskService {
                 .completedAt(task.getCompletedAt())
                 .result(null)
                 .build();
+    }
+
+    private void publishAfterCommit(AnalysisAsyncStatusResponse statusResponse) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            analysisAsyncSseService.publish(statusResponse);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                analysisAsyncSseService.publish(statusResponse);
+            }
+        });
     }
 }

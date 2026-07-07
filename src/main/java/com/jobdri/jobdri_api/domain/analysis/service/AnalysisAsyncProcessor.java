@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
+// 분석 비동기 작업을 MQ 메시지로 변환해 워커 실행 경로로 넘기는 서비스다.
 public class AnalysisAsyncProcessor {
 
     private final AnalysisTaskMessagePublisher analysisTaskMessagePublisher;

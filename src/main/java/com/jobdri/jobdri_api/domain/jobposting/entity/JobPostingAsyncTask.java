@@ -108,6 +108,13 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
     }
 
     public void markRetryScheduled(FailureReason failureReason, String errorMessage, int retryCount) {
+        if (isTerminal()) {
+            return;
+        }
+        if (retryCount >= maxRetryCount) {
+            markFailed(failureReason, errorMessage, retryCount);
+            return;
+        }
         this.status = TaskStatus.PENDING;
         this.message = "채용 공고 비동기 재시도를 대기 중입니다.";
         this.failureReason = failureReason;
@@ -117,12 +124,28 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
     }
 
     public void markFailed(FailureReason failureReason, String errorMessage, int retryCount) {
+        if (isTerminal()) {
+            return;
+        }
         this.status = TaskStatus.FAILED;
         this.message = "채용 공고 비동기 처리에 실패했습니다.";
         this.failureReason = failureReason;
         this.error = errorMessage;
         this.retryCount = Math.max(0, retryCount);
         this.completedAt = LocalDateTime.now();
+    }
+
+    public void updateWorkerMetadata(String workerId, Long queueLatencyMillis) {
+        if (workerId != null && !workerId.isBlank()) {
+            this.workerId = workerId;
+        }
+        if (queueLatencyMillis != null) {
+            this.queueLatencyMillis = Math.max(0L, queueLatencyMillis);
+        }
+    }
+
+    private boolean isTerminal() {
+        return status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED;
     }
 
     public enum FailureReason {

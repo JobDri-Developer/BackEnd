@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.analysis.service;
 
 import java.util.List;
 
+// 개선 문구를 후처리할 때 사용하는 내부 규칙 모음이다.
 final class AnalysisImprovementRules {
     private static final List<String> BANNED_PHRASES = List.of(
             "추가하세요",

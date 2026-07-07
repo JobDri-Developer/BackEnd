@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface AnalysisAsyncTaskRepository extends JpaRepository<AnalysisAsyncTask, String> {
@@ -15,4 +16,6 @@ public interface AnalysisAsyncTaskRepository extends JpaRepository<AnalysisAsync
             Long mockApplyId,
             Collection<TaskStatus> statuses
     );
+
+    List<AnalysisAsyncTask> findByStatusIn(Collection<TaskStatus> statuses);
 }
