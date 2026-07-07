@@ -20,6 +20,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.EnumSet;
 
 @Service
 @RequiredArgsConstructor
@@ -120,6 +121,20 @@ public class JobPostingAsyncTaskService {
                 ));
         expireTimedOutTaskIfNeeded(taskState);
         return toStatusResponse(taskState);
+    }
+
+    @Transactional
+    public int sweepTimedOutTasks() {
+        int expiredCount = 0;
+        for (JobPostingAsyncTask task : jobPostingAsyncTaskRepository.findByStatusIn(EnumSet.of(TaskStatus.PENDING, TaskStatus.RUNNING))) {
+            TaskStatus beforeStatus = task.getStatus();
+            expireTimedOutTaskIfNeeded(task);
+            if (beforeStatus != task.getStatus() && task.getStatus() == TaskStatus.FAILED) {
+                jobPostingAsyncSseService.publish(toStatusResponse(task));
+                expiredCount++;
+            }
+        }
+        return expiredCount;
     }
 
     private JobPostingAsyncStatusResponse toStatusResponse(JobPostingAsyncTask taskState) {
