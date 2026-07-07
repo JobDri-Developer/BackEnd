@@ -23,6 +23,7 @@ import java.util.Optional;
 public class AnalysisAsyncTaskService {
 
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
+    private final AnalysisAsyncSseService analysisAsyncSseService;
     
     @Value("${app.worker.analysis.max-retry-count:3}")
     private int maxRetryCount;
@@ -50,22 +51,30 @@ public class AnalysisAsyncTaskService {
 
     @Transactional
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
-        getTask(taskId).markRunning(workerId, retryCount, submittedAt);
+        AnalysisAsyncTask task = getTask(taskId);
+        task.markRunning(workerId, retryCount, submittedAt);
+        analysisAsyncSseService.publish(toStatusResponse(task));
     }
 
     @Transactional
     public void markSuccess(String taskId) {
-        getTask(taskId).markSuccess();
+        AnalysisAsyncTask task = getTask(taskId);
+        task.markSuccess();
+        analysisAsyncSseService.publish(toStatusResponse(task));
     }
 
     @Transactional
     public void markRetryScheduled(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
-        getTask(taskId).markRetryScheduled(failureReason, errorMessage, retryCount);
+        AnalysisAsyncTask task = getTask(taskId);
+        task.markRetryScheduled(failureReason, errorMessage, retryCount);
+        analysisAsyncSseService.publish(toStatusResponse(task));
     }
 
     @Transactional
     public void markFailed(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
-        getTask(taskId).markFailed(failureReason, errorMessage, retryCount);
+        AnalysisAsyncTask task = getTask(taskId);
+        task.markFailed(failureReason, errorMessage, retryCount);
+        analysisAsyncSseService.publish(toStatusResponse(task));
     }
 
     @Transactional

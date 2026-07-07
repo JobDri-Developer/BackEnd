@@ -28,11 +28,18 @@ class JobPostingAsyncTaskServiceTest {
     @Mock
     private JobPostingAsyncTaskRepository jobPostingAsyncTaskRepository;
 
+    @Mock
+    private JobPostingAsyncSseService jobPostingAsyncSseService;
+
     private JobPostingAsyncTaskService jobPostingAsyncTaskService;
 
     @BeforeEach
     void setUp() {
-        jobPostingAsyncTaskService = new JobPostingAsyncTaskService(jobPostingAsyncTaskRepository, new ObjectMapper());
+        jobPostingAsyncTaskService = new JobPostingAsyncTaskService(
+                jobPostingAsyncTaskRepository,
+                new ObjectMapper(),
+                jobPostingAsyncSseService
+        );
     }
 
     @Test

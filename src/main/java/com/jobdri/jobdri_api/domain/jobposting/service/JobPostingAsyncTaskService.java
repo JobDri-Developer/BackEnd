@@ -27,6 +27,7 @@ public class JobPostingAsyncTaskService {
 
     private final JobPostingAsyncTaskRepository jobPostingAsyncTaskRepository;
     private final ObjectMapper objectMapper;
+    private final JobPostingAsyncSseService jobPostingAsyncSseService;
 
     @Value("${app.worker.job-posting.max-retry-count:3}")
     private int maxRetryCount;
@@ -54,6 +55,7 @@ public class JobPostingAsyncTaskService {
             return;
         }
         task.markRunning(workerId, retryCount, submittedAt);
+        jobPostingAsyncSseService.publish(toStatusResponse(task));
     }
 
     @Transactional
@@ -69,6 +71,7 @@ public class JobPostingAsyncTaskService {
             );
         }
         task.markSuccess(serializeResult(result));
+        jobPostingAsyncSseService.publish(toStatusResponse(task));
         return result;
     }
 
@@ -79,6 +82,7 @@ public class JobPostingAsyncTaskService {
             return;
         }
         task.markRetryScheduled(failureReason, errorMessage, retryCount);
+        jobPostingAsyncSseService.publish(toStatusResponse(task));
     }
 
     @Transactional
@@ -88,6 +92,7 @@ public class JobPostingAsyncTaskService {
             return;
         }
         task.markFailed(failureReason, errorMessage, retryCount);
+        jobPostingAsyncSseService.publish(toStatusResponse(task));
     }
 
     @Transactional

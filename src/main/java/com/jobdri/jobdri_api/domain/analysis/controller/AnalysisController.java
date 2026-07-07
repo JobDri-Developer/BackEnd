@@ -4,6 +4,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusRes
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAsyncFacadeService;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAsyncSseService;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -13,11 +14,13 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 @RestController
 @RequiredArgsConstructor
@@ -27,6 +30,7 @@ public class AnalysisController {
 
     private final AnalysisService analysisService;
     private final AnalysisAsyncFacadeService analysisAsyncFacadeService;
+    private final AnalysisAsyncSseService analysisAsyncSseService;
 
     @Operation(summary = "자소서 분석 비동기 실행", description = "저장된 문항 답변과 공고 정보를 기반으로 자소서 분석 작업을 접수합니다.")
     @PostMapping
@@ -51,6 +55,18 @@ public class AnalysisController {
                 "자소서 분석 비동기 작업 상태 조회에 성공했습니다.",
                 analysisAsyncFacadeService.getTask(getAuthenticatedUser(userDetails), mockApplyId, taskId)
         );
+    }
+
+    @Operation(summary = "자소서 분석 비동기 작업 상태 SSE 구독", description = "taskId로 자소서 분석 비동기 작업 상태를 SSE 스트림으로 구독합니다.")
+    @GetMapping(value = "/async/{taskId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamAnalysisTask(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId,
+            @PathVariable String taskId
+    ) {
+        AnalysisAsyncStatusResponse initialStatus =
+                analysisAsyncFacadeService.getTask(getAuthenticatedUser(userDetails), mockApplyId, taskId);
+        return analysisAsyncSseService.subscribe(initialStatus);
     }
 
     @Operation(summary = "자소서 분석 결과 조회", description = "저장된 자소서 분석 결과를 조회합니다.")
