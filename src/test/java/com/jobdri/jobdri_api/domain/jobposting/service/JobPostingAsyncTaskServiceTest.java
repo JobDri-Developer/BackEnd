@@ -33,6 +33,9 @@ class JobPostingAsyncTaskServiceTest {
     @Mock
     private JobPostingAsyncSseService jobPostingAsyncSseService;
 
+    @Mock
+    private com.jobdri.jobdri_api.domain.notification.service.NotificationService notificationService;
+
     private JobPostingAsyncTaskService jobPostingAsyncTaskService;
 
     @BeforeEach
@@ -40,7 +43,8 @@ class JobPostingAsyncTaskServiceTest {
         jobPostingAsyncTaskService = new JobPostingAsyncTaskService(
                 jobPostingAsyncTaskRepository,
                 new ObjectMapper(),
-                jobPostingAsyncSseService
+                jobPostingAsyncSseService,
+                notificationService
         );
     }
 

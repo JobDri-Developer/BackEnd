@@ -5,6 +5,9 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResp
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.notification.entity.NotificationTargetType;
+import com.jobdri.jobdri_api.domain.notification.entity.NotificationType;
+import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.entity.UserRole;
@@ -23,6 +26,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -31,6 +36,7 @@ public class JobPostingAsyncTaskService {
     private final JobPostingAsyncTaskRepository jobPostingAsyncTaskRepository;
     private final ObjectMapper objectMapper;
     private final JobPostingAsyncSseService jobPostingAsyncSseService;
+    private final NotificationService notificationService;
 
     @Value("${app.worker.job-posting.max-retry-count:3}")
     private int maxRetryCount;
@@ -75,6 +81,7 @@ public class JobPostingAsyncTaskService {
         }
         task.markSuccess(serializeResult(result));
         publishAfterCommit(toStatusResponse(task));
+        createSuccessNotification(task, result);
         return result;
     }
 
@@ -96,6 +103,7 @@ public class JobPostingAsyncTaskService {
         }
         task.markFailed(failureReason, errorMessage, retryCount);
         publishAfterCommit(toStatusResponse(task));
+        createFailureNotification(task);
     }
 
     @Transactional
@@ -241,5 +249,45 @@ public class JobPostingAsyncTaskService {
                 jobPostingAsyncSseService.publish(statusResponse);
             }
         });
+    }
+
+    private void createSuccessNotification(JobPostingAsyncTask task, JobPostingIngestResponse result) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("taskId", task.getTaskId());
+        payload.put("savedToDatabase", result.isSavedToDatabase());
+        payload.put("jobPostingId", result.getSaved() != null ? result.getSaved().getJobPostingId() : null);
+
+        notificationService.createNotification(
+                task.getUserId(),
+                NotificationType.JOB_POSTING_ASYNC_SUCCEEDED,
+                "채용 공고 작업이 완료되었습니다.",
+                result.isSavedToDatabase()
+                        ? "채용 공고 분석과 저장이 완료되었습니다."
+                        : "채용 공고 분석이 완료되었습니다.",
+                result.getSaved() != null && result.getSaved().getJobPostingId() != null
+                        ? NotificationTargetType.JOB_POSTING_RESULT
+                        : NotificationTargetType.JOB_POSTING_TASK,
+                result.getSaved() != null && result.getSaved().getJobPostingId() != null
+                        ? String.valueOf(result.getSaved().getJobPostingId())
+                        : task.getTaskId(),
+                payload
+        );
+    }
+
+    private void createFailureNotification(JobPostingAsyncTask task) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("taskId", task.getTaskId());
+        payload.put("failureReason", task.getFailureReason() != null ? task.getFailureReason().name() : null);
+        payload.put("status", task.getStatus().name());
+
+        notificationService.createNotification(
+                task.getUserId(),
+                NotificationType.JOB_POSTING_ASYNC_FAILED,
+                "채용 공고 작업이 실패했습니다.",
+                task.getError() != null ? task.getError() : "채용 공고 작업 처리 중 오류가 발생했습니다.",
+                NotificationTargetType.JOB_POSTING_TASK,
+                task.getTaskId(),
+                payload
+        );
     }
 }

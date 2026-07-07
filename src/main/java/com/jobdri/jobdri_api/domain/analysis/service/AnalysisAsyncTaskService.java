@@ -5,6 +5,9 @@ import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.notification.entity.NotificationTargetType;
+import com.jobdri.jobdri_api.domain.notification.entity.NotificationType;
+import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
@@ -18,6 +21,8 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Optional;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -26,6 +31,7 @@ public class AnalysisAsyncTaskService {
 
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
     private final AnalysisAsyncSseService analysisAsyncSseService;
+    private final NotificationService notificationService;
     
     @Value("${app.worker.analysis.max-retry-count:3}")
     private int maxRetryCount;
@@ -63,6 +69,7 @@ public class AnalysisAsyncTaskService {
         AnalysisAsyncTask task = getTask(taskId);
         task.markSuccess();
         publishAfterCommit(toStatusResponse(task));
+        createSuccessNotification(task);
     }
 
     @Transactional
@@ -77,6 +84,7 @@ public class AnalysisAsyncTaskService {
         AnalysisAsyncTask task = getTask(taskId);
         task.markFailed(failureReason, errorMessage, retryCount);
         publishAfterCommit(toStatusResponse(task));
+        createFailureNotification(task);
     }
 
     @Transactional
@@ -159,5 +167,40 @@ public class AnalysisAsyncTaskService {
                 analysisAsyncSseService.publish(statusResponse);
             }
         });
+    }
+
+    private void createSuccessNotification(AnalysisAsyncTask task) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("taskId", task.getTaskId());
+        payload.put("mockApplyId", task.getMockApplyId());
+        payload.put("status", task.getStatus().name());
+
+        notificationService.createNotification(
+                task.getUserId(),
+                NotificationType.ANALYSIS_ASYNC_SUCCEEDED,
+                "자소서 분석이 완료되었습니다.",
+                "분석 결과를 확인해보세요.",
+                NotificationTargetType.ANALYSIS_RESULT,
+                String.valueOf(task.getMockApplyId()),
+                payload
+        );
+    }
+
+    private void createFailureNotification(AnalysisAsyncTask task) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("taskId", task.getTaskId());
+        payload.put("mockApplyId", task.getMockApplyId());
+        payload.put("failureReason", task.getFailureReason() != null ? task.getFailureReason().name() : null);
+        payload.put("status", task.getStatus().name());
+
+        notificationService.createNotification(
+                task.getUserId(),
+                NotificationType.ANALYSIS_ASYNC_FAILED,
+                "자소서 분석이 실패했습니다.",
+                task.getError() != null ? task.getError() : "자소서 분석 처리 중 오류가 발생했습니다.",
+                NotificationTargetType.ANALYSIS_TASK,
+                task.getTaskId(),
+                payload
+        );
     }
 }
