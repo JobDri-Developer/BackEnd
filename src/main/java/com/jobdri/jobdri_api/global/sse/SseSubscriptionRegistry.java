@@ -75,10 +75,9 @@ public class SseSubscriptionRegistry {
             });
             emitter.onError(ignored -> remove(channelKey, emitter));
 
-            T initialPayload = initialPayloadSupplier.get();
-            boolean completeAfterInitial = completeAfterInitialPredicate.test(initialPayload);
-
             try {
+                T initialPayload = initialPayloadSupplier.get();
+                boolean completeAfterInitial = completeAfterInitialPredicate.test(initialPayload);
                 emitter.send(SseEmitter.event().name("connected").data("connected"));
                 emitter.send(SseEmitter.event().name(eventName).data(initialPayload));
                 if (completeAfterInitial) {

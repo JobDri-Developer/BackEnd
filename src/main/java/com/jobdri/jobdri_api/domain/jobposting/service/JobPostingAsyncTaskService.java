@@ -5,6 +5,9 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResp
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.notification.entity.NotificationTargetType;
+import com.jobdri.jobdri_api.domain.notification.entity.NotificationType;
+import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.entity.UserRole;
@@ -13,6 +16,7 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,14 +27,18 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class JobPostingAsyncTaskService {
 
     private final JobPostingAsyncTaskRepository jobPostingAsyncTaskRepository;
     private final ObjectMapper objectMapper;
     private final JobPostingAsyncSseService jobPostingAsyncSseService;
+    private final NotificationService notificationService;
 
     @Value("${app.worker.job-posting.max-retry-count:3}")
     private int maxRetryCount;
@@ -75,6 +83,7 @@ public class JobPostingAsyncTaskService {
         }
         task.markSuccess(serializeResult(result));
         publishAfterCommit(toStatusResponse(task));
+        createSuccessNotificationSafely(task, result);
         return result;
     }
 
@@ -96,6 +105,7 @@ public class JobPostingAsyncTaskService {
         }
         task.markFailed(failureReason, errorMessage, retryCount);
         publishAfterCommit(toStatusResponse(task));
+        createFailureNotificationSafely(task);
     }
 
     @Transactional
@@ -241,5 +251,69 @@ public class JobPostingAsyncTaskService {
                 jobPostingAsyncSseService.publish(statusResponse);
             }
         });
+    }
+
+    private void createSuccessNotificationSafely(JobPostingAsyncTask task, JobPostingIngestResponse result) {
+        try {
+            createSuccessNotification(task, result);
+        } catch (Exception e) {
+            log.warn("채용 공고 완료 알림 생성에 실패했습니다. taskId={}, userId={}", task.getTaskId(), task.getUserId(), e);
+        }
+    }
+
+    private void createFailureNotificationSafely(JobPostingAsyncTask task) {
+        try {
+            createFailureNotification(task);
+        } catch (Exception e) {
+            log.warn(
+                    "채용 공고 실패 알림 생성에 실패했습니다. taskId={}, userId={}, error={}",
+                    task.getTaskId(),
+                    task.getUserId(),
+                    task.getError(),
+                    e
+            );
+        }
+    }
+
+    private void createSuccessNotification(JobPostingAsyncTask task, JobPostingIngestResponse result) {
+        boolean hasSavedJobPosting = result.getSaved() != null && result.getSaved().getJobPostingId() != null;
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("taskId", task.getTaskId());
+        payload.put("savedToDatabase", result.isSavedToDatabase());
+        payload.put("jobPostingId", result.getSaved() != null ? result.getSaved().getJobPostingId() : null);
+
+        notificationService.createNotification(
+                task.getUserId(),
+                NotificationType.JOB_POSTING_ASYNC_SUCCEEDED,
+                "채용 공고 작업이 완료되었습니다.",
+                result.isSavedToDatabase()
+                        ? "채용 공고 분석과 저장이 완료되었습니다."
+                        : "채용 공고 분석이 완료되었습니다.",
+                hasSavedJobPosting
+                        ? NotificationTargetType.JOB_POSTING_RESULT
+                        : NotificationTargetType.JOB_POSTING_TASK,
+                hasSavedJobPosting
+                        ? String.valueOf(result.getSaved().getJobPostingId())
+                        : task.getTaskId(),
+                payload
+        );
+    }
+
+    private void createFailureNotification(JobPostingAsyncTask task) {
+        String userFacingMessage = "채용 공고 작업 처리 중 오류가 발생했습니다.";
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("taskId", task.getTaskId());
+        payload.put("failureReason", task.getFailureReason() != null ? task.getFailureReason().name() : null);
+        payload.put("status", task.getStatus().name());
+
+        notificationService.createNotification(
+                task.getUserId(),
+                NotificationType.JOB_POSTING_ASYNC_FAILED,
+                "채용 공고 작업이 실패했습니다.",
+                userFacingMessage,
+                NotificationTargetType.JOB_POSTING_TASK,
+                task.getTaskId(),
+                payload
+        );
     }
 }

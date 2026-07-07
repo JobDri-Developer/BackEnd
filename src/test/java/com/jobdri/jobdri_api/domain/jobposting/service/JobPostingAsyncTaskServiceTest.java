@@ -2,9 +2,13 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
+import com.jobdri.jobdri_api.domain.notification.entity.NotificationTargetType;
+import com.jobdri.jobdri_api.domain.notification.entity.NotificationType;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRepository;
+import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +24,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -33,6 +38,9 @@ class JobPostingAsyncTaskServiceTest {
     @Mock
     private JobPostingAsyncSseService jobPostingAsyncSseService;
 
+    @Mock
+    private NotificationService notificationService;
+
     private JobPostingAsyncTaskService jobPostingAsyncTaskService;
 
     @BeforeEach
@@ -40,7 +48,8 @@ class JobPostingAsyncTaskServiceTest {
         jobPostingAsyncTaskService = new JobPostingAsyncTaskService(
                 jobPostingAsyncTaskRepository,
                 new ObjectMapper(),
-                jobPostingAsyncSseService
+                jobPostingAsyncSseService,
+                notificationService
         );
     }
 
@@ -172,5 +181,72 @@ class JobPostingAsyncTaskServiceTest {
         assertThat(task.getError()).isEqualTo(originalError);
         assertThat(task.getRetryCount()).isEqualTo(originalRetryCount);
         verify(jobPostingAsyncSseService, never()).publish(any());
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("성공 처리 시 알림 서비스를 호출한다")
+    void markSuccessCreatesNotification() {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+        JobPostingResponse saved = JobPostingResponse.builder()
+                .jobPostingId(123L)
+                .build();
+        JobPostingIngestResponse result = new JobPostingIngestResponse(true, null, null, null, null, null, saved);
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        jobPostingAsyncTaskService.markSuccess(task.getTaskId(), result);
+
+        verify(notificationService).createNotification(
+                eq(7L),
+                eq(NotificationType.JOB_POSTING_ASYNC_SUCCEEDED),
+                eq("채용 공고 작업이 완료되었습니다."),
+                eq("채용 공고 분석과 저장이 완료되었습니다."),
+                eq(NotificationTargetType.JOB_POSTING_RESULT),
+                eq("123"),
+                any()
+        );
+    }
+
+    @Test
+    @DisplayName("실패 처리 시 사용자에게는 일반화된 실패 알림을 보낸다")
+    void markFailedCreatesSanitizedNotification() {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        jobPostingAsyncTaskService.markFailed(
+                task.getTaskId(),
+                FailureReason.INTERNAL_ERROR,
+                "worker stack trace",
+                1
+        );
+
+        verify(notificationService).createNotification(
+                eq(7L),
+                eq(NotificationType.JOB_POSTING_ASYNC_FAILED),
+                eq("채용 공고 작업이 실패했습니다."),
+                eq("채용 공고 작업 처리 중 오류가 발생했습니다."),
+                eq(NotificationTargetType.JOB_POSTING_TASK),
+                eq(task.getTaskId()),
+                any()
+        );
+    }
+
+    @Test
+    @DisplayName("재시도 예약 중에는 알림을 생성하지 않는다")
+    void markRetryScheduledDoesNotCreateNotification() {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        jobPostingAsyncTaskService.markRetryScheduled(
+                task.getTaskId(),
+                FailureReason.INTERNAL_ERROR,
+                "retry scheduled",
+                1
+        );
+
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any());
     }
 }
