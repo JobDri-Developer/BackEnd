@@ -278,10 +278,6 @@ sequenceDiagram
 6. worker가 AI 처리 결과를 internal callback API로 완료/실패 반영합니다.
 7. Spring 서버가 DB 저장, 알림 생성, SSE 상태 전파를 수행합니다.
 
-> 현재 이 저장소에는 **Spring Boot API 서버 코드만 포함**되어 있습니다.  
-> `RabbitMQ`로 연동되는 **FastAPI worker는 외부 배포 단위**로 전제되어 있으며,  
-> `docker-compose.yml`에는 worker 서비스가 정의되어 있지만 실제 `worker/` 디렉터리는 이 리포지토리에 포함되어 있지 않습니다.
-
 ## 📂 Project Structure
 
 ```bash
@@ -349,10 +345,6 @@ docker compose up --build
 - RabbitMQ
 - external FastAPI worker 연결용 worker service 정의
 
-주의사항:
-
-- 현재 `docker-compose.yml`은 `worker/Dockerfile`을 참조하지만, 이 리포지토리에는 `worker/` 디렉터리가 없습니다.
-- 따라서 로컬에서 compose 전체를 그대로 올리려면 worker 구현체 또는 별도 이미지 준비가 필요합니다.
 
 ## ⚙️ Environment
 
@@ -402,12 +394,6 @@ GitHub Actions 기준 배포 흐름:
 5. 배포 secret이 존재하면 원격 서버에 SSH 접속
 6. 서버에서 `docker compose -f docker-compose.prod.yml pull api`
 7. `docker compose -f docker-compose.prod.yml up -d api`
-
-현재 workflow 기준 특징:
-
-- 배포 이미지는 `ghcr.io/jobdri-developer/backend`
-- `docker-compose.prod.yml`은 **API 컨테이너 단독 배포** 기준
-- worker 배포는 이 리포지토리 workflow에 포함되어 있지 않습니다
 
 ## 📝 API Documentation
 
