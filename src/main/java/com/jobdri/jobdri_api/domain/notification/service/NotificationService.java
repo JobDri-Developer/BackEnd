@@ -18,6 +18,7 @@ import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -112,7 +113,7 @@ public class NotificationService {
         return new NotificationReadAllResponse(updatedCount, notificationRepository.countByUserIdAndReadAtIsNull(validatedUser.getId()));
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public NotificationResponse createNotification(
             Long userId,
             NotificationType notificationType,

@@ -16,6 +16,7 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +32,7 @@ import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class JobPostingAsyncTaskService {
 
     private final JobPostingAsyncTaskRepository jobPostingAsyncTaskRepository;
@@ -81,7 +83,7 @@ public class JobPostingAsyncTaskService {
         }
         task.markSuccess(serializeResult(result));
         publishAfterCommit(toStatusResponse(task));
-        createSuccessNotification(task, result);
+        createSuccessNotificationSafely(task, result);
         return result;
     }
 
@@ -103,7 +105,7 @@ public class JobPostingAsyncTaskService {
         }
         task.markFailed(failureReason, errorMessage, retryCount);
         publishAfterCommit(toStatusResponse(task));
-        createFailureNotification(task);
+        createFailureNotificationSafely(task);
     }
 
     @Transactional
@@ -251,7 +253,30 @@ public class JobPostingAsyncTaskService {
         });
     }
 
+    private void createSuccessNotificationSafely(JobPostingAsyncTask task, JobPostingIngestResponse result) {
+        try {
+            createSuccessNotification(task, result);
+        } catch (Exception e) {
+            log.warn("채용 공고 완료 알림 생성에 실패했습니다. taskId={}, userId={}", task.getTaskId(), task.getUserId(), e);
+        }
+    }
+
+    private void createFailureNotificationSafely(JobPostingAsyncTask task) {
+        try {
+            createFailureNotification(task);
+        } catch (Exception e) {
+            log.warn(
+                    "채용 공고 실패 알림 생성에 실패했습니다. taskId={}, userId={}, error={}",
+                    task.getTaskId(),
+                    task.getUserId(),
+                    task.getError(),
+                    e
+            );
+        }
+    }
+
     private void createSuccessNotification(JobPostingAsyncTask task, JobPostingIngestResponse result) {
+        boolean hasSavedJobPosting = result.getSaved() != null && result.getSaved().getJobPostingId() != null;
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("taskId", task.getTaskId());
         payload.put("savedToDatabase", result.isSavedToDatabase());
@@ -264,10 +289,10 @@ public class JobPostingAsyncTaskService {
                 result.isSavedToDatabase()
                         ? "채용 공고 분석과 저장이 완료되었습니다."
                         : "채용 공고 분석이 완료되었습니다.",
-                result.getSaved() != null && result.getSaved().getJobPostingId() != null
+                hasSavedJobPosting
                         ? NotificationTargetType.JOB_POSTING_RESULT
                         : NotificationTargetType.JOB_POSTING_TASK,
-                result.getSaved() != null && result.getSaved().getJobPostingId() != null
+                hasSavedJobPosting
                         ? String.valueOf(result.getSaved().getJobPostingId())
                         : task.getTaskId(),
                 payload
@@ -275,6 +300,7 @@ public class JobPostingAsyncTaskService {
     }
 
     private void createFailureNotification(JobPostingAsyncTask task) {
+        String userFacingMessage = "채용 공고 작업 처리 중 오류가 발생했습니다.";
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("taskId", task.getTaskId());
         payload.put("failureReason", task.getFailureReason() != null ? task.getFailureReason().name() : null);
@@ -284,7 +310,7 @@ public class JobPostingAsyncTaskService {
                 task.getUserId(),
                 NotificationType.JOB_POSTING_ASYNC_FAILED,
                 "채용 공고 작업이 실패했습니다.",
-                task.getError() != null ? task.getError() : "채용 공고 작업 처리 중 오류가 발생했습니다.",
+                userFacingMessage,
                 NotificationTargetType.JOB_POSTING_TASK,
                 task.getTaskId(),
                 payload
