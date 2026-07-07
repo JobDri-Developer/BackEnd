@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 
@@ -11,6 +12,16 @@ public record AnalysisExecutionPayload(
         Long mockApplyId,
         JobPosting jobPosting,
         List<Question> questions,
-        List<Question> answeredQuestions
+        List<Question> answeredQuestions,
+        JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
 ) {
+    public AnalysisExecutionPayload(
+            Long userId,
+            Long mockApplyId,
+            JobPosting jobPosting,
+            List<Question> questions,
+            List<Question> answeredQuestions
+    ) {
+        this(userId, mockApplyId, jobPosting, questions, answeredQuestions, null);
+    }
 }

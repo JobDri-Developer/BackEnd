@@ -459,6 +459,39 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("분석 실행 payload는 공고 중분류에 맞는 직무별 평가 기준을 포함한다")
+    void prepareAnalysisExecutionIncludesJobCategoryEvaluationCriteria() {
+        User user = saveUser("analysis-criteria-payload@example.com");
+        JobPosting jobPosting = saveJobPosting(
+                user,
+                "AI·개발·데이터",
+                "백엔드 개발",
+                "API 개발",
+                "Spring Boot 경험",
+                "대용량 트래픽 경험"
+        );
+        MockApply mockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+
+        AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApply.getId());
+
+        assertThat(payload.jobCategoryEvaluationCriteria()).isNotNull();
+        assertThat(payload.jobCategoryEvaluationCriteria().jobCategoryMiddle()).isEqualTo("AI·개발·데이터");
+    }
+
+    @Test
+    @DisplayName("공고 중분류에 맞는 직무별 평가 기준이 없으면 payload 기준은 null이다")
+    void prepareAnalysisExecutionKeepsCriteriaNullWhenMiddleNameIsUnknown() {
+        User user = saveUser("analysis-criteria-missing-payload@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+
+        AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApply.getId());
+
+        assertThat(payload.jobCategoryEvaluationCriteria()).isNull();
+    }
+
+    @Test
     @DisplayName("다른 사용자의 지원서는 분석할 수 없다")
     void analyzeThrowsWhenUserDoesNotOwnMockApply() {
         User owner = saveUser("analysis-owner@example.com");
@@ -958,10 +991,34 @@ class AnalysisServiceTest {
         ));
     }
 
+    private JobPosting saveJobPosting(
+            User user,
+            String middleName,
+            String detailName,
+            String task,
+            String requirement,
+            String preferred
+    ) {
+        Company company = companyRepository.save(Company.create("분석 테스트 기업", CompanySize.MEDIUM));
+        DetailClassification detailClassification = saveDetailClassification(middleName, detailName);
+        return jobPostingRepository.save(JobPosting.create(
+                user,
+                company,
+                detailClassification,
+                task,
+                requirement,
+                preferred
+        ));
+    }
+
     private DetailClassification saveDetailClassification() {
+        return saveDetailClassification("분석 테스트 중분류", "분석 테스트 소분류");
+    }
+
+    private DetailClassification saveDetailClassification(String middleName, String detailName) {
         Classification classification = Classification.create("분석 테스트 대분류 " + System.nanoTime());
-        MiddleClassification middleClassification = classification.addMiddleClassification("분석 테스트 중분류");
-        DetailClassification detailClassification = middleClassification.addDetailClassification("분석 테스트 소분류");
+        MiddleClassification middleClassification = classification.addMiddleClassification(middleName);
+        DetailClassification detailClassification = middleClassification.addDetailClassification(detailName);
         classificationRepository.save(classification);
         return detailClassificationRepository.findById(detailClassification.getId()).orElseThrow();
     }

@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
@@ -28,6 +29,7 @@ import java.util.List;
 public class AnalysisAiClient {
     private static final int MAX_REFERENCE_SECTION_LENGTH = 3000;
     private static final int MAX_REFERENCE_FIELD_LENGTH = 300;
+    private static final int MAX_CRITERIA_ITEMS = 5;
     private static final String OUTPUT_SCHEMA = """
             [출력 형식]
             {
@@ -177,10 +179,18 @@ public class AnalysisAiClient {
     private String analysisModel;
 
     public AnalysisLlmResponse analyze(AnalysisExecutionPayload payload) {
-        return analyze(payload.jobPosting(), payload.answeredQuestions());
+        return analyze(payload.jobPosting(), payload.answeredQuestions(), payload.jobCategoryEvaluationCriteria());
     }
 
     public AnalysisLlmResponse analyze(JobPosting jobPosting, List<Question> questions) {
+        return analyze(jobPosting, questions, null);
+    }
+
+    public AnalysisLlmResponse analyze(
+            JobPosting jobPosting,
+            List<Question> questions,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
+    ) {
         RetrievalContext referenceContext = emptyContext();
         try {
             referenceContext = corpusRetrievalService.retrieveForAnalysis(jobPosting, questions);
@@ -190,7 +200,7 @@ public class AnalysisAiClient {
         }
         var params = ResponseCreateParams.builder()
                 .model(analysisModel)
-                .input(buildPrompt(jobPosting, questions, referenceContext))
+                .input(buildPrompt(jobPosting, questions, referenceContext, jobCategoryEvaluationCriteria))
                 .temperature(0.2)
                 .text(AnalysisLlmResponse.class)
                 .build();
@@ -212,10 +222,11 @@ public class AnalysisAiClient {
         }
     }
 
-    private String buildPrompt(
+    String buildPrompt(
             JobPosting jobPosting,
             List<Question> questions,
-            RetrievalContext referenceContext
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
     ) {
         String questionText = questions.stream()
                 .map(question -> """
@@ -231,6 +242,7 @@ public class AnalysisAiClient {
 
         String similarJobPostingText = formatJobPostingReferences(referenceContext.jobPostingReferences());
         String similarQuestionText = formatQuestionReferences(referenceContext.questionReferences());
+        String jobCategoryCriteriaSection = formatJobCategoryEvaluationCriteriaSection(jobCategoryEvaluationCriteria);
 
         return """
                 [시스템 지시]
@@ -264,6 +276,8 @@ public class AnalysisAiClient {
                 [유사 자소서 문항 검색 결과]
                 %s
 
+                %s
+
                 [자소서 문항과 답변]
                 %s
 
@@ -291,8 +305,52 @@ public class AnalysisAiClient {
                 defaultString(jobPosting.getPreferred()),
                 similarJobPostingText,
                 similarQuestionText,
+                jobCategoryCriteriaSection,
                 questionText
         );
+    }
+
+    private String formatJobCategoryEvaluationCriteriaSection(JobCategoryEvaluationCriteria criteria) {
+        if (criteria == null) {
+            return "";
+        }
+
+        return """
+                [직무별 보조 평가 기준]
+                중분류: %s
+                주의:
+                - 이 직무별 기준은 실제 JD를 대체하지 않는다.
+                - 실제 JD의 자격요건, 우대사항, 주요업무를 우선한다.
+                - 직무별 기준은 JD가 모호하거나 암묵 역량 판단이 필요할 때만 보조적으로 참고한다.
+                - missingKeywords는 실제 JD 표현을 우선 사용하고, 직무별 missingKeywordExamples는 문구 정리와 유사 키워드 묶기에만 참고한다.
+                - 직무별 기준에 있는 키워드가 자소서에 없다는 이유만으로 무조건 missing 처리하지 않는다.
+                - 원문에 없는 수치, 도구, 경험을 만들어내지 않는다.
+                핵심 역량: %s
+                관련 행동: %s
+                관련 키워드: %s
+                좋은 근거 예시: %s
+                누락 키워드 문구 예시: %s
+                """.formatted(
+                defaultString(criteria.jobCategoryMiddle()),
+                formatCriteriaList(criteria.coreCompetencies()),
+                formatCriteriaList(criteria.relatedActions()),
+                formatCriteriaList(criteria.relatedKeywords()),
+                truncate(defaultString(criteria.goodEvidenceExample()), MAX_REFERENCE_FIELD_LENGTH),
+                formatCriteriaList(criteria.missingKeywordExamples())
+        ).trim();
+    }
+
+    private String formatCriteriaList(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return "없음";
+        }
+        String formatted = values.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .limit(MAX_CRITERIA_ITEMS)
+                .map(value -> "- " + truncate(value.trim(), MAX_REFERENCE_FIELD_LENGTH))
+                .reduce("", (left, right) -> left + "\n" + right)
+                .trim();
+        return formatted.isBlank() ? "없음" : "\n" + formatted;
     }
 
     private String formatJobPostingReferences(List<RetrievedJobPostingReference> references) {
