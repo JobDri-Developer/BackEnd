@@ -10,9 +10,9 @@ import com.jobdri.jobdri_api.domain.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
@@ -27,8 +27,7 @@ public class AnalysisAsyncSweepService {
     private final AnalysisAsyncTaskService analysisAsyncTaskService;
     private final AnalysisService analysisService;
     private final UserService userService;
-    @Lazy
-    private final AnalysisAsyncSweepService self;
+    private final TransactionTemplate transactionTemplate;
 
     @Value("${app.worker.analysis.queue-timeout-minutes:10}")
     private long queueTimeoutMinutes;
@@ -40,7 +39,7 @@ public class AnalysisAsyncSweepService {
         int expiredCount = 0;
         for (AnalysisAsyncTask task : analysisAsyncTaskRepository.findByStatusIn(EnumSet.of(TaskStatus.PENDING, TaskStatus.RUNNING))) {
             try {
-                expiredCount += self.sweepTimedOutTask(task.getTaskId());
+                expiredCount += transactionTemplate.execute(status -> sweepTimedOutTask(task.getTaskId()));
             } catch (RuntimeException e) {
                 log.error("Analysis async task sweep failed for taskId={}", task.getTaskId(), e);
             }
@@ -48,8 +47,7 @@ public class AnalysisAsyncSweepService {
         return expiredCount;
     }
 
-    @Transactional
-    public int sweepTimedOutTask(String taskId) {
+    private int sweepTimedOutTask(String taskId) {
         AnalysisAsyncTask task = analysisAsyncTaskRepository.findById(taskId).orElse(null);
         if (task == null || task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED) {
             return 0;
