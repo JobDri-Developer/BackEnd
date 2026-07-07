@@ -91,6 +91,11 @@ public class JobPostingAsyncTaskService {
     }
 
     @Transactional
+    public void updateWorkerMetadata(String taskId, String workerId, Long queueLatencyMillis) {
+        getTaskState(taskId).updateWorkerMetadata(workerId, queueLatencyMillis);
+    }
+
+    @Transactional
     public JobPostingAsyncStatusResponse getTask(String taskId) {
         JobPostingAsyncTask taskState = getTaskState(taskId);
         expireTimedOutTaskIfNeeded(taskState);

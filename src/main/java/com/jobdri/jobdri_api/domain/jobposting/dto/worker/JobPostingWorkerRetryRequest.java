@@ -8,6 +8,8 @@ import jakarta.validation.constraints.NotNull;
 public record JobPostingWorkerRetryRequest(
         @NotNull FailureReason failureReason,
         @NotBlank String errorMessage,
-        @Min(0) int retryCount
+        @Min(0) int retryCount,
+        @NotBlank String workerId,
+        Long queueLatencyMillis
 ) {
 }

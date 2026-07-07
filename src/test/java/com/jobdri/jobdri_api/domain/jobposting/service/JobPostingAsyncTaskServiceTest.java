@@ -108,4 +108,36 @@ class JobPostingAsyncTaskServiceTest {
         assertThat(response.getStatus()).isEqualTo("FAILED");
         assertThat(response.getFailureReason()).isEqualTo(FailureReason.WORKER_TIMEOUT.name());
     }
+
+    @Test
+    @DisplayName("재시도 횟수가 최대값에 도달하면 FAILED로 전이한다")
+    void markRetryScheduledFailsWhenMaxRetryReached() {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        jobPostingAsyncTaskService.markRetryScheduled(
+                task.getTaskId(),
+                FailureReason.INTERNAL_ERROR,
+                "retry exhausted",
+                3
+        );
+
+        assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.TaskStatus.FAILED);
+        assertThat(task.getFailureReason()).isEqualTo(FailureReason.INTERNAL_ERROR);
+        assertThat(task.getRetryCount()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("worker 메타데이터를 별도로 갱신할 수 있다")
+    void updateWorkerMetadataUpdatesWorkerFields() {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        jobPostingAsyncTaskService.updateWorkerMetadata(task.getTaskId(), "worker-2", 1234L);
+
+        assertThat(task.getWorkerId()).isEqualTo("worker-2");
+        assertThat(task.getQueueLatencyMillis()).isEqualTo(1234L);
+    }
 }

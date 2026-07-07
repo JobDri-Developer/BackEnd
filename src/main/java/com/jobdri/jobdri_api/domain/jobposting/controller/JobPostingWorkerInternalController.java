@@ -55,7 +55,14 @@ public class JobPostingWorkerInternalController {
             @Valid @RequestBody JobPostingWorkerRetryRequest request
     ) {
         internalApiKeyValidator.validate(internalApiKey);
-        jobPostingWorkerBridgeService.markRetry(taskId, request.failureReason(), request.errorMessage(), request.retryCount());
+        jobPostingWorkerBridgeService.markRetry(
+                taskId,
+                request.failureReason(),
+                request.errorMessage(),
+                request.retryCount(),
+                request.workerId(),
+                request.queueLatencyMillis()
+        );
         return ApiResponse.onSuccess("채용 공고 worker 작업 재시도 상태를 반영했습니다.");
     }
 
@@ -79,7 +86,14 @@ public class JobPostingWorkerInternalController {
             @Valid @RequestBody JobPostingWorkerFailureRequest request
     ) {
         internalApiKeyValidator.validate(internalApiKey);
-        jobPostingWorkerBridgeService.failTask(taskId, request.failureReason(), request.errorMessage(), request.retryCount());
+        jobPostingWorkerBridgeService.failTask(
+                taskId,
+                request.failureReason(),
+                request.errorMessage(),
+                request.retryCount(),
+                request.workerId(),
+                request.queueLatencyMillis()
+        );
         return ApiResponse.onSuccess("채용 공고 worker 작업 실패 상태를 반영했습니다.");
     }
 

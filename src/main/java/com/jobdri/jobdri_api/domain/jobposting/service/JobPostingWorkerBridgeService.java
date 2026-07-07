@@ -39,11 +39,35 @@ public class JobPostingWorkerBridgeService {
         return jobPostingAsyncTaskService.markSuccess(taskId, result);
     }
 
-    public void markRetry(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
+    public void markRetry(
+            String taskId,
+            FailureReason failureReason,
+            String errorMessage,
+            int retryCount,
+            String workerId,
+            Long queueLatencyMillis
+    ) {
+        JobPostingAsyncTask task = getTask(taskId);
+        if (task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED) {
+            return;
+        }
+        jobPostingAsyncTaskService.updateWorkerMetadata(taskId, workerId, queueLatencyMillis);
         jobPostingAsyncTaskService.markRetryScheduled(taskId, failureReason, errorMessage, retryCount);
     }
 
-    public void failTask(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
+    public void failTask(
+            String taskId,
+            FailureReason failureReason,
+            String errorMessage,
+            int retryCount,
+            String workerId,
+            Long queueLatencyMillis
+    ) {
+        JobPostingAsyncTask task = getTask(taskId);
+        if (task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED) {
+            return;
+        }
+        jobPostingAsyncTaskService.updateWorkerMetadata(taskId, workerId, queueLatencyMillis);
         jobPostingAsyncTaskService.markFailed(taskId, failureReason, errorMessage, retryCount);
     }
 
@@ -102,6 +126,14 @@ public class JobPostingWorkerBridgeService {
                 saved
         );
         return jobPostingAsyncTaskService.markSuccess(taskId, result);
+    }
+
+    private JobPostingAsyncTask getTask(String taskId) {
+        return jobPostingAsyncTaskRepository.findById(taskId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.JOB_POSTING_ASYNC_TASK_NOT_FOUND,
+                        "해당 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
+                ));
     }
 
     private String fallbackCompanyName(String companyName) {
