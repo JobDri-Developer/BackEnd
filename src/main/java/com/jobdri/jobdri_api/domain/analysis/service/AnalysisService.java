@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.analysis.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisQuestionResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
@@ -68,6 +69,7 @@ public class AnalysisService {
     private final AnalysisAiClient analysisAiClient;
     private final CreditService creditService;
     private final ObjectMapper objectMapper;
+    private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
 
     @Transactional
     @AuditLogEvent(action = "ANALYSIS_RUN", targetType = "MOCK_APPLY", targetId = "#arg1")
@@ -130,18 +132,29 @@ public class AnalysisService {
         // Initialize hierarchy before leaving the read transaction so detached payload can be used safely.
         mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName();
         mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getClassification().getBigName();
+        JobCategoryEvaluationCriteria evaluationCriteria = jobCategoryEvaluationCriteriaProvider
+                .findByMiddleName(mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName())
+                .orElse(null);
 
         return new AnalysisExecutionPayload(
                 user.getId(),
                 mockApplyId,
                 mockApply.getJobPosting(),
                 List.copyOf(questions),
-                List.copyOf(answeredQuestions)
+                List.copyOf(answeredQuestions),
+                evaluationCriteria
         );
     }
 
     public AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
-        return analysisAiClient.analyze(payload.jobPosting(), payload.answeredQuestions());
+        if (payload.jobCategoryEvaluationCriteria() == null) {
+            return analysisAiClient.analyze(payload.jobPosting(), payload.answeredQuestions());
+        }
+        return analysisAiClient.analyze(
+                payload.jobPosting(),
+                payload.answeredQuestions(),
+                payload.jobCategoryEvaluationCriteria()
+        );
     }
 
     @Transactional
