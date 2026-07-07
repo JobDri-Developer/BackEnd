@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.EnumSet;
@@ -53,28 +55,28 @@ public class AnalysisAsyncTaskService {
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
         AnalysisAsyncTask task = getTask(taskId);
         task.markRunning(workerId, retryCount, submittedAt);
-        analysisAsyncSseService.publish(toStatusResponse(task));
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
     public void markSuccess(String taskId) {
         AnalysisAsyncTask task = getTask(taskId);
         task.markSuccess();
-        analysisAsyncSseService.publish(toStatusResponse(task));
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
     public void markRetryScheduled(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
         AnalysisAsyncTask task = getTask(taskId);
         task.markRetryScheduled(failureReason, errorMessage, retryCount);
-        analysisAsyncSseService.publish(toStatusResponse(task));
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
     public void markFailed(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
         AnalysisAsyncTask task = getTask(taskId);
         task.markFailed(failureReason, errorMessage, retryCount);
-        analysisAsyncSseService.publish(toStatusResponse(task));
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
@@ -144,5 +146,18 @@ public class AnalysisAsyncTaskService {
                 .completedAt(task.getCompletedAt())
                 .result(null)
                 .build();
+    }
+
+    private void publishAfterCommit(AnalysisAsyncStatusResponse statusResponse) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            analysisAsyncSseService.publish(statusResponse);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                analysisAsyncSseService.publish(statusResponse);
+            }
+        });
     }
 }

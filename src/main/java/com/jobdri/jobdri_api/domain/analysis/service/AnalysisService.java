@@ -104,12 +104,12 @@ public class AnalysisService {
 
     @Transactional
     public void deductAnalysisCredit(User user, String referenceId) {
-        creditService.use(user, 1, "자소서 분석 크레딧 예약", referenceId);
+        creditService.use(user, 1, "자소서 분석 크레딧 차감", referenceId);
     }
 
     @Transactional
     public void refundAnalysisCredit(User user, String referenceId) {
-        creditService.refund(user, 1, "자소서 분석 크레딧 예약 해제", referenceId);
+        creditService.refund(user, 1, "자소서 분석 크레딧 환불", referenceId);
     }
 
     @Transactional(readOnly = true)

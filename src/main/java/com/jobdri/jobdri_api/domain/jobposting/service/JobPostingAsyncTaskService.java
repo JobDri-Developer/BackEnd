@@ -16,6 +16,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -56,7 +58,7 @@ public class JobPostingAsyncTaskService {
             return;
         }
         task.markRunning(workerId, retryCount, submittedAt);
-        jobPostingAsyncSseService.publish(toStatusResponse(task));
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
@@ -72,7 +74,7 @@ public class JobPostingAsyncTaskService {
             );
         }
         task.markSuccess(serializeResult(result));
-        jobPostingAsyncSseService.publish(toStatusResponse(task));
+        publishAfterCommit(toStatusResponse(task));
         return result;
     }
 
@@ -83,7 +85,7 @@ public class JobPostingAsyncTaskService {
             return;
         }
         task.markRetryScheduled(failureReason, errorMessage, retryCount);
-        jobPostingAsyncSseService.publish(toStatusResponse(task));
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
@@ -93,7 +95,7 @@ public class JobPostingAsyncTaskService {
             return;
         }
         task.markFailed(failureReason, errorMessage, retryCount);
-        jobPostingAsyncSseService.publish(toStatusResponse(task));
+        publishAfterCommit(toStatusResponse(task));
     }
 
     @Transactional
@@ -130,7 +132,7 @@ public class JobPostingAsyncTaskService {
             TaskStatus beforeStatus = task.getStatus();
             expireTimedOutTaskIfNeeded(task);
             if (beforeStatus != task.getStatus() && task.getStatus() == TaskStatus.FAILED) {
-                jobPostingAsyncSseService.publish(toStatusResponse(task));
+                publishAfterCommit(toStatusResponse(task));
                 expiredCount++;
             }
         }
@@ -226,5 +228,18 @@ public class JobPostingAsyncTaskService {
                     "채용 공고 비동기 결과 역직렬화에 실패했습니다."
             );
         }
+    }
+
+    private void publishAfterCommit(JobPostingAsyncStatusResponse statusResponse) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            jobPostingAsyncSseService.publish(statusResponse);
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                jobPostingAsyncSseService.publish(statusResponse);
+            }
+        });
     }
 }

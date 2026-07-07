@@ -124,7 +124,7 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
     }
 
     public void markFailed(FailureReason failureReason, String errorMessage, int retryCount) {
-        if (status == TaskStatus.SUCCEEDED) {
+        if (isTerminal()) {
             return;
         }
         this.status = TaskStatus.FAILED;

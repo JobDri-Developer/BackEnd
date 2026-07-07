@@ -64,9 +64,11 @@ public class AnalysisController {
             @PathVariable Long mockApplyId,
             @PathVariable String taskId
     ) {
-        AnalysisAsyncStatusResponse initialStatus =
-                analysisAsyncFacadeService.getTask(getAuthenticatedUser(userDetails), mockApplyId, taskId);
-        return analysisAsyncSseService.subscribe(initialStatus);
+        var user = getAuthenticatedUser(userDetails);
+        return analysisAsyncSseService.subscribe(
+                taskId,
+                () -> analysisAsyncFacadeService.getTask(user, mockApplyId, taskId)
+        );
     }
 
     @Operation(summary = "자소서 분석 결과 조회", description = "저장된 자소서 분석 결과를 조회합니다.")

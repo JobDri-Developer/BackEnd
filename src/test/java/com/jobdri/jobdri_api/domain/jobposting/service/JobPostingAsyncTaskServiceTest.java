@@ -19,6 +19,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -133,6 +135,7 @@ class JobPostingAsyncTaskServiceTest {
         assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.TaskStatus.FAILED);
         assertThat(task.getFailureReason()).isEqualTo(FailureReason.INTERNAL_ERROR);
         assertThat(task.getRetryCount()).isEqualTo(3);
+        verify(jobPostingAsyncSseService).publish(any());
     }
 
     @Test
@@ -146,5 +149,28 @@ class JobPostingAsyncTaskServiceTest {
 
         assertThat(task.getWorkerId()).isEqualTo("worker-2");
         assertThat(task.getQueueLatencyMillis()).isEqualTo(1234L);
+    }
+
+    @Test
+    @DisplayName("이미 종료된 task에 대한 재시도 예약은 무시된다")
+    void markRetryScheduledDoesNothingWhenTaskIsTerminal() {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+        task.markFailed(FailureReason.INTERNAL_ERROR, "failed", 1);
+        String originalError = task.getError();
+        int originalRetryCount = task.getRetryCount();
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        jobPostingAsyncTaskService.markRetryScheduled(
+                task.getTaskId(),
+                FailureReason.QUEUE_TIMEOUT,
+                "should be ignored",
+                2
+        );
+
+        assertThat(task.getFailureReason()).isEqualTo(FailureReason.INTERNAL_ERROR);
+        assertThat(task.getError()).isEqualTo(originalError);
+        assertThat(task.getRetryCount()).isEqualTo(originalRetryCount);
+        verify(jobPostingAsyncSseService, never()).publish(any());
     }
 }

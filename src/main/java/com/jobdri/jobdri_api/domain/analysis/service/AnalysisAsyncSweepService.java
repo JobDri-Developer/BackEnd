@@ -8,7 +8,9 @@ import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskReposit
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -16,6 +18,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AnalysisAsyncSweepService {
@@ -24,6 +27,8 @@ public class AnalysisAsyncSweepService {
     private final AnalysisAsyncTaskService analysisAsyncTaskService;
     private final AnalysisService analysisService;
     private final UserService userService;
+    @Lazy
+    private final AnalysisAsyncSweepService self;
 
     @Value("${app.worker.analysis.queue-timeout-minutes:10}")
     private long queueTimeoutMinutes;
@@ -31,25 +36,38 @@ public class AnalysisAsyncSweepService {
     @Value("${app.worker.analysis.processing-timeout-minutes:20}")
     private long processingTimeoutMinutes;
 
-    @Transactional
     public int sweepTimedOutTasks() {
         int expiredCount = 0;
         for (AnalysisAsyncTask task : analysisAsyncTaskRepository.findByStatusIn(EnumSet.of(TaskStatus.PENDING, TaskStatus.RUNNING))) {
-            ExpirationDecision expirationDecision = resolveExpiration(task);
-            if (expirationDecision == null) {
-                continue;
+            try {
+                expiredCount += self.sweepTimedOutTask(task.getTaskId());
+            } catch (RuntimeException e) {
+                log.error("Analysis async task sweep failed for taskId={}", task.getTaskId(), e);
             }
-
-            releaseCreditIfNeeded(task);
-            analysisAsyncTaskService.markFailed(
-                    task.getTaskId(),
-                    expirationDecision.failureReason(),
-                    expirationDecision.errorMessage(),
-                    task.getRetryCount()
-            );
-            expiredCount++;
         }
         return expiredCount;
+    }
+
+    @Transactional
+    public int sweepTimedOutTask(String taskId) {
+        AnalysisAsyncTask task = analysisAsyncTaskRepository.findById(taskId).orElse(null);
+        if (task == null || task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED) {
+            return 0;
+        }
+
+        ExpirationDecision expirationDecision = resolveExpiration(task);
+        if (expirationDecision == null) {
+            return 0;
+        }
+
+        releaseCreditIfNeeded(task);
+        analysisAsyncTaskService.markFailed(
+                task.getTaskId(),
+                expirationDecision.failureReason(),
+                expirationDecision.errorMessage(),
+                task.getRetryCount()
+        );
+        return 1;
     }
 
     private ExpirationDecision resolveExpiration(AnalysisAsyncTask task) {

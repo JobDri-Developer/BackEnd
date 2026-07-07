@@ -39,6 +39,7 @@ public class JobPostingWorkerBridgeService {
         return jobPostingAsyncTaskService.markSuccess(taskId, result);
     }
 
+    @Transactional
     public void markRetry(
             String taskId,
             FailureReason failureReason,
@@ -55,6 +56,7 @@ public class JobPostingWorkerBridgeService {
         jobPostingAsyncTaskService.markRetryScheduled(taskId, failureReason, errorMessage, retryCount);
     }
 
+    @Transactional
     public void failTask(
             String taskId,
             FailureReason failureReason,

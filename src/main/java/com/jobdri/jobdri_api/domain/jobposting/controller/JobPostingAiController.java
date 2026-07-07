@@ -121,8 +121,10 @@ public class JobPostingAiController {
             @PathVariable String taskId
     ) {
         var user = validateAuthenticatedUser(userDetails);
-        JobPostingAsyncStatusResponse initialStatus = jobPostingAsyncFacadeService.getTask(user, taskId);
-        return jobPostingAsyncSseService.subscribe(initialStatus);
+        return jobPostingAsyncSseService.subscribe(
+                taskId,
+                () -> jobPostingAsyncFacadeService.getTask(user, taskId)
+        );
     }
 
     private com.jobdri.jobdri_api.domain.user.entity.User validateAuthenticatedUser(UserDetailsImpl userDetails) {

@@ -20,8 +20,8 @@ public class AsyncTaskSweepScheduler {
             initialDelayString = "${app.async-task-sweep.initial-delay-millis:30000}"
     )
     public void sweepTimedOutTasks() {
-        int expiredJobPostingTasks = jobPostingAsyncTaskService.sweepTimedOutTasks();
-        int expiredAnalysisTasks = analysisAsyncSweepService.sweepTimedOutTasks();
+        int expiredJobPostingTasks = sweepJobPostingTasks();
+        int expiredAnalysisTasks = sweepAnalysisTasks();
 
         if (expiredJobPostingTasks > 0 || expiredAnalysisTasks > 0) {
             log.info(
@@ -29,6 +29,24 @@ public class AsyncTaskSweepScheduler {
                     expiredJobPostingTasks,
                     expiredAnalysisTasks
             );
+        }
+    }
+
+    private int sweepJobPostingTasks() {
+        try {
+            return jobPostingAsyncTaskService.sweepTimedOutTasks();
+        } catch (RuntimeException e) {
+            log.error("Job posting async task sweep failed.", e);
+            return 0;
+        }
+    }
+
+    private int sweepAnalysisTasks() {
+        try {
+            return analysisAsyncSweepService.sweepTimedOutTasks();
+        } catch (RuntimeException e) {
+            log.error("Analysis async task sweep failed.", e);
+            return 0;
         }
     }
 }

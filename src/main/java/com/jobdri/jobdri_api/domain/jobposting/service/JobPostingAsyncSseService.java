@@ -1,10 +1,13 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.TaskStatus;
 import com.jobdri.jobdri_api.global.sse.SseSubscriptionRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.util.function.Supplier;
 
 @Service
 @RequiredArgsConstructor
@@ -14,12 +17,12 @@ public class JobPostingAsyncSseService {
 
     private final SseSubscriptionRegistry sseSubscriptionRegistry;
 
-    public SseEmitter subscribe(JobPostingAsyncStatusResponse initialStatus) {
+    public SseEmitter subscribe(String taskId, Supplier<JobPostingAsyncStatusResponse> initialStatusSupplier) {
         return sseSubscriptionRegistry.subscribe(
-                channelKey(initialStatus.getTaskId()),
+                channelKey(taskId),
                 EVENT_NAME,
-                initialStatus,
-                isTerminal(initialStatus)
+                initialStatusSupplier,
+                this::isTerminal
         );
     }
 
@@ -37,6 +40,7 @@ public class JobPostingAsyncSseService {
     }
 
     private boolean isTerminal(JobPostingAsyncStatusResponse statusResponse) {
-        return "SUCCEEDED".equals(statusResponse.getStatus()) || "FAILED".equals(statusResponse.getStatus());
+        TaskStatus status = TaskStatus.valueOf(statusResponse.getStatus());
+        return status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED;
     }
 }
