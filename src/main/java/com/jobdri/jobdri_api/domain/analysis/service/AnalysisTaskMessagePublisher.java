@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
+// 분석 작업 메시지를 공통 worker exchange로 발행하는 publisher다.
 public class AnalysisTaskMessagePublisher {
 
     private final RabbitPublishSupport rabbitPublishSupport;

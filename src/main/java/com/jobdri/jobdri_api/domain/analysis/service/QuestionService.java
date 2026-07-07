@@ -34,6 +34,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
+// 분석 전 단계에서 문항 선택, 추가, 답변 저장을 담당하는 서비스다.
 public class QuestionService {
 
     private static final int MIN_SELECTION_COUNT = 1;

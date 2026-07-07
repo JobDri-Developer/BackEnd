@@ -19,6 +19,7 @@ import java.util.Optional;
 
 @Service
 @RequiredArgsConstructor
+// 분석 비동기 task 엔티티의 생성, 상태 전이, 조회를 전담하는 서비스다.
 public class AnalysisAsyncTaskService {
 
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;

@@ -15,6 +15,7 @@ import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
+// 분석 비동기 작업의 접수와 상태 조회를 외부 API 관점에서 조율하는 서비스다.
 public class AnalysisAsyncFacadeService {
     private static final String ACTIVE_TASK_UNIQUE_CONSTRAINT = "uk_analysis_async_tasks_active_user_mock_apply";
 

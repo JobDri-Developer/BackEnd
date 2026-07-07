@@ -83,7 +83,7 @@ public class PaymentService {
             validateTossResponse(request, tossResponse);
         } catch (GeneralException e) {
             if (e.getCode() == GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT) {
-                paymentTransactionService.rollbackConfirmationToPending(
+                paymentTransactionService.markConfirmationUnknown(
                         validatedUser.getId(),
                         request.orderId(),
                         request.paymentKey()

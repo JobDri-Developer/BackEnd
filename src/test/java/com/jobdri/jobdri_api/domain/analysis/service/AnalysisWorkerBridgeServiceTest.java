@@ -79,7 +79,7 @@ class AnalysisWorkerBridgeServiceTest {
 
         analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
 
-        verify(analysisService).reserveAnalysisCredit(user, "analysisTaskId=" + task.getTaskId());
+        verify(analysisService).deductAnalysisCredit(user, "analysisTaskId=" + task.getTaskId());
         verify(analysisAsyncTaskService).markCreditReserved(task.getTaskId(), "analysisTaskId=" + task.getTaskId());
         verify(analysisService).prepareAnalysisExecution(user, 10L);
     }
@@ -117,7 +117,7 @@ class AnalysisWorkerBridgeServiceTest {
 
         analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
 
-        verify(analysisService, never()).reserveAnalysisCredit(eq(user), anyString());
+        verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
         verify(analysisAsyncTaskService, never()).markCreditReserved(eq(task.getTaskId()), anyString());
         verify(analysisService).prepareAnalysisExecution(user, 10L);
     }

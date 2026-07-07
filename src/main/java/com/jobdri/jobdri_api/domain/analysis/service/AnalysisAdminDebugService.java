@@ -19,6 +19,7 @@ import java.util.List;
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
+// 관리자용으로 분석 참조 데이터와 retrieval 결과를 미리 점검하는 서비스다.
 public class AnalysisAdminDebugService {
 
     private final MockApplyRepository mockApplyRepository;
