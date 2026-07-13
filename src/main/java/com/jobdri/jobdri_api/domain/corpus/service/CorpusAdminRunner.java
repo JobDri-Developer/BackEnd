@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -12,6 +13,7 @@ import java.nio.file.Path;
 
 @Slf4j
 @Component
+@Profile("!analysis-eval")
 @RequiredArgsConstructor
 public class CorpusAdminRunner implements ApplicationRunner {
 

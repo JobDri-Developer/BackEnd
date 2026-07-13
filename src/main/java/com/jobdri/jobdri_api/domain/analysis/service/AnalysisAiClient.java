@@ -222,21 +222,61 @@ public class AnalysisAiClient {
         }
     }
 
+    public AnalysisLlmResponse analyzeForEvaluation(
+            AnalysisPromptInput promptInput,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
+    ) {
+        var params = ResponseCreateParams.builder()
+                .model(analysisModel)
+                .input(buildPrompt(promptInput, emptyContext(), jobCategoryEvaluationCriteria))
+                .temperature(0.2)
+                .text(AnalysisLlmResponse.class)
+                .build();
+
+        try {
+            StructuredResponse<AnalysisLlmResponse> response = llmConcurrencyLimiter.execute(
+                    "cover-letter-analysis-evaluation",
+                    () -> openAIClient.responses().create(params)
+            );
+            return extractStructuredContent(response);
+        } catch (GeneralException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("평가용 자소서 분석 OpenAI API 호출 오류: {}", e.getMessage(), e);
+            throw new GeneralException(
+                    GeneralErrorCode.SERVICE_UNAVAILABLE,
+                    "평가용 자소서 분석 AI 호출에 실패했습니다."
+            );
+        }
+    }
+
     String buildPrompt(
             JobPosting jobPosting,
             List<Question> questions,
             RetrievalContext referenceContext,
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
     ) {
-        String questionText = questions.stream()
+        return buildPrompt(
+                AnalysisPromptInput.from(jobPosting, questions),
+                referenceContext,
+                jobCategoryEvaluationCriteria
+        );
+    }
+
+    String buildPrompt(
+            AnalysisPromptInput promptInput,
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
+    ) {
+        String questionText = promptInput.questions().stream()
                 .map(question -> """
                         - questionId: %d
                           question: %s
                           answer: %s
                         """.formatted(
-                        question.getId(),
-                        defaultString(question.getContent()),
-                        defaultString(question.getAnswer())
+                        question.questionId(),
+                        defaultString(question.question()),
+                        defaultString(question.answer())
                 ))
                 .reduce("", (left, right) -> left + "\n" + right);
 
@@ -298,11 +338,11 @@ public class AnalysisAiClient {
                 OUTPUT_SCHEMA,
                 EVALUATION_CRITERIA,
                 STATUS_AND_WRITING_RULES.formatted(AnalysisImprovementRules.bannedPhrasesText()),
-                defaultString(jobPosting.getCompany().getName()),
-                defaultString(jobPosting.getDetailClassification().getDetailName()),
-                defaultString(jobPosting.getTask()),
-                defaultString(jobPosting.getRequirement()),
-                defaultString(jobPosting.getPreferred()),
+                defaultString(promptInput.companyName()),
+                defaultString(promptInput.jobName()),
+                defaultString(promptInput.mainTasks()),
+                defaultString(promptInput.qualifications()),
+                defaultString(promptInput.preferences()),
                 similarJobPostingText,
                 similarQuestionText,
                 jobCategoryCriteriaSection,
