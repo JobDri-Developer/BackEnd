@@ -1,0 +1,80 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.devtools.autoconfigure.DevToolsDataSourceAutoConfiguration
+
+  main:
+    web-application-type: none
+  devtools:
+    add-properties: false
+    restart:
+      enabled: false
+
+  sql:
+    init:
+      mode: never
+
+  datasource:
+    url: ${EVAL_DB_URL:jdbc:h2:mem:analysis_eval;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE}
+    username: ${EVAL_DB_USERNAME:sa}
+    password: ${EVAL_DB_PASSWORD:}
+    driver-class-name: ${EVAL_DB_DRIVER:org.h2.Driver}
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    defer-datasource-initialization: false
+    open-in-view: false
+
+  mail:
+    host: localhost
+    port: 2525
+    username: dummy
+    password: dummy
+
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: dummy-google-client-id
+            client-secret: dummy-google-client-secret
+            scope:
+              - email
+              - profile
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+
+  cloud:
+    aws:
+      credentials:
+        access-key: dummy-access-key
+        secret-key: dummy-secret-key
+      region:
+        static: ap-northeast-2
+      s3:
+        bucket: dummy-bucket
+        presign-get-expiration-minutes: 10
+        presign-put-expiration-minutes: 5
+
+app:
+  admin:
+    bootstrap-emails: ""
+  corpus:
+    import:
+      run-on-startup: false
+      xlsx-path: ""
+    embedding:
+      sync-on-startup: false
+
+jwt:
+  secret:
+    key: ${JWT_SECRET_KEY:am9iZHJpLWFuYWx5c2lzLWV2YWwtbG9jYWwtc2VjcmV0LWtleQ==}
+  expiration:
+    access-token: ${JWT_ACCESS_TOKEN_EXPIRATION:3600000}
+    refresh-token: ${JWT_REFRESH_TOKEN_EXPIRATION:1209600000}
+
+payment:
+  toss:
+    client-key: ${TOSS_CLIENT_KEY:dummy-evaluation-client-key}
+    secret-key: ${TOSS_SECRET_KEY:dummy-evaluation-secret-key}
+    base-url: ${TOSS_BASE_URL:https://api.tosspayments.com}
