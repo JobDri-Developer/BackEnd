@@ -16,6 +16,30 @@ final class EvaluationCsvSupport {
     }
 
     static List<Map<String, String>> read(Path path) throws IOException {
+        CsvRows csvRows = readRows(path);
+        if (csvRows.headers().isEmpty()) {
+            return List.of();
+        }
+
+        List<Map<String, String>> result = new ArrayList<>();
+        for (List<String> row : csvRows.rows()) {
+            if (row.stream().allMatch(String::isBlank)) {
+                continue;
+            }
+            Map<String, String> values = new LinkedHashMap<>();
+            for (int j = 0; j < csvRows.headers().size(); j++) {
+                values.put(csvRows.headers().get(j), j < row.size() ? row.get(j) : "");
+            }
+            result.add(values);
+        }
+        return result;
+    }
+
+    static List<String> readHeaders(Path path) throws IOException {
+        return readRows(path).headers();
+    }
+
+    private static CsvRows readRows(Path path) throws IOException {
         StringBuilder content = new StringBuilder();
         try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             char[] buffer = new char[4096];
@@ -27,7 +51,7 @@ final class EvaluationCsvSupport {
 
         List<List<String>> rows = parseRows(content.toString());
         if (rows.isEmpty()) {
-            return List.of();
+            return new CsvRows(List.of(), List.of());
         }
 
         List<String> headers = new ArrayList<>(rows.getFirst());
@@ -35,19 +59,7 @@ final class EvaluationCsvSupport {
             headers.set(0, headers.getFirst().substring(1));
         }
 
-        List<Map<String, String>> result = new ArrayList<>();
-        for (int i = 1; i < rows.size(); i++) {
-            List<String> row = rows.get(i);
-            if (row.stream().allMatch(String::isBlank)) {
-                continue;
-            }
-            Map<String, String> values = new LinkedHashMap<>();
-            for (int j = 0; j < headers.size(); j++) {
-                values.put(headers.get(j), j < row.size() ? row.get(j) : "");
-            }
-            result.add(values);
-        }
-        return result;
+        return new CsvRows(headers, rows.subList(1, rows.size()));
     }
 
     static void write(Path path, List<EvaluationAnalysisResult> results) throws IOException {
@@ -98,6 +110,7 @@ final class EvaluationCsvSupport {
         List<String> row = new ArrayList<>();
         StringBuilder field = new StringBuilder();
         boolean inQuotes = false;
+        boolean afterClosingQuote = false;
 
         for (int i = 0; i < content.length(); i++) {
             char current = content.charAt(i);
@@ -108,9 +121,31 @@ final class EvaluationCsvSupport {
                         i++;
                     } else {
                         inQuotes = false;
+                        afterClosingQuote = true;
                     }
                 } else {
                     field.append(current);
+                }
+                continue;
+            }
+
+            if (afterClosingQuote) {
+                if (current == ',') {
+                    row.add(field.toString());
+                    field.setLength(0);
+                    afterClosingQuote = false;
+                } else if (current == '\n') {
+                    row.add(field.toString());
+                    field.setLength(0);
+                    rows.add(row);
+                    row = new ArrayList<>();
+                    afterClosingQuote = false;
+                } else if (current == '\r') {
+                    // Allow CR after a closing quote. LF, comma, or EOF will complete the field.
+                } else {
+                    throw new IllegalArgumentException(
+                            "Malformed CSV: unexpected character after closing quote at position " + i
+                    );
                 }
                 continue;
             }
@@ -130,6 +165,9 @@ final class EvaluationCsvSupport {
             }
         }
 
+        if (inQuotes) {
+            throw new IllegalArgumentException("Malformed CSV: quoted field is not closed.");
+        }
         row.add(field.toString());
         if (!(row.size() == 1 && row.getFirst().isEmpty() && content.endsWith("\n"))) {
             rows.add(row);
@@ -157,5 +195,11 @@ final class EvaluationCsvSupport {
 
     private static String value(Object value) {
         return value == null ? "" : String.valueOf(value);
+    }
+
+    private record CsvRows(
+            List<String> headers,
+            List<List<String>> rows
+    ) {
     }
 }

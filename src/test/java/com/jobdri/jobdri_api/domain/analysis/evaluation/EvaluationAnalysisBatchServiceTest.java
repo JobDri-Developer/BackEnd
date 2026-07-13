@@ -16,10 +16,12 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class EvaluationAnalysisBatchServiceTest {
@@ -125,5 +127,65 @@ class EvaluationAnalysisBatchServiceTest {
         service.run(input, output);
 
         verify(analysisAiClient).analyzeForEvaluation(any(AnalysisPromptInput.class), isNull());
+    }
+
+    @Test
+    @DisplayName("필수 CSV header가 없으면 AI 호출 전에 실패한다")
+    void runFailsFastWhenRequiredHeaderIsMissing() throws Exception {
+        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
+                analysisAiClient,
+                new JobCategoryEvaluationCriteriaProvider(objectMapper),
+                objectMapper
+        );
+        Path input = tempDir.resolve("evaluation_cases.csv");
+        Path output = tempDir.resolve("evaluation_ai_results.csv");
+        Files.writeString(
+                input,
+                "caseId,jobCategoryMiddle,jobCategorySmall,mainTasks,qualifications,preferences,question\n"
+                        + "EV-03,AI·개발·데이터,백엔드,서버 개발,SQL,,경험을 쓰세요\n",
+                StandardCharsets.UTF_8
+        );
+
+        assertThatThrownBy(() -> service.run(input, output))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("missing required headers")
+                .hasMessageContaining("answer");
+        verifyNoInteractions(analysisAiClient);
+    }
+
+    @Test
+    @DisplayName("LLM 호출 실패 케이스도 실패 row로 CSV에 기록한다")
+    void runWritesFailureRowWhenAnalyzeFails() throws Exception {
+        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
+                analysisAiClient,
+                new JobCategoryEvaluationCriteriaProvider(objectMapper),
+                objectMapper
+        );
+        when(analysisAiClient.analyzeForEvaluation(any(AnalysisPromptInput.class), any()))
+                .thenThrow(new RuntimeException("rate limit exceeded"));
+
+        Path input = tempDir.resolve("evaluation_cases.csv");
+        Path output = tempDir.resolve("evaluation_ai_results.csv");
+        Files.writeString(
+                input,
+                "caseId,jobCategoryMiddle,jobCategorySmall,mainTasks,qualifications,preferences,question,answer\n"
+                        + "EV-04,AI·개발·데이터,백엔드,서버 개발,SQL,,경험을 쓰세요,SQL 경험이 있습니다.\n",
+                StandardCharsets.UTF_8
+        );
+
+        EvaluationAnalysisBatchService.EvaluationBatchSummary summary = service.run(input, output);
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+
+        assertThat(summary.totalCount()).isEqualTo(1);
+        assertThat(summary.successCount()).isZero();
+        assertThat(summary.failureCount()).isEqualTo(1);
+        assertThat(row.get("caseId")).isEqualTo("EV-04");
+        assertThat(row.get("aiMissingKeywordsJson")).isEqualTo("[]");
+        assertThat(row.get("aiQuestionAnalysesJson")).isEqualTo("[]");
+        assertThat(row.get("errorMessage")).contains("rate limit exceeded");
     }
 }

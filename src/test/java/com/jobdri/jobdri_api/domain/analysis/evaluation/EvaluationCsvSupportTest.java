@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class EvaluationCsvSupportTest {
 
@@ -60,5 +61,35 @@ class EvaluationCsvSupportTest {
 
         assertThat(csv).contains("\"피드백, 쉼표\"");
         assertThat(csv).contains("\"[{\"\"keyword\"\":\"\"SQL\"\",\"\"source\"\":\"\"qualification\"\"}]\"");
+    }
+
+    @Test
+    @DisplayName("닫히지 않은 quoted field는 파싱 예외를 던진다")
+    void readRejectsUnclosedQuotedField() throws Exception {
+        Path input = tempDir.resolve("evaluation_cases.csv");
+        Files.writeString(
+                input,
+                "caseId,answer\nEV-01,\"닫히지 않은 문장\n",
+                StandardCharsets.UTF_8
+        );
+
+        assertThatThrownBy(() -> EvaluationCsvSupport.read(input))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("quoted field is not closed");
+    }
+
+    @Test
+    @DisplayName("닫힌 quote 뒤 delimiter가 아닌 문자가 오면 파싱 예외를 던진다")
+    void readRejectsUnexpectedCharacterAfterClosingQuote() throws Exception {
+        Path input = tempDir.resolve("evaluation_cases.csv");
+        Files.writeString(
+                input,
+                "caseId,answer\nEV-01,\"문장\"invalid\n",
+                StandardCharsets.UTF_8
+        );
+
+        assertThatThrownBy(() -> EvaluationCsvSupport.read(input))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("unexpected character after closing quote");
     }
 }

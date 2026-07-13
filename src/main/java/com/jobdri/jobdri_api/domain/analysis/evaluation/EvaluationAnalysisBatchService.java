@@ -40,6 +40,16 @@ public class EvaluationAnalysisBatchService {
     private static final double IMPACT_WEIGHT = 0.30;
     private static final double COMPLETENESS_WEIGHT = 0.20;
     private static final Long EVALUATION_QUESTION_ID = 1L;
+    private static final List<String> REQUIRED_HEADERS = List.of(
+            "caseId",
+            "jobCategoryMiddle",
+            "jobCategorySmall",
+            "mainTasks",
+            "qualifications",
+            "preferences",
+            "question",
+            "answer"
+    );
 
     private final AnalysisAiClient analysisAiClient;
     private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
@@ -75,6 +85,7 @@ public class EvaluationAnalysisBatchService {
     }
 
     private List<EvaluationAnalysisCase> readCases(Path inputPath) throws IOException {
+        validateHeaders(EvaluationCsvSupport.readHeaders(inputPath));
         return EvaluationCsvSupport.read(inputPath).stream()
                 .map(row -> new EvaluationAnalysisCase(
                         value(row, "caseId"),
@@ -87,6 +98,16 @@ public class EvaluationAnalysisBatchService {
                         value(row, "answer")
                 ))
                 .toList();
+    }
+
+    private void validateHeaders(List<String> headers) {
+        Set<String> headerSet = new HashSet<>(headers);
+        List<String> missingHeaders = REQUIRED_HEADERS.stream()
+                .filter(header -> !headerSet.contains(header))
+                .toList();
+        if (!missingHeaders.isEmpty()) {
+            throw new IllegalArgumentException("Evaluation CSV missing required headers: " + missingHeaders);
+        }
     }
 
     private EvaluationAnalysisResult analyzeCase(EvaluationAnalysisCase evaluationCase) {
