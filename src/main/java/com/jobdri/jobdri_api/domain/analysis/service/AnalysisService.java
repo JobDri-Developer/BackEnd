@@ -44,20 +44,21 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.COMPLETENESS_WEIGHT;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.IMPACT_WEIGHT;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.JOB_FIT_WEIGHT;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_ANALYSES_PER_QUESTION;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_MISSING_KEYWORDS;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_MISSING_KEYWORD_LENGTH;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_SCORE;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MIN_SCORE;
+
 @Service
 @Slf4j
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 // 자소서 분석의 핵심 비즈니스 로직과 결과 저장을 담당하는 메인 서비스다.
 public class AnalysisService {
-    private static final int MIN_SCORE = 0;
-    private static final int MAX_SCORE = 100;
-    private static final int MAX_ANALYSES_PER_QUESTION = 3;
-    private static final int MAX_MISSING_KEYWORDS = 3;
-    private static final int MAX_MISSING_KEYWORD_LENGTH = 60;
-    private static final double JOB_FIT_WEIGHT = 0.50;
-    private static final double IMPACT_WEIGHT = 0.30;
-    private static final double COMPLETENESS_WEIGHT = 0.20;
     private static final TypeReference<List<MissingKeywordResponse>> MISSING_KEYWORDS_TYPE = new TypeReference<>() {
     };
 

@@ -17,7 +17,9 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
+import java.io.InterruptedIOException;
 import java.nio.charset.StandardCharsets;
+import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.Base64;
 
@@ -76,11 +78,19 @@ public class TossPaymentClient {
                     "토스페이먼츠 결제 승인 실패"
             );
         } catch (ResourceAccessException e) {
-            log.warn("Toss payment confirm request timed out. message={}", truncate(e.getMessage()));
-            log.warn("Toss payment confirm timeout exception", e);
+            if (isTimeoutException(e)) {
+                log.warn("Toss payment confirm request timed out. message={}", truncate(e.getMessage()));
+                log.warn("Toss payment confirm timeout exception", e);
+                throw new GeneralException(
+                        GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT,
+                        "토스페이먼츠 결제 승인 응답이 지연되고 있습니다."
+                );
+            }
+            log.warn("Toss payment confirm request failed. message={}", truncate(e.getMessage()));
+            log.warn("Toss payment confirm request exception", e);
             throw new GeneralException(
-                    GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT,
-                    "토스페이먼츠 결제 승인 응답이 지연되고 있습니다."
+                    GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
+                    "토스페이먼츠 결제 승인 중 오류 발생"
             );
         } catch (RestClientException e) {
             log.warn("Toss payment confirm request failed. message={}", truncate(e.getMessage()));
@@ -102,5 +112,16 @@ public class TossPaymentClient {
             return value;
         }
         return value.substring(0, LOG_MESSAGE_MAX_LENGTH) + "...";
+    }
+
+    private boolean isTimeoutException(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (current instanceof SocketTimeoutException || current instanceof InterruptedIOException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

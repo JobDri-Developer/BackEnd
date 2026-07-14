@@ -47,6 +47,14 @@ class EvaluationAnalysisRunnerSafetyTest {
     }
 
     @Test
+    @DisplayName("analysis-eval profile만 활성화되면 프로필 검증에 성공한다")
+    void validateProfilesSucceedsWhenOnlyAnalysisEvalProfileIsActive() {
+        EvaluationAnalysisRunner runner = runnerWithProfiles("analysis-eval");
+
+        runner.validateProfiles();
+    }
+
+    @Test
     @DisplayName("confirm-openai-cost=false이면 실행 속성 검증에서 실패한다")
     void validateExecutionPropertiesFailsWhenCostConfirmationIsFalse() throws Exception {
         EvaluationAnalysisRunner runner = runnerWithProfiles("analysis-eval");

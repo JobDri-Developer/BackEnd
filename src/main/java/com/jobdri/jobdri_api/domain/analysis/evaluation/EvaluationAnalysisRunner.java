@@ -59,15 +59,19 @@ public class EvaluationAnalysisRunner implements ApplicationRunner {
                     summary.failureCount(),
                     summary.outputPath()
             );
-            exitApplication(0);
         } catch (Exception e) {
             log.error("평가용 자소서 분석 실행에 실패했습니다. message={}", e.getMessage(), e);
+            exitApplication(1);
             throw e;
         }
+        exitApplication(0);
     }
 
     private void exitApplication(int exitCode) {
-        Thread shutdownThread = new Thread(() -> SpringApplication.exit(applicationContext, () -> exitCode));
+        Thread shutdownThread = new Thread(() -> {
+            int resolvedExitCode = SpringApplication.exit(applicationContext, () -> exitCode);
+            System.exit(resolvedExitCode);
+        });
         shutdownThread.setDaemon(false);
         shutdownThread.start();
     }

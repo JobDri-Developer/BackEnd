@@ -31,6 +31,7 @@ public class AnalysisWorkerBridgeService {
     private final AnalysisService analysisService;
     private final UserService userService;
 
+    @Transactional
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
         AnalysisAsyncTask task = getTask(taskId);
         if (task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED) {
@@ -39,6 +40,7 @@ public class AnalysisWorkerBridgeService {
         analysisAsyncTaskService.markRunning(taskId, workerId, retryCount, submittedAt);
     }
 
+    @Transactional
     public void markRetry(
             String taskId,
             FailureReason failureReason,
@@ -126,8 +128,8 @@ public class AnalysisWorkerBridgeService {
         AnalysisLlmResponse llmResponse = request.llmResponse();
         AnalysisResponse response = analysisService.finalizeAnalysis(user, request.mockApplyId(), payload, llmResponse);
         analysisAsyncTaskService.updateWorkerMetadata(taskId, request.workerId(), request.queueLatencyMillis());
-        confirmCreditIfNeeded(task, user);
-        analysisAsyncTaskService.markSuccess(taskId);
+        confirmCreditIfNeeded(task);
+        analysisAsyncTaskService.markSuccess(taskId, response);
         return response;
     }
 
@@ -161,7 +163,7 @@ public class AnalysisWorkerBridgeService {
         analysisAsyncTaskService.markCreditReserved(task.getTaskId(), creditReferenceId);
     }
 
-    private void confirmCreditIfNeeded(AnalysisAsyncTask task, User user) {
+    private void confirmCreditIfNeeded(AnalysisAsyncTask task) {
         if (task.getCreditStatus() != CreditStatus.RESERVED || task.getCreditReferenceId() == null) {
             return;
         }

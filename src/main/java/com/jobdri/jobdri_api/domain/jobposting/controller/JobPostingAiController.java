@@ -104,10 +104,10 @@ public class JobPostingAiController {
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @PathVariable String taskId
     ) {
-        validateAuthenticatedUser(userDetails);
+        var user = validateAuthenticatedUser(userDetails);
         return ApiResponse.onSuccess(
                 "채용 공고 비동기 작업 상태 조회에 성공했습니다.",
-                jobPostingAsyncFacadeService.getTask(userDetails.getUser(), taskId)
+                jobPostingAsyncFacadeService.getTask(user, taskId)
         );
     }
 

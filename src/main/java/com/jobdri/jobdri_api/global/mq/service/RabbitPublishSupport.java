@@ -57,9 +57,9 @@ public class RabbitPublishSupport {
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, failureMessage);
+            throw withCause(failureMessage, e);
         } catch (ExecutionException | TimeoutException e) {
-            throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, failureMessage);
+            throw withCause(failureMessage, e);
         }
     }
 
@@ -68,5 +68,11 @@ public class RabbitPublishSupport {
             return "";
         }
         return " reason=" + reason;
+    }
+
+    private GeneralException withCause(String failureMessage, Exception cause) {
+        GeneralException exception = new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, failureMessage);
+        exception.initCause(cause);
+        return exception;
     }
 }
