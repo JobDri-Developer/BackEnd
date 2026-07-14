@@ -51,3 +51,8 @@ out/
 
 # application secrets
 application-local.yml
+.venv
+
+# Local evaluation datasets/results
+evaluation_cases*.csv
+evaluation_ai_results*.csv

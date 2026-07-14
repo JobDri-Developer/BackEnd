@@ -32,6 +32,13 @@ public class PaymentTransactionService {
             }
             return new PaymentConfirmationStart(payment, true);
         }
+        if (payment.getStatus() == PaymentStatus.UNKNOWN) {
+            if (!payment.hasPaymentKey(request.paymentKey())) {
+                throw new GeneralException(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED, "이미 처리된 결제입니다.");
+            }
+            payment.markProcessing(request.paymentKey());
+            return new PaymentConfirmationStart(payment, false);
+        }
         if (payment.getStatus() == PaymentStatus.PROCESSING || payment.getStatus() == PaymentStatus.FAILED) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED, "이미 처리된 결제입니다.");
         }
@@ -73,6 +80,17 @@ public class PaymentTransactionService {
         }
         if (payment.getStatus() == PaymentStatus.PROCESSING) {
             payment.fail();
+        }
+    }
+
+    @Transactional
+    public void markConfirmationUnknown(Long userId, String orderId, String paymentKey) {
+        Payment payment = getOwnedPaymentForUpdate(userId, orderId);
+        if (!payment.hasPaymentKey(paymentKey)) {
+            return;
+        }
+        if (payment.getStatus() == PaymentStatus.PROCESSING) {
+            payment.markUnknown();
         }
     }
 

@@ -7,6 +7,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncSubmi
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAsyncFacadeService;
+import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAsyncSseService;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
@@ -20,6 +21,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,6 +37,7 @@ public class JobPostingAiController {
 
     private final JobPostingAiService jobPostingAiService;
     private final JobPostingAsyncFacadeService jobPostingAsyncFacadeService;
+    private final JobPostingAsyncSseService jobPostingAsyncSseService;
     private final UserService userService;
 
     @Operation(
@@ -101,10 +104,26 @@ public class JobPostingAiController {
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @PathVariable String taskId
     ) {
-        validateAuthenticatedUser(userDetails);
+        var user = validateAuthenticatedUser(userDetails);
         return ApiResponse.onSuccess(
                 "채용 공고 비동기 작업 상태 조회에 성공했습니다.",
-                jobPostingAsyncFacadeService.getTask(taskId)
+                jobPostingAsyncFacadeService.getTask(user, taskId)
+        );
+    }
+
+    @Operation(
+            summary = "채용 공고 비동기 작업 상태 SSE 구독",
+            description = "taskId로 비동기 작업 상태를 SSE 스트림으로 구독합니다."
+    )
+    @GetMapping(value = "/ingest/async/{taskId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter streamIngestJobPostingAsyncStatus(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable String taskId
+    ) {
+        var user = validateAuthenticatedUser(userDetails);
+        return jobPostingAsyncSseService.subscribe(
+                taskId,
+                () -> jobPostingAsyncFacadeService.getTask(user, taskId)
         );
     }
 

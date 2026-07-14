@@ -15,10 +15,11 @@ public record JobPostingIngestTaskMessage(
         String rawText,
         String imageObjectKey,
         int retryCount,
+        int maxRetryCount,
         Instant submittedAt
 ) {
 
-    public static JobPostingIngestTaskMessage of(String taskId, JobPostingIngestCommand command) {
+    public static JobPostingIngestTaskMessage of(String taskId, JobPostingIngestCommand command, int maxRetryCount) {
         return JobPostingIngestTaskMessage.builder()
                 .messageId(UUID.randomUUID().toString())
                 .taskType("JOB_POSTING_INGEST")
@@ -27,6 +28,7 @@ public record JobPostingIngestTaskMessage(
                 .rawText(command.getRawText())
                 .imageObjectKey(command.getImageObjectKey())
                 .retryCount(0)
+                .maxRetryCount(Math.max(0, maxRetryCount))
                 .submittedAt(Instant.now())
                 .build();
     }

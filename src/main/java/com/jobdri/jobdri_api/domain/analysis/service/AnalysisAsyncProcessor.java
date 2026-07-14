@@ -1,42 +1,19 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
-import com.jobdri.jobdri_api.domain.user.entity.User;
-import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisTaskMessage;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-@Slf4j
 @Service
 @RequiredArgsConstructor
+// 분석 비동기 작업을 MQ 메시지로 변환해 워커 실행 경로로 넘기는 서비스다.
 public class AnalysisAsyncProcessor {
 
-    private final AnalysisAsyncTaskService analysisAsyncTaskService;
-    private final AnalysisService analysisService;
-    private final UserService userService;
+    private final AnalysisTaskMessagePublisher analysisTaskMessagePublisher;
 
-    @Async("llmAsyncExecutor")
-    public void process(String taskId, Long userId, Long mockApplyId, String creditReferenceId) {
-        analysisAsyncTaskService.markRunning(taskId);
-
-        try {
-            User user = userService.getUser(userId);
-            AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApplyId);
-            var llmResponse = analysisService.executeAnalysis(payload);
-            analysisService.finalizeAnalysis(user, mockApplyId, payload, llmResponse);
-            analysisService.confirmAnalysisCredit(user, creditReferenceId);
-            analysisAsyncTaskService.markCreditConfirmed(taskId);
-            analysisAsyncTaskService.markSuccess(taskId);
-        } catch (Exception e) {
-            log.error("자소서 분석 비동기 처리 실패: taskId={}, mockApplyId={}", taskId, mockApplyId, e);
-            try {
-                analysisService.releaseAnalysisCredit(userService.getUser(userId), creditReferenceId);
-                analysisAsyncTaskService.markCreditReleased(taskId);
-            } catch (Exception refundException) {
-                log.error("자소서 분석 실패 환불 처리 실패: taskId={}, userId={}", taskId, userId, refundException);
-            }
-            analysisAsyncTaskService.markFailed(taskId, e.getMessage());
-        }
+    public void process(String taskId, Long userId, Long mockApplyId, int maxRetryCount) {
+        analysisTaskMessagePublisher.publish(
+                AnalysisTaskMessage.of(taskId, userId, mockApplyId, maxRetryCount)
+        );
     }
 }

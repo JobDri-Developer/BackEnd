@@ -82,6 +82,15 @@ public class PaymentService {
                     tossPaymentClient.confirm(request.paymentKey(), request.orderId(), request.amount());
             validateTossResponse(request, tossResponse);
         } catch (RuntimeException e) {
+            if (e instanceof GeneralException generalException
+                    && generalException.getCode() == GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT) {
+                paymentTransactionService.markConfirmationUnknown(
+                        validatedUser.getId(),
+                        request.orderId(),
+                        request.paymentKey()
+                );
+                throw e;
+            }
             paymentTransactionService.failConfirmation(validatedUser.getId(), request.orderId(), request.paymentKey());
             throw e;
         }

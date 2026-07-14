@@ -15,6 +15,7 @@ import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
+// 분석 비동기 작업의 접수와 상태 조회를 외부 API 관점에서 조율하는 서비스다.
 public class AnalysisAsyncFacadeService {
     private static final String ACTIVE_TASK_UNIQUE_CONSTRAINT = "uk_analysis_async_tasks_active_user_mock_apply";
 
@@ -48,7 +49,14 @@ public class AnalysisAsyncFacadeService {
                 .status(status.status())
                 .message(status.message())
                 .error(status.error())
+                .failureReason(status.failureReason())
+                .workerId(status.workerId())
+                .retryCount(status.retryCount())
+                .maxRetryCount(status.maxRetryCount())
+                .queueLatencyMillis(status.queueLatencyMillis())
                 .createdAt(status.createdAt())
+                .submittedAt(status.submittedAt())
+                .lastAttemptAt(status.lastAttemptAt())
                 .startedAt(status.startedAt())
                 .completedAt(status.completedAt())
                 .result(analysisService.getAnalysis(validatedUser, status.mockApplyId()))
@@ -63,12 +71,14 @@ public class AnalysisAsyncFacadeService {
 
         AnalysisAsyncTask task = pendingTaskResult.task();
         String taskId = task.getTaskId();
-        String creditReferenceId = "analysisTaskId=" + taskId;
 
         try {
-            analysisService.reserveAnalysisCredit(user, creditReferenceId);
-            analysisAsyncTaskService.markCreditReserved(taskId, creditReferenceId);
-            analysisAsyncProcessor.process(taskId, user.getId(), mockApplyId, creditReferenceId);
+            analysisAsyncProcessor.process(
+                    taskId,
+                    user.getId(),
+                    mockApplyId,
+                    task.getMaxRetryCount()
+            );
             return new AnalysisAsyncSubmitResponse(
                     taskId,
                     "PENDING",

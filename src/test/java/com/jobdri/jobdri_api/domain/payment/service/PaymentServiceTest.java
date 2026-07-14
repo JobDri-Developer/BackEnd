@@ -184,6 +184,43 @@ class PaymentServiceTest {
     }
 
     @Test
+    @DisplayName("토스 승인 타임아웃이면 결제를 UNKNOWN으로 남기고 재시도를 허용한다")
+    void confirmAllowsRetryWhenTossConfirmTimesOut() {
+        User user = saveUser("payment-confirm-timeout@example.com");
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        String paymentKey = "payment-key-" + prepared.orderId();
+        PaymentConfirmRequest request = new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500);
+
+        when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
+                .thenThrow(new GeneralException(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, "timeout"))
+                .thenReturn(new TossPaymentConfirmResponse(
+                        paymentKey,
+                        prepared.orderId(),
+                        prepared.orderName(),
+                        "DONE",
+                        2500,
+                        "CARD"
+                ));
+
+        assertThatThrownBy(() -> paymentService.confirm(user, request))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT);
+
+        Payment timedOutPayment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(timedOutPayment.getStatus()).isEqualTo(PaymentStatus.UNKNOWN);
+
+        PaymentConfirmResponse retryResponse = paymentService.confirm(user, request);
+
+        assertThat(retryResponse.status()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(1);
+    }
+
+    @Test
     @DisplayName("동일 결제 승인 요청이 동시에 들어와도 한 번만 크레딧을 충전한다")
     void confirmConcurrentlyChargesOnlyOnce() throws Exception {
         User user = saveUser("payment-concurrent-confirm@example.com");

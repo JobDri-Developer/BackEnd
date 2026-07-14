@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
+import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import org.junit.jupiter.api.DisplayName;
@@ -20,6 +21,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -47,7 +49,7 @@ class AnalysisAsyncFacadeServiceTest {
         User user = User.signup("테스트 사용자", "analysis-async@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 1L);
 
-        AnalysisAsyncTask existingTask = AnalysisAsyncTask.pending(1L, 10L);
+        AnalysisAsyncTask existingTask = AnalysisAsyncTask.pending(1L, 10L, 3);
 
         when(userService.validateUser(user)).thenReturn(user);
         when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty(), Optional.of(existingTask));
@@ -58,8 +60,8 @@ class AnalysisAsyncFacadeServiceTest {
 
         assertThat(response.taskId()).isEqualTo(existingTask.getTaskId());
         assertThat(response.status()).isEqualTo("PENDING");
-        verify(analysisService, never()).reserveAnalysisCredit(eq(user), anyString());
-        verify(analysisAsyncProcessor, never()).process(eq(existingTask.getTaskId()), eq(1L), eq(10L), anyString());
+        verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
+        verify(analysisAsyncProcessor, never()).process(eq(existingTask.getTaskId()), eq(1L), eq(10L), eq(3));
     }
 
     @Test
@@ -77,5 +79,38 @@ class AnalysisAsyncFacadeServiceTest {
 
         assertThatThrownBy(() -> analysisAsyncFacadeService.submit(user, 10L))
                 .isSameAs(exception);
+    }
+
+    @Test
+    @DisplayName("메시지 발행이 성공해도 submit 단계에서는 크레딧을 바로 예약하지 않는다")
+    void submitDoesNotReserveCreditBeforeWorkerStarts() {
+        User user = User.signup("테스트 사용자", "analysis-async-submit@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+
+        AnalysisAsyncTask createdTask = AnalysisAsyncTask.pending(1L, 10L, 3);
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty());
+        when(analysisAsyncTaskService.createPendingTask(1L, 10L)).thenReturn(createdTask);
+
+        AnalysisAsyncSubmitResponse response = analysisAsyncFacadeService.submit(user, 10L);
+
+        assertThat(response.taskId()).isEqualTo(createdTask.getTaskId());
+        assertThat(response.status()).isEqualTo("PENDING");
+        verify(analysisAsyncProcessor, times(1)).process(createdTask.getTaskId(), 1L, 10L, 3);
+        verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
+    }
+
+    @Test
+    @DisplayName("재시도 횟수가 maxRetryCount에 도달하면 task를 FAILED로 전환한다")
+    void retryAtLimitMarksTaskFailed() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+
+        task.markRetryScheduled(FailureReason.INTERNAL_ERROR, "retry-1", 1);
+        task.markRetryScheduled(FailureReason.INTERNAL_ERROR, "retry-2", 2);
+        task.markRetryScheduled(FailureReason.INTERNAL_ERROR, "retry-3", 3);
+
+        assertThat(task.getStatus()).isEqualTo(AnalysisAsyncTask.TaskStatus.FAILED);
+        assertThat(task.getRetryCount()).isEqualTo(3);
     }
 }

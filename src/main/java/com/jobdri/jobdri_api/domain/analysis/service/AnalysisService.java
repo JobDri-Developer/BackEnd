@@ -1,8 +1,14 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisQuestionResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
@@ -22,6 +28,7 @@ import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -37,16 +44,23 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.COMPLETENESS_WEIGHT;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.IMPACT_WEIGHT;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.JOB_FIT_WEIGHT;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_ANALYSES_PER_QUESTION;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_MISSING_KEYWORDS;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_MISSING_KEYWORD_LENGTH;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_SCORE;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MIN_SCORE;
+
 @Service
+@Slf4j
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
+// 자소서 분석의 핵심 비즈니스 로직과 결과 저장을 담당하는 메인 서비스다.
 public class AnalysisService {
-    private static final int MIN_SCORE = 0;
-    private static final int MAX_SCORE = 100;
-    private static final int MAX_ANALYSES_PER_QUESTION = 3;
-    private static final double JOB_FIT_WEIGHT = 0.40;
-    private static final double IMPACT_WEIGHT = 0.35;
-    private static final double COMPLETENESS_WEIGHT = 0.25;
+    private static final TypeReference<List<MissingKeywordResponse>> MISSING_KEYWORDS_TYPE = new TypeReference<>() {
+    };
 
     private final MockApplyRepository mockApplyRepository;
     private final QuestionRepository questionRepository;
@@ -55,22 +69,23 @@ public class AnalysisService {
     private final JobPostingService jobPostingService;
     private final AnalysisAiClient analysisAiClient;
     private final CreditService creditService;
+    private final ObjectMapper objectMapper;
+    private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
 
     @Transactional
     @AuditLogEvent(action = "ANALYSIS_RUN", targetType = "MOCK_APPLY", targetId = "#arg1")
     public AnalysisResponse analyze(User user, Long mockApplyId) {
         validateAnalysisRequest(user, mockApplyId);
         String referenceId = "mockApplyId=" + mockApplyId;
-        reserveAnalysisCredit(user, referenceId);
+        deductAnalysisCredit(user, referenceId);
 
         try {
             AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
             AnalysisLlmResponse llmResponse = executeAnalysis(payload);
             AnalysisResponse response = finalizeAnalysis(user, mockApplyId, payload, llmResponse);
-            confirmAnalysisCredit(user, referenceId);
             return response;
         } catch (RuntimeException e) {
-            releaseAnalysisCredit(user, referenceId);
+            refundAnalysisCredit(user, referenceId);
             throw e;
         }
     }
@@ -91,20 +106,13 @@ public class AnalysisService {
     }
 
     @Transactional
-    public void reserveAnalysisCredit(User user, String referenceId) {
-        creditService.use(user, 1, "자소서 분석 크레딧 예약", referenceId);
+    public void deductAnalysisCredit(User user, String referenceId) {
+        creditService.use(user, 1, "자소서 분석 크레딧 차감", referenceId);
     }
 
     @Transactional
-    public void confirmAnalysisCredit(User user, String referenceId) {
-        if (user == null || referenceId == null) {
-            return;
-        }
-    }
-
-    @Transactional
-    public void releaseAnalysisCredit(User user, String referenceId) {
-        creditService.refund(user, 1, "자소서 분석 크레딧 예약 해제", referenceId);
+    public void refundAnalysisCredit(User user, String referenceId) {
+        creditService.refund(user, 1, "자소서 분석 크레딧 환불", referenceId);
     }
 
     @Transactional(readOnly = true)
@@ -125,18 +133,29 @@ public class AnalysisService {
         // Initialize hierarchy before leaving the read transaction so detached payload can be used safely.
         mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName();
         mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getClassification().getBigName();
+        JobCategoryEvaluationCriteria evaluationCriteria = jobCategoryEvaluationCriteriaProvider
+                .findByMiddleName(mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName())
+                .orElse(null);
 
         return new AnalysisExecutionPayload(
                 user.getId(),
                 mockApplyId,
                 mockApply.getJobPosting(),
                 List.copyOf(questions),
-                List.copyOf(answeredQuestions)
+                List.copyOf(answeredQuestions),
+                evaluationCriteria
         );
     }
 
     public AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
-        return analysisAiClient.analyze(payload.jobPosting(), payload.answeredQuestions());
+        if (payload.jobCategoryEvaluationCriteria() == null) {
+            return analysisAiClient.analyze(payload.jobPosting(), payload.answeredQuestions());
+        }
+        return analysisAiClient.analyze(
+                payload.jobPosting(),
+                payload.answeredQuestions(),
+                payload.jobCategoryEvaluationCriteria()
+        );
     }
 
     @Transactional
@@ -148,15 +167,21 @@ public class AnalysisService {
     ) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        validateRequiredScores(llmResponse);
+        int jobFit = validateScore("jobFit", llmResponse.jobFit());
+        int impact = validateScore("impact", llmResponse.impact());
+        int completeness = validateScore("completeness", llmResponse.completeness());
+        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(llmResponse);
         replaceExistingAnalysis(mockApply);
 
         Analysis analysis = analysisRepository.save(Analysis.create(
                 mockApply,
-                clampScore(llmResponse.score()),
-                clampScore(llmResponse.jobFit()),
-                clampScore(llmResponse.impact()),
-                clampScore(llmResponse.completeness()),
-                normalizeFeedback(llmResponse.feedback())
+                calculateScore(jobFit, impact, completeness),
+                jobFit,
+                impact,
+                completeness,
+                normalizeFeedback(llmResponse.feedback()),
+                serializeMissingKeywords(missingKeywords)
         ));
 
         List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(
@@ -168,7 +193,7 @@ public class AnalysisService {
         questionAnalysisRepository.saveAll(questionAnalyses);
         mockApply.updateStatus(MockApplyStatus.COMPLETED);
 
-        return toResponse(mockApply, analysis, questions, questionAnalyses);
+        return toResponse(mockApply, analysis, questions, questionAnalyses, readMissingKeywords(analysis));
     }
 
     public AnalysisResponse getAnalysis(User user, Long mockApplyId) {
@@ -182,7 +207,13 @@ public class AnalysisService {
         List<QuestionAnalysis> questionAnalyses =
                 questionAnalysisRepository.findAllByAnalysisIdOrderByQuestionIdAscIdAsc(analysis.getId());
 
-        return toResponse(mockApply, analysis, questions, questionAnalyses);
+        return toResponse(
+                mockApply,
+                analysis,
+                questions,
+                questionAnalyses,
+                readMissingKeywords(analysis)
+        );
     }
 
     public AnalysisResponse getAnalysisByJobPostingSequence(User user, Long jobPostingId, int sequence) {
@@ -197,7 +228,13 @@ public class AnalysisService {
         List<QuestionAnalysis> questionAnalyses =
                 questionAnalysisRepository.findAllByAnalysisIdOrderByQuestionIdAscIdAsc(analysis.getId());
 
-        return toResponse(mockApply, analysis, questions, questionAnalyses);
+        return toResponse(
+                mockApply,
+                analysis,
+                questions,
+                questionAnalyses,
+                readMissingKeywords(analysis)
+        );
     }
 
     private MockApply resolveMockApplyBySequence(JobPosting jobPosting, int sequence) {
@@ -280,12 +317,27 @@ public class AnalysisService {
             if (!StringUtils.hasText(answer)) {
                 continue;
             }
+            QuestionAnalysisStatus status = parseStatus(item.status());
+            if (status == null || status == QuestionAnalysisStatus.MISSING) {
+                continue;
+            }
+            int currentCount = analysisCountByQuestionId.getOrDefault(question.getId(), 0);
+            if (currentCount >= MAX_ANALYSES_PER_QUESTION) {
+                continue;
+            }
             String sentence = item.sentence();
-            int start = answer.indexOf(sentence);
+            String dedupeKey = question.getId() + ":" + sentence.trim();
+            if (!seenSentences.add(dedupeKey)) {
+                continue;
+            }
+            int start = findNextSentenceStart(
+                    answer,
+                    sentence,
+                    nextSearchIndexByQuestionId.getOrDefault(question.getId(), 0)
+            );
             if (start < 0) {
                 continue;
             }
-            seenSentences.add(dedupeKey);
             nextSearchIndexByQuestionId.put(question.getId(), start + sentence.length());
             analysisCountByQuestionId.put(question.getId(), currentCount + 1);
 
@@ -308,7 +360,8 @@ public class AnalysisService {
             MockApply mockApply,
             Analysis analysis,
             List<Question> questions,
-            List<QuestionAnalysis> questionAnalyses
+            List<QuestionAnalysis> questionAnalyses,
+            List<MissingKeywordResponse> missingKeywords
     ) {
         Map<Long, List<QuestionAnalysisResponse>> analysesByQuestionId = questionAnalyses.stream()
                 .collect(Collectors.groupingBy(
@@ -328,8 +381,112 @@ public class AnalysisService {
                 analysis,
                 mockApply.getStatus(),
                 mockApplyRepository.calculateSequence(mockApply),
+                missingKeywords,
                 questionResponses
         );
+    }
+
+    private List<MissingKeywordResponse> buildMissingKeywords(AnalysisLlmResponse llmResponse) {
+        if (llmResponse == null || llmResponse.missingKeywords() == null) {
+            return List.of();
+        }
+
+        List<MissingKeywordResponse> result = new ArrayList<>();
+        Set<String> seenKeywords = new HashSet<>();
+
+        for (AnalysisLlmResponse.MissingKeywordItem item : llmResponse.missingKeywords()) {
+            if (item == null || !StringUtils.hasText(item.keyword())) {
+                continue;
+            }
+
+            String keyword = item.keyword().trim();
+            if (keyword.length() > MAX_MISSING_KEYWORD_LENGTH) {
+                continue;
+            }
+
+            Optional<MissingKeywordSource> source = MissingKeywordSource.from(item.source());
+            if (source.isEmpty()) {
+                continue;
+            }
+
+            String dedupeKey = normalizeKeyword(keyword);
+            if (!seenKeywords.add(dedupeKey)) {
+                continue;
+            }
+
+            result.add(new MissingKeywordResponse(keyword, source.get()));
+            if (result.size() >= MAX_MISSING_KEYWORDS) {
+                break;
+            }
+        }
+
+        return result;
+    }
+
+    private String normalizeKeyword(String keyword) {
+        return keyword == null ? "" : keyword.replaceAll("\\s+", "").toLowerCase();
+    }
+
+    private String serializeMissingKeywords(List<MissingKeywordResponse> missingKeywords) {
+        try {
+            return objectMapper.writeValueAsString(missingKeywords == null ? List.of() : missingKeywords);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize missingKeywords. Fallback to empty array.", e);
+            return "[]";
+        }
+    }
+
+    private List<MissingKeywordResponse> readMissingKeywords(Analysis analysis) {
+        if (analysis == null || !StringUtils.hasText(analysis.getMissingKeywordsJson())) {
+            return List.of();
+        }
+
+        try {
+            List<MissingKeywordResponse> missingKeywords = objectMapper.readValue(
+                    analysis.getMissingKeywordsJson(),
+                    MISSING_KEYWORDS_TYPE
+            );
+            return sanitizeStoredMissingKeywords(missingKeywords);
+        } catch (Exception e) {
+            log.warn(
+                    "Failed to deserialize missingKeywords. analysisId={}, fallback to empty array.",
+                    analysis.getId(),
+                    e
+            );
+            return List.of();
+        }
+    }
+
+    private List<MissingKeywordResponse> sanitizeStoredMissingKeywords(List<MissingKeywordResponse> missingKeywords) {
+        if (missingKeywords == null) {
+            return List.of();
+        }
+
+        List<MissingKeywordResponse> result = new ArrayList<>();
+        Set<String> seenKeywords = new HashSet<>();
+
+        for (MissingKeywordResponse item : missingKeywords) {
+            if (item == null || !StringUtils.hasText(item.keyword()) || item.source() == null) {
+                continue;
+            }
+
+            String keyword = item.keyword().trim();
+            if (keyword.length() > MAX_MISSING_KEYWORD_LENGTH) {
+                continue;
+            }
+
+            String dedupeKey = normalizeKeyword(keyword);
+            if (!seenKeywords.add(dedupeKey)) {
+                continue;
+            }
+
+            result.add(new MissingKeywordResponse(keyword, item.source()));
+            if (result.size() >= MAX_MISSING_KEYWORDS) {
+                break;
+            }
+        }
+
+        return result;
     }
 
     private MockApply getOwnedMockApply(User user, Long mockApplyId) {

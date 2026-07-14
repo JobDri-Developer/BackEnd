@@ -81,6 +81,10 @@ public class Payment extends BaseEntity {
         this.status = PaymentStatus.FAILED;
     }
 
+    public void markUnknown() {
+        this.status = PaymentStatus.UNKNOWN;
+    }
+
     public boolean belongsTo(Long userId) {
         return user != null && user.getId() != null && user.getId().equals(userId);
     }

@@ -11,7 +11,7 @@ public class JobPostingAsyncProcessor {
 
     private final JobPostingTaskMessagePublisher jobPostingTaskMessagePublisher;
 
-    public void process(String taskId, JobPostingIngestCommand command) {
-        jobPostingTaskMessagePublisher.publish(JobPostingIngestTaskMessage.of(taskId, command));
+    public void process(String taskId, JobPostingIngestCommand command, int maxRetryCount) {
+        jobPostingTaskMessagePublisher.publish(JobPostingIngestTaskMessage.of(taskId, command, maxRetryCount));
     }
 }

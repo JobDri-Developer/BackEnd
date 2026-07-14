@@ -17,7 +17,7 @@ public class RabbitMqConfig {
 
     @Bean
     public DirectExchange workerExchange(
-            @Value("${app.worker.job-posting.exchange:jobdri.worker.exchange}") String exchangeName
+            @Value("${app.worker.exchange:jobdri.worker.exchange}") String exchangeName
     ) {
         return new DirectExchange(exchangeName, true, false);
     }
@@ -47,6 +47,33 @@ public class RabbitMqConfig {
             @Value("${app.worker.job-posting.routing-key:job-posting.ingest}") String routingKey
     ) {
         return BindingBuilder.bind(jobPostingIngestQueue).to(workerExchange).with(routingKey);
+    }
+
+    @Bean
+    public Queue analysisQueue(
+            @Value("${app.worker.analysis.queue:jobdri.analysis.execute}") String queueName,
+            @Value("${app.worker.analysis.dlq:jobdri.analysis.execute.dlq}") String deadLetterQueueName
+    ) {
+        return QueueBuilder.durable(queueName)
+                .withArgument("x-dead-letter-exchange", "")
+                .withArgument("x-dead-letter-routing-key", deadLetterQueueName)
+                .build();
+    }
+
+    @Bean
+    public Queue analysisDeadLetterQueue(
+            @Value("${app.worker.analysis.dlq:jobdri.analysis.execute.dlq}") String deadLetterQueueName
+    ) {
+        return QueueBuilder.durable(deadLetterQueueName).build();
+    }
+
+    @Bean
+    public Binding analysisBinding(
+            @Qualifier("analysisQueue") Queue analysisQueue,
+            DirectExchange workerExchange,
+            @Value("${app.worker.analysis.routing-key:analysis.execute}") String routingKey
+    ) {
+        return BindingBuilder.bind(analysisQueue).to(workerExchange).with(routingKey);
     }
 
     @Bean

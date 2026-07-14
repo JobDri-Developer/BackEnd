@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
@@ -20,13 +21,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Component
 @Slf4j
 @RequiredArgsConstructor
+// 자소서 분석에 필요한 프롬프트를 만들고 LLM 호출을 수행하는 클라이언트다.
 public class AnalysisAiClient {
     private static final int MAX_REFERENCE_SECTION_LENGTH = 3000;
     private static final int MAX_REFERENCE_FIELD_LENGTH = 300;
+    private static final int MAX_CRITERIA_ITEMS = 5;
     private static final String OUTPUT_SCHEMA = """
             [출력 형식]
             {
@@ -34,6 +38,12 @@ public class AnalysisAiClient {
               "impact": 55,
               "completeness": 67,
               "feedback": "한 줄 피드백",
+              "missingKeywords": [
+                {
+                  "keyword": "SQL 활용 경험",
+                  "source": "qualification"
+                }
+              ],
               "questionAnalyses": [
                 {
                   "questionId": 1,
@@ -53,7 +63,8 @@ public class AnalysisAiClient {
             4. jobFit, impact, completeness를 각각 평가한다.
             5. 감점 금지 조건과 status 오남용 여부를 확인한다.
             6. 보완이 필요한 원문 문장을 문항당 최대 3개만 추출한다.
-            7. 지정된 JSON만 반환한다.
+            7. JD에는 있지만 자소서에 충분히 드러나지 않은 역량을 missingKeywords로 최대 3개 추출한다.
+            8. 지정된 JSON만 반환한다.
 
             [jobFit 평가 기준]
             JD가 요구하는 역량, 경험, 기술을 자기소개서가 얼마나 증명하는지 평가한다.
@@ -128,6 +139,18 @@ public class AnalysisAiClient {
             - 동일하거나 거의 동일한 문장을 중복 반환하지 않는다.
             - start/end index는 출력하지 않는다. 서버가 Java String character index 기준으로 계산한다.
             - missing은 원문에 해당 문장이 없을 수 있으므로 sentence를 임의로 만들지 않는다.
+            - missing은 questionAnalyses에 억지로 넣지 않는다.
+
+            [missingKeywords 규칙]
+            - JD에는 있지만 자소서에 충분히 드러나지 않은 요건이나 역량을 추출한다.
+            - questionAnalyses와 분리해서 missingKeywords에만 넣는다.
+            - 최대 3개만 반환한다.
+            - 누락 키워드가 없으면 null이나 필드 생략이 아니라 빈 배열 []을 반환한다.
+            - 우선순위는 자격요건(qualification) > 우대사항(preference) > 주요 업무(mainTask)다.
+            - keyword는 단순 단어보다 짧은 역량 문구 형태로 작성한다.
+            - 가능하면 JD에 실제 들어간 표현을 유지한다.
+            - 중복되거나 유사한 keyword는 하나로 묶고, 대표 문구는 자격요건 표현을 우선한다.
+            - source는 qualification, preference, mainTask 중 하나만 사용한다.
 
             [reason 작성 규칙]
             - 사용자가 왜 해당 문장이 보완 대상인지 이해할 수 있게 작성한다.
@@ -142,7 +165,7 @@ public class AnalysisAiClient {
             - 반드시 한국어 평서문으로 작성한다.
             - "추가하세요", "보완하세요", "수정해주세요", "필요합니다" 같은 지시문을 사용하지 않는다.
             - 사용자가 언급하지 않은 경험, 기술, 도구명, 인원수, 금액, 성과 수치를 임의로 만들지 않는다.
-            - 수치가 필요하지만 원문에 없다면 N건, X%, 약 N시간 같은 빈칸 표현을 사용한다.
+            - 수치가 필요하지만 원문에 없다면 N건, X%%, 약 N시간 같은 빈칸 표현을 사용한다.
             - 원래 경험과 맥락을 최대한 유지한다.
             - 가능하면 행동, 역할, 결과가 드러나도록 개선한다.
             - 너무 길거나 과도하게 화려한 문장으로 만들지 않는다.
@@ -157,10 +180,18 @@ public class AnalysisAiClient {
     private String analysisModel;
 
     public AnalysisLlmResponse analyze(AnalysisExecutionPayload payload) {
-        return analyze(payload.jobPosting(), payload.answeredQuestions());
+        return analyze(payload.jobPosting(), payload.answeredQuestions(), payload.jobCategoryEvaluationCriteria());
     }
 
     public AnalysisLlmResponse analyze(JobPosting jobPosting, List<Question> questions) {
+        return analyze(jobPosting, questions, null);
+    }
+
+    public AnalysisLlmResponse analyze(
+            JobPosting jobPosting,
+            List<Question> questions,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
+    ) {
         RetrievalContext referenceContext = emptyContext();
         try {
             referenceContext = corpusRetrievalService.retrieveForAnalysis(jobPosting, questions);
@@ -170,7 +201,7 @@ public class AnalysisAiClient {
         }
         var params = ResponseCreateParams.builder()
                 .model(analysisModel)
-                .input(buildPrompt(jobPosting, questions, referenceContext))
+                .input(buildPrompt(jobPosting, questions, referenceContext, jobCategoryEvaluationCriteria))
                 .temperature(0.2)
                 .text(AnalysisLlmResponse.class)
                 .build();
@@ -192,25 +223,67 @@ public class AnalysisAiClient {
         }
     }
 
-    private String buildPrompt(
+    public AnalysisLlmResponse analyzeForEvaluation(
+            AnalysisPromptInput promptInput,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
+    ) {
+        var params = ResponseCreateParams.builder()
+                .model(analysisModel)
+                .input(buildPrompt(promptInput, emptyContext(), jobCategoryEvaluationCriteria))
+                .temperature(0.2)
+                .text(AnalysisLlmResponse.class)
+                .build();
+
+        try {
+            StructuredResponse<AnalysisLlmResponse> response = llmConcurrencyLimiter.execute(
+                    "cover-letter-analysis-evaluation",
+                    () -> openAIClient.responses().create(params)
+            );
+            return extractStructuredContent(response);
+        } catch (GeneralException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("평가용 자소서 분석 OpenAI API 호출 오류: {}", e.getMessage(), e);
+            throw new GeneralException(
+                    GeneralErrorCode.SERVICE_UNAVAILABLE,
+                    "평가용 자소서 분석 AI 호출에 실패했습니다."
+            );
+        }
+    }
+
+    String buildPrompt(
             JobPosting jobPosting,
             List<Question> questions,
-            RetrievalContext referenceContext
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
     ) {
-        String questionText = questions.stream()
+        return buildPrompt(
+                AnalysisPromptInput.from(jobPosting, questions),
+                referenceContext,
+                jobCategoryEvaluationCriteria
+        );
+    }
+
+    String buildPrompt(
+            AnalysisPromptInput promptInput,
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
+    ) {
+        String questionText = promptInput.questions().stream()
                 .map(question -> """
                         - questionId: %d
                           question: %s
                           answer: %s
                         """.formatted(
-                        question.getId(),
-                        defaultString(question.getContent()),
-                        defaultString(question.getAnswer())
+                        question.questionId(),
+                        defaultString(question.question()),
+                        defaultString(question.answer())
                 ))
-                .reduce("", (left, right) -> left + "\n" + right);
+                .collect(Collectors.joining("\n"));
 
         String similarJobPostingText = formatJobPostingReferences(referenceContext.jobPostingReferences());
         String similarQuestionText = formatQuestionReferences(referenceContext.questionReferences());
+        String jobCategoryCriteriaSection = formatJobCategoryEvaluationCriteriaSection(jobCategoryEvaluationCriteria);
 
         return """
                 [시스템 지시]
@@ -244,6 +317,8 @@ public class AnalysisAiClient {
                 [유사 자소서 문항 검색 결과]
                 %s
 
+                %s
+
                 [자소서 문항과 답변]
                 %s
 
@@ -252,23 +327,70 @@ public class AnalysisAiClient {
                 - questionAnalyses의 questionId는 입력된 questionId 중 하나만 사용한다.
                 - questionAnalyses의 status는 proven, mentioned, missing, fabricated 중 하나만 사용한다.
                 - sentence는 answer에 포함된 정확한 substring만 사용한다.
+                - missing 상태를 questionAnalyses에 넣기 위해 원문에 없는 sentence를 만들지 않는다.
+                - missingKeywords는 최대 3개이며, 없으면 []로 출력한다.
+                - missingKeywords의 source는 qualification, preference, mainTask 중 하나만 사용한다.
                 - improvement가 지시문이 아닌 완성된 한국어 평서문인지 확인한다.
                 - 원문에 없는 경험, 기술, 도구명, 인원수, 금액, 성과 수치를 만들지 않았는지 확인한다.
                 - fabricated를 단순 근거 부족에 사용하지 않았는지 확인한다.
                 - jobFit, impact, completeness는 0~100 정수로 출력한다.
+                - 총점 score는 서버가 jobFit 50%%, impact 30%%, completeness 20%%로 계산하므로 출력하지 않는다.
                 """.formatted(
                 OUTPUT_SCHEMA,
                 EVALUATION_CRITERIA,
                 STATUS_AND_WRITING_RULES.formatted(AnalysisImprovementRules.bannedPhrasesText()),
-                defaultString(jobPosting.getCompany().getName()),
-                defaultString(jobPosting.getDetailClassification().getDetailName()),
-                defaultString(jobPosting.getTask()),
-                defaultString(jobPosting.getRequirement()),
-                defaultString(jobPosting.getPreferred()),
+                defaultString(promptInput.companyName()),
+                defaultString(promptInput.jobName()),
+                defaultString(promptInput.mainTasks()),
+                defaultString(promptInput.qualifications()),
+                defaultString(promptInput.preferences()),
                 similarJobPostingText,
                 similarQuestionText,
+                jobCategoryCriteriaSection,
                 questionText
         );
+    }
+
+    private String formatJobCategoryEvaluationCriteriaSection(JobCategoryEvaluationCriteria criteria) {
+        if (criteria == null) {
+            return "";
+        }
+
+        return """
+                [직무별 보조 평가 기준]
+                중분류: %s
+                주의:
+                - 이 직무별 기준은 실제 JD를 대체하지 않는다.
+                - 실제 JD의 자격요건, 우대사항, 주요업무를 우선한다.
+                - 직무별 기준은 JD가 모호하거나 암묵 역량 판단이 필요할 때만 보조적으로 참고한다.
+                - missingKeywords는 실제 JD 표현을 우선 사용하고, 직무별 missingKeywordExamples는 문구 정리와 유사 키워드 묶기에만 참고한다.
+                - 직무별 기준에 있는 키워드가 자소서에 없다는 이유만으로 무조건 missing 처리하지 않는다.
+                - 원문에 없는 수치, 도구, 경험을 만들어내지 않는다.
+                핵심 역량: %s
+                관련 행동: %s
+                관련 키워드: %s
+                좋은 근거 예시: %s
+                누락 키워드 문구 예시: %s
+                """.formatted(
+                defaultString(criteria.jobCategoryMiddle()),
+                formatCriteriaList(criteria.coreCompetencies()),
+                formatCriteriaList(criteria.relatedActions()),
+                formatCriteriaList(criteria.relatedKeywords()),
+                truncate(defaultString(criteria.goodEvidenceExample()), MAX_REFERENCE_FIELD_LENGTH),
+                formatCriteriaList(criteria.missingKeywordExamples())
+        ).trim();
+    }
+
+    private String formatCriteriaList(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return "없음";
+        }
+        String formatted = values.stream()
+                .filter(value -> value != null && !value.isBlank())
+                .limit(MAX_CRITERIA_ITEMS)
+                .map(value -> "- " + truncate(value.trim(), MAX_REFERENCE_FIELD_LENGTH))
+                .collect(Collectors.joining("\n"));
+        return formatted.isBlank() ? "없음" : "\n" + formatted;
     }
 
     private String formatJobPostingReferences(List<RetrievedJobPostingReference> references) {

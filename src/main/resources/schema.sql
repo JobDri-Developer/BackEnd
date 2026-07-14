@@ -39,3 +39,6 @@ CREATE INDEX IF NOT EXISTS idx_mock_job_posting_embeddings_hnsw
 
 CREATE INDEX IF NOT EXISTS idx_mock_question_embeddings_hnsw
     ON mock_question_embeddings USING hnsw (embedding vector_cosine_ops);
+
+ALTER TABLE IF EXISTS analyses
+    ADD COLUMN IF NOT EXISTS missing_keywords TEXT NOT NULL DEFAULT '[]';
