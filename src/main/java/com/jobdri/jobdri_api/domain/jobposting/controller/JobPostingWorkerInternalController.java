@@ -14,6 +14,9 @@ import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAsyncFacadeServ
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingWorkerBridgeService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.security.InternalApiKeyValidator;
+import io.swagger.v3.oas.annotations.Hidden;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,6 +32,8 @@ import java.util.List;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/internal/worker/job-postings")
+@Hidden
+@Tag(name = "JobPosting Worker Internal", description = "채용 공고 worker 내부 통신 API")
 public class JobPostingWorkerInternalController {
 
     private static final String INTERNAL_API_KEY_HEADER = "X-Internal-Api-Key";
@@ -37,6 +42,7 @@ public class JobPostingWorkerInternalController {
     private final JobPostingWorkerBridgeService jobPostingWorkerBridgeService;
     private final JobPostingAsyncFacadeService jobPostingAsyncFacadeService;
 
+    @Operation(summary = "채용 공고 worker 작업 실행 상태 반영", description = "worker가 taskId 기준 채용 공고 작업을 실행 중 상태로 변경합니다.")
     @PostMapping("/tasks/{taskId}/running")
     public ApiResponse<Void> markRunning(
             @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
@@ -48,6 +54,7 @@ public class JobPostingWorkerInternalController {
         return ApiResponse.onSuccess("채용 공고 worker 작업 시작 상태를 반영했습니다.");
     }
 
+    @Operation(summary = "채용 공고 worker 작업 재시도 상태 반영", description = "worker가 채용 공고 작업 실패 후 재시도 상태와 메타데이터를 반영합니다.")
     @PostMapping("/tasks/{taskId}/retry")
     public ApiResponse<Void> markRetry(
             @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
@@ -66,6 +73,7 @@ public class JobPostingWorkerInternalController {
         return ApiResponse.onSuccess("채용 공고 worker 작업 재시도 상태를 반영했습니다.");
     }
 
+    @Operation(summary = "채용 공고 worker 작업 완료 반영", description = "worker가 생성한 채용 공고 결과를 저장하고 taskId 기준 작업 완료 상태를 반영합니다.")
     @PostMapping("/tasks/{taskId}/complete")
     public ApiResponse<JobPostingIngestResponse> completeTask(
             @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
@@ -79,6 +87,7 @@ public class JobPostingWorkerInternalController {
         );
     }
 
+    @Operation(summary = "채용 공고 worker 작업 실패 반영", description = "worker가 채용 공고 작업 실패 상태와 실패 메타데이터를 반영합니다.")
     @PostMapping("/tasks/{taskId}/failed")
     public ApiResponse<Void> failTask(
             @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
@@ -97,6 +106,7 @@ public class JobPostingWorkerInternalController {
         return ApiResponse.onSuccess("채용 공고 worker 작업 실패 상태를 반영했습니다.");
     }
 
+    @Operation(summary = "채용 공고 worker 컨텍스트 조회", description = "worker가 이미지 기반 채용 공고 처리를 위해 읽기 가능한 컨텍스트 정보를 조회합니다.")
     @PostMapping("/ingest/context")
     public ApiResponse<JobPostingWorkerContextResponse> getContext(
             @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
@@ -114,6 +124,7 @@ public class JobPostingWorkerInternalController {
         );
     }
 
+    @Operation(summary = "채용 공고 분류 후보 조회", description = "추출된 채용 공고 정보를 바탕으로 분류 후보 목록을 조회합니다.")
     @PostMapping("/classification/candidates")
     public ApiResponse<List<JobPostingClassificationCandidateResponse>> getCandidates(
             @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
@@ -126,6 +137,7 @@ public class JobPostingWorkerInternalController {
         );
     }
 
+    @Operation(summary = "채용 공고 적재 후처리 및 완료", description = "추출, 분류, 생성 결과를 바탕으로 채용 공고 저장과 비동기 완료 처리를 한 번에 수행합니다.")
     @PostMapping("/ingest/finalize")
     public ApiResponse<JobPostingIngestResponse> finalizeTask(
             @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
@@ -145,6 +157,7 @@ public class JobPostingWorkerInternalController {
         );
     }
 
+    @Operation(summary = "채용 공고 worker 작업 상태 조회", description = "taskId 기준 채용 공고 worker 비동기 작업 상태를 내부 용도로 조회합니다.")
     @GetMapping("/tasks/{taskId}")
     public ApiResponse<JobPostingAsyncStatusResponse> getTask(
             @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
