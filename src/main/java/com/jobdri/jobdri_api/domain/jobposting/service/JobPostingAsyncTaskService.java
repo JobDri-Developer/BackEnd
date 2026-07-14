@@ -100,7 +100,7 @@ public class JobPostingAsyncTaskService {
     @Transactional
     public void markFailed(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
         JobPostingAsyncTask task = getTaskState(taskId);
-        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+        if (isTerminal(task)) {
             return;
         }
         task.markFailed(failureReason, errorMessage, retryCount);
@@ -139,10 +139,7 @@ public class JobPostingAsyncTaskService {
     public int sweepTimedOutTasks() {
         int expiredCount = 0;
         for (JobPostingAsyncTask task : jobPostingAsyncTaskRepository.findByStatusIn(EnumSet.of(TaskStatus.PENDING, TaskStatus.RUNNING))) {
-            TaskStatus beforeStatus = task.getStatus();
-            expireTimedOutTaskIfNeeded(task);
-            if (beforeStatus != task.getStatus() && task.getStatus() == TaskStatus.FAILED) {
-                publishAfterCommit(toStatusResponse(task));
+            if (expireTimedOutTaskIfNeeded(task)) {
                 expiredCount++;
             }
         }
@@ -181,31 +178,35 @@ public class JobPostingAsyncTaskService {
         return task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED;
     }
 
-    private void expireTimedOutTaskIfNeeded(JobPostingAsyncTask task) {
+    private boolean expireTimedOutTaskIfNeeded(JobPostingAsyncTask task) {
         if (isTerminal(task)) {
-            return;
+            return false;
         }
 
         LocalDateTime now = LocalDateTime.now();
         if (task.getStatus() == TaskStatus.PENDING
                 && isExpired(task.getSubmittedAt(), now, queueTimeoutMinutes)) {
-            task.markFailed(
+            markFailed(
+                    task.getTaskId(),
                     FailureReason.QUEUE_TIMEOUT,
                     "채용 공고 작업이 대기열에서 시간 내 처리되지 않았습니다.",
                     task.getRetryCount()
             );
-            return;
+            return true;
         }
 
         LocalDateTime lastActivityAt = task.getLastAttemptAt() != null ? task.getLastAttemptAt() : task.getStartedAt();
         if (task.getStatus() == TaskStatus.RUNNING
                 && isExpired(lastActivityAt, now, processingTimeoutMinutes)) {
-            task.markFailed(
+            markFailed(
+                    task.getTaskId(),
                     FailureReason.WORKER_TIMEOUT,
                     "채용 공고 작업이 처리 제한 시간을 초과했습니다.",
                     task.getRetryCount()
             );
+            return true;
         }
+        return false;
     }
 
     private boolean isExpired(LocalDateTime baseTime, LocalDateTime now, long timeoutMinutes) {

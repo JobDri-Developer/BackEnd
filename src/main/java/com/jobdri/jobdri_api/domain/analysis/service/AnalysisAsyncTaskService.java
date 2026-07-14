@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
@@ -67,10 +68,10 @@ public class AnalysisAsyncTaskService {
     }
 
     @Transactional
-    public void markSuccess(String taskId) {
+    public void markSuccess(String taskId, AnalysisResponse result) {
         AnalysisAsyncTask task = getTask(taskId);
         task.markSuccess();
-        publishAfterCommit(toStatusResponse(task));
+        publishAfterCommit(toStatusResponse(task, result));
         createSuccessNotificationSafely(task);
     }
 
@@ -138,6 +139,10 @@ public class AnalysisAsyncTaskService {
     }
 
     private AnalysisAsyncStatusResponse toStatusResponse(AnalysisAsyncTask task) {
+        return toStatusResponse(task, null);
+    }
+
+    private AnalysisAsyncStatusResponse toStatusResponse(AnalysisAsyncTask task, AnalysisResponse result) {
         return AnalysisAsyncStatusResponse.builder()
                 .taskId(task.getTaskId())
                 .mockApplyId(task.getMockApplyId())
@@ -154,7 +159,7 @@ public class AnalysisAsyncTaskService {
                 .lastAttemptAt(task.getLastAttemptAt())
                 .startedAt(task.getStartedAt())
                 .completedAt(task.getCompletedAt())
-                .result(null)
+                .result(task.getStatus() == TaskStatus.SUCCEEDED ? result : null)
                 .build();
     }
 

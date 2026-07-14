@@ -21,6 +21,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 @Component
 @Slf4j
@@ -278,7 +279,7 @@ public class AnalysisAiClient {
                         defaultString(question.question()),
                         defaultString(question.answer())
                 ))
-                .reduce("", (left, right) -> left + "\n" + right);
+                .collect(Collectors.joining("\n"));
 
         String similarJobPostingText = formatJobPostingReferences(referenceContext.jobPostingReferences());
         String similarQuestionText = formatQuestionReferences(referenceContext.questionReferences());
@@ -388,8 +389,7 @@ public class AnalysisAiClient {
                 .filter(value -> value != null && !value.isBlank())
                 .limit(MAX_CRITERIA_ITEMS)
                 .map(value -> "- " + truncate(value.trim(), MAX_REFERENCE_FIELD_LENGTH))
-                .reduce("", (left, right) -> left + "\n" + right)
-                .trim();
+                .collect(Collectors.joining("\n"));
         return formatted.isBlank() ? "없음" : "\n" + formatted;
     }
 

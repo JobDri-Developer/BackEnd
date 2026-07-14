@@ -9,6 +9,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAiClient;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisImprovementRules;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisPromptInput;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants;
 import com.jobdri.jobdri_api.domain.analysis.service.JobCategoryEvaluationCriteriaProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,14 +32,6 @@ import java.util.Set;
 @RequiredArgsConstructor
 @Slf4j
 public class EvaluationAnalysisBatchService {
-    private static final int MIN_SCORE = 0;
-    private static final int MAX_SCORE = 100;
-    private static final int MAX_ANALYSES_PER_QUESTION = 3;
-    private static final int MAX_MISSING_KEYWORDS = 3;
-    private static final int MAX_MISSING_KEYWORD_LENGTH = 60;
-    private static final double JOB_FIT_WEIGHT = 0.50;
-    private static final double IMPACT_WEIGHT = 0.30;
-    private static final double COMPLETENESS_WEIGHT = 0.20;
     private static final Long EVALUATION_QUESTION_ID = 1L;
     private static final List<String> REQUIRED_HEADERS = List.of(
             "caseId",
@@ -168,7 +161,7 @@ public class EvaluationAnalysisBatchService {
             }
 
             String keyword = item.keyword().trim();
-            if (keyword.length() > MAX_MISSING_KEYWORD_LENGTH) {
+            if (keyword.length() > AnalysisResultConstants.MAX_MISSING_KEYWORD_LENGTH) {
                 continue;
             }
 
@@ -183,7 +176,7 @@ public class EvaluationAnalysisBatchService {
             }
 
             result.add(new MissingKeywordResponse(keyword, source.get()));
-            if (result.size() >= MAX_MISSING_KEYWORDS) {
+            if (result.size() >= AnalysisResultConstants.MAX_MISSING_KEYWORDS) {
                 break;
             }
         }
@@ -222,7 +215,7 @@ public class EvaluationAnalysisBatchService {
             }
 
             int currentCount = analysisCountByQuestionId.getOrDefault(item.questionId(), 0);
-            if (currentCount >= MAX_ANALYSES_PER_QUESTION) {
+            if (currentCount >= AnalysisResultConstants.MAX_ANALYSES_PER_QUESTION) {
                 continue;
             }
 
@@ -257,7 +250,9 @@ public class EvaluationAnalysisBatchService {
     }
 
     private int validateScore(String fieldName, Integer score) {
-        if (score == null || score < MIN_SCORE || score > MAX_SCORE) {
+        if (score == null
+                || score < AnalysisResultConstants.MIN_SCORE
+                || score > AnalysisResultConstants.MAX_SCORE) {
             throw new IllegalArgumentException("자소서 분석 AI 응답의 " + fieldName + " 점수 범위가 올바르지 않습니다.");
         }
         return score;
@@ -265,9 +260,9 @@ public class EvaluationAnalysisBatchService {
 
     private int calculateScore(int jobFit, int impact, int completeness) {
         return (int) Math.round(
-                jobFit * JOB_FIT_WEIGHT
-                        + impact * IMPACT_WEIGHT
-                        + completeness * COMPLETENESS_WEIGHT
+                jobFit * AnalysisResultConstants.JOB_FIT_WEIGHT
+                        + impact * AnalysisResultConstants.IMPACT_WEIGHT
+                        + completeness * AnalysisResultConstants.COMPLETENESS_WEIGHT
         );
     }
 

@@ -94,24 +94,17 @@ public class SseSubscriptionRegistry {
     }
 
     public void publish(String channelKey, String eventName, Object payload, boolean completeAfterPublish) {
+        List<SseEmitter> subscribers;
         synchronized (channelMonitor(channelKey)) {
-            List<SseEmitter> subscribers = emitters.get(channelKey);
+            subscribers = emitters.get(channelKey);
             if (subscribers == null || subscribers.isEmpty()) {
                 return;
             }
+            subscribers = List.copyOf(subscribers);
+        }
 
-            for (SseEmitter emitter : subscribers) {
-                try {
-                    emitter.send(SseEmitter.event().name(eventName).data(payload));
-                    if (completeAfterPublish) {
-                        emitter.complete();
-                        remove(channelKey, emitter);
-                    }
-                } catch (Exception e) {
-                    emitter.completeWithError(e);
-                    remove(channelKey, emitter);
-                }
-            }
+        for (SseEmitter emitter : subscribers) {
+            heartbeatDispatchExecutor.execute(() -> publish(channelKey, emitter, eventName, payload, completeAfterPublish));
         }
     }
 
@@ -149,6 +142,28 @@ public class SseSubscriptionRegistry {
                 emitter.completeWithError(e);
                 remove(channelKey, emitter);
             }
+        }
+    }
+
+    private void publish(
+            String channelKey,
+            SseEmitter emitter,
+            String eventName,
+            Object payload,
+            boolean completeAfterPublish
+    ) {
+        if (!emitters.getOrDefault(channelKey, new CopyOnWriteArrayList<>()).contains(emitter)) {
+            return;
+        }
+        try {
+            emitter.send(SseEmitter.event().name(eventName).data(payload));
+            if (completeAfterPublish) {
+                emitter.complete();
+                remove(channelKey, emitter);
+            }
+        } catch (Exception e) {
+            emitter.completeWithError(e);
+            remove(channelKey, emitter);
         }
     }
 
