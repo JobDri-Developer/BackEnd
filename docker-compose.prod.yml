@@ -1,4 +1,20 @@
 services:
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: jobdri-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USERNAME:-jobdri}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-change-me}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   api:
     image: ${IMAGE_NAME:-ghcr.io/jobdri-developer/backend}:${IMAGE_TAG:-latest}
     container_name: jobdri-api
@@ -7,6 +23,46 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: prod
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      RABBITMQ_HOST: rabbitmq
     ports:
       - "${APP_PORT:-8080}:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    image: ${WORKER_IMAGE_NAME:-ghcr.io/jobdri-developer/analysis-server}:${WORKER_IMAGE_TAG:-latest}
+    container_name: jobdri-analysis-worker
+    env_file:
+      - .env
+    environment:
+      WORKER_ENV: prod
+      SPRING_API_BASE_URL: http://api:8080
+      APP_WORKER_INTERNAL_API_KEY: ${APP_WORKER_INTERNAL_API_KEY}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: ${RABBITMQ_PORT:-5672}
+      RABBITMQ_USERNAME: ${RABBITMQ_USERNAME}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      APP_WORKER_JOB_POSTING_EXCHANGE: ${APP_WORKER_JOB_POSTING_EXCHANGE:-${APP_WORKER_EXCHANGE:-jobdri.worker.exchange}}
+      APP_WORKER_JOB_POSTING_QUEUE: ${APP_WORKER_JOB_POSTING_QUEUE:-jobdri.job-posting.ingest}
+      APP_WORKER_JOB_POSTING_ROUTING_KEY: ${APP_WORKER_JOB_POSTING_ROUTING_KEY:-job-posting.ingest}
+      APP_WORKER_JOB_POSTING_DLQ: ${APP_WORKER_JOB_POSTING_DLQ:-jobdri.job-posting.ingest.dlq}
+      APP_WORKER_ANALYSIS_EXCHANGE: ${APP_WORKER_ANALYSIS_EXCHANGE:-${APP_WORKER_EXCHANGE:-jobdri.worker.exchange}}
+      APP_WORKER_ANALYSIS_QUEUE: ${APP_WORKER_ANALYSIS_QUEUE:-jobdri.analysis.execute}
+      APP_WORKER_ANALYSIS_ROUTING_KEY: ${APP_WORKER_ANALYSIS_ROUTING_KEY:-analysis.execute}
+      APP_WORKER_ANALYSIS_DLQ: ${APP_WORKER_ANALYSIS_DLQ:-jobdri.analysis.execute.dlq}
+      APP_WORKER_ANALYSIS_MAX_RETRY_COUNT: ${APP_WORKER_ANALYSIS_MAX_RETRY_COUNT:-3}
+      APP_WORKER_ANALYSIS_QUEUE_TIMEOUT_MILLIS: ${APP_WORKER_ANALYSIS_QUEUE_TIMEOUT_MILLIS:-300000}
+      WORKER_PREFETCH_COUNT: ${WORKER_PREFETCH_COUNT:-1}
+      JOB_POSTING_CLASSIFICATION_CONFIDENCE_THRESHOLD: ${JOB_POSTING_CLASSIFICATION_CONFIDENCE_THRESHOLD:-0.65}
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_JOB_POSTING_MODEL: ${OPENAI_JOB_POSTING_MODEL:-gpt-4o-mini}
+      OPENAI_ANALYSIS_MODEL: ${OPENAI_ANALYSIS_MODEL:-gpt-4o-mini}
+    depends_on:
+      api:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
     restart: unless-stopped
