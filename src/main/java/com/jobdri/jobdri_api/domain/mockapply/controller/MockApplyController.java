@@ -20,6 +20,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,6 +48,19 @@ public class MockApplyController {
                 "모의 서류 지원 목록 조회에 성공했습니다.",
                 mockApplyService.getMyMockApplies(userDetails.getUser())
         );
+    }
+
+    @Operation(
+            summary = "모의 서류 지원 단건 삭제",
+            description = "mockApplyId에 해당하는 모의 서류 지원과 연결된 문항, 분석 결과만 삭제합니다. 같은 공고의 다른 모의 지원은 유지됩니다."
+    )
+    @DeleteMapping("/{mockApplyId}")
+    public ApiResponse<Void> deleteMockApply(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId
+    ) {
+        mockApplyService.deleteMockApply(userDetails.getUser(), mockApplyId);
+        return ApiResponse.onSuccess("모의 서류 지원이 삭제되었습니다.", null);
     }
 
     @Operation(

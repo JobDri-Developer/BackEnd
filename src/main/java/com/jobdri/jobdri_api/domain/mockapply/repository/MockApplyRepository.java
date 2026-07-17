@@ -22,6 +22,13 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
             """)
     void deleteAllByJobPostingId(Long jobPostingId);
 
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            delete from MockApply ma
+            where ma.id = :mockApplyId
+            """)
+    void deleteByMockApplyId(@Param("mockApplyId") Long mockApplyId);
+
     @Query("""
             select ma
             from MockApply ma

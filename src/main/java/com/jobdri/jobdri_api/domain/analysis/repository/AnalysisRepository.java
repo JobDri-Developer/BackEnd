@@ -14,6 +14,13 @@ public interface AnalysisRepository extends JpaRepository<Analysis, Long> {
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             delete from Analysis a
+            where a.mockApply.id = :mockApplyId
+            """)
+    void deleteByMockApplyId(@Param("mockApplyId") Long mockApplyId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            delete from Analysis a
             where a.mockApply.jobPosting.id = :jobPostingId
             """)
     void deleteAllByJobPostingId(@Param("jobPostingId") Long jobPostingId);
