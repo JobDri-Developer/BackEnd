@@ -2,7 +2,10 @@ package com.jobdri.jobdri_api.domain.mockapply.service;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
+import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
+import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.classification.entity.Classification;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
@@ -64,6 +67,9 @@ class MockApplyServiceTest {
 
     @Autowired
     private AnalysisRepository analysisRepository;
+
+    @Autowired
+    private QuestionAnalysisRepository questionAnalysisRepository;
 
     @Autowired
     private QuestionRepository questionRepository;
@@ -350,6 +356,34 @@ class MockApplyServiceTest {
     }
 
     @Test
+    @DisplayName("모의 서류 지원을 삭제하면 해당 지원의 문항과 분석만 삭제한다")
+    void deleteMockApplyDeletesOnlyTargetMockApplyResults() {
+        User user = saveUser("mock-apply-delete@example.com");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
+        MockApply target = saveMockApply(user, jobPosting, ApplyType.MOCK, 1);
+        MockApply remaining = saveMockApply(user, jobPosting, ApplyType.MOCK, 2);
+        Question targetQuestion = saveQuestion(target, "삭제 대상 문항", 1000, "삭제 대상 답변");
+        Question remainingQuestion = saveQuestion(remaining, "유지 대상 문항", 1000, "유지 대상 답변");
+        Analysis targetAnalysis = saveAnalysis(target, 70);
+        Analysis remainingAnalysis = saveAnalysis(remaining, 80);
+        QuestionAnalysis targetQuestionAnalysis = saveQuestionAnalysis(targetQuestion, targetAnalysis);
+        QuestionAnalysis remainingQuestionAnalysis = saveQuestionAnalysis(remainingQuestion, remainingAnalysis);
+
+        mockApplyService.deleteMockApply(user, target.getId());
+        mockApplyRepository.flush();
+
+        assertThat(mockApplyRepository.findById(target.getId())).isEmpty();
+        assertThat(questionRepository.findById(targetQuestion.getId())).isEmpty();
+        assertThat(analysisRepository.findById(targetAnalysis.getId())).isEmpty();
+        assertThat(questionAnalysisRepository.findById(targetQuestionAnalysis.getId())).isEmpty();
+        assertThat(jobPostingRepository.findById(jobPosting.getId())).isPresent();
+        assertThat(mockApplyRepository.findById(remaining.getId())).isPresent();
+        assertThat(questionRepository.findById(remainingQuestion.getId())).isPresent();
+        assertThat(analysisRepository.findById(remainingAnalysis.getId())).isPresent();
+        assertThat(questionAnalysisRepository.findById(remainingQuestionAnalysis.getId())).isPresent();
+    }
+
+    @Test
     @DisplayName("존재하지 않는 공고 ID로 ACTUAL 타입 지원 생성 시 예외를 던진다")
     void createActualApplyThrowsWhenJobPostingNotFound() {
         User user = saveUser("missing-job-posting@example.com");
@@ -436,6 +470,22 @@ class MockApplyServiceTest {
                 .isEqualTo(GeneralErrorCode.FORBIDDEN);
     }
 
+    @Test
+    @DisplayName("다른 사용자의 모의 서류 지원은 삭제할 수 없다")
+    void deleteMockApplyThrowsWhenForbidden() {
+        User owner = saveUser("delete-owner@example.com");
+        User otherUser = saveUser("delete-other@example.com");
+        JobPosting jobPosting = saveJobPosting(owner, "데이터 분석");
+        MockApply mockApply = saveMockApply(owner, jobPosting, ApplyType.MOCK, 1);
+
+        assertThatThrownBy(() -> mockApplyService.deleteMockApply(otherUser, mockApply.getId()))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.FORBIDDEN);
+
+        assertThat(mockApplyRepository.findById(mockApply.getId())).isPresent();
+    }
+
     private User saveUser(String email) {
         return inNewTransaction(() -> userRepository.save(User.signup("테스트 사용자", email, "encoded-password")));
     }
@@ -499,6 +549,30 @@ class MockApplyServiceTest {
                 content,
                 limit,
                 answer
+        )));
+    }
+
+    private Analysis saveAnalysis(MockApply mockApply, int score) {
+        return inNewTransaction(() -> analysisRepository.save(Analysis.create(
+                mockApplyRepository.findById(mockApply.getId()).orElseThrow(),
+                score,
+                score,
+                score,
+                score,
+                "분석 결과입니다."
+        )));
+    }
+
+    private QuestionAnalysis saveQuestionAnalysis(Question question, Analysis analysis) {
+        return inNewTransaction(() -> questionAnalysisRepository.save(QuestionAnalysis.create(
+                questionRepository.findById(question.getId()).orElseThrow(),
+                analysisRepository.findById(analysis.getId()).orElseThrow(),
+                "답변입니다.",
+                "근거가 부족합니다.",
+                "구체적인 성과를 포함해 답변했습니다.",
+                QuestionAnalysisStatus.MENTIONED,
+                0,
+                5
         )));
     }
 
