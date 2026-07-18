@@ -25,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -182,26 +183,60 @@ public class QuestionService {
             QuestionAnswerSaveRequest request
     ) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
-        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
-        Map<Long, Question> questionMap = questions.stream()
-                .collect(Collectors.toMap(Question::getId, Function.identity()));
+        validateSelectionCount(request.questions().size());
 
-        for (QuestionAnswerSaveRequest.AnswerItem item : request.answers()) {
-            Question question = questionMap.get(item.questionId());
-            if (question == null) {
+        List<Question> existingQuestions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        Map<Long, Question> questionMap = existingQuestions.stream()
+                .collect(Collectors.toMap(Question::getId, Function.identity()));
+        Set<Long> requestedQuestionIds = new HashSet<>();
+        List<Question> syncedQuestions = new ArrayList<>();
+
+        for (QuestionAnswerSaveRequest.QuestionItem item : request.questions()) {
+            if (item.questionId() == null) {
+                syncedQuestions.add(Question.create(
+                        mockApply,
+                        item.content().trim(),
+                        resolveCharLimit(item.charLimit()),
+                        normalizeAnswer(item.answer())
+                ));
+                continue;
+            }
+
+            if (!requestedQuestionIds.add(item.questionId())) {
+                throw new GeneralException(
+                        GeneralErrorCode.INVALID_PARAMETER,
+                        "중복된 문항 ID가 포함되어 있습니다. questionId=" + item.questionId()
+                );
+            }
+
+            Question existingQuestion = questionMap.get(item.questionId());
+            if (existingQuestion == null) {
                 throw new GeneralException(
                         GeneralErrorCode.QUESTION_NOT_FOUND,
                         "해당 지원서의 문항을 찾을 수 없습니다. questionId=" + item.questionId()
                 );
             }
-            question.updateContentAndAnswer(item.content().trim(), normalizeAnswer(item.answer()));
+
+            existingQuestion.updateContentLimitAndAnswer(
+                    item.content().trim(),
+                    resolveCharLimit(item.charLimit()),
+                    normalizeAnswer(item.answer())
+            );
+            syncedQuestions.add(existingQuestion);
         }
+
+        List<Question> deletedQuestions = existingQuestions.stream()
+                .filter(question -> !requestedQuestionIds.contains(question.getId()))
+                .toList();
+        questionRepository.deleteAll(deletedQuestions);
+        List<Question> savedQuestions = questionRepository.saveAll(syncedQuestions);
+        mockApply.updateStatus(MockApplyStatus.ANSWER_WRITE);
 
         return new QuestionAnswerResponse(
                 mockApply.getId(),
                 mockApply.getStatus(),
                 mockApplyRepository.calculateSequence(mockApply),
-                questions.stream().map(this::toQuestionResponse).toList()
+                savedQuestions.stream().map(this::toQuestionResponse).toList()
         );
     }
 
