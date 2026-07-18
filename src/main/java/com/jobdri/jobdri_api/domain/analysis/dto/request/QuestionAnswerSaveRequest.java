@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.dto.request;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 
@@ -14,6 +15,9 @@ public record QuestionAnswerSaveRequest(
     public record AnswerItem(
             @NotNull(message = "문항 ID는 필수입니다.")
             Long questionId,
+
+            @NotBlank(message = "문항 내용은 필수입니다.")
+            String content,
 
             @NotNull(message = "답변 내용은 필수입니다.")
             String answer

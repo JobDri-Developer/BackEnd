@@ -310,7 +310,7 @@ class QuestionServiceTest {
     }
 
     @Test
-    @DisplayName("저장된 문항의 답변만 작성하거나 수정한다")
+    @DisplayName("저장된 문항의 내용과 답변을 함께 작성하거나 수정한다")
     void saveAnswers() {
         User user = saveUser("answer-save@example.com");
         MockApply mockApply = saveMockApply(user);
@@ -320,15 +320,20 @@ class QuestionServiceTest {
         Long questionId = selected.questions().get(0).questionId();
 
         QuestionAnswerResponse response = questionService.saveAnswers(user, mockApply.getId(), new QuestionAnswerSaveRequest(List.of(
-                new QuestionAnswerSaveRequest.AnswerItem(questionId, "저는 백엔드 개발 경험을 바탕으로 지원했습니다.")
+                new QuestionAnswerSaveRequest.AnswerItem(
+                        questionId,
+                        "지원 동기와 입사 후 목표를 작성해주세요.",
+                        "저는 백엔드 개발 경험을 바탕으로 지원했습니다."
+                )
         )));
 
         assertThat(response.questions()).hasSize(1);
         assertThat(response.sequence()).isEqualTo(1);
-        assertThat(response.questions().get(0).content()).isEqualTo("지원 동기를 작성해주세요.");
+        assertThat(response.questions().get(0).content()).isEqualTo("지원 동기와 입사 후 목표를 작성해주세요.");
         assertThat(response.questions().get(0).answer()).isEqualTo("저는 백엔드 개발 경험을 바탕으로 지원했습니다.");
-        assertThat(questionRepository.findById(questionId).orElseThrow().getAnswer())
-                .isEqualTo("저는 백엔드 개발 경험을 바탕으로 지원했습니다.");
+        Question savedQuestion = questionRepository.findById(questionId).orElseThrow();
+        assertThat(savedQuestion.getContent()).isEqualTo("지원 동기와 입사 후 목표를 작성해주세요.");
+        assertThat(savedQuestion.getAnswer()).isEqualTo("저는 백엔드 개발 경험을 바탕으로 지원했습니다.");
     }
 
     @Test
@@ -344,7 +349,7 @@ class QuestionServiceTest {
         Long questionId = selected.questions().get(0).questionId();
 
         QuestionAnswerResponse response = questionService.saveAnswers(user, secondMockApply.getId(), new QuestionAnswerSaveRequest(List.of(
-                new QuestionAnswerSaveRequest.AnswerItem(questionId, "두 번째 지원 답변입니다.")
+                new QuestionAnswerSaveRequest.AnswerItem(questionId, "재지원 답변 문항입니다.", "두 번째 지원 답변입니다.")
         )));
 
         assertThat(response.mockApplyId()).isEqualTo(secondMockApply.getId());
@@ -363,7 +368,7 @@ class QuestionServiceTest {
         Long questionId = selected.questions().get(0).questionId();
 
         QuestionAnswerResponse response = questionService.saveAnswers(user, mockApply.getId(), new QuestionAnswerSaveRequest(List.of(
-                new QuestionAnswerSaveRequest.AnswerItem(questionId, "네 번째 지원 답변입니다.")
+                new QuestionAnswerSaveRequest.AnswerItem(questionId, "재지원 저장 순번 문항입니다.", "네 번째 지원 답변입니다.")
         )));
 
         assertThat(response.mockApplyId()).isEqualTo(mockApply.getId());
@@ -382,7 +387,7 @@ class QuestionServiceTest {
         Long otherQuestionId = otherSelected.questions().get(0).questionId();
 
         assertThatThrownBy(() -> questionService.saveAnswers(user, mockApply.getId(), new QuestionAnswerSaveRequest(List.of(
-                new QuestionAnswerSaveRequest.AnswerItem(otherQuestionId, "답변")
+                new QuestionAnswerSaveRequest.AnswerItem(otherQuestionId, "다른 지원서 문항", "답변")
         ))))
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")
