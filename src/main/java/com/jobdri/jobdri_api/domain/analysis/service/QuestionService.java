@@ -194,7 +194,7 @@ public class QuestionService {
                         "해당 지원서의 문항을 찾을 수 없습니다. questionId=" + item.questionId()
                 );
             }
-            question.updateAnswer(normalizeAnswer(item.answer()));
+            question.updateContentAndAnswer(item.content().trim(), normalizeAnswer(item.answer()));
         }
 
         return new QuestionAnswerResponse(
