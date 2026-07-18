@@ -83,7 +83,7 @@ public class QuestionController {
         );
     }
 
-    @Operation(summary = "자소서 문항 답변 저장/수정", description = "저장된 문항의 내용과 답변을 함께 작성하거나 수정합니다.")
+    @Operation(summary = "자소서 문항 답변 저장/수정", description = "자소서 작성 화면의 문항 목록, 글자수 제한, 답변을 함께 저장합니다.")
     @PatchMapping("/answers")
     public ApiResponse<QuestionAnswerResponse> saveAnswers(
             @AuthenticationPrincipal UserDetailsImpl userDetails,

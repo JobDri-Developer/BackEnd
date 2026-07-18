@@ -54,4 +54,10 @@ public class Question extends BaseEntity {
         this.content = content;
         this.answer = answer;
     }
+
+    public void updateContentLimitAndAnswer(String content, int limit, String answer) {
+        this.content = content;
+        this.limit = limit;
+        this.answer = answer;
+    }
 }
