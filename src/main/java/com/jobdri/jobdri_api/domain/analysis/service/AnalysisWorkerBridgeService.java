@@ -111,11 +111,6 @@ public class AnalysisWorkerBridgeService {
 
     @Transactional
     public AnalysisResponse completeTask(String taskId, AnalysisWorkerCompleteRequest request) {
-        workerTaskResultService.upsertGenerated(
-                TaskType.ANALYSIS_COMPLETE,
-                taskId,
-                new AnalysisWorkerResultStoreRequest(request.userId(), request.mockApplyId(), request.llmResponse())
-        );
         AnalysisAsyncTask task = getTask(taskId);
         if (!task.getUserId().equals(request.userId()) || !task.getMockApplyId().equals(request.mockApplyId())) {
             throw new GeneralException(
@@ -123,6 +118,11 @@ public class AnalysisWorkerBridgeService {
                     "자소서 분석 worker 완료 요청 정보가 작업 정보와 일치하지 않습니다."
             );
         }
+        workerTaskResultService.upsertGenerated(
+                TaskType.ANALYSIS_COMPLETE,
+                taskId,
+                new AnalysisWorkerResultStoreRequest(request.userId(), request.mockApplyId(), request.llmResponse())
+        );
         if (task.getStatus() == TaskStatus.SUCCEEDED) {
             workerTaskResultService.markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, taskId);
             return analysisService.getAnalysis(userService.getUser(request.userId()), request.mockApplyId());

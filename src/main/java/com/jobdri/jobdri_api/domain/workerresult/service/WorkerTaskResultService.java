@@ -10,6 +10,7 @@ import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
@@ -19,7 +20,7 @@ public class WorkerTaskResultService {
     private final WorkerTaskResultRepository workerTaskResultRepository;
     private final ObjectMapper objectMapper;
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void upsertGenerated(TaskType taskType, String taskId, Object payload) {
         String serializedPayload = serialize(payload);
         workerTaskResultRepository.findById(taskId)
@@ -35,7 +36,7 @@ public class WorkerTaskResultService {
                 .ifPresent(result -> result.markDelivered(taskType));
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void markDeliveryFailedIfPresent(TaskType taskType, String taskId, String errorMessage) {
         workerTaskResultRepository.findById(taskId)
                 .ifPresent(result -> result.markDeliveryFailed(taskType, errorMessage));
