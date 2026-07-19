@@ -5,11 +5,16 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassifica
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerFinalizeRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.TaskStatus;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.domain.workerresult.dto.WorkerTaskResultResponse;
+import com.jobdri.jobdri_api.domain.workerresult.entity.WorkerTaskResult.TaskType;
+import com.jobdri.jobdri_api.domain.workerresult.service.WorkerTaskResultService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
@@ -29,6 +34,7 @@ public class JobPostingWorkerBridgeService {
     private final JobPostingClassificationService jobPostingClassificationService;
     private final JobPostingService jobPostingService;
     private final UserService userService;
+    private final WorkerTaskResultService workerTaskResultService;
 
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
         jobPostingAsyncTaskService.markRunning(taskId, workerId, retryCount, submittedAt);
@@ -36,7 +42,10 @@ public class JobPostingWorkerBridgeService {
 
     @Transactional
     public JobPostingIngestResponse completeTask(String taskId, JobPostingIngestResponse result) {
-        return jobPostingAsyncTaskService.markSuccess(taskId, result);
+        workerTaskResultService.upsertGenerated(TaskType.JOB_POSTING_COMPLETE, taskId, result);
+        JobPostingIngestResponse response = jobPostingAsyncTaskService.markSuccess(taskId, result);
+        workerTaskResultService.markDeliveredIfPresent(TaskType.JOB_POSTING_COMPLETE, taskId);
+        return response;
     }
 
     @Transactional
@@ -90,6 +99,11 @@ public class JobPostingWorkerBridgeService {
             com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse classification,
             JobPostingGenerateResponse generated
     ) {
+        workerTaskResultService.upsertGenerated(
+                TaskType.JOB_POSTING_FINALIZE,
+                taskId,
+                new JobPostingWorkerFinalizeRequest(taskId, userId, extracted, candidates, classification, generated)
+        );
         JobPostingAsyncTask task = jobPostingAsyncTaskRepository.findById(taskId)
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.JOB_POSTING_ASYNC_TASK_NOT_FOUND,
@@ -97,9 +111,15 @@ public class JobPostingWorkerBridgeService {
                 ));
 
         if (task.getStatus() == TaskStatus.SUCCEEDED) {
+            workerTaskResultService.markDeliveredIfPresent(TaskType.JOB_POSTING_FINALIZE, taskId);
             return jobPostingAsyncTaskService.getTask(taskId).getResult();
         }
         if (task.getStatus() == TaskStatus.FAILED) {
+            workerTaskResultService.markDeliveryFailedIfPresent(
+                    TaskType.JOB_POSTING_FINALIZE,
+                    taskId,
+                    "이미 실패 처리된 채용 공고 비동기 작업입니다."
+            );
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
                     "이미 실패 처리된 채용 공고 비동기 작업입니다. taskId=" + taskId
@@ -127,7 +147,33 @@ public class JobPostingWorkerBridgeService {
                 generated,
                 saved
         );
-        return jobPostingAsyncTaskService.markSuccess(taskId, result);
+        JobPostingIngestResponse response = jobPostingAsyncTaskService.markSuccess(taskId, result);
+        workerTaskResultService.markDeliveredIfPresent(TaskType.JOB_POSTING_FINALIZE, taskId);
+        return response;
+    }
+
+    @Transactional
+    public void storeFinalizeResult(String taskId, JobPostingWorkerResultStoreRequest request) {
+        JobPostingAsyncTask task = getTask(taskId);
+        if (!task.getUserId().equals(request.userId())) {
+            throw new GeneralException(
+                    GeneralErrorCode.FORBIDDEN,
+                    "채용 공고 worker 결과 저장 요청 사용자 정보가 작업 정보와 일치하지 않습니다."
+            );
+        }
+        if (!taskId.equals(request.result().taskId())) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "채용 공고 worker 결과 저장 요청 taskId가 경로와 일치하지 않습니다."
+            );
+        }
+        workerTaskResultService.upsertGenerated(TaskType.JOB_POSTING_FINALIZE, taskId, request.result());
+    }
+
+    @Transactional(readOnly = true)
+    public WorkerTaskResultResponse getStoredResult(String taskId) {
+        getTask(taskId);
+        return workerTaskResultService.get(taskId);
     }
 
     private JobPostingAsyncTask getTask(String taskId) {

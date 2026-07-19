@@ -8,10 +8,12 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerContex
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerContextResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerFailureRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerFinalizeRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerRetryRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerRunningRequest;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAsyncFacadeService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingWorkerBridgeService;
+import com.jobdri.jobdri_api.domain.workerresult.dto.WorkerTaskResultResponse;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.security.InternalApiKeyValidator;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -84,6 +86,31 @@ public class JobPostingWorkerInternalController {
         return ApiResponse.onSuccess(
                 "채용 공고 worker 작업 완료 상태를 반영했습니다.",
                 jobPostingWorkerBridgeService.completeTask(taskId, result)
+        );
+    }
+
+    @Operation(summary = "채용 공고 worker 결과 선저장", description = "worker가 finalize 호출 전에 taskId 기준 채용 공고 결과를 durable storage에 저장합니다.")
+    @PostMapping("/tasks/{taskId}/result")
+    public ApiResponse<Void> storeResult(
+            @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
+            @PathVariable String taskId,
+            @Valid @RequestBody JobPostingWorkerResultStoreRequest request
+    ) {
+        internalApiKeyValidator.validate(internalApiKey);
+        jobPostingWorkerBridgeService.storeFinalizeResult(taskId, request);
+        return ApiResponse.onSuccess("채용 공고 worker 결과 선저장에 성공했습니다.");
+    }
+
+    @Operation(summary = "채용 공고 worker 저장 결과 조회", description = "worker가 taskId 기준으로 저장된 채용 공고 결과 payload를 조회합니다.")
+    @GetMapping("/tasks/{taskId}/result")
+    public ApiResponse<WorkerTaskResultResponse> getStoredResult(
+            @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
+            @PathVariable String taskId
+    ) {
+        internalApiKeyValidator.validate(internalApiKey);
+        return ApiResponse.onSuccess(
+                "채용 공고 worker 저장 결과 조회에 성공했습니다.",
+                jobPostingWorkerBridgeService.getStoredResult(taskId)
         );
     }
 
