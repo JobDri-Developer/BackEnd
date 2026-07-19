@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
@@ -8,6 +9,8 @@ import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.domain.workerresult.entity.WorkerTaskResult.TaskType;
+import com.jobdri.jobdri_api.domain.workerresult.service.WorkerTaskResultService;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -43,6 +46,9 @@ class AnalysisWorkerBridgeServiceTest {
 
     @Mock
     private UserService userService;
+
+    @Mock
+    private WorkerTaskResultService workerTaskResultService;
 
     @InjectMocks
     private AnalysisWorkerBridgeService analysisWorkerBridgeService;
@@ -160,5 +166,47 @@ class AnalysisWorkerBridgeServiceTest {
 
         assertThatThrownBy(() -> analysisWorkerBridgeService.completeTask(task.getTaskId(), request))
                 .isInstanceOf(GeneralException.class);
+    }
+
+    @Test
+    @DisplayName("complete 전에 분석 결과를 durable storage에 선저장할 수 있다")
+    void storeGeneratedResultPersistsPayload() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        AnalysisWorkerResultStoreRequest request = new AnalysisWorkerResultStoreRequest(
+                1L,
+                10L,
+                mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class)
+        );
+
+        analysisWorkerBridgeService.storeGeneratedResult(task.getTaskId(), request);
+
+        verify(workerTaskResultService).upsertGenerated(TaskType.ANALYSIS_COMPLETE, task.getTaskId(), request);
+    }
+
+    @Test
+    @DisplayName("이미 성공한 complete 재호출도 결과 전달 완료 상태로 마킹한다")
+    void completeTaskMarksDeliveredForSucceededTask() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        task.markSuccess();
+        User user = User.signup("테스트 사용자", "analysis-complete@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(userService.getUser(1L)).thenReturn(user);
+        when(analysisService.getAnalysis(user, 10L)).thenReturn(mock(com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse.class));
+
+        AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
+                1L,
+                10L,
+                mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class),
+                "worker-1",
+                10L
+        );
+
+        analysisWorkerBridgeService.completeTask(task.getTaskId(), request);
+
+        verify(workerTaskResultService).markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, task.getTaskId());
     }
 }
