@@ -38,6 +38,18 @@ public class AnalysisAiClient {
               "impact": 55,
               "completeness": 67,
               "feedback": "한 줄 피드백",
+              "keyStrengths": [
+                {
+                  "title": "직무 연관 경험이 명확하게 드러나요",
+                  "quote": "자소서 답변 안에 실제 존재하는 정확한 부분 문자열"
+                }
+              ],
+              "keyWeaknesses": [
+                {
+                  "title": "SQL 활용 경험이 보강되면 더 설득력 있어요",
+                  "quote": "JD 또는 자소서 답변 안에 실제 존재하는 정확한 부분 문자열"
+                }
+              ],
               "missingKeywords": [
                 {
                   "keyword": "SQL 활용 경험",
@@ -63,8 +75,9 @@ public class AnalysisAiClient {
             4. jobFit, impact, completeness를 각각 평가한다.
             5. 감점 금지 조건과 status 오남용 여부를 확인한다.
             6. 보완이 필요한 원문 문장을 문항당 최대 3개만 추출한다.
-            7. JD에는 있지만 자소서에 충분히 드러나지 않은 역량을 missingKeywords로 최대 3개 추출한다.
-            8. 지정된 JSON만 반환한다.
+            7. 총점 한 줄 평가 feedback과 핵심 강점/약점 카드를 작성한다.
+            8. JD에는 있지만 자소서에 충분히 드러나지 않은 역량을 missingKeywords로 최대 3개 추출한다.
+            9. 지정된 JSON만 반환한다.
 
             [jobFit 평가 기준]
             JD가 요구하는 역량, 경험, 기술을 자기소개서가 얼마나 증명하는지 평가한다.
@@ -151,6 +164,17 @@ public class AnalysisAiClient {
             - 가능하면 JD에 실제 들어간 표현을 유지한다.
             - 중복되거나 유사한 keyword는 하나로 묶고, 대표 문구는 자격요건 표현을 우선한다.
             - source는 qualification, preference, mainTask 중 하나만 사용한다.
+
+            [핵심 강점/약점 작성 규칙]
+            - keyStrengths와 keyWeaknesses는 각각 최대 3개만 반환한다.
+            - title은 화면 카드 제목으로 바로 노출할 짧은 한국어 문장으로 작성한다.
+            - quote는 반드시 실제 텍스트에서 가져온 짧은 직접 인용이어야 하며 새로 만들거나 요약하지 않는다.
+            - keyStrengths의 quote는 자소서 answer에 실제 포함된 정확한 부분 문자열만 사용한다.
+            - keyWeaknesses의 첫 항목들은 missingKeywords와 같은 누락 요건을 다룬다.
+            - missingKeywords 기반 keyWeaknesses의 quote는 JD의 주요 업무, 자격 요건, 우대 사항에 실제 포함된 표현을 사용한다.
+            - missingKeywords가 없으면 keyWeaknesses는 questionAnalyses의 보완 대상 문장 quote를 우선 사용한다.
+            - quote는 너무 길게 붙이지 말고 사용자가 근거를 확인할 수 있는 핵심 구절만 사용한다.
+            - 적절한 강점이나 약점이 없으면 null이나 필드 생략이 아니라 빈 배열 []을 반환한다.
 
             [reason 작성 규칙]
             - 사용자가 왜 해당 문장이 보완 대상인지 이해할 수 있게 작성한다.
@@ -328,6 +352,9 @@ public class AnalysisAiClient {
                 - questionAnalyses의 status는 proven, mentioned, missing, fabricated 중 하나만 사용한다.
                 - sentence는 answer에 포함된 정확한 substring만 사용한다.
                 - missing 상태를 questionAnalyses에 넣기 위해 원문에 없는 sentence를 만들지 않는다.
+                - keyStrengths와 keyWeaknesses는 각각 최대 3개이며, 없으면 []로 출력한다.
+                - keyStrengths의 quote는 answer에 실제 포함된 substring만 사용한다.
+                - keyWeaknesses에서 missingKeywords를 다루는 항목의 quote는 실제 JD 문구만 사용한다.
                 - missingKeywords는 최대 3개이며, 없으면 []로 출력한다.
                 - missingKeywords의 source는 qualification, preference, mainTask 중 하나만 사용한다.
                 - improvement가 지시문이 아닌 완성된 한국어 평서문인지 확인한다.

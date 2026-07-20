@@ -80,7 +80,7 @@ services:
     restart: unless-stopped
 
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16@sha256:1d533553fefe4f12e5d80c7b80622ba0c382abb5758856f52983d8789179f0fb
     container_name: jobdri-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-jobdri}
