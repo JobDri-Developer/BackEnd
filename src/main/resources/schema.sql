@@ -42,3 +42,9 @@ CREATE INDEX IF NOT EXISTS idx_mock_question_embeddings_hnsw
 
 ALTER TABLE IF EXISTS analyses
     ADD COLUMN IF NOT EXISTS missing_keywords TEXT NOT NULL DEFAULT '[]';
+
+ALTER TABLE IF EXISTS analyses
+    ADD COLUMN IF NOT EXISTS key_strengths TEXT NOT NULL DEFAULT '[]';
+
+ALTER TABLE IF EXISTS analyses
+    ADD COLUMN IF NOT EXISTS key_weaknesses TEXT NOT NULL DEFAULT '[]';

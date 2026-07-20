@@ -203,6 +203,27 @@ class AnalysisServiceTest {
                 60,
                 "누락 키워드 검증입니다.",
                 List.of(
+                        new AnalysisLlmResponse.HighlightItem(
+                                "직무 경험이 실제 구현 사례로 드러나요",
+                                "Spring Boot API를 개발했습니다."
+                        ),
+                        new AnalysisLlmResponse.HighlightItem(" ", "Spring Boot API를 개발했습니다."),
+                        new AnalysisLlmResponse.HighlightItem(
+                                "이 강점 제목은 너무 길어서 응답에서 제외되어야 하는 매우 긴 문장이며 허용 길이를 명확하게 초과하는 잘못된 핵심 강점 카드 제목입니다. 화면 카드 제목으로 사용할 수 없는 수준의 장문입니다.",
+                                "Spring Boot API를 개발했습니다."
+                        )
+                ),
+                List.of(
+                        new AnalysisLlmResponse.HighlightItem(
+                                "SQL 활용 경험 보강이 필요해요",
+                                "SQL 활용 경험"
+                        ),
+                        new AnalysisLlmResponse.HighlightItem(
+                                "SQL 활용 경험 보강이 필요해요",
+                                "SQL 활용 경험"
+                        )
+                ),
+                List.of(
                         new AnalysisLlmResponse.MissingKeywordItem("SQL 활용 경험", "qualification"),
                         new AnalysisLlmResponse.MissingKeywordItem(" ", "qualification"),
                         new AnalysisLlmResponse.MissingKeywordItem("SQL 활용 경험", "preference"),
@@ -219,6 +240,12 @@ class AnalysisServiceTest {
 
         AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
 
+        assertThat(response.keyStrengths()).hasSize(1);
+        assertThat(response.keyStrengths().get(0).title()).isEqualTo("직무 경험이 실제 구현 사례로 드러나요");
+        assertThat(response.keyStrengths().get(0).quote()).isEqualTo("Spring Boot API를 개발했습니다.");
+        assertThat(response.keyWeaknesses()).hasSize(1);
+        assertThat(response.keyWeaknesses().get(0).title()).isEqualTo("SQL 활용 경험 보강이 필요해요");
+        assertThat(response.keyWeaknesses().get(0).quote()).isEqualTo("SQL 활용 경험");
         assertThat(response.missingKeywords()).hasSize(3);
         assertThat(response.missingKeywords()).extracting("keyword")
                 .containsExactly("SQL 활용 경험", "대용량 트래픽 처리 경험", "테스트 자동화 경험");
@@ -226,6 +253,12 @@ class AnalysisServiceTest {
                 .containsExactly("qualification", "preference", "mainTask");
 
         Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
+        assertThat(analysis.getKeyStrengthsJson())
+                .contains("\"title\":\"직무 경험이 실제 구현 사례로 드러나요\"")
+                .contains("\"quote\":\"Spring Boot API를 개발했습니다.\"")
+                .doesNotContain("너무 길어서");
+        assertThat(analysis.getKeyWeaknessesJson())
+                .contains("\"title\":\"SQL 활용 경험 보강이 필요해요\"", "\"quote\":\"SQL 활용 경험\"");
         assertThat(analysis.getMissingKeywordsJson())
                 .contains("\"keyword\":\"SQL 활용 경험\"", "\"source\":\"qualification\"")
                 .contains("\"keyword\":\"대용량 트래픽 처리 경험\"", "\"source\":\"preference\"")
@@ -743,6 +776,8 @@ class AnalysisServiceTest {
                 70,
                 60,
                 "저장된 분석입니다.",
+                List.of(new AnalysisLlmResponse.HighlightItem("저장된 강점", "Spring Boot API를 개발했습니다.")),
+                List.of(new AnalysisLlmResponse.HighlightItem("저장된 약점", "SQL 활용 경험")),
                 List.of(new AnalysisLlmResponse.MissingKeywordItem("LLM 저장 키워드", "qualification")),
                 List.of()
         ));
@@ -750,6 +785,10 @@ class AnalysisServiceTest {
         entityManager.clear();
 
         Analysis persisted = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
+        assertThat(persisted.getKeyStrengthsJson())
+                .contains("\"title\":\"저장된 강점\"", "\"quote\":\"Spring Boot API를 개발했습니다.\"");
+        assertThat(persisted.getKeyWeaknessesJson())
+                .contains("\"title\":\"저장된 약점\"", "\"quote\":\"SQL 활용 경험\"");
         assertThat(persisted.getMissingKeywordsJson())
                 .contains("\"keyword\":\"LLM 저장 키워드\"", "\"source\":\"qualification\"");
         entityManager.clear();
@@ -758,6 +797,10 @@ class AnalysisServiceTest {
 
         assertThat(saved.missingKeywords()).extracting("keyword")
                 .containsExactly("LLM 저장 키워드");
+        assertThat(response.keyStrengths()).extracting("title")
+                .containsExactly("저장된 강점");
+        assertThat(response.keyWeaknesses()).extracting("title")
+                .containsExactly("저장된 약점");
         assertThat(response.missingKeywords()).extracting("keyword")
                 .containsExactly("LLM 저장 키워드");
         assertThat(response.missingKeywords()).extracting(keyword -> keyword.source().value())

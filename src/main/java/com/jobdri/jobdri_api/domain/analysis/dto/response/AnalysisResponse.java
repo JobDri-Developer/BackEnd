@@ -15,6 +15,8 @@ public record AnalysisResponse(
         int impact,
         int completeness,
         String feedback,
+        List<AnalysisHighlightResponse> keyStrengths,
+        List<AnalysisHighlightResponse> keyWeaknesses,
         List<MissingKeywordResponse> missingKeywords,
         List<AnalysisQuestionResponse> questions
 ) {
@@ -22,6 +24,8 @@ public record AnalysisResponse(
             Analysis analysis,
             MockApplyStatus status,
             int sequence,
+            List<AnalysisHighlightResponse> keyStrengths,
+            List<AnalysisHighlightResponse> keyWeaknesses,
             List<MissingKeywordResponse> missingKeywords,
             List<AnalysisQuestionResponse> questions
     ) {
@@ -35,6 +39,8 @@ public record AnalysisResponse(
                 analysis.getImpact(),
                 analysis.getCompleteness(),
                 analysis.getFeedback(),
+                keyStrengths == null ? List.of() : keyStrengths,
+                keyWeaknesses == null ? List.of() : keyWeaknesses,
                 missingKeywords == null ? List.of() : missingKeywords,
                 questions
         );

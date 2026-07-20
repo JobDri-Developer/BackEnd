@@ -44,6 +44,14 @@ public class Analysis extends BaseEntity {
     private String missingKeywordsJson = "[]";
 
     @Builder.Default
+    @Column(name = "key_strengths", nullable = false, columnDefinition = "TEXT DEFAULT '[]'")
+    private String keyStrengthsJson = "[]";
+
+    @Builder.Default
+    @Column(name = "key_weaknesses", nullable = false, columnDefinition = "TEXT DEFAULT '[]'")
+    private String keyWeaknessesJson = "[]";
+
+    @Builder.Default
     @OneToMany(mappedBy = "analysis", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<QuestionAnalysis> questionAnalyses = new ArrayList<>();
 
@@ -67,6 +75,20 @@ public class Analysis extends BaseEntity {
             String feedback,
             String missingKeywordsJson
     ) {
+        return create(mockApply, score, jobFit, impact, completeness, feedback, missingKeywordsJson, "[]", "[]");
+    }
+
+    public static Analysis create(
+            MockApply mockApply,
+            int score,
+            int jobFit,
+            int impact,
+            int completeness,
+            String feedback,
+            String missingKeywordsJson,
+            String keyStrengthsJson,
+            String keyWeaknessesJson
+    ) {
         return Analysis.builder()
                 .mockApply(mockApply)
                 .score(score)
@@ -75,6 +97,8 @@ public class Analysis extends BaseEntity {
                 .completeness(completeness)
                 .feedback(feedback)
                 .missingKeywordsJson(missingKeywordsJson == null ? "[]" : missingKeywordsJson)
+                .keyStrengthsJson(keyStrengthsJson == null ? "[]" : keyStrengthsJson)
+                .keyWeaknessesJson(keyWeaknessesJson == null ? "[]" : keyWeaknessesJson)
                 .build();
     }
 }
