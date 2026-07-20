@@ -31,13 +31,13 @@ public class WorkerTaskResult extends BaseEntity {
     @Column(nullable = false, length = 20)
     private DeliveryStatus status;
 
-    @Column(name = "result_payload", nullable = false)
+    @Column(name = "result_payload", nullable = false, columnDefinition = "TEXT")
     private String resultPayload;
 
     @Column(name = "attempt_count", nullable = false)
     private int attemptCount;
 
-    @Column(name = "last_error", length = 2000)
+    @Column(name = "last_error", columnDefinition = "TEXT")
     private String lastError;
 
     public static WorkerTaskResult generated(String taskId, TaskType taskType, String resultPayload) {
