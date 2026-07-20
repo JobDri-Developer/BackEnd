@@ -88,6 +88,8 @@ public class SecurityConfig {
         config.setAllowedOrigins(java.util.List.of(
                 "https://jobdri.site",
                 "https://www.jobdri.site",
+                "https://jobdri.com",
+                "https://www.jobdri.com",
                 "https://api.jobdri.site",
                 "https://job-dri.vercel.app",
                 "http://localhost:5173",
