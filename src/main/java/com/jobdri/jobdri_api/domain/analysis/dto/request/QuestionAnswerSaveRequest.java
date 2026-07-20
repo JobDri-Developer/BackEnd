@@ -19,7 +19,6 @@ public record QuestionAnswerSaveRequest(
             Long questionId,
 
             @NotBlank(message = "문항 내용은 필수입니다.")
-            @Size(min = 5, message = "문항은 최소 5자 이상이어야 합니다.")
             String content,
 
             @Positive(message = "글자수 제한은 1 이상이어야 합니다.")

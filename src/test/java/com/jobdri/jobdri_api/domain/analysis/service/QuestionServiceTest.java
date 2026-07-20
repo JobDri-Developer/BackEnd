@@ -339,6 +339,25 @@ class QuestionServiceTest {
     }
 
     @Test
+    @DisplayName("답변 저장은 선택 저장에서 허용한 짧은 문항 내용도 동일하게 허용한다")
+    void saveAnswersAllowsShortQuestionContentAcceptedBySelectionSave() {
+        User user = saveUser("answer-short-question@example.com");
+        MockApply mockApply = saveMockApply(user);
+        QuestionSelectionResponse selected = questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
+                new QuestionSelectionSaveRequest.QuestionItem("새 문항", 700, true)
+        )));
+        Long questionId = selected.questions().get(0).questionId();
+
+        QuestionAnswerResponse response = questionService.saveAnswers(user, mockApply.getId(), new QuestionAnswerSaveRequest(List.of(
+                new QuestionAnswerSaveRequest.QuestionItem(questionId, "새 문항", 700, "새 문항 답변입니다.")
+        )));
+
+        assertThat(response.questions()).hasSize(1);
+        assertThat(response.questions().get(0).content()).isEqualTo("새 문항");
+        assertThat(response.questions().get(0).answer()).isEqualTo("새 문항 답변입니다.");
+    }
+
+    @Test
     @DisplayName("답변 저장 시 문항 추가 수정 삭제와 글자수 제한을 화면 상태대로 동기화한다")
     void saveAnswersSyncsQuestionList() {
         User user = saveUser("answer-sync@example.com");
