@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStor
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerRunningRequest;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAsyncTaskService;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisWorkerBridgeService;
+import com.jobdri.jobdri_api.domain.workerresult.dto.WorkerTaskResultResponse;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.security.InternalApiKeyValidator;
 import io.swagger.v3.oas.annotations.Hidden;
@@ -116,7 +117,7 @@ public class AnalysisWorkerInternalController {
         );
     }
 
-    @Operation(summary = "자소서 분석 worker 결과 저장", description = "worker가 생성한 LLM 분석 결과를 완료 처리 전에 taskId 기준으로 저장합니다.")
+    @Operation(summary = "자소서 분석 worker 결과 선저장", description = "worker가 complete 호출 전에 taskId 기준 분석 결과를 durable storage에 저장합니다.")
     @PostMapping("/tasks/{taskId}/result")
     public ApiResponse<Void> storeResult(
             @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
@@ -124,8 +125,21 @@ public class AnalysisWorkerInternalController {
             @Valid @RequestBody AnalysisWorkerResultStoreRequest request
     ) {
         internalApiKeyValidator.validate(internalApiKey);
-        analysisWorkerBridgeService.storeResult(taskId, request);
-        return ApiResponse.onSuccess("자소서 분석 worker 결과를 저장했습니다.");
+        analysisWorkerBridgeService.storeGeneratedResult(taskId, request);
+        return ApiResponse.onSuccess("자소서 분석 worker 결과 선저장에 성공했습니다.");
+    }
+
+    @Operation(summary = "자소서 분석 worker 저장 결과 조회", description = "worker가 taskId 기준으로 저장된 분석 결과 payload를 조회합니다.")
+    @GetMapping("/tasks/{taskId}/result")
+    public ApiResponse<WorkerTaskResultResponse> getStoredResult(
+            @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
+            @PathVariable String taskId
+    ) {
+        internalApiKeyValidator.validate(internalApiKey);
+        return ApiResponse.onSuccess(
+                "자소서 분석 worker 저장 결과 조회에 성공했습니다.",
+                analysisWorkerBridgeService.getStoredResult(taskId)
+        );
     }
 
     @Operation(summary = "자소서 분석 worker 작업 상태 조회", description = "taskId 기준 자소서 분석 worker 비동기 작업 상태를 내부 용도로 조회합니다.")

@@ -1,7 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
@@ -11,11 +10,14 @@ import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.domain.workerresult.entity.WorkerTaskResult.TaskType;
+import com.jobdri.jobdri_api.domain.workerresult.service.WorkerTaskResultService;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -27,6 +29,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -46,6 +49,9 @@ class AnalysisWorkerBridgeServiceTest {
 
     @Mock
     private UserService userService;
+
+    @Mock
+    private WorkerTaskResultService workerTaskResultService;
 
     @InjectMocks
     private AnalysisWorkerBridgeService analysisWorkerBridgeService;
@@ -166,53 +172,51 @@ class AnalysisWorkerBridgeServiceTest {
     }
 
     @Test
-    @DisplayName("worker result 저장 요청의 사용자와 mockApply가 task와 일치하면 LLM 결과를 저장한다")
-    void storeResultStoresWorkerResultAfterIdentityValidation() {
+    @DisplayName("complete 전에 분석 결과를 durable storage에 선저장할 수 있다")
+    void storeGeneratedResultPersistsPayload() {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
-        AnalysisLlmResponse llmResponse = mock(AnalysisLlmResponse.class);
-        AnalysisWorkerResultStoreRequest request = new AnalysisWorkerResultStoreRequest(1L, 10L, llmResponse);
-
         when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
 
-        analysisWorkerBridgeService.storeResult(task.getTaskId(), request);
+        AnalysisWorkerResultStoreRequest request = new AnalysisWorkerResultStoreRequest(
+                1L,
+                10L,
+                mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class)
+        );
 
-        verify(analysisAsyncTaskService).storeWorkerResult(task.getTaskId(), llmResponse);
+        analysisWorkerBridgeService.storeGeneratedResult(task.getTaskId(), request);
+
+        verify(workerTaskResultService).upsertGenerated(TaskType.ANALYSIS_COMPLETE, task.getTaskId(), request);
     }
 
     @Test
-    @DisplayName("complete는 먼저 저장된 worker result payload를 우선 사용한다")
-    void completeTaskPrefersStoredWorkerResult() {
+    @DisplayName("이미 성공한 complete 재호출도 결과 전달 완료 상태로 마킹한다")
+    void completeTaskMarksDeliveredForSucceededTask() {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
-        User user = User.signup("테스트 사용자", "analysis-worker-complete@example.com", "encoded-password");
+        task.markSuccess();
+        User user = User.signup("테스트 사용자", "analysis-complete@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 1L);
-        AnalysisExecutionPayload payload = new AnalysisExecutionPayload(
-                1L,
-                10L,
-                mock(JobPosting.class),
-                List.of(),
-                List.of()
-        );
-        AnalysisLlmResponse storedLlmResponse = mock(AnalysisLlmResponse.class);
-        AnalysisLlmResponse requestLlmResponse = mock(AnalysisLlmResponse.class);
-        AnalysisResponse response = mock(AnalysisResponse.class);
+        var llmResponse = mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class);
+
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(userService.getUser(1L)).thenReturn(user);
+        when(analysisService.getAnalysis(user, 10L)).thenReturn(mock(com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse.class));
+
         AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
                 1L,
                 10L,
-                requestLlmResponse,
+                llmResponse,
                 "worker-1",
                 10L
         );
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
-        when(userService.getUser(1L)).thenReturn(user);
-        when(analysisService.prepareAnalysisExecution(user, 10L)).thenReturn(payload);
-        when(analysisAsyncTaskService.findWorkerResult(task.getTaskId())).thenReturn(Optional.of(storedLlmResponse));
-        when(analysisService.finalizeAnalysis(user, 10L, payload, storedLlmResponse)).thenReturn(response);
-
         analysisWorkerBridgeService.completeTask(task.getTaskId(), request);
 
-        verify(analysisService).finalizeAnalysis(user, 10L, payload, storedLlmResponse);
-        verify(analysisService, never()).finalizeAnalysis(user, 10L, payload, requestLlmResponse);
-        verify(analysisAsyncTaskService).markSuccess(task.getTaskId(), response);
+        InOrder inOrder = inOrder(workerTaskResultService);
+        inOrder.verify(workerTaskResultService).upsertGenerated(
+                TaskType.ANALYSIS_COMPLETE,
+                task.getTaskId(),
+                new AnalysisWorkerResultStoreRequest(1L, 10L, llmResponse)
+        );
+        inOrder.verify(workerTaskResultService).markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, task.getTaskId());
     }
 }

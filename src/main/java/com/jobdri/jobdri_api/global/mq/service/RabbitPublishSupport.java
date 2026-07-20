@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.global.mq.service;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.amqp.AmqpException;
 import org.springframework.amqp.core.MessagePostProcessor;
 import org.springframework.amqp.core.ReturnedMessage;
 import org.springframework.amqp.rabbit.connection.CorrelationData;
@@ -32,7 +33,11 @@ public class RabbitPublishSupport {
             MessagePostProcessor messagePostProcessor
     ) {
         CorrelationData correlationData = new CorrelationData(correlationId);
-        rabbitTemplate.convertAndSend(exchange, routingKey, payload, messagePostProcessor, correlationData);
+        try {
+            rabbitTemplate.convertAndSend(exchange, routingKey, payload, messagePostProcessor, correlationData);
+        } catch (AmqpException e) {
+            throw withCause(failureMessage, e);
+        }
         awaitPublisherConfirm(correlationData, failureMessage);
     }
 

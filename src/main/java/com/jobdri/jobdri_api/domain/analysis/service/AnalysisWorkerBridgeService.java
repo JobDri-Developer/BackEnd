@@ -13,6 +13,9 @@ import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.domain.workerresult.dto.WorkerTaskResultResponse;
+import com.jobdri.jobdri_api.domain.workerresult.entity.WorkerTaskResult.TaskType;
+import com.jobdri.jobdri_api.domain.workerresult.service.WorkerTaskResultService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +34,7 @@ public class AnalysisWorkerBridgeService {
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
     private final AnalysisService analysisService;
     private final UserService userService;
+    private final WorkerTaskResultService workerTaskResultService;
 
     @Transactional
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
@@ -114,10 +118,21 @@ public class AnalysisWorkerBridgeService {
                     "자소서 분석 worker 완료 요청 정보가 작업 정보와 일치하지 않습니다."
             );
         }
+        workerTaskResultService.upsertGenerated(
+                TaskType.ANALYSIS_COMPLETE,
+                taskId,
+                new AnalysisWorkerResultStoreRequest(request.userId(), request.mockApplyId(), request.llmResponse())
+        );
         if (task.getStatus() == TaskStatus.SUCCEEDED) {
+            workerTaskResultService.markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, taskId);
             return analysisService.getAnalysis(userService.getUser(request.userId()), request.mockApplyId());
         }
         if (task.getStatus() == TaskStatus.FAILED) {
+            workerTaskResultService.markDeliveryFailedIfPresent(
+                    TaskType.ANALYSIS_COMPLETE,
+                    taskId,
+                    "이미 실패 처리된 자소서 분석 비동기 작업입니다."
+            );
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
                     "이미 실패 처리된 자소서 분석 비동기 작업입니다. taskId=" + taskId
@@ -126,17 +141,17 @@ public class AnalysisWorkerBridgeService {
 
         User user = userService.getUser(request.userId());
         AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, request.mockApplyId());
-        AnalysisLlmResponse llmResponse = analysisAsyncTaskService.findWorkerResult(taskId)
-                .orElse(request.llmResponse());
+        AnalysisLlmResponse llmResponse = request.llmResponse();
         AnalysisResponse response = analysisService.finalizeAnalysis(user, request.mockApplyId(), payload, llmResponse);
         analysisAsyncTaskService.updateWorkerMetadata(taskId, request.workerId(), request.queueLatencyMillis());
         confirmCreditIfNeeded(task);
         analysisAsyncTaskService.markSuccess(taskId, response);
+        workerTaskResultService.markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, taskId);
         return response;
     }
 
     @Transactional
-    public void storeResult(String taskId, AnalysisWorkerResultStoreRequest request) {
+    public void storeGeneratedResult(String taskId, AnalysisWorkerResultStoreRequest request) {
         AnalysisAsyncTask task = getTask(taskId);
         if (!task.getUserId().equals(request.userId()) || !task.getMockApplyId().equals(request.mockApplyId())) {
             throw new GeneralException(
@@ -144,7 +159,13 @@ public class AnalysisWorkerBridgeService {
                     "자소서 분석 worker 결과 저장 요청 정보가 작업 정보와 일치하지 않습니다."
             );
         }
-        analysisAsyncTaskService.storeWorkerResult(taskId, request.llmResponse());
+        workerTaskResultService.upsertGenerated(TaskType.ANALYSIS_COMPLETE, taskId, request);
+    }
+
+    @Transactional(readOnly = true)
+    public WorkerTaskResultResponse getStoredResult(String taskId) {
+        getTask(taskId);
+        return workerTaskResultService.get(taskId);
     }
 
     private List<AnalysisWorkerContextResponse.AnalysisWorkerQuestionItem> toQuestionItems(List<Question> questions) {
