@@ -407,36 +407,7 @@ public class AnalysisService {
     }
 
     private List<AnalysisHighlightResponse> buildHighlights(List<AnalysisLlmResponse.HighlightItem> items) {
-        if (items == null) {
-            return List.of();
-        }
-
-        List<AnalysisHighlightResponse> result = new ArrayList<>();
-        Set<String> seenHighlights = new HashSet<>();
-
-        for (AnalysisLlmResponse.HighlightItem item : items) {
-            if (item == null || !StringUtils.hasText(item.title()) || !StringUtils.hasText(item.quote())) {
-                continue;
-            }
-
-            String title = item.title().trim();
-            String quote = item.quote().trim();
-            if (title.length() > MAX_HIGHLIGHT_TITLE_LENGTH || quote.length() > MAX_HIGHLIGHT_QUOTE_LENGTH) {
-                continue;
-            }
-
-            String dedupeKey = normalizeKeyword(title) + ":" + normalizeKeyword(quote);
-            if (!seenHighlights.add(dedupeKey)) {
-                continue;
-            }
-
-            result.add(new AnalysisHighlightResponse(title, quote));
-            if (result.size() >= MAX_HIGHLIGHTS) {
-                break;
-            }
-        }
-
-        return result;
+        return sanitizeHighlights(items, AnalysisLlmResponse.HighlightItem::title, AnalysisLlmResponse.HighlightItem::quote);
     }
 
     private List<MissingKeywordResponse> buildMissingKeywords(AnalysisLlmResponse llmResponse) {
@@ -571,20 +542,34 @@ public class AnalysisService {
     }
 
     private List<AnalysisHighlightResponse> sanitizeStoredHighlights(List<AnalysisHighlightResponse> highlights) {
-        if (highlights == null) {
+        return sanitizeHighlights(highlights, AnalysisHighlightResponse::title, AnalysisHighlightResponse::quote);
+    }
+
+    private <T> List<AnalysisHighlightResponse> sanitizeHighlights(
+            List<T> items,
+            Function<T, String> titleExtractor,
+            Function<T, String> quoteExtractor
+    ) {
+        if (items == null) {
             return List.of();
         }
 
         List<AnalysisHighlightResponse> result = new ArrayList<>();
         Set<String> seenHighlights = new HashSet<>();
 
-        for (AnalysisHighlightResponse item : highlights) {
-            if (item == null || !StringUtils.hasText(item.title()) || !StringUtils.hasText(item.quote())) {
+        for (T item : items) {
+            if (item == null) {
                 continue;
             }
 
-            String title = item.title().trim();
-            String quote = item.quote().trim();
+            String rawTitle = titleExtractor.apply(item);
+            String rawQuote = quoteExtractor.apply(item);
+            if (!StringUtils.hasText(rawTitle) || !StringUtils.hasText(rawQuote)) {
+                continue;
+            }
+
+            String title = rawTitle.trim();
+            String quote = rawQuote.trim();
             if (title.length() > MAX_HIGHLIGHT_TITLE_LENGTH || quote.length() > MAX_HIGHLIGHT_QUOTE_LENGTH) {
                 continue;
             }
