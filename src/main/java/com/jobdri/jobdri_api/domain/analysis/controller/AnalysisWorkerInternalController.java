@@ -7,6 +7,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerContextReq
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerContextResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerFailureRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerRetryRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerRunningRequest;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAsyncTaskService;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisWorkerBridgeService;
@@ -113,6 +114,18 @@ public class AnalysisWorkerInternalController {
                 "자소서 분석 worker 작업 완료 상태를 반영했습니다.",
                 analysisWorkerBridgeService.completeTask(taskId, request)
         );
+    }
+
+    @Operation(summary = "자소서 분석 worker 결과 저장", description = "worker가 생성한 LLM 분석 결과를 완료 처리 전에 taskId 기준으로 저장합니다.")
+    @PostMapping("/tasks/{taskId}/result")
+    public ApiResponse<Void> storeResult(
+            @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
+            @PathVariable String taskId,
+            @Valid @RequestBody AnalysisWorkerResultStoreRequest request
+    ) {
+        internalApiKeyValidator.validate(internalApiKey);
+        analysisWorkerBridgeService.storeResult(taskId, request);
+        return ApiResponse.onSuccess("자소서 분석 worker 결과를 저장했습니다.");
     }
 
     @Operation(summary = "자소서 분석 worker 작업 상태 조회", description = "taskId 기준 자소서 분석 worker 비동기 작업 상태를 내부 용도로 조회합니다.")

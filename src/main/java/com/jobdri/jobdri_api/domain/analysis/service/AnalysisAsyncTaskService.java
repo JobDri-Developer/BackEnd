@@ -1,5 +1,8 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
@@ -33,6 +36,7 @@ import java.util.Map;
 public class AnalysisAsyncTaskService {
 
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
+    private final ObjectMapper objectMapper;
     private final AnalysisAsyncSseService analysisAsyncSseService;
     private final NotificationService notificationService;
     
@@ -96,6 +100,27 @@ public class AnalysisAsyncTaskService {
     }
 
     @Transactional
+    public void storeWorkerResult(String taskId, AnalysisLlmResponse llmResponse) {
+        AnalysisAsyncTask task = getTask(taskId);
+        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+            return;
+        }
+        if (task.getStatus() == TaskStatus.FAILED) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "이미 실패 처리된 자소서 분석 비동기 작업입니다. taskId=" + taskId
+            );
+        }
+        task.storeWorkerResult(serializeWorkerResult(llmResponse));
+    }
+
+    @Transactional(readOnly = true)
+    public Optional<AnalysisLlmResponse> findWorkerResult(String taskId) {
+        AnalysisAsyncTask task = getTask(taskId);
+        return deserializeWorkerResult(task.getWorkerResultPayload());
+    }
+
+    @Transactional
     public void markCreditReserved(String taskId, String creditReferenceId) {
         getTask(taskId).markCreditReserved(creditReferenceId);
     }
@@ -136,6 +161,31 @@ public class AnalysisAsyncTaskService {
                         GeneralErrorCode.ANALYSIS_ASYNC_TASK_NOT_FOUND,
                         "해당 자소서 분석 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
                 ));
+    }
+
+    private String serializeWorkerResult(AnalysisLlmResponse llmResponse) {
+        try {
+            return objectMapper.writeValueAsString(llmResponse);
+        } catch (JsonProcessingException e) {
+            throw new GeneralException(
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "자소서 분석 worker 결과 직렬화에 실패했습니다."
+            );
+        }
+    }
+
+    private Optional<AnalysisLlmResponse> deserializeWorkerResult(String workerResultPayload) {
+        if (workerResultPayload == null || workerResultPayload.isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(objectMapper.readValue(workerResultPayload, AnalysisLlmResponse.class));
+        } catch (JsonProcessingException e) {
+            throw new GeneralException(
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "자소서 분석 worker 결과 역직렬화에 실패했습니다."
+            );
+        }
     }
 
     private AnalysisAsyncStatusResponse toStatusResponse(AnalysisAsyncTask task) {

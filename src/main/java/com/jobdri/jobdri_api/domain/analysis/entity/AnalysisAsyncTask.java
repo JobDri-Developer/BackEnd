@@ -6,6 +6,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
+import jakarta.persistence.Lob;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
@@ -76,6 +77,10 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
 
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
+
+    @Lob
+    @Column(name = "worker_result_payload")
+    private String workerResultPayload;
 
     public static AnalysisAsyncTask pending(Long userId, Long mockApplyId, int maxRetryCount) {
         AnalysisAsyncTask task = new AnalysisAsyncTask();
@@ -164,6 +169,13 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         if (queueLatencyMillis != null) {
             this.queueLatencyMillis = Math.max(0L, queueLatencyMillis);
         }
+    }
+
+    public void storeWorkerResult(String workerResultPayload) {
+        if (isTerminal()) {
+            return;
+        }
+        this.workerResultPayload = workerResultPayload;
     }
 
     private boolean isTerminal() {

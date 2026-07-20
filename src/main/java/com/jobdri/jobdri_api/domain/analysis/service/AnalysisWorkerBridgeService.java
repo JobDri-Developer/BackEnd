@@ -4,6 +4,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerContextResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
@@ -125,12 +126,25 @@ public class AnalysisWorkerBridgeService {
 
         User user = userService.getUser(request.userId());
         AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, request.mockApplyId());
-        AnalysisLlmResponse llmResponse = request.llmResponse();
+        AnalysisLlmResponse llmResponse = analysisAsyncTaskService.findWorkerResult(taskId)
+                .orElse(request.llmResponse());
         AnalysisResponse response = analysisService.finalizeAnalysis(user, request.mockApplyId(), payload, llmResponse);
         analysisAsyncTaskService.updateWorkerMetadata(taskId, request.workerId(), request.queueLatencyMillis());
         confirmCreditIfNeeded(task);
         analysisAsyncTaskService.markSuccess(taskId, response);
         return response;
+    }
+
+    @Transactional
+    public void storeResult(String taskId, AnalysisWorkerResultStoreRequest request) {
+        AnalysisAsyncTask task = getTask(taskId);
+        if (!task.getUserId().equals(request.userId()) || !task.getMockApplyId().equals(request.mockApplyId())) {
+            throw new GeneralException(
+                    GeneralErrorCode.FORBIDDEN,
+                    "자소서 분석 worker 결과 저장 요청 정보가 작업 정보와 일치하지 않습니다."
+            );
+        }
+        analysisAsyncTaskService.storeWorkerResult(taskId, request.llmResponse());
     }
 
     private List<AnalysisWorkerContextResponse.AnalysisWorkerQuestionItem> toQuestionItems(List<Question> questions) {
