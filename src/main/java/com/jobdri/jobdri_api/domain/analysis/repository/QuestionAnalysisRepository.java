@@ -20,6 +20,22 @@ public interface QuestionAnalysisRepository extends JpaRepository<QuestionAnalys
             where qa.analysis.id in (
                 select a.id
                 from Analysis a
+                where a.mockApply.id = :mockApplyId
+            )
+               or qa.question.id in (
+                select q.id
+                from Question q
+                where q.mockApply.id = :mockApplyId
+            )
+            """)
+    void deleteAllByMockApplyId(@Param("mockApplyId") Long mockApplyId);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            delete from QuestionAnalysis qa
+            where qa.analysis.id in (
+                select a.id
+                from Analysis a
                 where a.mockApply.jobPosting.id = :jobPostingId
             )
             """)

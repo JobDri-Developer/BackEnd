@@ -1,19 +1,29 @@
 package com.jobdri.jobdri_api.domain.analysis.dto.request;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.Size;
 
 import java.util.List;
 
 public record QuestionAnswerSaveRequest(
         @Valid
-        @NotEmpty(message = "저장할 답변은 1개 이상이어야 합니다.")
-        List<AnswerItem> answers
+        @NotEmpty(message = "저장할 문항은 1개 이상이어야 합니다.")
+        @Size(max = 5, message = "문항은 최대 5개까지 저장할 수 있습니다.")
+        List<QuestionItem> questions
 ) {
-    public record AnswerItem(
-            @NotNull(message = "문항 ID는 필수입니다.")
+    public record QuestionItem(
             Long questionId,
+
+            @NotBlank(message = "문항 내용은 필수입니다.")
+            @Size(min = 5, message = "문항은 최소 5자 이상이어야 합니다.")
+            String content,
+
+            @Positive(message = "글자수 제한은 1 이상이어야 합니다.")
+            Integer charLimit,
 
             @NotNull(message = "답변 내용은 필수입니다.")
             String answer

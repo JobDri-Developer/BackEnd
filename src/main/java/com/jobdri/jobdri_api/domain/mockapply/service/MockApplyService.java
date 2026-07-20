@@ -1,6 +1,8 @@
 package com.jobdri.jobdri_api.domain.mockapply.service;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
+import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
@@ -48,6 +50,8 @@ public class MockApplyService {
     private static final String UNIQUE_VIOLATION_SQL_STATE = "23505";
 
     private final MockApplyRepository mockApplyRepository;
+    private final QuestionAnalysisRepository questionAnalysisRepository;
+    private final AnalysisRepository analysisRepository;
     private final JobPostingRepository jobPostingRepository;
     private final CompanyRepository companyRepository;
     private final QuestionRepository questionRepository;
@@ -211,6 +215,18 @@ public class MockApplyService {
                 filterByCompletion(items, false),
                 filterByCompletion(items, true)
         );
+    }
+
+    @Transactional
+    @AuditLogEvent(action = "MOCK_APPLY_DELETE", targetType = "MOCK_APPLY", targetId = "#arg1")
+    public void deleteMockApply(User user, Long mockApplyId) {
+        User validatedUser = userService.validateUser(user);
+        getOwnedMockApply(validatedUser, mockApplyId);
+
+        questionAnalysisRepository.deleteAllByMockApplyId(mockApplyId);
+        analysisRepository.deleteByMockApplyId(mockApplyId);
+        questionRepository.deleteAllByMockApplyId(mockApplyId);
+        mockApplyRepository.deleteByMockApplyId(mockApplyId);
     }
 
     private List<MockApplyHomeItemResponse> filterByCompletion(

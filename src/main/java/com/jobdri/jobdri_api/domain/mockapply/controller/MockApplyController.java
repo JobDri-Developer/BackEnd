@@ -20,6 +20,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -47,6 +48,57 @@ public class MockApplyController {
                 "모의 서류 지원 목록 조회에 성공했습니다.",
                 mockApplyService.getMyMockApplies(userDetails.getUser())
         );
+    }
+
+    @Operation(
+            summary = "모의 서류 지원 단건 삭제",
+            description = "mockApplyId에 해당하는 모의 서류 지원과 연결된 문항, 분석 결과만 삭제합니다. 같은 공고의 다른 모의 지원은 유지됩니다."
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "모의 서류 지원 삭제 성공",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":\"모의 서류 지원이 삭제되었습니다.\",\"result\":null,\"error\":null}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "401",
+                    description = "인증 정보 누락",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"AUTH_4011\",\"message\":\"인증 정보가 누락되었습니다.\",\"result\":null,\"error\":\"인증 정보가 누락되었습니다.\"}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "403",
+                    description = "다른 사용자의 모의 서류 지원 접근",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"AUTH_4031\",\"message\":\"해당 모의 서류 지원에 접근할 수 없습니다.\",\"result\":null,\"error\":\"해당 모의 서류 지원에 접근할 수 없습니다.\"}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "404",
+                    description = "모의 서류 지원 없음",
+                    content = @Content(
+                            mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"MOCK_APPLY_4041\",\"message\":\"해당 모의 서류 지원을 찾을 수 없습니다. mockApplyId=999\",\"result\":null,\"error\":\"해당 모의 서류 지원을 찾을 수 없습니다. mockApplyId=999\"}")
+                    )
+            )
+    })
+    @DeleteMapping("/{mockApplyId}")
+    public ApiResponse<Void> deleteMockApply(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId
+    ) {
+        mockApplyService.deleteMockApply(userDetails.getUser(), mockApplyId);
+        return ApiResponse.onSuccess("모의 서류 지원이 삭제되었습니다.", null);
     }
 
     @Operation(

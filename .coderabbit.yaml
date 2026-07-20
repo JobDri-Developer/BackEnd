@@ -1,0 +1,34 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: "ko-KR"
+tone_instructions: "모든 리뷰와 요약은 자연스러운 한국어로 작성하고, 근거 기반으로 핵심 위험과 개선 방향을 명확히 설명하세요."
+early_access: false
+
+reviews:
+  profile: "assertive"
+  high_level_summary: true
+  review_status: true
+  poem: false
+  request_changes_workflow: false
+  auto_review:
+    enabled: true
+    drafts: false
+  path_instructions:
+    - path: "src/main/java/**/*.java"
+      instructions: |
+        다음 관점을 우선순위 높게 검토하세요.
+        - 비동기 처리 안정성: blocking I/O, 이벤트 루프/스레드 점유, thread starvation, backpressure, queue 적체, retry/idempotency, timeout, transaction 경계, 부분 실패 복구 가능성
+        - 외부 API 호출 성능: connection pooling, 불필요한 직렬화/역직렬화, 동기 호출 병목, 재시도 정책, rate limit 대응, 대량 요청 시 처리량 저하 가능성
+        - 데이터 접근 성능: N+1, 과도한 조회/저장, 락 경합, 긴 트랜잭션, 불필요한 flush/serialize 비용
+        - 코드 완성도: 객체 지향 설계의 응집도/책임 분리/SRP, 중복 제거, 명확한 이름, 테스트 용이성, 예외 처리 일관성, 클린코드 관점의 가독성과 유지보수성
+        리뷰 시 단순 스타일 지적보다 실제 장애 가능성, 성능 병목, 설계상 리스크를 우선 보고하세요.
+    - path: "src/test/**/*.java"
+      instructions: |
+        테스트가 동시성, 재시도, timeout, 실패 복구, 멱등성 같은 비동기 시나리오를 충분히 검증하는지 중점적으로 확인하세요.
+        해피패스만 있는 경우 경계 조건과 회귀 위험을 지적하세요.
+    - path: "ops/db/migrations/**/*.sql"
+      instructions: |
+        스키마 변경이 현재 운영 DB 엔진과 맞는지, 대용량 payload 저장/인덱스/락/호환성 측면에서 성능 및 운영 리스크가 없는지 검토하세요.
+
+chat:
+  auto_reply: true
