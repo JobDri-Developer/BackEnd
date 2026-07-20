@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionAnswerSaveRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionCandidateCreateRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionSelectionSaveRequest;
@@ -67,6 +68,9 @@ class QuestionServiceTest {
 
     @Autowired
     private UserRepository userRepository;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Test
     @DisplayName("선택 문항을 저장하고 지원 상태를 답변 작성 단계로 변경한다")
@@ -355,6 +359,31 @@ class QuestionServiceTest {
         assertThat(response.questions()).hasSize(1);
         assertThat(response.questions().get(0).content()).isEqualTo("새 문항");
         assertThat(response.questions().get(0).answer()).isEqualTo("새 문항 답변입니다.");
+    }
+
+    @Test
+    @DisplayName("답변 저장 요청은 answers 필드명도 questions와 동일하게 역직렬화한다")
+    void questionAnswerSaveRequestAcceptsAnswersAlias() throws Exception {
+        QuestionAnswerSaveRequest request = objectMapper.readValue(
+                """
+                        {
+                          "answers": [
+                            {
+                              "questionId": 1,
+                              "content": "새 문항",
+                              "charLimit": 700,
+                              "answer": "새 문항 답변입니다."
+                            }
+                          ]
+                        }
+                        """,
+                QuestionAnswerSaveRequest.class
+        );
+
+        assertThat(request.questions()).hasSize(1);
+        assertThat(request.questions().get(0).questionId()).isEqualTo(1L);
+        assertThat(request.questions().get(0).content()).isEqualTo("새 문항");
+        assertThat(request.questions().get(0).answer()).isEqualTo("새 문항 답변입니다.");
     }
 
     @Test
