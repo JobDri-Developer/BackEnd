@@ -679,8 +679,19 @@ public class AnalysisService {
             return null;
         }
 
+        String normalizedStatus = status.trim().toUpperCase();
+        if ("GOOD".equals(normalizedStatus)) {
+            return QuestionAnalysisStatus.PROVEN;
+        }
+        if ("NEEDS_IMPROVEMENT".equals(normalizedStatus)) {
+            return QuestionAnalysisStatus.MENTIONED;
+        }
+        if ("RISK".equals(normalizedStatus)) {
+            return QuestionAnalysisStatus.FABRICATED;
+        }
+
         try {
-            return QuestionAnalysisStatus.valueOf(status.trim().toUpperCase());
+            return QuestionAnalysisStatus.valueOf(normalizedStatus);
         } catch (IllegalArgumentException e) {
             return null;
         }

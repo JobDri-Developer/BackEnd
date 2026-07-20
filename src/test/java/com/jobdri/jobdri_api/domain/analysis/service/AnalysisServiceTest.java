@@ -386,6 +386,49 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("구버전 worker status는 백엔드 분석 상태로 매핑해 저장한다")
+    void analyzeMapsLegacyWorkerStatuses() {
+        User user = saveUser("analysis-legacy-status@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(
+                mockApply,
+                "문제 해결 경험",
+                "장애 로그를 분석해 원인을 찾았습니다. 배포 장애를 줄였습니다. 검증되지 않은 성과를 주장했습니다."
+        );
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "구버전 worker status 매핑입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "장애 로그를 분석해 원인을 찾았습니다.",
+                        "GOOD",
+                        "근거가 충분합니다.",
+                        "성과를 조금 더 구체화하세요."
+                ), new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "배포 장애를 줄였습니다.",
+                        "NEEDS_IMPROVEMENT",
+                        "성과 수치가 부족합니다.",
+                        "정량 지표를 추가하세요."
+                ), new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "검증되지 않은 성과를 주장했습니다.",
+                        "RISK",
+                        "과장 위험이 있습니다.",
+                        "검증 가능한 표현으로 낮추세요."
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses())
+                .extracting("status")
+                .containsExactly("proven", "mentioned", "fabricated");
+    }
+
+    @Test
     @DisplayName("missing status는 원문 sentence 저장이 안전하지 않아 문항 분석에서 제외한다")
     void analyzeSkipsMissingStatus() {
         User user = saveUser("analysis-missing-status@example.com");
