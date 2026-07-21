@@ -191,7 +191,7 @@ public class QuestionService {
         Set<Long> requestedQuestionIds = new HashSet<>();
         List<Question> syncedQuestions = new ArrayList<>();
 
-        for (QuestionAnswerSaveRequest.QuestionItem item : request.questions()) {
+        for (QuestionAnswerSaveRequest.QuestionAnswerItem item : request.questions()) {
             if (item.questionId() == null) {
                 syncedQuestions.add(Question.create(
                         mockApply,
