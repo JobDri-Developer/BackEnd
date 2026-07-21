@@ -1,0 +1,55 @@
+// Alloy needs access to the same mounted log volume as the Spring Boot container.
+// Run Alloy with a persistent --storage.path so file positions survive restarts.
+
+loki.process "spring_boot" {
+  forward_to = [loki.write.default.receiver]
+
+  stage.json {
+    expressions = {
+      level     = "level",
+      event     = "event",
+      errorCode = "errorCode",
+      requestId = "requestId",
+      logger    = "logger_name",
+      logType   = "logType",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level     = "level",
+      event     = "event",
+      errorCode = "errorCode",
+      logType   = "logType",
+    }
+  }
+}
+
+loki.source.file "spring_boot" {
+  targets = [
+    {
+      __path__ = "/var/log/spring-boot/*.log",
+      app      = "ceos-app",
+      job      = "spring-boot",
+    },
+    {
+      __path__ = "/var/log/spring-boot/audit/*.log",
+      app      = "ceos-app",
+      job      = "spring-boot-audit",
+    },
+  ]
+
+  forward_to = [loki.process.spring_boot.receiver]
+
+  file_match {
+    enabled = true
+  }
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+
+  external_labels = {}
+}

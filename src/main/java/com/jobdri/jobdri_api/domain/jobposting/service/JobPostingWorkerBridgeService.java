@@ -17,14 +17,20 @@ import com.jobdri.jobdri_api.domain.workerresult.entity.WorkerTaskResult.TaskTyp
 import com.jobdri.jobdri_api.domain.workerresult.service.WorkerTaskResultService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.logging.LoggingContext;
+import com.jobdri.jobdri_api.global.logging.LoggingMdcKeys;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class JobPostingWorkerBridgeService {
 
@@ -38,6 +44,9 @@ public class JobPostingWorkerBridgeService {
 
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
         jobPostingAsyncTaskService.markRunning(taskId, workerId, retryCount, submittedAt);
+        try (var ignored = LoggingContext.with("worker.task.running", null, workerContext(taskId, "JOB_POSTING_INGEST", workerId, retryCount, null))) {
+            log.info("Job posting worker marked task as running");
+        }
     }
 
     @Transactional
@@ -45,6 +54,9 @@ public class JobPostingWorkerBridgeService {
         workerTaskResultService.upsertGenerated(TaskType.JOB_POSTING_COMPLETE, taskId, result);
         JobPostingIngestResponse response = jobPostingAsyncTaskService.markSuccess(taskId, result);
         workerTaskResultService.markDeliveredIfPresent(TaskType.JOB_POSTING_COMPLETE, taskId);
+        try (var ignored = LoggingContext.with("worker.task.completed", null, workerContext(taskId, "JOB_POSTING_INGEST", null, null, null))) {
+            log.info("Job posting worker completed task");
+        }
         return response;
     }
 
@@ -63,6 +75,9 @@ public class JobPostingWorkerBridgeService {
         }
         jobPostingAsyncTaskService.updateWorkerMetadata(taskId, workerId, queueLatencyMillis);
         jobPostingAsyncTaskService.markRetryScheduled(taskId, failureReason, errorMessage, retryCount);
+        try (var ignored = LoggingContext.with("worker.task.retry", null, workerContext(taskId, "JOB_POSTING_INGEST", workerId, retryCount, queueLatencyMillis))) {
+            log.warn("Job posting worker scheduled retry: failureReason={}", failureReason);
+        }
     }
 
     @Transactional
@@ -80,6 +95,9 @@ public class JobPostingWorkerBridgeService {
         }
         jobPostingAsyncTaskService.updateWorkerMetadata(taskId, workerId, queueLatencyMillis);
         jobPostingAsyncTaskService.markFailed(taskId, failureReason, errorMessage, retryCount);
+        try (var ignored = LoggingContext.with("worker.task.failed", null, workerContext(taskId, "JOB_POSTING_INGEST", workerId, retryCount, queueLatencyMillis))) {
+            log.warn("Job posting worker failed task: failureReason={}", failureReason);
+        }
     }
 
     public String createReadableImageUrl(Long userId, String imageObjectKey) {
@@ -149,6 +167,9 @@ public class JobPostingWorkerBridgeService {
         );
         JobPostingIngestResponse response = jobPostingAsyncTaskService.markSuccess(taskId, result);
         workerTaskResultService.markDeliveredIfPresent(TaskType.JOB_POSTING_FINALIZE, taskId);
+        try (var ignored = LoggingContext.with("worker.task.completed", null, workerContext(taskId, "JOB_POSTING_INGEST", null, task.getRetryCount(), null))) {
+            log.info("Job posting worker finalized and completed task");
+        }
         return response;
     }
 
@@ -168,6 +189,9 @@ public class JobPostingWorkerBridgeService {
             );
         }
         workerTaskResultService.upsertGenerated(TaskType.JOB_POSTING_FINALIZE, taskId, request.result());
+        try (var ignored = LoggingContext.with("worker.result.stored", null, workerContext(taskId, "JOB_POSTING_INGEST", null, task.getRetryCount(), null))) {
+            log.info("Job posting worker result stored");
+        }
     }
 
     @Transactional(readOnly = true)
@@ -189,5 +213,27 @@ public class JobPostingWorkerBridgeService {
             return "미분류 회사";
         }
         return companyName;
+    }
+
+    private Map<String, String> workerContext(
+            String taskId,
+            String taskType,
+            String workerId,
+            Integer retryCount,
+            Long queueLatencyMillis
+    ) {
+        Map<String, String> context = new LinkedHashMap<>();
+        context.put(LoggingMdcKeys.TASK_ID, taskId);
+        context.put(LoggingMdcKeys.TASK_TYPE, taskType);
+        if (workerId != null) {
+            context.put(LoggingMdcKeys.WORKER_ID, workerId);
+        }
+        if (retryCount != null) {
+            context.put(LoggingMdcKeys.RETRY_COUNT, String.valueOf(retryCount));
+        }
+        if (queueLatencyMillis != null) {
+            context.put(LoggingMdcKeys.QUEUE_LATENCY_MILLIS, String.valueOf(queueLatencyMillis));
+        }
+        return context;
     }
 }
