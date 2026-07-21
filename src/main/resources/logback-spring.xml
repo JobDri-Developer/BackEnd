@@ -15,7 +15,7 @@
             <customFields>{"service":"${APP_NAME}"}</customFields>
             <fieldNames>
                 <timestamp>timestamp</timestamp>
-                <logger>logger</logger>
+                <logger>logger_name</logger>
                 <thread>thread</thread>
                 <stackTrace>stack_trace</stackTrace>
             </fieldNames>
@@ -36,7 +36,7 @@
             <customFields>{"service":"${APP_NAME}"}</customFields>
             <fieldNames>
                 <timestamp>timestamp</timestamp>
-                <logger>logger</logger>
+                <logger>logger_name</logger>
                 <thread>thread</thread>
                 <stackTrace>stack_trace</stackTrace>
             </fieldNames>
@@ -57,7 +57,7 @@
             <customFields>{"service":"${APP_NAME}"}</customFields>
             <fieldNames>
                 <timestamp>timestamp</timestamp>
-                <logger>logger</logger>
+                <logger>logger_name</logger>
                 <thread>thread</thread>
                 <stackTrace>stack_trace</stackTrace>
             </fieldNames>

@@ -4,6 +4,7 @@ import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.BaseErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.logging.LoggingContext;
 import jakarta.validation.ConstraintViolationException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -38,8 +39,10 @@ public class ExceptionAdvice {
 
     @ExceptionHandler(GeneralException.class)
     public ResponseEntity<ApiResponse<Object>> handleCustomException(GeneralException e) {
-        log.warn("CustomException: {}", e.getCode().getMessage());
         BaseErrorCode code = e.getCode();
+        try (var ignored = LoggingContext.with("request.general_exception", code)) {
+            log.warn("General exception handled: {}", e.getMessage());
+        }
         return ResponseEntity
                 .status(code.getHttpStatus())
                 .body(ApiResponse.onFailure(code, e.getMessage()));
@@ -54,9 +57,10 @@ public class ExceptionAdvice {
                         formatRejectedValue(fe.getField(), fe.getRejectedValue())))
                 .toList();
 
-        log.warn("Validation failed: {}", errors);
-
         BaseErrorCode code = GeneralErrorCode.INVALID_PARAMETER;
+        try (var ignored = LoggingContext.with("request.validation_failed", code)) {
+            log.warn("Validation failed: {}", errors);
+        }
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
                 .body(ApiResponse.onFailure(code, errors));
@@ -74,19 +78,24 @@ public class ExceptionAdvice {
                 })
                 .collect(Collectors.toList());
 
-        log.warn("Constraint violation: {}", errors);
-
+        BaseErrorCode code = GeneralErrorCode.INVALID_PARAMETER;
+        try (var ignored = LoggingContext.with("request.constraint_violation", code)) {
+            log.warn("Constraint violation: {}", errors);
+        }
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.onFailure(GeneralErrorCode.INVALID_PARAMETER, errors));
+                .body(ApiResponse.onFailure(code, errors));
     }
 
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<ApiResponse<Object>> handleJsonErrors(HttpMessageNotReadableException e) {
-        log.warn("JSON Parse Error: {}", e.getMessage());
+        BaseErrorCode code = GeneralErrorCode.INVALID_PARAMETER;
+        try (var ignored = LoggingContext.with("request.json_parse_failed", code)) {
+            log.warn("JSON parse error: {}", e.getMessage());
+        }
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.onFailure(GeneralErrorCode.INVALID_PARAMETER, "입력값이 잘못되었습니다. (JSON 형식을 확인해주세요)"));
+                .body(ApiResponse.onFailure(code, "입력값이 잘못되었습니다. (JSON 형식을 확인해주세요)"));
     }
 
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
@@ -100,34 +109,45 @@ public class ExceptionAdvice {
                 formatRejectedValue(parameterName, e.getValue())
         );
 
-        log.warn("Method argument type mismatch: {}", message);
-
+        BaseErrorCode code = GeneralErrorCode.INVALID_PARAMETER;
+        try (var ignored = LoggingContext.with("request.type_mismatch", code)) {
+            log.warn("Method argument type mismatch: {}", message);
+        }
         return ResponseEntity
                 .status(HttpStatus.BAD_REQUEST)
-                .body(ApiResponse.onFailure(GeneralErrorCode.INVALID_PARAMETER, message));
+                .body(ApiResponse.onFailure(code, message));
     }
 
     @ExceptionHandler(DataIntegrityViolationException.class)
     public ResponseEntity<ApiResponse<Object>> handleDataIntegrityViolationException(DataIntegrityViolationException e) {
-        log.warn("DataIntegrityViolationException: {}", buildDeepestMessage(e));
         if (isDuplicateConflict(e)) {
+            BaseErrorCode code = GeneralErrorCode.INVALID_PARAMETER;
+            try (var ignored = LoggingContext.with("request.duplicate_conflict", code)) {
+                log.warn("Duplicate conflict detected: {}", buildDeepestMessage(e));
+            }
             return ResponseEntity
                     .status(HttpStatus.BAD_REQUEST)
-                    .body(ApiResponse.onFailure(GeneralErrorCode.INVALID_PARAMETER, "이미 처리되었거나 중복된 요청입니다."));
+                    .body(ApiResponse.onFailure(code, "이미 처리되었거나 중복된 요청입니다."));
         }
 
+        BaseErrorCode code = GeneralErrorCode.INTERNAL_SERVER_ERROR;
+        try (var ignored = LoggingContext.with("system.data_integrity_violation", code)) {
+            log.error("Data integrity violation: {}", buildDeepestMessage(e), e);
+        }
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(ApiResponse.onFailure(
-                        GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                        code,
                         "데이터 저장 중 무결성 오류가 발생했습니다."
                 ));
     }
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Object>> handleException(Exception e) {
-        log.warn("Exception: {}", e.getMessage());
         BaseErrorCode code = GeneralErrorCode.INTERNAL_SERVER_ERROR;
+        try (var ignored = LoggingContext.with("system.unhandled_exception", code)) {
+            log.error("Unhandled exception: {}", e.getMessage(), e);
+        }
         return ResponseEntity
                 .status(code.getHttpStatus())
                 .body(ApiResponse.onFailure(code, code.getMessage()));

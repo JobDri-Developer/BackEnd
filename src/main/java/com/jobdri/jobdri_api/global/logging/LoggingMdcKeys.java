@@ -10,6 +10,7 @@ public final class LoggingMdcKeys {
     public static final String USER_EMAIL = "userEmail";
     public static final String LOG_TYPE = "logType";
     public static final String EVENT = "event";
+    public static final String ERROR_CODE = "errorCode";
 
     private LoggingMdcKeys() {
     }
