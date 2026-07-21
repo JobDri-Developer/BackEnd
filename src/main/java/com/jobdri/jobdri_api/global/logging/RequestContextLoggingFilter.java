@@ -1,10 +1,14 @@
 package com.jobdri.jobdri_api.global.logging;
 
+import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -12,6 +16,9 @@ import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
 
+import static net.logstash.logback.argument.StructuredArguments.kv;
+
+@Slf4j
 public class RequestContextLoggingFilter extends OncePerRequestFilter {
 
     private static final String REQUEST_ID_HEADER = "X-Request-Id";
@@ -24,6 +31,7 @@ public class RequestContextLoggingFilter extends OncePerRequestFilter {
             FilterChain filterChain
     ) throws ServletException, IOException {
         Map<String, String> previousContext = MDC.getCopyOfContextMap();
+        long startedAt = System.currentTimeMillis();
 
         try {
             String requestId = resolveRequestId(request);
@@ -37,6 +45,18 @@ public class RequestContextLoggingFilter extends OncePerRequestFilter {
             response.setHeader(REQUEST_ID_HEADER, requestId);
             filterChain.doFilter(request, response);
         } finally {
+            enrichAuthenticatedUser();
+            if (!isActuatorRequest(request)) {
+                log.info(
+                        "request completed",
+                        kv("event", "request.completed"),
+                        kv("requestId", MDC.get(LoggingMdcKeys.REQUEST_ID)),
+                        kv("method", request.getMethod()),
+                        kv("path", request.getRequestURI()),
+                        kv("status", response.getStatus()),
+                        kv("latencyMs", System.currentTimeMillis() - startedAt)
+                );
+            }
             MDC.clear();
             if (previousContext != null && !previousContext.isEmpty()) {
                 MDC.setContextMap(previousContext);
@@ -64,5 +84,22 @@ public class RequestContextLoggingFilter extends OncePerRequestFilter {
         }
 
         return request.getRemoteAddr();
+    }
+
+    private void enrichAuthenticatedUser() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getPrincipal() == null) {
+            return;
+        }
+
+        Object principal = authentication.getPrincipal();
+        if (principal instanceof UserDetailsImpl userDetails) {
+            MDC.put(LoggingMdcKeys.USER_ID, String.valueOf(userDetails.getUser().getId()));
+            MDC.put(LoggingMdcKeys.USER_EMAIL, userDetails.getUser().getEmail());
+        }
+    }
+
+    private boolean isActuatorRequest(HttpServletRequest request) {
+        return request.getRequestURI().startsWith("/actuator");
     }
 }
