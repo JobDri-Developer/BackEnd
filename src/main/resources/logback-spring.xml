@@ -64,13 +64,25 @@
         </encoder>
     </appender>
 
-    <logger name="AUDIT" level="INFO" additivity="false">
+    <appender name="APPLICATION_ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>8192</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <appender-ref ref="APPLICATION_FILE" />
+    </appender>
+
+    <appender name="AUDIT_ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>2048</queueSize>
+        <discardingThreshold>0</discardingThreshold>
         <appender-ref ref="AUDIT_FILE" />
+    </appender>
+
+    <logger name="AUDIT" level="INFO" additivity="false">
+        <appender-ref ref="AUDIT_ASYNC" />
         <appender-ref ref="CONSOLE" />
     </logger>
 
     <root level="${LOG_LEVEL_ROOT:-INFO}">
-        <appender-ref ref="APPLICATION_FILE" />
+        <appender-ref ref="APPLICATION_ASYNC" />
         <appender-ref ref="CONSOLE" />
     </root>
 </configuration>

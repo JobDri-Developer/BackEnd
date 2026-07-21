@@ -75,10 +75,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private void populateUserLoggingContext(UserDetails userDetails) {
         if (userDetails instanceof UserDetailsImpl userDetailsImpl) {
             MDC.put(LoggingMdcKeys.USER_ID, String.valueOf(userDetailsImpl.getUser().getId()));
-            MDC.put(LoggingMdcKeys.USER_EMAIL, userDetailsImpl.getUser().getEmail());
-            return;
         }
-
-        MDC.put(LoggingMdcKeys.USER_EMAIL, userDetails.getUsername());
     }
 }

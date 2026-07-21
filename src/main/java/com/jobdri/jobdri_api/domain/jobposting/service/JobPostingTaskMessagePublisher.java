@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingIngestTaskMessage;
+import com.jobdri.jobdri_api.global.apiPayload.code.BaseErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.logging.LoggingContext;
@@ -54,8 +55,8 @@ public class JobPostingTaskMessagePublisher {
                 log.info("Published job posting task message to worker queue");
             }
         } catch (RuntimeException e) {
-            GeneralErrorCode errorCode = e instanceof GeneralException generalException
-                    ? (GeneralErrorCode) generalException.getCode()
+            BaseErrorCode errorCode = e instanceof GeneralException generalException
+                    ? generalException.getCode()
                     : GeneralErrorCode.SERVICE_UNAVAILABLE;
             try (var ignored = LoggingContext.with("queue.publish.failed", errorCode, publishContext)) {
                 log.warn("Failed to publish job posting task message: {}", e.getMessage());

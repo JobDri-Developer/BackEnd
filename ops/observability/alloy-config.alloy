@@ -17,10 +17,8 @@ loki.process "spring_boot" {
 
   stage.labels {
     values = {
-      level     = "level",
-      event     = "event",
-      errorCode = "errorCode",
-      logType   = "logType",
+      level   = "level",
+      logType = "logType",
     }
   }
 }

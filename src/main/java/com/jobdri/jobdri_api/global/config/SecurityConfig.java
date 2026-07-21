@@ -12,6 +12,7 @@ import com.jobdri.jobdri_api.global.logging.RequestContextLoggingFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -20,6 +21,8 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.web.cors.CorsConfigurationSource;
+
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -41,12 +44,18 @@ public class SecurityConfig {
     }
 
     @Bean
-    public RequestContextLoggingFilter requestContextLoggingFilter() {
-        return new RequestContextLoggingFilter();
+    public RequestContextLoggingFilter requestContextLoggingFilter(
+            @Value("${app.logging.request-id-max-length:64}") int requestIdMaxLength,
+            @Value("${app.logging.trusted-proxies:}") List<String> trustedProxies
+    ) {
+        return new RequestContextLoggingFilter(requestIdMaxLength, trustedProxies);
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain securityFilterChain(
+            HttpSecurity http,
+            RequestContextLoggingFilter requestContextLoggingFilter
+    ) throws Exception {
 
         http.cors((cors) -> cors.configurationSource(corsConfigurationSource()));
 
@@ -78,7 +87,7 @@ public class SecurityConfig {
                 .failureHandler(oAuth2AuthenticationFailureHandler)
         );
 
-        http.addFilterBefore(requestContextLoggingFilter(), UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(requestContextLoggingFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterAfter(jwtAuthenticationFilter(), RequestContextLoggingFilter.class);
 
         http.exceptionHandling((exceptions) -> exceptions

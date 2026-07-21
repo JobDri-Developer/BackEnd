@@ -59,7 +59,7 @@ public class TossPaymentClient {
     }
 
     public TossPaymentConfirmResponse confirm(String paymentKey, String orderId, int amount) {
-        Map<String, String> paymentContext = paymentContext(orderId, paymentKey, amount);
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderId, paymentKey, amount);
         try (var ignored = LoggingContext.with("payment.confirm.external_called", null, paymentContext)) {
             log.info("Calling Toss payment confirm API");
         }
@@ -88,7 +88,8 @@ public class TossPaymentClient {
             }
             throw new GeneralException(
                     GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
-                    "토스페이먼츠 결제 승인 실패"
+                    "토스페이먼츠 결제 승인 실패",
+                    e
             );
         } catch (ResourceAccessException e) {
             if (isTimeoutException(e)) {
@@ -98,7 +99,8 @@ public class TossPaymentClient {
                 }
                 throw new GeneralException(
                         GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT,
-                        "토스페이먼츠 결제 승인 응답이 지연되고 있습니다."
+                        "토스페이먼츠 결제 승인 응답이 지연되고 있습니다.",
+                        e
                 );
             }
             try (var ignored = LoggingContext.with("payment.confirm.failed", GeneralErrorCode.PAYMENT_CONFIRM_FAILED, paymentContext)) {
@@ -107,7 +109,8 @@ public class TossPaymentClient {
             }
             throw new GeneralException(
                     GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
-                    "토스페이먼츠 결제 승인 중 오류 발생"
+                    "토스페이먼츠 결제 승인 중 오류 발생",
+                    e
             );
         } catch (RestClientException e) {
             try (var ignored = LoggingContext.with("payment.confirm.failed", GeneralErrorCode.PAYMENT_CONFIRM_FAILED, paymentContext)) {
@@ -116,7 +119,8 @@ public class TossPaymentClient {
             }
             throw new GeneralException(
                     GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
-                    "토스페이먼츠 결제 승인 중 오류 발생"
+                    "토스페이먼츠 결제 승인 중 오류 발생",
+                    e
             );
         }
     }
@@ -142,23 +146,5 @@ public class TossPaymentClient {
             current = current.getCause();
         }
         return false;
-    }
-
-    private Map<String, String> paymentContext(String orderId, String paymentKey, int amount) {
-        Map<String, String> context = new LinkedHashMap<>();
-        context.put("orderId", orderId);
-        context.put("paymentKey", maskPaymentKey(paymentKey));
-        context.put("amount", String.valueOf(amount));
-        return context;
-    }
-
-    private String maskPaymentKey(String paymentKey) {
-        if (paymentKey == null || paymentKey.isBlank()) {
-            return null;
-        }
-        if (paymentKey.length() <= 10) {
-            return "****";
-        }
-        return paymentKey.substring(0, 6) + "..." + paymentKey.substring(paymentKey.length() - 4);
     }
 }

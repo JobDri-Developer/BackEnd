@@ -7,14 +7,18 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
+import org.springframework.security.web.util.matcher.IpAddressMatcher;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import static net.logstash.logback.argument.StructuredArguments.kv;
 
@@ -23,6 +27,24 @@ public class RequestContextLoggingFilter extends OncePerRequestFilter {
 
     private static final String REQUEST_ID_HEADER = "X-Request-Id";
     private static final String APPLICATION_LOG_TYPE = "application";
+    private static final int DEFAULT_REQUEST_ID_MAX_LENGTH = 64;
+    private static final Pattern REQUEST_ID_PATTERN = Pattern.compile("^[A-Za-z0-9._:-]{1,64}$");
+
+    private final int requestIdMaxLength;
+    private final List<IpAddressMatcher> trustedProxyMatchers;
+
+    public RequestContextLoggingFilter() {
+        this(DEFAULT_REQUEST_ID_MAX_LENGTH, List.of());
+    }
+
+    public RequestContextLoggingFilter(int requestIdMaxLength, List<String> trustedProxies) {
+        this.requestIdMaxLength = requestIdMaxLength;
+        this.trustedProxyMatchers = trustedProxies.stream()
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .map(IpAddressMatcher::new)
+                .toList();
+    }
 
     @Override
     protected void doFilterInternal(
@@ -66,21 +88,26 @@ public class RequestContextLoggingFilter extends OncePerRequestFilter {
 
     private String resolveRequestId(HttpServletRequest request) {
         String requestId = request.getHeader(REQUEST_ID_HEADER);
-        if (StringUtils.hasText(requestId)) {
+        if (isValidRequestId(requestId)) {
             return requestId;
         }
         return UUID.randomUUID().toString();
     }
 
     private String resolveClientIp(HttpServletRequest request) {
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (StringUtils.hasText(forwardedFor)) {
-            return forwardedFor.split(",")[0].trim();
-        }
+        if (isTrustedProxy(request.getRemoteAddr())) {
+            String forwardedFor = request.getHeader("X-Forwarded-For");
+            if (StringUtils.hasText(forwardedFor)) {
+                String forwardedClientIp = forwardedFor.split(",")[0].trim();
+                if (StringUtils.hasText(forwardedClientIp)) {
+                    return forwardedClientIp;
+                }
+            }
 
-        String realIp = request.getHeader("X-Real-IP");
-        if (StringUtils.hasText(realIp)) {
-            return realIp.trim();
+            String realIp = request.getHeader("X-Real-IP");
+            if (StringUtils.hasText(realIp)) {
+                return realIp.trim();
+            }
         }
 
         return request.getRemoteAddr();
@@ -95,11 +122,32 @@ public class RequestContextLoggingFilter extends OncePerRequestFilter {
         Object principal = authentication.getPrincipal();
         if (principal instanceof UserDetailsImpl userDetails) {
             MDC.put(LoggingMdcKeys.USER_ID, String.valueOf(userDetails.getUser().getId()));
-            MDC.put(LoggingMdcKeys.USER_EMAIL, userDetails.getUser().getEmail());
         }
     }
 
     private boolean isActuatorRequest(HttpServletRequest request) {
         return request.getRequestURI().startsWith("/actuator");
+    }
+
+    private boolean isValidRequestId(String requestId) {
+        if (!StringUtils.hasText(requestId)) {
+            return false;
+        }
+        if (requestId.length() > requestIdMaxLength) {
+            return false;
+        }
+        return REQUEST_ID_PATTERN.matcher(requestId).matches();
+    }
+
+    private boolean isTrustedProxy(String remoteAddr) {
+        if (!StringUtils.hasText(remoteAddr) || trustedProxyMatchers.isEmpty()) {
+            return false;
+        }
+        for (IpAddressMatcher matcher : trustedProxyMatchers) {
+            if (matcher.matches(remoteAddr)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

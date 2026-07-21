@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.payment.repository.CreditTransactionReposito
 import com.jobdri.jobdri_api.domain.payment.repository.PaymentRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.global.apiPayload.code.BaseErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.logging.LoggingContext;
@@ -23,7 +24,6 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Arrays;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -63,7 +63,7 @@ public class PaymentService {
         try (var ignored = LoggingContext.with(
                 "payment.prepare.started",
                 null,
-                paymentContext(null, null, validatedUser.getId(), request.planCode(), plan.getPrice())
+                PaymentLogMasking.paymentContext(null, null, validatedUser.getId(), request.planCode(), plan.getPrice())
         )) {
             log.info("Starting payment preparation");
         }
@@ -79,7 +79,7 @@ public class PaymentService {
         try (var ignored = LoggingContext.with(
                 "payment.prepare.completed",
                 null,
-                paymentContext(payment.getOrderId(), null, validatedUser.getId(), plan.getCode(), plan.getPrice())
+                PaymentLogMasking.paymentContext(payment.getOrderId(), null, validatedUser.getId(), plan.getCode(), plan.getPrice())
         )) {
             log.info("Payment preparation completed");
         }
@@ -90,9 +90,9 @@ public class PaymentService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PaymentConfirmResponse confirm(User user, PaymentConfirmRequest request) {
         User validatedUser = userService.validateUser(user);
-        Map<String, String> paymentContext = paymentContext(
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(
                 request.orderId(),
-                maskPaymentKey(request.paymentKey()),
+                request.paymentKey(),
                 validatedUser.getId(),
                 null,
                 request.amount()
@@ -127,14 +127,11 @@ public class PaymentService {
                 throw e;
             }
             paymentTransactionService.failConfirmation(validatedUser.getId(), request.orderId(), request.paymentKey());
-            if (e instanceof GeneralException generalException) {
-                try (var ignored = LoggingContext.with("payment.confirm.failed", generalException.getCode(), paymentContext)) {
-                    log.warn("Payment confirmation failed: {}", e.getMessage());
-                }
-            } else {
-                try (var ignored = LoggingContext.with("payment.confirm.failed", GeneralErrorCode.PAYMENT_CONFIRM_FAILED, paymentContext)) {
-                    log.warn("Payment confirmation failed: {}", e.getMessage());
-                }
+            BaseErrorCode errorCode = e instanceof GeneralException generalException
+                    ? generalException.getCode()
+                    : GeneralErrorCode.PAYMENT_CONFIRM_FAILED;
+            try (var ignored = LoggingContext.with("payment.confirm.failed", errorCode, paymentContext)) {
+                log.warn("Payment confirmation failed: {}", e.getMessage());
             }
             throw e;
         }
@@ -171,41 +168,5 @@ public class PaymentService {
                 || response.totalAmount() != request.amount()) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "결제 승인 응답 검증에 실패했습니다.");
         }
-    }
-
-    private Map<String, String> paymentContext(
-            String orderId,
-            String maskedPaymentKey,
-            Long userId,
-            String planCode,
-            Integer amount
-    ) {
-        Map<String, String> context = new LinkedHashMap<>();
-        if (orderId != null) {
-            context.put("orderId", orderId);
-        }
-        if (maskedPaymentKey != null) {
-            context.put("paymentKey", maskedPaymentKey);
-        }
-        if (userId != null) {
-            context.put("paymentUserId", String.valueOf(userId));
-        }
-        if (planCode != null) {
-            context.put("planCode", planCode);
-        }
-        if (amount != null) {
-            context.put("amount", String.valueOf(amount));
-        }
-        return context;
-    }
-
-    private String maskPaymentKey(String paymentKey) {
-        if (paymentKey == null || paymentKey.isBlank()) {
-            return null;
-        }
-        if (paymentKey.length() <= 10) {
-            return "****";
-        }
-        return paymentKey.substring(0, 6) + "..." + paymentKey.substring(paymentKey.length() - 4);
     }
 }
