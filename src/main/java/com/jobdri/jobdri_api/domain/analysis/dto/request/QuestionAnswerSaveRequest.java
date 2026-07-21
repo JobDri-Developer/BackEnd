@@ -15,9 +15,9 @@ public record QuestionAnswerSaveRequest(
         @JsonAlias("answers")
         @NotEmpty(message = "저장할 문항은 1개 이상이어야 합니다.")
         @Size(max = 5, message = "문항은 최대 5개까지 저장할 수 있습니다.")
-        List<QuestionItem> questions
+        List<QuestionAnswerItem> questions
 ) {
-    public record QuestionItem(
+    public record QuestionAnswerItem(
             Long questionId,
 
             @NotBlank(message = "문항 내용은 필수입니다.")
