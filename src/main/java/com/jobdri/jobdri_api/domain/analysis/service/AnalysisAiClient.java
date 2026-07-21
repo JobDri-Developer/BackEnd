@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse.RejectionCode;
 import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
@@ -408,18 +409,30 @@ public class AnalysisAiClient {
                 buildFinalPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria, sanitizedCandidates),
                 CandidateReviewResponse.class
         );
-        AnalysisLlmResponse response = buildFinalResponse(promptInput, sanitizedCandidates, reviewResponse);
+        CandidateReviewResponse validatedReviewResponse = validateCandidateReview(
+                promptInput,
+                sanitizedCandidates,
+                reviewResponse
+        );
+        AnalysisLlmResponse response = buildFinalResponse(promptInput, sanitizedCandidates, validatedReviewResponse);
         long finalLatencyMs = elapsedMillis(finalStartedAt);
         log.debug(
                 "analysis two-pass final result. enabled={}, acceptedCandidateCount={}, rejectedCandidateCount={}, finalAnalysisCount={}, model={}, latencyMs={}",
                 true,
-                acceptedDecisionCount(reviewResponse),
-                rejectedDecisionCount(reviewResponse),
+                acceptedDecisionCount(validatedReviewResponse),
+                rejectedDecisionCount(validatedReviewResponse),
                 size(response == null ? null : response.questionAnalyses()),
                 analysisModel,
                 finalLatencyMs
         );
-        return AnalysisAiCallResult.twoPass(response, rawCandidates, sanitizedCandidates, reviewResponse, candidateLatencyMs, finalLatencyMs);
+        return AnalysisAiCallResult.twoPass(
+                response,
+                rawCandidates,
+                sanitizedCandidates,
+                validatedReviewResponse,
+                candidateLatencyMs,
+                finalLatencyMs
+        );
     }
 
     private <T> T createStructuredResponse(String operationName, String prompt, Class<T> responseType) {
@@ -1019,7 +1032,7 @@ public class AnalysisAiClient {
             if (candidate == null || !Boolean.TRUE.equals(decision.accepted())) {
                 continue;
             }
-            if (!"NONE".equalsIgnoreCase(defaultString(decision.rejectionCode()))) {
+            if (decision.rejectionCode() != RejectionCode.NONE) {
                 continue;
             }
             QuestionAnalysisStatus status = parseQuestionAnalysisStatus(decision.status());
@@ -1027,6 +1040,10 @@ public class AnalysisAiClient {
                 continue;
             }
             if (!StringUtils.hasText(decision.reason())) {
+                continue;
+            }
+            if (status == QuestionAnalysisStatus.MENTIONED
+                    && AnalysisSanitizationRules.isPositiveMentionedReason(decision.reason())) {
                 continue;
             }
             if (status == QuestionAnalysisStatus.FABRICATED
@@ -1055,6 +1072,138 @@ public class AnalysisAiClient {
             }
         }
         return result;
+    }
+
+    CandidateReviewResponse validateCandidateReview(
+            AnalysisPromptInput promptInput,
+            AnalysisCandidateResponse sanitizedCandidates,
+            CandidateReviewResponse reviewResponse
+    ) {
+        if (reviewResponse == null) {
+            return new CandidateReviewResponse(List.of(), List.of(), List.of(), null, null, null, null);
+        }
+        List<AnalysisCandidateResponse.AnalysisCandidate> analysisCandidates =
+                sanitizedCandidates == null || sanitizedCandidates.analysisCandidates() == null
+                        ? List.of()
+                        : sanitizedCandidates.analysisCandidates();
+        if (analysisCandidates.isEmpty()) {
+            return new CandidateReviewResponse(
+                    List.of(),
+                    reviewResponse.strengths() == null ? List.of() : reviewResponse.strengths(),
+                    reviewResponse.missingKeywords() == null ? List.of() : reviewResponse.missingKeywords(),
+                    reviewResponse.jobFit(),
+                    reviewResponse.impact(),
+                    reviewResponse.completeness(),
+                    reviewResponse.feedback()
+            );
+        }
+
+        Map<String, AnalysisCandidateResponse.AnalysisCandidate> candidateById = analysisCandidates.stream()
+                .filter(candidate -> StringUtils.hasText(candidate.candidateId()))
+                .collect(Collectors.toMap(
+                        candidate -> candidate.candidateId().trim(),
+                        candidate -> candidate,
+                        (left, right) -> left
+                ));
+        Map<Long, String> answerByQuestionId = promptInput.questions().stream()
+                .collect(Collectors.toMap(AnalysisPromptInput.QuestionAnswer::questionId, AnalysisPromptInput.QuestionAnswer::answer));
+
+        List<CandidateReviewResponse.CandidateDecision> decisions = new ArrayList<>();
+        Set<String> seenCandidateIds = new HashSet<>();
+        if (reviewResponse.decisions() != null) {
+            for (CandidateReviewResponse.CandidateDecision decision : reviewResponse.decisions()) {
+                if (decision == null || !StringUtils.hasText(decision.candidateId())) {
+                    continue;
+                }
+                String candidateId = decision.candidateId().trim();
+                if (!seenCandidateIds.add(candidateId)) {
+                    continue;
+                }
+                AnalysisCandidateResponse.AnalysisCandidate candidate = candidateById.get(candidateId);
+                if (candidate == null || decision.accepted() == null || decision.rejectionCode() == null) {
+                    continue;
+                }
+                if (Boolean.TRUE.equals(decision.accepted())) {
+                    CandidateReviewResponse.CandidateDecision accepted = validateAcceptedDecision(
+                            decision,
+                            candidate,
+                            answerByQuestionId.get(candidate.questionId())
+                    );
+                    if (accepted != null) {
+                        decisions.add(accepted);
+                    }
+                    continue;
+                }
+                CandidateReviewResponse.CandidateDecision rejected = validateRejectedDecision(decision);
+                if (rejected != null) {
+                    decisions.add(rejected);
+                }
+            }
+        }
+        return new CandidateReviewResponse(
+                decisions,
+                reviewResponse.strengths() == null ? List.of() : reviewResponse.strengths(),
+                reviewResponse.missingKeywords() == null ? List.of() : reviewResponse.missingKeywords(),
+                reviewResponse.jobFit(),
+                reviewResponse.impact(),
+                reviewResponse.completeness(),
+                reviewResponse.feedback()
+        );
+    }
+
+    private CandidateReviewResponse.CandidateDecision validateAcceptedDecision(
+            CandidateReviewResponse.CandidateDecision decision,
+            AnalysisCandidateResponse.AnalysisCandidate candidate,
+            String answer
+    ) {
+        if (decision.rejectionCode() != RejectionCode.NONE) {
+            return null;
+        }
+        QuestionAnalysisStatus status = parseQuestionAnalysisStatus(decision.status());
+        if (status != QuestionAnalysisStatus.MENTIONED && status != QuestionAnalysisStatus.FABRICATED) {
+            return null;
+        }
+        if (!StringUtils.hasText(decision.reason()) || !containsExact(answer, candidate.sentence())) {
+            return null;
+        }
+        if (status == QuestionAnalysisStatus.MENTIONED
+                && AnalysisSanitizationRules.isPositiveMentionedReason(decision.reason())) {
+            return null;
+        }
+        if (status == QuestionAnalysisStatus.FABRICATED
+                && !AnalysisSanitizationRules.hasFabricatedDirectConflictReason(decision.reason())) {
+            return null;
+        }
+        String improvement = AnalysisSanitizationRules.normalizeImprovement(
+                candidate.sentence(),
+                answer,
+                decision.improvement(),
+                false
+        );
+        return new CandidateReviewResponse.CandidateDecision(
+                decision.candidateId().trim(),
+                true,
+                RejectionCode.NONE,
+                status.name(),
+                decision.reason().trim(),
+                StringUtils.hasText(improvement) ? improvement : null
+        );
+    }
+
+    private CandidateReviewResponse.CandidateDecision validateRejectedDecision(
+            CandidateReviewResponse.CandidateDecision decision
+    ) {
+        if (decision.rejectionCode() == RejectionCode.NONE) {
+            return null;
+        }
+        return new CandidateReviewResponse.CandidateDecision(
+                decision.candidateId().trim(),
+                false,
+                decision.rejectionCode(),
+                null,
+                defaultString(decision.reason()).trim(),
+                null
+        );
     }
 
     private List<AnalysisLlmResponse.HighlightItem> buildFinalStrengths(

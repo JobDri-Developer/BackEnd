@@ -137,6 +137,11 @@ public class EvaluationAnalysisBatchService {
                 evaluationCase.caseId(),
                 evaluationCase.jobCategoryMiddle(),
                 evaluationCase.jobCategorySmall(),
+                evaluationCase.mainTasks(),
+                evaluationCase.qualifications(),
+                evaluationCase.preferences(),
+                evaluationCase.question(),
+                evaluationCase.answer(),
                 calculateScore(jobFit, impact, completeness),
                 jobFit,
                 impact,
@@ -382,9 +387,9 @@ public class EvaluationAnalysisBatchService {
             return "";
         }
         Map<String, Long> counts = reviewResponse.decisions().stream()
-                .filter(decision -> decision != null && StringUtils.hasText(decision.rejectionCode()))
+                .filter(decision -> decision != null && decision.rejectionCode() != null)
                 .collect(java.util.stream.Collectors.groupingBy(
-                        decision -> decision.rejectionCode().trim(),
+                        decision -> decision.rejectionCode().name(),
                         java.util.stream.Collectors.counting()
                 ));
         return writeJson(counts);

@@ -1,0 +1,53 @@
+package com.jobdri.jobdri_api.domain.analysis.evaluation;
+
+record NlgEvaluationResult(
+        String caseId,
+        String sourceResultFile,
+        Integer analysisCount,
+        Double averageRelevance,
+        Double averageProblemValidity,
+        Double averageSentenceTypeConsistency,
+        Double averageReasonCorrectness,
+        Double averageContextAwareness,
+        Double averageFaithfulness,
+        Double averageTenseConsistency,
+        Double averageUsability,
+        Double averageNonMeta,
+        Double averageMeaningPreservation,
+        Integer strengthsPrecision,
+        Integer missingKeywordsPrecision,
+        Integer overallUsefulness,
+        String errorCodes,
+        String shortRationale,
+        Integer judgeInputTokens,
+        Integer judgeOutputTokens,
+        Long judgeLatencyMs,
+        String failureStage
+) {
+    static NlgEvaluationResult failed(String caseId, String sourceResultFile, String failureStage) {
+        return new NlgEvaluationResult(
+                caseId,
+                sourceResultFile,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "[]",
+                "",
+                null,
+                null,
+                null,
+                failureStage
+        );
+    }
+}

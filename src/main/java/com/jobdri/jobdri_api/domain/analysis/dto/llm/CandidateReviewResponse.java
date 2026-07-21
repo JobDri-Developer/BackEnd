@@ -14,11 +14,24 @@ public record CandidateReviewResponse(
     public record CandidateDecision(
             String candidateId,
             Boolean accepted,
-            String rejectionCode,
+            RejectionCode rejectionCode,
             String status,
             String reason,
             String improvement
     ) {
+    }
+
+    public enum RejectionCode {
+        ALREADY_SPECIFIC,
+        CONTEXT_PROVIDES_EVIDENCE,
+        WRONG_SENTENCE_TYPE_CRITERIA,
+        PREFERENCE_ONLY,
+        NOT_JOB_RELEVANT,
+        DUPLICATE_ISSUE,
+        UNSUPPORTED_JUDGMENT,
+        NOT_ACTIONABLE,
+        INVALID_SOURCE,
+        NONE
     }
 
     public record FinalStrengthCandidate(

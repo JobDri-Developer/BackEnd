@@ -1,7 +1,9 @@
 package com.jobdri.jobdri_api.domain.analysis.evaluation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAiClient;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAiClient.AnalysisAiCallResult;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisPromptInput;
@@ -333,6 +335,53 @@ class EvaluationAnalysisBatchServiceTest {
         assertThat(row.get("aiMissingKeywordsJson")).isEqualTo("[]");
         assertThat(row.get("aiQuestionAnalysesJson")).isEqualTo("[]");
         assertThat(row.get("errorMessage")).contains("rate limit exceeded");
+    }
+
+    @Test
+    @DisplayName("평가 CSV 후보/decision 통계는 검증 후 결과 기준으로 기록한다")
+    void runWritesValidatedCandidateDecisionCounts() throws Exception {
+        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
+                analysisAiClient,
+                new JobCategoryEvaluationCriteriaProvider(objectMapper),
+                objectMapper
+        );
+        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
+                .thenReturn(new AnalysisAiCallResult(
+                        new AnalysisLlmResponse(80, 70, 60, "피드백", List.of(), List.of()),
+                        null,
+                        new AnalysisCandidateResponse(List.of(), List.of(), List.of()),
+                        new CandidateReviewResponse(
+                                List.of(),
+                                List.of(),
+                                List.of(),
+                                80,
+                                70,
+                                60,
+                                "피드백"
+                        ),
+                        true,
+                        10,
+                        20
+                ));
+
+        Path input = tempDir.resolve("evaluation_cases.csv");
+        Path output = tempDir.resolve("evaluation_ai_results.csv");
+        Files.writeString(
+                input,
+                "caseId,jobCategoryMiddle,jobCategorySmall,mainTasks,qualifications,preferences,question,answer\n"
+                        + "EV-06,AI·개발·데이터,백엔드,API 개발,Spring Boot 경험,,경험을 쓰세요,Spring Boot API를 개발했습니다.\n",
+                StandardCharsets.UTF_8
+        );
+
+        service.run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("candidateCount")).isEqualTo("0");
+        assertThat(row.get("acceptedCandidateCount")).isEqualTo("0");
+        assertThat(row.get("rejectedCandidateCount")).isEqualTo("0");
+        assertThat(row.get("rejectionCodeCounts")).isEqualTo("{}");
     }
 
     private AnalysisAiCallResult result(AnalysisLlmResponse response) {

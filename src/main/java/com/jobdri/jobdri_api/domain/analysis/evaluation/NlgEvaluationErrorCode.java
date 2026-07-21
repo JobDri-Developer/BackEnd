@@ -1,0 +1,15 @@
+package com.jobdri.jobdri_api.domain.analysis.evaluation;
+
+public enum NlgEvaluationErrorCode {
+    FALSE_POSITIVE_ANALYSIS,
+    CONTEXT_IGNORED,
+    WRONG_SENTENCE_TYPE_CRITERIA,
+    PREFERENCE_OVERWEIGHTED,
+    META_IMPROVEMENT,
+    UNSUPPORTED_FACT,
+    TENSE_CHANGED,
+    MEANING_STRENGTHENED,
+    INVALID_MISSING_KEYWORD,
+    MISSED_STRENGTH,
+    NONE
+}

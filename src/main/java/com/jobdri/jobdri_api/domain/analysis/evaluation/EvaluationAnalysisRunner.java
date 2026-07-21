@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.analysis.evaluation;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -19,6 +20,7 @@ import java.util.List;
 
 @Component
 @Profile("analysis-eval")
+@ConditionalOnProperty(name = "evaluation.nlg-judge.enabled", havingValue = "false", matchIfMissing = true)
 @RequiredArgsConstructor
 @Slf4j
 // 수동 실행 예:

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
@@ -71,6 +72,38 @@ class EvaluationAnalysisRunnerSafetyTest {
     }
 
     @Test
+    @DisplayName("운영 profile에서는 NLG judge Runner가 실행되지 않도록 fail-fast 한다")
+    void nlgJudgeRunnerFailsWhenProdProfileIsActive() {
+        NlgEvaluationRunner runner = nlgRunnerWithProfiles("prod", "analysis-eval");
+
+        assertThatThrownBy(runner::validateProfiles)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("must not run with prod profile");
+    }
+
+    @Test
+    @DisplayName("NLG judge 활성화 시 기본 평가 Runner는 실행되지 않는다")
+    void evaluationRunnerIsDisabledWhenNlgJudgeIsEnabled() {
+        ConditionalOnProperty condition = EvaluationAnalysisRunner.class.getAnnotation(ConditionalOnProperty.class);
+
+        assertThat(condition).isNotNull();
+        assertThat(condition.name()).containsExactly("evaluation.nlg-judge.enabled");
+        assertThat(condition.havingValue()).isEqualTo("false");
+        assertThat(condition.matchIfMissing()).isTrue();
+    }
+
+    @Test
+    @DisplayName("NLG judge Runner는 명시적으로 활성화한 경우에만 실행된다")
+    void nlgJudgeRunnerRequiresEnabledFlag() {
+        ConditionalOnProperty condition = NlgEvaluationRunner.class.getAnnotation(ConditionalOnProperty.class);
+
+        assertThat(condition).isNotNull();
+        assertThat(condition.name()).containsExactly("evaluation.nlg-judge.enabled");
+        assertThat(condition.havingValue()).isEqualTo("true");
+        assertThat(condition.matchIfMissing()).isFalse();
+    }
+
+    @Test
     @DisplayName("analysis-eval 설정은 DB DDL과 schema.sql 실행을 비활성화한다")
     void analysisEvalYamlDisablesDatabaseSideEffects() {
         Properties properties = loadAnalysisEvalProperties();
@@ -97,6 +130,7 @@ class EvaluationAnalysisRunnerSafetyTest {
         assertThat(properties.getProperty("app.admin.bootstrap-emails")).isEmpty();
         assertThat(properties.getProperty("app.corpus.import.run-on-startup")).isEqualTo("false");
         assertThat(properties.getProperty("app.corpus.embedding.sync-on-startup")).isEqualTo("false");
+        assertThat(properties.getProperty("evaluation.nlg-judge.enabled")).isEqualTo("false");
         assertThat(properties.getProperty("payment.toss.client-key")).contains("dummy-evaluation-client-key");
     }
 
@@ -123,6 +157,16 @@ class EvaluationAnalysisRunnerSafetyTest {
         when(environment.getActiveProfiles()).thenReturn(profiles);
         return new EvaluationAnalysisRunner(
                 mock(EvaluationAnalysisBatchService.class),
+                mock(ConfigurableApplicationContext.class),
+                environment
+        );
+    }
+
+    private NlgEvaluationRunner nlgRunnerWithProfiles(String... profiles) {
+        Environment environment = mock(Environment.class);
+        when(environment.getActiveProfiles()).thenReturn(profiles);
+        return new NlgEvaluationRunner(
+                mock(NlgEvaluationBatchService.class),
                 mock(ConfigurableApplicationContext.class),
                 environment
         );
