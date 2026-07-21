@@ -7,3 +7,8 @@ spring:
       max-request-size: 20MB
   jpa:
     defer-datasource-initialization: true
+
+app:
+  logging:
+    path: ${APP_LOG_PATH:logs}
+    audit-path: ${APP_AUDIT_LOG_PATH:logs/audit}

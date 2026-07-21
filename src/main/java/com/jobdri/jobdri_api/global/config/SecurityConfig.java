@@ -8,6 +8,7 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.handler.CustomAuthentic
 import com.jobdri.jobdri_api.global.jwt.JwtAuthenticationFilter;
 import com.jobdri.jobdri_api.global.jwt.JwtUtil;
 import com.jobdri.jobdri_api.global.security.UserDetailsServiceImpl;
+import com.jobdri.jobdri_api.global.logging.RequestContextLoggingFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -37,6 +38,11 @@ public class SecurityConfig {
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter() {
         return new JwtAuthenticationFilter(jwtUtil, userDetailsService, redisTemplate);
+    }
+
+    @Bean
+    public RequestContextLoggingFilter requestContextLoggingFilter() {
+        return new RequestContextLoggingFilter();
     }
 
     @Bean
@@ -72,7 +78,8 @@ public class SecurityConfig {
                 .failureHandler(oAuth2AuthenticationFailureHandler)
         );
 
-        http.addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(requestContextLoggingFilter(), UsernamePasswordAuthenticationFilter.class);
+        http.addFilterAfter(jwtAuthenticationFilter(), RequestContextLoggingFilter.class);
 
         http.exceptionHandling((exceptions) -> exceptions
                 .authenticationEntryPoint(customAuthenticationEntryPoint)

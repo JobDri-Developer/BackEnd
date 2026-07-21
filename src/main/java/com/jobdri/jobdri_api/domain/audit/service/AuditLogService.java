@@ -7,16 +7,24 @@ import com.jobdri.jobdri_api.domain.audit.repository.AuditLogRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
+
+import com.jobdri.jobdri_api.global.logging.LoggingMdcKeys;
+
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 public class AuditLogService {
 
     private static final int MAX_USER_AGENT_LENGTH = 500;
+    private static final Logger AUDIT_LOGGER = LoggerFactory.getLogger("AUDIT");
 
     private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
@@ -31,7 +39,7 @@ public class AuditLogService {
             Object afterValue
     ) {
         HttpServletRequest request = currentRequest();
-        auditLogRepository.save(AuditLog.create(
+        AuditLog auditLog = auditLogRepository.save(AuditLog.create(
                 user,
                 action,
                 targetType,
@@ -41,6 +49,7 @@ public class AuditLogService {
                 resolveIpAddress(request),
                 truncate(resolveUserAgent(request), MAX_USER_AGENT_LENGTH)
         ));
+        writeAuditTrail(auditLog);
     }
 
     private HttpServletRequest currentRequest() {
@@ -90,5 +99,26 @@ public class AuditLogService {
             return value;
         }
         return value.substring(0, maxLength);
+    }
+
+    private void writeAuditTrail(AuditLog auditLog) {
+        Map<String, String> previousContext = MDC.getCopyOfContextMap();
+
+        try {
+            MDC.put(LoggingMdcKeys.LOG_TYPE, "audit");
+            MDC.put(LoggingMdcKeys.EVENT, "audit.recorded");
+            MDC.put("auditAction", auditLog.getAction());
+            MDC.put("auditTargetType", auditLog.getTargetType());
+            if (auditLog.getTargetId() != null) {
+                MDC.put("auditTargetId", String.valueOf(auditLog.getTargetId()));
+            }
+
+            AUDIT_LOGGER.info("Audit log persisted");
+        } finally {
+            MDC.clear();
+            if (previousContext != null && !previousContext.isEmpty()) {
+                MDC.setContextMap(previousContext);
+            }
+        }
     }
 }

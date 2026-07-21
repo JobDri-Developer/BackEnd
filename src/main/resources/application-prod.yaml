@@ -76,6 +76,9 @@ mail:
   from: ${MAIL_FROM:${MAIL_USERNAME:}}
 
 app:
+  logging:
+    path: ${APP_LOG_PATH:/var/log/spring-boot}
+    audit-path: ${APP_AUDIT_LOG_PATH:/var/log/spring-boot/audit}
   oauth2:
     redirect-uri: ${APP_OAUTH2_REDIRECT_URI}
   worker:
