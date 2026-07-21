@@ -336,6 +336,6 @@ class EvaluationAnalysisBatchServiceTest {
     }
 
     private AnalysisAiCallResult result(AnalysisLlmResponse response) {
-        return new AnalysisAiCallResult(response, null, null, false, 0, 1);
+        return new AnalysisAiCallResult(response, null, null, null, false, 0, 1);
     }
 }
