@@ -126,7 +126,7 @@ public class RequestContextLoggingFilter extends OncePerRequestFilter {
     }
 
     private boolean isActuatorRequest(HttpServletRequest request) {
-        return request.getRequestURI().startsWith("/actuator");
+        return request.getServletPath().startsWith("/actuator");
     }
 
     private boolean isValidRequestId(String requestId) {

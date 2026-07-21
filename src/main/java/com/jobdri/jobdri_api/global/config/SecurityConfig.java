@@ -14,6 +14,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -52,9 +53,28 @@ public class SecurityConfig {
     }
 
     @Bean
+    public FilterRegistrationBean<RequestContextLoggingFilter> requestContextLoggingFilterRegistration(
+            RequestContextLoggingFilter requestContextLoggingFilter
+    ) {
+        FilterRegistrationBean<RequestContextLoggingFilter> registration = new FilterRegistrationBean<>(requestContextLoggingFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    public FilterRegistrationBean<JwtAuthenticationFilter> jwtAuthenticationFilterRegistration(
+            JwtAuthenticationFilter jwtAuthenticationFilter
+    ) {
+        FilterRegistrationBean<JwtAuthenticationFilter> registration = new FilterRegistrationBean<>(jwtAuthenticationFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            RequestContextLoggingFilter requestContextLoggingFilter
+            RequestContextLoggingFilter requestContextLoggingFilter,
+            JwtAuthenticationFilter jwtAuthenticationFilter
     ) throws Exception {
 
         http.cors((cors) -> cors.configurationSource(corsConfigurationSource()));
@@ -88,7 +108,7 @@ public class SecurityConfig {
         );
 
         http.addFilterBefore(requestContextLoggingFilter, UsernamePasswordAuthenticationFilter.class);
-        http.addFilterAfter(jwtAuthenticationFilter(), RequestContextLoggingFilter.class);
+        http.addFilterAfter(jwtAuthenticationFilter, RequestContextLoggingFilter.class);
 
         http.exceptionHandling((exceptions) -> exceptions
                 .authenticationEntryPoint(customAuthenticationEntryPoint)
