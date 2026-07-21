@@ -125,12 +125,14 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: ${MANAGEMENT_HEALTH_SHOW_DETAILS:never}
       probes:
         enabled: true
+    prometheus:
+      access: unrestricted
 
 jwt:
   secret:

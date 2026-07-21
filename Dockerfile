@@ -3,6 +3,7 @@ FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
 RUN addgroup -S jobdri && adduser -S jobdri -G jobdri
+RUN mkdir -p /var/log/spring-boot/audit && chown -R jobdri:jobdri /var/log/spring-boot /app
 
 COPY build/libs/*.jar app.jar
 
