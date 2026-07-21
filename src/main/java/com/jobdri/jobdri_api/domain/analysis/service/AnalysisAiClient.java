@@ -1,7 +1,12 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
+import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
@@ -19,8 +24,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.ArrayList;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Component
@@ -256,9 +268,13 @@ public class AnalysisAiClient {
     private final CorpusRetrievalService corpusRetrievalService;
     private final LlmConcurrencyLimiter llmConcurrencyLimiter;
     private final FewShotPromptProvider fewShotPromptProvider;
+    private final ObjectMapper objectMapper;
 
     @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}")
     private String analysisModel;
+
+    @Value("${analysis.two-pass.enabled:false}")
+    private boolean twoPassEnabled;
 
     public AnalysisLlmResponse analyze(AnalysisExecutionPayload payload) {
         return analyze(payload.jobPosting(), payload.answeredQuestions(), payload.jobCategoryEvaluationCriteria());
@@ -280,19 +296,21 @@ public class AnalysisAiClient {
             log.warn("자소서 분석 retrieval 실패. mock analysis will continue without references. message={}", e.getMessage());
             log.debug("analysis retrieval exception", e);
         }
-        var params = ResponseCreateParams.builder()
-                .model(analysisModel)
-                .input(buildPrompt(jobPosting, questions, referenceContext, jobCategoryEvaluationCriteria))
-                .temperature(0.2)
-                .text(AnalysisLlmResponse.class)
-                .build();
-
         try {
-            StructuredResponse<AnalysisLlmResponse> response = llmConcurrencyLimiter.execute(
-                    "cover-letter-analysis",
-                    () -> openAIClient.responses().create(params)
-            );
-            return extractStructuredContent(response);
+            if (twoPassEnabled) {
+                return analyzeTwoPass(
+                        AnalysisPromptInput.from(jobPosting, questions),
+                        referenceContext,
+                        jobCategoryEvaluationCriteria,
+                        "cover-letter-analysis"
+                ).response();
+            }
+            return analyzeSinglePass(
+                    AnalysisPromptInput.from(jobPosting, questions),
+                    referenceContext,
+                    jobCategoryEvaluationCriteria,
+                    "cover-letter-analysis"
+            ).response();
         } catch (GeneralException e) {
             throw e;
         } catch (Exception e) {
@@ -308,19 +326,28 @@ public class AnalysisAiClient {
             AnalysisPromptInput promptInput,
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
     ) {
-        var params = ResponseCreateParams.builder()
-                .model(analysisModel)
-                .input(buildPrompt(promptInput, emptyContext(), jobCategoryEvaluationCriteria))
-                .temperature(0.2)
-                .text(AnalysisLlmResponse.class)
-                .build();
+        return analyzeForEvaluationResult(promptInput, jobCategoryEvaluationCriteria).response();
+    }
 
+    public AnalysisAiCallResult analyzeForEvaluationResult(
+            AnalysisPromptInput promptInput,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
+    ) {
         try {
-            StructuredResponse<AnalysisLlmResponse> response = llmConcurrencyLimiter.execute(
-                    "cover-letter-analysis-evaluation",
-                    () -> openAIClient.responses().create(params)
+            if (twoPassEnabled) {
+                return analyzeTwoPass(
+                        promptInput,
+                        emptyContext(),
+                        jobCategoryEvaluationCriteria,
+                        "cover-letter-analysis-evaluation"
+                );
+            }
+            return analyzeSinglePass(
+                    promptInput,
+                    emptyContext(),
+                    jobCategoryEvaluationCriteria,
+                    "cover-letter-analysis-evaluation"
             );
-            return extractStructuredContent(response);
         } catch (GeneralException e) {
             throw e;
         } catch (Exception e) {
@@ -330,6 +357,79 @@ public class AnalysisAiClient {
                     "평가용 자소서 분석 AI 호출에 실패했습니다."
             );
         }
+    }
+
+    private AnalysisAiCallResult analyzeSinglePass(
+            AnalysisPromptInput promptInput,
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
+            String operationName
+    ) {
+        long startedAt = System.nanoTime();
+        AnalysisLlmResponse response = createStructuredResponse(
+                operationName,
+                buildPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria),
+                AnalysisLlmResponse.class
+        );
+        return AnalysisAiCallResult.singlePass(response, elapsedMillis(startedAt));
+    }
+
+    private AnalysisAiCallResult analyzeTwoPass(
+            AnalysisPromptInput promptInput,
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
+            String operationName
+    ) {
+        long candidateStartedAt = System.nanoTime();
+        AnalysisCandidateResponse rawCandidates = createStructuredResponse(
+                operationName + "-candidates",
+                buildCandidatePrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria),
+                AnalysisCandidateResponse.class
+        );
+        long candidateLatencyMs = elapsedMillis(candidateStartedAt);
+        AnalysisCandidateResponse sanitizedCandidates = sanitizeCandidates(promptInput, rawCandidates);
+        log.debug(
+                "analysis two-pass candidate result. enabled={}, rawAnalysisCount={}, sanitizedAnalysisCount={}, rawStrengthCount={}, sanitizedStrengthCount={}, rawMissingKeywordCount={}, sanitizedMissingKeywordCount={}, model={}, latencyMs={}",
+                true,
+                size(rawCandidates == null ? null : rawCandidates.analysisCandidates()),
+                size(sanitizedCandidates.analysisCandidates()),
+                size(rawCandidates == null ? null : rawCandidates.strengthCandidates()),
+                size(sanitizedCandidates.strengthCandidates()),
+                size(rawCandidates == null ? null : rawCandidates.missingKeywordCandidates()),
+                size(sanitizedCandidates.missingKeywordCandidates()),
+                analysisModel,
+                candidateLatencyMs
+        );
+
+        long finalStartedAt = System.nanoTime();
+        AnalysisLlmResponse response = createStructuredResponse(
+                operationName + "-final",
+                buildFinalPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria, sanitizedCandidates),
+                AnalysisLlmResponse.class
+        );
+        long finalLatencyMs = elapsedMillis(finalStartedAt);
+        log.debug(
+                "analysis two-pass final result. enabled={}, finalAnalysisCount={}, model={}, latencyMs={}",
+                true,
+                size(response == null ? null : response.questionAnalyses()),
+                analysisModel,
+                finalLatencyMs
+        );
+        return AnalysisAiCallResult.twoPass(response, rawCandidates, sanitizedCandidates, candidateLatencyMs, finalLatencyMs);
+    }
+
+    private <T> T createStructuredResponse(String operationName, String prompt, Class<T> responseType) {
+        var params = ResponseCreateParams.builder()
+                .model(analysisModel)
+                .input(prompt)
+                .temperature(0.2)
+                .text(responseType)
+                .build();
+        StructuredResponse<T> response = llmConcurrencyLimiter.execute(
+                operationName,
+                () -> openAIClient.responses().create(params)
+        );
+        return extractStructuredContent(response);
     }
 
     String buildPrompt(
@@ -346,6 +446,196 @@ public class AnalysisAiClient {
     }
 
     String buildPrompt(
+            AnalysisPromptInput promptInput,
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
+    ) {
+        return buildSinglePassPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria);
+    }
+
+    String buildCandidatePrompt(
+            AnalysisPromptInput promptInput,
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
+    ) {
+        String questionText = formatQuestions(promptInput);
+        String jobCategoryCriteriaSection = formatJobCategoryEvaluationCriteriaSection(jobCategoryEvaluationCriteria);
+        return """
+                [시스템 지시]
+                너는 자기소개서 분석을 위한 1차 후보 판정기다.
+                반드시 Structured Output 스키마에 맞는 JSON object만 반환한다.
+                내부 판단 과정이나 chain-of-thought를 출력하지 않는다.
+                reasoning, analysis 같은 별도 필드를 추가하지 않는다.
+
+                [1차 출력 필드]
+                - strengthCandidates: 충분히 구체적이고 mainTask 또는 qualification과 직접 연결된 좋은 문장 후보. 없으면 [].
+                - analysisCandidates: 실제 첨삭이 필요한 문장 후보. status는 MENTIONED 또는 FABRICATED만 사용. 최대 3개.
+                - missingKeywordCandidates: sentence가 없는 누락 역량 후보. 없으면 [].
+                - 점수 필드, feedback, improvement, keyWeaknesses는 1차 출력에 존재하지 않는다.
+
+                [허용값]
+                - sentenceType: EXPERIENCE, PLAN, MOTIVATION, COMPETENCY
+                - relatedSource: MAIN_TASK, QUALIFICATION, PREFERENCE, NONE
+                - status: MENTIONED, FABRICATED
+                - issueType: LACK_OF_ACTION, LACK_OF_METHOD, LACK_OF_RESULT, LACK_OF_ROLE, LACK_OF_JOB_CONNECTION, ABSTRACT_PLAN, GENERIC_MOTIVATION, UNSUPPORTED_CLAIM, DIRECT_CONTRADICTION
+
+                [1차 판정 절차]
+                1. 답변을 문장 단위로 확인한다.
+                2. 각 문장의 유형을 분류한다.
+                3. mainTask와 qualification의 직접 근거를 찾는다.
+                4. preference만 근거인 후보는 제외한다.
+                5. 문장이 이미 충분히 구체적인지 판단한다.
+                6. 충분한 문장은 strengthCandidates로 분류한다.
+                7. 보완이 필요한 문장만 analysisCandidates로 분류한다.
+                8. 실제 충돌이 있는 경우에만 FABRICATED를 사용한다.
+                9. 누락 요구사항은 sentence가 아니라 missingKeywordCandidates로 분리한다.
+                10. 대표 1개만 기계적으로 고르지 말고, 독립적인 문제가 있으면 최대 3개까지 반환한다.
+
+                [1차 후보 규칙]
+                - questionId는 입력된 questionId 중 하나만 사용한다.
+                - sentence와 quote는 해당 answer에 실제 포함된 정확한 부분 문자열만 사용한다.
+                - preference-only 후보는 strengthCandidates, analysisCandidates, missingKeywordCandidates에서 제외한다.
+                - 충분히 좋은 문장은 analysisCandidates에 넣지 않는다.
+                - 포부/계획 문장에는 과거 성과 수치나 Before-After를 요구하지 않는다.
+                - 지원동기는 수치 부족으로 분류하지 않는다.
+                - MISSING은 analysisCandidates에 넣지 않고 missingKeywordCandidates로만 분리한다.
+                - FABRICATED는 JD 또는 답변 내부의 명시적 사실과 직접 충돌하거나, 지원자가 실제로 하지 않았다고 밝힌 경험을 한 것처럼 주장한 경우에만 사용한다.
+                - status 다양성이나 개수를 채우기 위해 후보를 만들지 않는다.
+                - improvement를 생성하지 않는다.
+
+                [채용 공고]
+                회사명: %s
+                직무명: %s
+                <main_tasks>
+                %s
+                </main_tasks>
+                <qualifications>
+                %s
+                </qualifications>
+                <preferences role="secondary_only">
+                %s
+                </preferences>
+
+                [유사 JD 검색 결과]
+                %s
+
+                [유사 자소서 문항 검색 결과]
+                %s
+
+                %s
+
+                [자소서 문항과 답변]
+                %s
+                """.formatted(
+                defaultString(promptInput.companyName()),
+                defaultString(promptInput.jobName()),
+                defaultString(promptInput.mainTasks()),
+                defaultString(promptInput.qualifications()),
+                defaultString(promptInput.preferences()),
+                formatJobPostingReferences(referenceContext.jobPostingReferences()),
+                formatQuestionReferences(referenceContext.questionReferences()),
+                jobCategoryCriteriaSection,
+                questionText
+        );
+    }
+
+    String buildFinalPrompt(
+            AnalysisPromptInput promptInput,
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
+            AnalysisCandidateResponse candidates
+    ) {
+        String questionText = formatQuestions(promptInput);
+        String candidateJson = writeJson(candidates);
+        String jobCategoryCriteriaSection = formatJobCategoryEvaluationCriteriaSection(jobCategoryEvaluationCriteria);
+        return """
+                [시스템 지시]
+                너는 한국 채용 담당자이자 자기소개서 평가 전문가다.
+                반드시 Structured Output 스키마에 맞는 JSON object만 반환한다.
+                내부 판단 과정이나 chain-of-thought를 출력하지 않는다.
+
+                %s
+
+                [2차 후보 존중 원칙]
+                - 아래 후보는 1차 호출 후 서버 검증을 통과한 후보만 포함한다.
+                - 1차 후보를 참고하되 무조건 복사하지 않는다.
+                - 1차 후보가 실제 원문이나 JD와 맞지 않으면 최종 결과에서 제외한다.
+                - 1차에 없는 새로운 questionAnalysis를 임의로 추가하지 않는다.
+                - keyStrengths와 missingKeywords는 1차 후보 범위 안에서 정리·축약 가능하다.
+                - questionAnalyses는 검증된 analysisCandidates 중 실제 첨삭 가치가 있는 항목만 반환한다.
+                - questionAnalyses 최종 status는 mentioned 또는 fabricated만 사용한다.
+                - PROVEN은 questionAnalyses에 반환하지 않고 좋은 문장은 keyStrengths로 표현한다.
+                - MISSING은 questionAnalyses가 아니라 missingKeywords로만 처리한다.
+
+                [문장 유형별 첨삭]
+                - 경험/성과: 행동, 역할, 방법, 결과 중 실제 부족한 요소만 보완한다.
+                - 경험/성과: 이미 수치와 방법이 있으면 부족하다고 평가하지 않는다.
+                - 포부/계획: 과거 성과 수치를 요구하지 않고 실행 대상, 방법, 단계, 직무 연결성을 중심으로 reason을 작성한다.
+                - 지원동기: 수치를 요구하지 않고 회사 또는 직무 선택 이유와 개인 경험의 연결성을 평가한다.
+                - 역량/자격: 자격증이나 전공 자체보다 실제 활용 맥락을 평가한다.
+                - 역량/자격: 정형 자격요건은 missingKeywords에서 제외한다.
+
+                [improvement 안전 규칙]
+                - 사용자가 그대로 교체해 쓸 수 있는 자기소개서 문장이어야 한다.
+                - 첨삭 행위를 설명하는 메타 문장을 금지한다.
+                - 원문과 실질적으로 동일한 문장을 금지한다.
+                - 답변의 다른 문장 복사를 금지한다.
+                - 원문에 없는 수치, 도구, 경험, 직무 수행, 계획 추가를 금지한다.
+                - JD 문구를 지원자의 실제 경험처럼 변환하지 않는다.
+                - 과거 문장을 미래 포부로 변경하지 않는다.
+                - 미래 포부를 과거 경험으로 변경하지 않는다.
+                - 원문 사실만으로 안전한 개선이 불가능하면 null을 반환한다.
+                - 금지 예시: 구체적으로 설명했습니다. 경험을 추가하면 좋겠습니다. 성과를 강조했습니다. 구체적인 계획을 추가하겠습니다. 명확하게 작성할 수 있습니다.
+
+                [점수 산정]
+                - 1차 후보 개수와 점수를 연결하지 않는다.
+                - questionAnalyses가 0개여도 무조건 고득점으로 처리하지 않는다.
+                - questionAnalyses가 많다고 기계적으로 감점하지 않는다.
+                - 점수는 JD 전체와 답변 전체를 기준으로 독립적으로 산정한다.
+                - Few-shot의 점수나 고정 숫자 예시는 사용하지 않는다.
+
+                [채용 공고]
+                회사명: %s
+                직무명: %s
+                <main_tasks>
+                %s
+                </main_tasks>
+                <qualifications>
+                %s
+                </qualifications>
+                <preferences role="secondary_only">
+                %s
+                </preferences>
+
+                [검증된 1차 후보]
+                %s
+
+                [유사 JD 검색 결과]
+                %s
+
+                [유사 자소서 문항 검색 결과]
+                %s
+
+                %s
+
+                [자소서 문항과 답변]
+                %s
+                """.formatted(
+                OUTPUT_SCHEMA,
+                defaultString(promptInput.companyName()),
+                defaultString(promptInput.jobName()),
+                defaultString(promptInput.mainTasks()),
+                defaultString(promptInput.qualifications()),
+                defaultString(promptInput.preferences()),
+                candidateJson,
+                formatJobPostingReferences(referenceContext.jobPostingReferences()),
+                formatQuestionReferences(referenceContext.questionReferences()),
+                jobCategoryCriteriaSection,
+                questionText
+        );
+    }
+
+    String buildSinglePassPrompt(
             AnalysisPromptInput promptInput,
             RetrievalContext referenceContext,
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
@@ -447,6 +737,132 @@ public class AnalysisAiClient {
         );
     }
 
+    AnalysisCandidateResponse sanitizeCandidates(
+            AnalysisPromptInput promptInput,
+            AnalysisCandidateResponse candidates
+    ) {
+        Map<Long, String> answerByQuestionId = promptInput.questions().stream()
+                .collect(Collectors.toMap(AnalysisPromptInput.QuestionAnswer::questionId, AnalysisPromptInput.QuestionAnswer::answer));
+        List<AnalysisCandidateResponse.StrengthCandidate> strengthCandidates = sanitizeStrengthCandidates(candidates, answerByQuestionId);
+        List<AnalysisCandidateResponse.AnalysisCandidate> analysisCandidates = sanitizeAnalysisCandidates(candidates, answerByQuestionId);
+        List<AnalysisCandidateResponse.MissingKeywordCandidate> missingKeywordCandidates = sanitizeMissingKeywordCandidates(promptInput, candidates);
+        return new AnalysisCandidateResponse(strengthCandidates, analysisCandidates, missingKeywordCandidates);
+    }
+
+    private List<AnalysisCandidateResponse.StrengthCandidate> sanitizeStrengthCandidates(
+            AnalysisCandidateResponse candidates,
+            Map<Long, String> answerByQuestionId
+    ) {
+        if (candidates == null || candidates.strengthCandidates() == null) {
+            return List.of();
+        }
+        List<AnalysisCandidateResponse.StrengthCandidate> result = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (AnalysisCandidateResponse.StrengthCandidate candidate : candidates.strengthCandidates()) {
+            if (candidate == null || candidate.questionId() == null || !StringUtils.hasText(candidate.quote())) {
+                continue;
+            }
+            String answer = answerByQuestionId.get(candidate.questionId());
+            if (!containsExact(answer, candidate.quote()) || !isPrimarySource(candidate.relatedSource())) {
+                continue;
+            }
+            String dedupeKey = candidate.questionId() + ":" + normalize(candidate.quote());
+            if (!seen.add(dedupeKey)) {
+                continue;
+            }
+            result.add(candidate);
+            if (result.size() >= 3) {
+                break;
+            }
+        }
+        return result;
+    }
+
+    private List<AnalysisCandidateResponse.AnalysisCandidate> sanitizeAnalysisCandidates(
+            AnalysisCandidateResponse candidates,
+            Map<Long, String> answerByQuestionId
+    ) {
+        if (candidates == null || candidates.analysisCandidates() == null) {
+            return List.of();
+        }
+        List<AnalysisCandidateResponse.AnalysisCandidate> result = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (AnalysisCandidateResponse.AnalysisCandidate candidate : candidates.analysisCandidates()) {
+            if (candidate == null || candidate.questionId() == null || !StringUtils.hasText(candidate.sentence())) {
+                continue;
+            }
+            String answer = answerByQuestionId.get(candidate.questionId());
+            if (!containsExact(answer, candidate.sentence()) || !isPrimarySource(candidate.relatedSource())) {
+                continue;
+            }
+            QuestionAnalysisStatus status = parseQuestionAnalysisStatus(candidate.status());
+            if (status != QuestionAnalysisStatus.MENTIONED && status != QuestionAnalysisStatus.FABRICATED) {
+                continue;
+            }
+            if (status == QuestionAnalysisStatus.FABRICATED
+                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictReason(candidate.reasonBasis())) {
+                continue;
+            }
+            String dedupeKey = candidate.questionId() + ":" + normalize(candidate.sentence());
+            if (!seen.add(dedupeKey)) {
+                continue;
+            }
+            result.add(candidate);
+            if (result.size() >= 3) {
+                break;
+            }
+        }
+        return result;
+    }
+
+    private List<AnalysisCandidateResponse.MissingKeywordCandidate> sanitizeMissingKeywordCandidates(
+            AnalysisPromptInput promptInput,
+            AnalysisCandidateResponse candidates
+    ) {
+        if (candidates == null || candidates.missingKeywordCandidates() == null) {
+            return List.of();
+        }
+        List<AnalysisCandidateResponse.MissingKeywordCandidate> result = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (AnalysisCandidateResponse.MissingKeywordCandidate candidate : candidates.missingKeywordCandidates()) {
+            if (candidate == null || !StringUtils.hasText(candidate.keyword())) {
+                continue;
+            }
+            Optional<MissingKeywordSource> source = parseCandidateSource(candidate.source());
+            if (source.isEmpty()
+                    || !AnalysisSanitizationRules.isValidMissingKeyword(
+                    candidate.keyword(),
+                    source.get(),
+                    promptInput.mainTasks(),
+                    promptInput.qualifications()
+            )) {
+                continue;
+            }
+            String dedupeKey = normalize(candidate.keyword());
+            if (!seen.add(dedupeKey)) {
+                continue;
+            }
+            result.add(candidate);
+            if (result.size() >= 3) {
+                break;
+            }
+        }
+        return result;
+    }
+
+    private Optional<MissingKeywordSource> parseCandidateSource(String source) {
+        if ("MAIN_TASK".equalsIgnoreCase(defaultString(source))) {
+            return Optional.of(MissingKeywordSource.MAIN_TASK);
+        }
+        if ("QUALIFICATION".equalsIgnoreCase(defaultString(source))) {
+            return Optional.of(MissingKeywordSource.QUALIFICATION);
+        }
+        if ("PREFERENCE".equalsIgnoreCase(defaultString(source))) {
+            return Optional.of(MissingKeywordSource.PREFERENCE);
+        }
+        return MissingKeywordSource.from(source);
+    }
+
     private String formatJobCategoryEvaluationCriteriaSection(JobCategoryEvaluationCriteria criteria) {
         if (criteria == null) {
             return "";
@@ -539,7 +955,21 @@ public class AnalysisAiClient {
         return truncate(formatted, MAX_REFERENCE_SECTION_LENGTH);
     }
 
-    private AnalysisLlmResponse extractStructuredContent(StructuredResponse<AnalysisLlmResponse> response) {
+    private String formatQuestions(AnalysisPromptInput promptInput) {
+        return promptInput.questions().stream()
+                .map(question -> """
+                        - questionId: %d
+                          question: %s
+                          answer: %s
+                        """.formatted(
+                        question.questionId(),
+                        defaultString(question.question()),
+                        defaultString(question.answer())
+                ))
+                .collect(Collectors.joining("\n"));
+    }
+
+    private <T> T extractStructuredContent(StructuredResponse<T> response) {
         return response.output().stream()
                 .filter(item -> item.message().isPresent())
                 .flatMap(item -> item.asMessage().content().stream())
@@ -547,9 +977,51 @@ public class AnalysisAiClient {
                 .map(StructuredResponseOutputMessage.Content::asOutputText)
                 .findFirst()
                 .orElseThrow(() -> new GeneralException(
-                        GeneralErrorCode.INTERNAL_SERVER_ERROR,
-                        "AI 응답에서 자소서 분석 결과를 찾을 수 없습니다."
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "AI 응답에서 자소서 분석 결과를 찾을 수 없습니다."
                 ));
+    }
+
+    private boolean isPrimarySource(String relatedSource) {
+        return "MAIN_TASK".equalsIgnoreCase(defaultString(relatedSource))
+                || "QUALIFICATION".equalsIgnoreCase(defaultString(relatedSource));
+    }
+
+    private boolean containsExact(String source, String part) {
+        return StringUtils.hasText(source)
+                && StringUtils.hasText(part)
+                && source.contains(part);
+    }
+
+    private QuestionAnalysisStatus parseQuestionAnalysisStatus(String status) {
+        if (!StringUtils.hasText(status)) {
+            return null;
+        }
+        try {
+            return QuestionAnalysisStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return (System.nanoTime() - startedAt) / 1_000_000;
+    }
+
+    private int size(List<?> values) {
+        return values == null ? 0 : values.size();
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value == null ? List.of() : value);
+        } catch (JsonProcessingException e) {
+            return "[]";
+        }
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.replaceAll("\\s+", "").toLowerCase();
     }
 
     private String defaultString(String value) {
@@ -565,5 +1037,35 @@ public class AnalysisAiClient {
 
     private RetrievalContext emptyContext() {
         return new RetrievalContext(List.of(), List.of());
+    }
+
+    public record AnalysisAiCallResult(
+            AnalysisLlmResponse response,
+            AnalysisCandidateResponse rawCandidateResponse,
+            AnalysisCandidateResponse sanitizedCandidateResponse,
+            boolean twoPassEnabled,
+            long candidateCallLatencyMs,
+            long finalCallLatencyMs
+    ) {
+        static AnalysisAiCallResult singlePass(AnalysisLlmResponse response, long latencyMs) {
+            return new AnalysisAiCallResult(response, null, null, false, 0, latencyMs);
+        }
+
+        static AnalysisAiCallResult twoPass(
+                AnalysisLlmResponse response,
+                AnalysisCandidateResponse rawCandidateResponse,
+                AnalysisCandidateResponse sanitizedCandidateResponse,
+                long candidateCallLatencyMs,
+                long finalCallLatencyMs
+        ) {
+            return new AnalysisAiCallResult(
+                    response,
+                    rawCandidateResponse,
+                    sanitizedCandidateResponse,
+                    true,
+                    candidateCallLatencyMs,
+                    finalCallLatencyMs
+            );
+        }
     }
 }

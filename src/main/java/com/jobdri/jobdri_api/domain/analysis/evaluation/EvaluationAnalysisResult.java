@@ -12,6 +12,14 @@ record EvaluationAnalysisResult(
         String aiMissingKeywordsJson,
         String aiQuestionAnalysesJson,
         String rawLlmResponseJson,
+        String rawCandidateResponseJson,
+        String sanitizedCandidateResponseJson,
+        Integer candidateAnalysisCount,
+        Integer candidateStrengthCount,
+        Integer candidateMissingKeywordCount,
+        Long candidateCallLatencyMs,
+        Long finalCallLatencyMs,
+        String failureStage,
         String errorMessage,
         String createdAt
 ) {
@@ -28,8 +36,29 @@ record EvaluationAnalysisResult(
                 "[]",
                 "[]",
                 "",
+                "",
+                "",
+                null,
+                null,
+                null,
+                null,
+                null,
+                failureStage(errorMessage),
                 errorMessage,
                 createdAt
         );
+    }
+
+    private static String failureStage(String errorMessage) {
+        if (errorMessage == null) {
+            return "";
+        }
+        if (errorMessage.contains("candidate")) {
+            return "candidate_call_failed";
+        }
+        if (errorMessage.contains("final")) {
+            return "final_call_failed";
+        }
+        return "";
     }
 }

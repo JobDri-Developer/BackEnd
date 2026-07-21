@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.analysis.evaluation;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAiClient;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAiClient.AnalysisAiCallResult;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisPromptInput;
 import com.jobdri.jobdri_api.domain.analysis.service.JobCategoryEvaluationCriteriaProvider;
 import org.junit.jupiter.api.DisplayName;
@@ -39,8 +40,8 @@ class EvaluationAnalysisBatchServiceTest {
                 new JobCategoryEvaluationCriteriaProvider(objectMapper),
                 objectMapper
         );
-        when(analysisAiClient.analyzeForEvaluation(any(AnalysisPromptInput.class), any()))
-                .thenReturn(new AnalysisLlmResponse(
+        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
+                .thenReturn(result(new AnalysisLlmResponse(
                         80,
                         70,
                         60,
@@ -75,7 +76,7 @@ class EvaluationAnalysisBatchServiceTest {
                                         "무시되어야 합니다."
                                 )
                         )
-                ));
+                )));
 
         Path input = tempDir.resolve("evaluation_cases.csv");
         Path output = tempDir.resolve("evaluation_ai_results.csv");
@@ -100,7 +101,7 @@ class EvaluationAnalysisBatchServiceTest {
         assertThat(row.get("aiMissingKeywordsJson")).doesNotContain("잘못된 출처");
         assertThat(row.get("aiQuestionAnalysesJson")).doesNotContain("답변에 없는 문장");
         assertThat(row.get("aiQuestionAnalysesJson")).doesNotContain("missing은 저장하지 않습니다.");
-        verify(analysisAiClient).analyzeForEvaluation(any(AnalysisPromptInput.class), any());
+        verify(analysisAiClient).analyzeForEvaluationResult(any(AnalysisPromptInput.class), any());
     }
 
     @Test
@@ -113,8 +114,8 @@ class EvaluationAnalysisBatchServiceTest {
                 new JobCategoryEvaluationCriteriaProvider(objectMapper),
                 objectMapper
         );
-        when(analysisAiClient.analyzeForEvaluation(any(AnalysisPromptInput.class), any()))
-                .thenReturn(new AnalysisLlmResponse(
+        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
+                .thenReturn(result(new AnalysisLlmResponse(
                         80,
                         70,
                         60,
@@ -148,7 +149,7 @@ class EvaluationAnalysisBatchServiceTest {
                                         "세 번째 문장입니다."
                                 )
                         )
-                ));
+                )));
 
         Path input = tempDir.resolve("evaluation_cases.csv");
         Path output = tempDir.resolve("evaluation_ai_results.csv");
@@ -181,8 +182,8 @@ class EvaluationAnalysisBatchServiceTest {
                 new JobCategoryEvaluationCriteriaProvider(objectMapper),
                 objectMapper
         );
-        when(analysisAiClient.analyzeForEvaluation(any(AnalysisPromptInput.class), any()))
-                .thenReturn(new AnalysisLlmResponse(
+        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
+                .thenReturn(result(new AnalysisLlmResponse(
                         80,
                         70,
                         60,
@@ -223,7 +224,7 @@ class EvaluationAnalysisBatchServiceTest {
                                         null
                                 )
                         )
-                ));
+                )));
 
         Path input = tempDir.resolve("evaluation_cases.csv");
         Path output = tempDir.resolve("evaluation_ai_results.csv");
@@ -257,8 +258,8 @@ class EvaluationAnalysisBatchServiceTest {
                 new JobCategoryEvaluationCriteriaProvider(objectMapper),
                 objectMapper
         );
-        when(analysisAiClient.analyzeForEvaluation(any(AnalysisPromptInput.class), isNull()))
-                .thenReturn(new AnalysisLlmResponse(70, 70, 70, "피드백", List.of(), List.of()));
+        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), isNull()))
+                .thenReturn(result(new AnalysisLlmResponse(70, 70, 70, "피드백", List.of(), List.of())));
 
         Path input = tempDir.resolve("evaluation_cases.csv");
         Path output = tempDir.resolve("evaluation_ai_results.csv");
@@ -271,7 +272,7 @@ class EvaluationAnalysisBatchServiceTest {
 
         service.run(input, output);
 
-        verify(analysisAiClient).analyzeForEvaluation(any(AnalysisPromptInput.class), isNull());
+        verify(analysisAiClient).analyzeForEvaluationResult(any(AnalysisPromptInput.class), isNull());
     }
 
     @Test
@@ -310,7 +311,7 @@ class EvaluationAnalysisBatchServiceTest {
                 new JobCategoryEvaluationCriteriaProvider(objectMapper),
                 objectMapper
         );
-        when(analysisAiClient.analyzeForEvaluation(any(AnalysisPromptInput.class), any()))
+        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
                 .thenThrow(new RuntimeException("rate limit exceeded"));
 
         Path input = tempDir.resolve("evaluation_cases.csv");
@@ -332,5 +333,9 @@ class EvaluationAnalysisBatchServiceTest {
         assertThat(row.get("aiMissingKeywordsJson")).isEqualTo("[]");
         assertThat(row.get("aiQuestionAnalysesJson")).isEqualTo("[]");
         assertThat(row.get("errorMessage")).contains("rate limit exceeded");
+    }
+
+    private AnalysisAiCallResult result(AnalysisLlmResponse response) {
+        return new AnalysisAiCallResult(response, null, null, false, 0, 1);
     }
 }

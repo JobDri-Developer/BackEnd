@@ -1,6 +1,8 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
@@ -23,7 +25,8 @@ class AnalysisAiClientTest {
             mock(OpenAIClient.class),
             mock(CorpusRetrievalService.class),
             mock(LlmConcurrencyLimiter.class),
-            new FewShotPromptProvider()
+            new FewShotPromptProvider(),
+            new ObjectMapper()
     );
 
     @Test
@@ -157,6 +160,197 @@ class AnalysisAiClientTest {
                 .isLessThan(prompt.indexOf("[자소서 문항과 답변]"));
     }
 
+    @Test
+    @DisplayName("1차 후보 프롬프트는 점수와 improvement 없이 후보 판정 규칙만 포함한다")
+    void buildCandidatePromptIncludesCandidateRulesOnly() {
+        String prompt = analysisAiClient.buildCandidatePrompt(
+                promptInput(),
+                new RetrievalContext(List.of(), List.of()),
+                null
+        );
+
+        assertThat(prompt)
+                .contains("[1차 출력 필드]")
+                .contains("strengthCandidates")
+                .contains("analysisCandidates")
+                .contains("missingKeywordCandidates")
+                .contains("sentenceType: EXPERIENCE, PLAN, MOTIVATION, COMPETENCY")
+                .contains("preference만 근거인 후보는 제외한다.")
+                .contains("충분한 문장은 strengthCandidates로 분류한다.")
+                .contains("보완이 필요한 문장만 analysisCandidates로 분류한다.")
+                .contains("MISSING은 analysisCandidates에 넣지 않고 missingKeywordCandidates로만 분리한다.")
+                .contains("독립적인 문제가 있으면 최대 3개까지 반환한다.")
+                .contains("내부 판단 과정이나 chain-of-thought를 출력하지 않는다.")
+                .contains("점수 필드, feedback, improvement, keyWeaknesses는 1차 출력에 존재하지 않는다.");
+    }
+
+    @Test
+    @DisplayName("후보 sanitizer는 1차 후보의 원문, source, status, 개수를 검증한다")
+    void sanitizeCandidatesFiltersInvalidCandidateItems() {
+        AnalysisPromptInput promptInput = promptInput();
+        AnalysisCandidateResponse sanitized = analysisAiClient.sanitizeCandidates(
+                promptInput,
+                new AnalysisCandidateResponse(
+                        List.of(
+                                new AnalysisCandidateResponse.StrengthCandidate(
+                                        1L,
+                                        "Spring Boot API를 개발했습니다.",
+                                        "MAIN_TASK",
+                                        "API 개발",
+                                        "직접 관련됩니다."
+                                ),
+                                new AnalysisCandidateResponse.StrengthCandidate(
+                                        1L,
+                                        "답변에 없는 강점",
+                                        "MAIN_TASK",
+                                        "API 개발",
+                                        "원문에 없습니다."
+                                )
+                        ),
+                        List.of(
+                                new AnalysisCandidateResponse.AnalysisCandidate(
+                                        99L,
+                                        "Spring Boot API를 개발했습니다.",
+                                        "EXPERIENCE",
+                                        "MAIN_TASK",
+                                        "API 개발",
+                                        "MENTIONED",
+                                        "LACK_OF_RESULT",
+                                        "잘못된 questionId입니다."
+                                ),
+                                new AnalysisCandidateResponse.AnalysisCandidate(
+                                        1L,
+                                        "답변에 없는 문장",
+                                        "EXPERIENCE",
+                                        "MAIN_TASK",
+                                        "API 개발",
+                                        "MENTIONED",
+                                        "LACK_OF_RESULT",
+                                        "원문에 없습니다."
+                                ),
+                                new AnalysisCandidateResponse.AnalysisCandidate(
+                                        1L,
+                                        "Spring Boot API를 개발했습니다.",
+                                        "EXPERIENCE",
+                                        "PREFERENCE",
+                                        "대용량 트래픽",
+                                        "MENTIONED",
+                                        "LACK_OF_RESULT",
+                                        "preference-only입니다."
+                                ),
+                                new AnalysisCandidateResponse.AnalysisCandidate(
+                                        1L,
+                                        "Spring Boot API를 개발했습니다.",
+                                        "EXPERIENCE",
+                                        "MAIN_TASK",
+                                        "API 개발",
+                                        "PROVEN",
+                                        "LACK_OF_RESULT",
+                                        "허용하지 않은 status입니다."
+                                ),
+                                new AnalysisCandidateResponse.AnalysisCandidate(
+                                        1L,
+                                        "장애 대응 경험이 있습니다.",
+                                        "EXPERIENCE",
+                                        "QUALIFICATION",
+                                        "장애 대응 경험",
+                                        "FABRICATED",
+                                        "DIRECT_CONTRADICTION",
+                                        ""
+                                ),
+                                new AnalysisCandidateResponse.AnalysisCandidate(
+                                        1L,
+                                        "장애 대응 경험이 있습니다.",
+                                        "EXPERIENCE",
+                                        "QUALIFICATION",
+                                        "장애 대응 경험",
+                                        "FABRICATED",
+                                        "DIRECT_CONTRADICTION",
+                                        "답변 내부의 명시적 사실과 직접 충돌합니다."
+                                ),
+                                new AnalysisCandidateResponse.AnalysisCandidate(
+                                        1L,
+                                        "Spring Boot API를 개발했습니다.",
+                                        "EXPERIENCE",
+                                        "MAIN_TASK",
+                                        "API 개발",
+                                        "MENTIONED",
+                                        "LACK_OF_RESULT",
+                                        "결과가 부족합니다."
+                                )
+                        ),
+                        List.of(
+                                new AnalysisCandidateResponse.MissingKeywordCandidate(
+                                        "SQL 활용 경험",
+                                        "QUALIFICATION",
+                                        "Spring Boot 경험"
+                                ),
+                                new AnalysisCandidateResponse.MissingKeywordCandidate(
+                                        "영어 공인성적",
+                                        "QUALIFICATION",
+                                        "영어 공인성적"
+                                ),
+                                new AnalysisCandidateResponse.MissingKeywordCandidate(
+                                        "API 개발 경험",
+                                        "MAIN_TASK",
+                                        "API 개발"
+                                )
+                        )
+                )
+        );
+
+        assertThat(sanitized.strengthCandidates()).hasSize(1);
+        assertThat(sanitized.analysisCandidates()).extracting("sentence")
+                .containsExactly("장애 대응 경험이 있습니다.", "Spring Boot API를 개발했습니다.");
+        assertThat(sanitized.missingKeywordCandidates()).extracting("keyword")
+                .containsExactly("API 개발 경험");
+    }
+
+    @Test
+    @DisplayName("2차 프롬프트는 검증된 후보만 입력하고 새 questionAnalysis 추가를 금지한다")
+    void buildFinalPromptUsesSanitizedCandidatesOnly() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(new AnalysisCandidateResponse.StrengthCandidate(
+                        1L,
+                        "Spring Boot API를 개발했습니다.",
+                        "MAIN_TASK",
+                        "API 개발",
+                        "직접 근거입니다."
+                )),
+                List.of(new AnalysisCandidateResponse.AnalysisCandidate(
+                        1L,
+                        "장애 대응 경험이 있습니다.",
+                        "EXPERIENCE",
+                        "QUALIFICATION",
+                        "장애 대응 경험",
+                        "MENTIONED",
+                        "LACK_OF_RESULT",
+                        "결과가 부족합니다."
+                )),
+                List.of()
+        );
+
+        String prompt = analysisAiClient.buildFinalPrompt(
+                promptInput(),
+                new RetrievalContext(List.of(), List.of()),
+                null,
+                candidates
+        );
+
+        assertThat(prompt)
+                .contains("[검증된 1차 후보]")
+                .contains("1차에 없는 새로운 questionAnalysis를 임의로 추가하지 않는다.")
+                .contains("첨삭 행위를 설명하는 메타 문장을 금지한다.")
+                .contains("원문에 없는 수치, 도구, 경험, 직무 수행, 계획 추가를 금지한다.")
+                .contains("과거 문장을 미래 포부로 변경하지 않는다.")
+                .contains("미래 포부를 과거 경험으로 변경하지 않는다.")
+                .contains("원문 사실만으로 안전한 개선이 불가능하면 null을 반환한다.")
+                .contains("1차 후보 개수와 점수를 연결하지 않는다.")
+                .contains("점수는 JD 전체와 답변 전체를 기준으로 독립적으로 산정한다.")
+                .contains("장애 대응 경험이 있습니다.")
+                .doesNotContain("답변에 없는 문장");
+    }
+
     private JobPosting mockJobPosting() {
         JobPosting jobPosting = mock(JobPosting.class, org.mockito.Answers.RETURNS_DEEP_STUBS);
         Company company = mock(Company.class);
@@ -175,5 +369,20 @@ class AnalysisAiClientTest {
         when(question.getContent()).thenReturn("직무 경험을 작성해주세요.");
         when(question.getAnswer()).thenReturn("Spring Boot API를 개발했습니다.");
         return question;
+    }
+
+    private AnalysisPromptInput promptInput() {
+        return new AnalysisPromptInput(
+                "잡드리",
+                "백엔드 개발",
+                "API 개발",
+                "Spring Boot 경험 및 장애 대응 경험",
+                "대용량 트래픽 경험",
+                List.of(new AnalysisPromptInput.QuestionAnswer(
+                        1L,
+                        "직무 경험을 작성해주세요.",
+                        "Spring Boot API를 개발했습니다. 장애 대응 경험이 있습니다."
+                ))
+        );
     }
 }

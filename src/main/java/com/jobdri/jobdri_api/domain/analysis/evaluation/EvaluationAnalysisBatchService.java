@@ -7,6 +7,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordResponse
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAiClient;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAiClient.AnalysisAiCallResult;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisPromptInput;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisSanitizationRules;
@@ -117,12 +118,13 @@ public class EvaluationAnalysisBatchService {
                 ))
         );
 
-        AnalysisLlmResponse llmResponse = analysisAiClient.analyzeForEvaluation(
+        AnalysisAiCallResult aiCallResult = analysisAiClient.analyzeForEvaluationResult(
                 promptInput,
                 jobCategoryEvaluationCriteriaProvider
                         .findByMiddleName(evaluationCase.jobCategoryMiddle())
                         .orElse(null)
         );
+        AnalysisLlmResponse llmResponse = aiCallResult.response();
 
         int jobFit = validateScore("jobFit", llmResponse == null ? null : llmResponse.jobFit());
         int impact = validateScore("impact", llmResponse == null ? null : llmResponse.impact());
@@ -142,6 +144,14 @@ public class EvaluationAnalysisBatchService {
                 writeJson(missingKeywords),
                 writeJson(questionAnalyses),
                 writeJson(llmResponse),
+                writeJson(aiCallResult.rawCandidateResponse()),
+                writeJson(aiCallResult.sanitizedCandidateResponse()),
+                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().analysisCandidates()),
+                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().strengthCandidates()),
+                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().missingKeywordCandidates()),
+                aiCallResult.candidateCallLatencyMs(),
+                aiCallResult.finalCallLatencyMs(),
+                "",
                 "",
                 createdAt()
         );
@@ -324,6 +334,10 @@ public class EvaluationAnalysisBatchService {
             log.warn("평가 결과 JSON 직렬화에 실패했습니다. 빈 배열로 대체합니다.", e);
             return "[]";
         }
+    }
+
+    private Integer size(List<?> values) {
+        return values == null ? null : values.size();
     }
 
     private String normalizeFeedback(String feedback) {
