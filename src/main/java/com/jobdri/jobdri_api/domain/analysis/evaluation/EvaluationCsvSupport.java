@@ -81,6 +81,14 @@ final class EvaluationCsvSupport {
                     "aiMissingKeywordsJson",
                     "aiQuestionAnalysesJson",
                     "rawLlmResponseJson",
+                    "rawCandidateResponseJson",
+                    "sanitizedCandidateResponseJson",
+                    "candidateAnalysisCount",
+                    "candidateStrengthCount",
+                    "candidateMissingKeywordCount",
+                    "candidateCallLatencyMs",
+                    "finalCallLatencyMs",
+                    "failureStage",
                     "errorMessage",
                     "createdAt"
             ));
@@ -98,6 +106,14 @@ final class EvaluationCsvSupport {
                         value(result.aiMissingKeywordsJson()),
                         value(result.aiQuestionAnalysesJson()),
                         value(result.rawLlmResponseJson()),
+                        value(result.rawCandidateResponseJson()),
+                        value(result.sanitizedCandidateResponseJson()),
+                        value(result.candidateAnalysisCount()),
+                        value(result.candidateStrengthCount()),
+                        value(result.candidateMissingKeywordCount()),
+                        value(result.candidateCallLatencyMs()),
+                        value(result.finalCallLatencyMs()),
+                        value(result.failureStage()),
                         value(result.errorMessage()),
                         value(result.createdAt())
                 ));

@@ -8,6 +8,13 @@ aws s3api put-bucket-cors \
   --cors-configuration file://ops/s3/job-posting-image-cors.json
 ```
 
+Verify the applied CORS configuration:
+
+```bash
+aws s3api get-bucket-cors \
+  --bucket "$S3_BUCKET"
+```
+
 ## 2. Apply lifecycle policy
 
 ```bash

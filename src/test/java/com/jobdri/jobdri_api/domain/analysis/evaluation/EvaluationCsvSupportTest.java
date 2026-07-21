@@ -54,6 +54,14 @@ class EvaluationCsvSupportTest {
                 "[]",
                 "{\"feedback\":\"문장\"}",
                 "",
+                "",
+                null,
+                null,
+                null,
+                null,
+                null,
+                "",
+                "",
                 "2026-07-13T10:00:00"
         )));
 
