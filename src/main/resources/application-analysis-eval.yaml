@@ -67,6 +67,8 @@ app:
       sync-on-startup: false
 
 evaluation:
+  analysis:
+    enabled: false
   nlg-judge:
     enabled: false
     input: ""

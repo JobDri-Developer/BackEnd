@@ -7,6 +7,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.config.YamlPropertiesFactoryBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
 import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
@@ -82,14 +86,14 @@ class EvaluationAnalysisRunnerSafetyTest {
     }
 
     @Test
-    @DisplayName("NLG judge 활성화 시 기본 평가 Runner는 실행되지 않는다")
-    void evaluationRunnerIsDisabledWhenNlgJudgeIsEnabled() {
+    @DisplayName("분석 평가 Runner는 evaluation.analysis.enabled=true일 때만 실행된다")
+    void evaluationRunnerRequiresAnalysisEnabledFlag() {
         ConditionalOnProperty condition = EvaluationAnalysisRunner.class.getAnnotation(ConditionalOnProperty.class);
 
         assertThat(condition).isNotNull();
-        assertThat(condition.name()).containsExactly("evaluation.nlg-judge.enabled");
-        assertThat(condition.havingValue()).isEqualTo("false");
-        assertThat(condition.matchIfMissing()).isTrue();
+        assertThat(condition.name()).containsExactly("evaluation.analysis.enabled");
+        assertThat(condition.havingValue()).isEqualTo("true");
+        assertThat(condition.matchIfMissing()).isFalse();
     }
 
     @Test
@@ -101,6 +105,99 @@ class EvaluationAnalysisRunnerSafetyTest {
         assertThat(condition.name()).containsExactly("evaluation.nlg-judge.enabled");
         assertThat(condition.havingValue()).isEqualTo("true");
         assertThat(condition.matchIfMissing()).isFalse();
+    }
+
+    @Test
+    @DisplayName("analysis-eval + analysis.enabled=false이면 분석 Runner가 생성되지 않는다")
+    void analysisRunnerIsNotCreatedWhenAnalysisFlagIsFalse() {
+        runnerContext()
+                .withPropertyValues(
+                        "spring.profiles.active=analysis-eval",
+                        "evaluation.analysis.enabled=false",
+                        "evaluation.nlg-judge.enabled=false"
+                )
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
+                    assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                });
+    }
+
+    @Test
+    @DisplayName("analysis-eval + analysis.enabled=true이면 분석 Runner만 생성된다")
+    void analysisRunnerIsCreatedWhenAnalysisFlagIsTrue() {
+        runnerContext()
+                .withPropertyValues(
+                        "spring.profiles.active=analysis-eval",
+                        "evaluation.analysis.enabled=true",
+                        "evaluation.nlg-judge.enabled=false"
+                )
+                .run(context -> {
+                    assertThat(context).hasSingleBean(EvaluationAnalysisRunner.class);
+                    assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                });
+    }
+
+    @Test
+    @DisplayName("analysis-eval + nlg-judge.enabled=true이면 NLG Runner만 생성된다")
+    void nlgRunnerIsCreatedWhenNlgJudgeFlagIsTrue() {
+        runnerContext()
+                .withPropertyValues(
+                        "spring.profiles.active=analysis-eval",
+                        "evaluation.analysis.enabled=false",
+                        "evaluation.nlg-judge.enabled=true"
+                )
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
+                    assertThat(context).hasSingleBean(NlgEvaluationRunner.class);
+                });
+    }
+
+    @Test
+    @DisplayName("두 플래그가 모두 false이면 어느 Runner도 생성되지 않는다")
+    void noRunnerIsCreatedWhenBothFlagsAreFalse() {
+        runnerContext()
+                .withPropertyValues(
+                        "spring.profiles.active=analysis-eval",
+                        "evaluation.analysis.enabled=false",
+                        "evaluation.nlg-judge.enabled=false"
+                )
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
+                    assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                });
+    }
+
+    @Test
+    @DisplayName("두 플래그가 모두 true이면 설정 오류로 fail-fast 한다")
+    void bothFlagsTrueFailsFast() {
+        EvaluationAnalysisRunner analysisRunner = runnerWithProfiles("analysis-eval");
+        ReflectionTestUtils.setField(analysisRunner, "nlgJudgeEnabled", true);
+
+        assertThatThrownBy(analysisRunner::validateExecutionProperties)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("동시에 true");
+
+        NlgEvaluationRunner nlgRunner = nlgRunnerWithProfiles("analysis-eval");
+        ReflectionTestUtils.setField(nlgRunner, "analysisEvaluationEnabled", true);
+
+        assertThatThrownBy(nlgRunner::validateJudgeProperties)
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("동시에 true");
+    }
+
+    @Test
+    @DisplayName("다른 profile에서는 두 Runner 모두 생성되지 않는다")
+    void noRunnerIsCreatedOutsideAnalysisEvalProfile() {
+        runnerContext()
+                .withPropertyValues(
+                        "spring.profiles.active=dev",
+                        "evaluation.analysis.enabled=true",
+                        "evaluation.nlg-judge.enabled=true"
+                )
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
+                    assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                });
     }
 
     @Test
@@ -130,6 +227,7 @@ class EvaluationAnalysisRunnerSafetyTest {
         assertThat(properties.getProperty("app.admin.bootstrap-emails")).isEmpty();
         assertThat(properties.getProperty("app.corpus.import.run-on-startup")).isEqualTo("false");
         assertThat(properties.getProperty("app.corpus.embedding.sync-on-startup")).isEqualTo("false");
+        assertThat(properties.getProperty("evaluation.analysis.enabled")).isEqualTo("false");
         assertThat(properties.getProperty("evaluation.nlg-judge.enabled")).isEqualTo("false");
         assertThat(properties.getProperty("payment.toss.client-key")).contains("dummy-evaluation-client-key");
     }
@@ -177,5 +275,24 @@ class EvaluationAnalysisRunnerSafetyTest {
         factoryBean.setResources(new ClassPathResource("application-analysis-eval.yaml"));
         Properties properties = factoryBean.getObject();
         return properties == null ? new Properties() : properties;
+    }
+
+    private ApplicationContextRunner runnerContext() {
+        return new ApplicationContextRunner()
+                .withUserConfiguration(RunnerConditionTestConfig.class);
+    }
+
+    @Configuration
+    @Import({EvaluationAnalysisRunner.class, NlgEvaluationRunner.class})
+    static class RunnerConditionTestConfig {
+        @Bean
+        EvaluationAnalysisBatchService evaluationAnalysisBatchService() {
+            return mock(EvaluationAnalysisBatchService.class);
+        }
+
+        @Bean
+        NlgEvaluationBatchService nlgEvaluationBatchService() {
+            return mock(NlgEvaluationBatchService.class);
+        }
     }
 }

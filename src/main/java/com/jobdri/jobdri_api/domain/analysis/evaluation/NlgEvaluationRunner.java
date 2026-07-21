@@ -45,6 +45,9 @@ class NlgEvaluationRunner implements ApplicationRunner {
     @Value("${evaluation.nlg-judge.model:gpt-4o-mini}")
     private String judgeModel;
 
+    @Value("${evaluation.analysis.enabled:false}")
+    private boolean analysisEvaluationEnabled;
+
     private final NlgEvaluationBatchService nlgEvaluationBatchService;
     private final ConfigurableApplicationContext applicationContext;
     private final Environment environment;
@@ -95,6 +98,7 @@ class NlgEvaluationRunner implements ApplicationRunner {
     }
 
     void validateJudgeProperties() {
+        validateMutuallyExclusiveRunner();
         validateCommonOutput();
         if (!StringUtils.hasText(inputPath)) {
             throw new IllegalArgumentException("evaluation.nlg-judge.input 값을 지정해야 합니다.");
@@ -113,6 +117,7 @@ class NlgEvaluationRunner implements ApplicationRunner {
     }
 
     void validateComparisonProperties() {
+        validateMutuallyExclusiveRunner();
         validateCommonOutput();
         List<Path> inputs = Arrays.stream(compareInputPaths.split(","))
                 .map(String::trim)
@@ -132,6 +137,14 @@ class NlgEvaluationRunner implements ApplicationRunner {
     private void validateCommonOutput() {
         if (!StringUtils.hasText(outputPath)) {
             throw new IllegalArgumentException("evaluation.nlg-judge.output 값을 지정해야 합니다.");
+        }
+    }
+
+    private void validateMutuallyExclusiveRunner() {
+        if (analysisEvaluationEnabled) {
+            throw new IllegalArgumentException(
+                    "evaluation.analysis.enabled와 evaluation.nlg-judge.enabled를 동시에 true로 설정할 수 없습니다."
+            );
         }
     }
 

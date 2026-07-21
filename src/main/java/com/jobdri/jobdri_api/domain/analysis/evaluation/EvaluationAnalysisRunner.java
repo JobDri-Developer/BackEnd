@@ -20,11 +20,11 @@ import java.util.List;
 
 @Component
 @Profile("analysis-eval")
-@ConditionalOnProperty(name = "evaluation.nlg-judge.enabled", havingValue = "false", matchIfMissing = true)
+@ConditionalOnProperty(name = "evaluation.analysis.enabled", havingValue = "true")
 @RequiredArgsConstructor
 @Slf4j
 // 수동 실행 예:
-// ./gradlew bootRun --args='--spring.profiles.active=analysis-eval --evaluation.input=/path/evaluation_cases_검수.csv --evaluation.output=/path/evaluation_ai_results.csv --evaluation.confirm-openai-cost=true'
+// ./gradlew bootRun --args='--spring.profiles.active=analysis-eval --evaluation.analysis.enabled=true --evaluation.input=/path/evaluation_cases_검수.csv --evaluation.output=/path/evaluation_ai_results.csv --evaluation.confirm-openai-cost=true'
 public class EvaluationAnalysisRunner implements ApplicationRunner {
 
     @Value("${evaluation.input:}")
@@ -41,6 +41,9 @@ public class EvaluationAnalysisRunner implements ApplicationRunner {
 
     @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}")
     private String analysisModel;
+
+    @Value("${evaluation.nlg-judge.enabled:false}")
+    private boolean nlgJudgeEnabled;
 
     private final EvaluationAnalysisBatchService evaluationAnalysisBatchService;
     private final ConfigurableApplicationContext applicationContext;
@@ -89,6 +92,11 @@ public class EvaluationAnalysisRunner implements ApplicationRunner {
     }
 
     void validateExecutionProperties() {
+        if (nlgJudgeEnabled) {
+            throw new IllegalArgumentException(
+                    "evaluation.analysis.enabled와 evaluation.nlg-judge.enabled를 동시에 true로 설정할 수 없습니다."
+            );
+        }
         if (!StringUtils.hasText(inputPath)) {
             throw new IllegalArgumentException("evaluation.input 값을 지정해야 합니다.");
         }
