@@ -399,7 +399,7 @@ class AnalysisServiceTest {
     }
 
     @Test
-    @DisplayName("PROVEN 분석은 유지하되 improvement는 기본 제거한다")
+    @DisplayName("PROVEN questionAnalysis는 최종 결과에서 제외한다")
     void analyzeRemovesImprovementForProvenStatus() {
         User user = saveUser("analysis-proven-improvement-empty@example.com");
         MockApply mockApply = saveMockApply(user);
@@ -420,12 +420,11 @@ class AnalysisServiceTest {
 
         AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
 
-        assertThat(response.questions().get(0).analyses()).hasSize(1);
-        assertThat(response.questions().get(0).analyses().get(0).improvement()).isEmpty();
+        assertThat(response.questions().get(0).analyses()).isEmpty();
     }
 
     @Test
-    @DisplayName("PROVEN reason의 긍정 문맥 필요 표현은 모순으로 보지 않는다")
+    @DisplayName("PROVEN reason이 긍정 문맥이어도 questionAnalyses에서는 제외한다")
     void analyzeKeepsValidProvenReasonWithPositiveNeedContext() {
         User user = saveUser("analysis-valid-proven-need-context@example.com");
         MockApply mockApply = saveMockApply(user);
@@ -446,9 +445,7 @@ class AnalysisServiceTest {
 
         AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
 
-        assertThat(response.questions().get(0).analyses()).hasSize(1);
-        assertThat(response.questions().get(0).analyses().get(0).status()).isEqualTo("proven");
-        assertThat(response.questions().get(0).analyses().get(0).improvement()).isEmpty();
+        assertThat(response.questions().get(0).analyses()).isEmpty();
     }
 
     @Test
@@ -505,6 +502,63 @@ class AnalysisServiceTest {
         assertThat(response.questions().get(0).analyses())
                 .extracting("status")
                 .containsExactly("mentioned", "fabricated");
+    }
+
+    @Test
+    @DisplayName("reason이 비어 있는 FABRICATED는 최종 결과에서 제외한다")
+    void analyzeSkipsFabricatedWithoutReason() {
+        User user = saveUser("analysis-fabricated-empty-reason@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "성과 경험", "답변 내부에서 서로 다른 경력을 주장했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                80,
+                80,
+                "FABRICATED reason 검증입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "답변 내부에서 서로 다른 경력을 주장했습니다.",
+                        "fabricated",
+                        "",
+                        null
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("keyStrengths quote와 동일한 questionAnalysis sentence는 제외한다")
+    void analyzeSkipsQuestionAnalysisDuplicatedWithKeyStrength() {
+        User user = saveUser("analysis-strength-analysis-duplicate@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "성과 경험", "API 응답 시간을 300ms 단축했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                80,
+                80,
+                "강점과 분석 중복 검증입니다.",
+                List.of(new AnalysisLlmResponse.HighlightItem(
+                        "성능 개선 근거가 구체적입니다.",
+                        "API 응답 시간을 300ms 단축했습니다."
+                )),
+                List.of(),
+                List.of(),
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "API 응답 시간을 300ms 단축했습니다.",
+                        "mentioned",
+                        "구체성이 부족합니다.",
+                        null
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.keyStrengths()).hasSize(1);
+        assertThat(response.questions().get(0).analyses()).isEmpty();
     }
 
     @Test
@@ -639,7 +693,7 @@ class AnalysisServiceTest {
                         question.getId(),
                         "검증되지 않은 성과를 주장했습니다.",
                         "RISK",
-                        "과장 위험이 있습니다.",
+                        "답변 내부의 명시적 사실과 직접 충돌합니다.",
                         "검증 가능한 표현으로 낮추세요."
                 ))
         ));
@@ -648,7 +702,7 @@ class AnalysisServiceTest {
 
         assertThat(response.questions().get(0).analyses())
                 .extracting("status")
-                .containsExactly("proven", "mentioned", "fabricated");
+                .containsExactly("mentioned", "fabricated");
     }
 
     @Test
@@ -1033,9 +1087,9 @@ class AnalysisServiceTest {
         assertThat(second.analysisId()).isNotEqualTo(first.analysisId());
         assertThat(second.score()).isEqualTo(90);
         assertThat(second.feedback()).isEqualTo("두 번째 분석");
-        assertThat(second.questions().get(0).analyses().get(0).status()).isEqualTo("proven");
+        assertThat(second.questions().get(0).analyses()).isEmpty();
         assertThat(analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow().getScore()).isEqualTo(90);
-        assertThat(questionAnalysisRepository.findAllByAnalysisId(second.analysisId())).hasSize(1);
+        assertThat(questionAnalysisRepository.findAllByAnalysisId(second.analysisId())).isEmpty();
         assertThat(questionAnalysisRepository.findAllByAnalysisId(first.analysisId())).isEmpty();
     }
 

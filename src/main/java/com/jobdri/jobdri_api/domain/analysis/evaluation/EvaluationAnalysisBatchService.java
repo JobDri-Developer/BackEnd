@@ -211,6 +211,7 @@ public class EvaluationAnalysisBatchService {
         Map<Long, Integer> analysisCountByQuestionId = new HashMap<>();
         Map<Long, Integer> nextSearchIndexByQuestionId = new HashMap<>();
         Set<String> seenSentences = new HashSet<>();
+        Set<String> keyStrengthQuotes = normalizedKeyStrengthQuotes(llmResponse);
 
         for (AnalysisLlmResponse.QuestionAnalysisItem item : llmResponse.questionAnalyses()) {
             if (item == null || item.questionId() == null || !StringUtils.hasText(item.sentence())) {
@@ -221,11 +222,13 @@ public class EvaluationAnalysisBatchService {
             }
 
             QuestionAnalysisStatus status = parseStatus(item.status());
-            if (status == null || status == QuestionAnalysisStatus.MISSING) {
+            if (status == null
+                    || status == QuestionAnalysisStatus.MISSING
+                    || status == QuestionAnalysisStatus.PROVEN) {
                 continue;
             }
-            if (status == QuestionAnalysisStatus.PROVEN
-                    && AnalysisSanitizationRules.isContradictoryProvenReason(item.reason())) {
+            if (status == QuestionAnalysisStatus.FABRICATED
+                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictReason(item.reason())) {
                 continue;
             }
 
@@ -235,6 +238,9 @@ public class EvaluationAnalysisBatchService {
             }
 
             String sentence = item.sentence();
+            if (keyStrengthQuotes.contains(normalizeKeyword(sentence))) {
+                continue;
+            }
             String dedupeKey = item.questionId() + ":" + sentence.trim();
             if (!seenSentences.add(dedupeKey)) {
                 continue;
@@ -262,6 +268,16 @@ public class EvaluationAnalysisBatchService {
             ));
         }
         return result;
+    }
+
+    private Set<String> normalizedKeyStrengthQuotes(AnalysisLlmResponse llmResponse) {
+        if (llmResponse == null || llmResponse.keyStrengths() == null) {
+            return Set.of();
+        }
+        return llmResponse.keyStrengths().stream()
+                .filter(item -> item != null && StringUtils.hasText(item.quote()))
+                .map(item -> normalizeKeyword(item.quote()))
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     private int validateScore(String fieldName, Integer score) {

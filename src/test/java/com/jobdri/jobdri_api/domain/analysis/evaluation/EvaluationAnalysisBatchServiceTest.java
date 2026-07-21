@@ -172,6 +172,82 @@ class EvaluationAnalysisBatchServiceTest {
     }
 
     @Test
+    @DisplayName("평가 결과도 운영과 동일하게 PROVEN/FABRICATED 상태 필터를 적용하고 raw/final 비교 정보를 남긴다")
+    void runKeepsRawAndAppliesFinalStatusFilter() throws Exception {
+        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
+                analysisAiClient,
+                new JobCategoryEvaluationCriteriaProvider(objectMapper),
+                objectMapper
+        );
+        when(analysisAiClient.analyzeForEvaluation(any(AnalysisPromptInput.class), any()))
+                .thenReturn(new AnalysisLlmResponse(
+                        80,
+                        70,
+                        60,
+                        "raw/final 검증",
+                        List.of(new AnalysisLlmResponse.HighlightItem(
+                                "구체적인 강점입니다.",
+                                "첫 번째 문장입니다."
+                        )),
+                        List.of(),
+                        List.of(),
+                        List.of(
+                                new AnalysisLlmResponse.QuestionAnalysisItem(
+                                        1L,
+                                        "첫 번째 문장입니다.",
+                                        "proven",
+                                        "근거가 충분합니다.",
+                                        null
+                                ),
+                                new AnalysisLlmResponse.QuestionAnalysisItem(
+                                        1L,
+                                        "두 번째 문장입니다.",
+                                        "mentioned",
+                                        "실행 방법이 부족합니다.",
+                                        null
+                                ),
+                                new AnalysisLlmResponse.QuestionAnalysisItem(
+                                        1L,
+                                        "세 번째 문장입니다.",
+                                        "fabricated",
+                                        "답변 내부의 명시적 사실과 직접 충돌합니다.",
+                                        null
+                                ),
+                                new AnalysisLlmResponse.QuestionAnalysisItem(
+                                        1L,
+                                        "네 번째 문장입니다.",
+                                        "fabricated",
+                                        "",
+                                        null
+                                )
+                        )
+                ));
+
+        Path input = tempDir.resolve("evaluation_cases.csv");
+        Path output = tempDir.resolve("evaluation_ai_results.csv");
+        Files.writeString(
+                input,
+                "caseId,jobCategoryMiddle,jobCategorySmall,mainTasks,qualifications,preferences,question,answer\n"
+                        + "EV-05,AI·개발·데이터,백엔드,API 개발,Spring Boot 경험,,경험을 쓰세요,첫 번째 문장입니다. 두 번째 문장입니다. 세 번째 문장입니다. 네 번째 문장입니다.\n",
+                StandardCharsets.UTF_8
+        );
+
+        service.run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("rawLlmResponseJson"))
+                .contains("\"status\":\"proven\"")
+                .contains("\"status\":\"fabricated\"");
+        assertThat(row.get("aiQuestionAnalysesJson"))
+                .contains("\"status\":\"mentioned\"")
+                .contains("\"status\":\"fabricated\"")
+                .doesNotContain("\"status\":\"proven\"")
+                .doesNotContain("네 번째 문장입니다.");
+    }
+
+    @Test
     @DisplayName("없는 직무 중분류는 보조 기준 없이 분석한다")
     void runOmitsCriteriaWhenMiddleNameNotFound() throws Exception {
         AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);

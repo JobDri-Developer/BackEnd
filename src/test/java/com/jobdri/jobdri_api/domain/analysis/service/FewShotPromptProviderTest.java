@@ -20,7 +20,7 @@ class FewShotPromptProviderTest {
         assertThat(prompt).isNotBlank();
         assertThat(EXAMPLE_HEADER_PATTERN.matcher(prompt).results().count()).isEqualTo(4);
         assertThat(prompt)
-                .contains("PROVEN")
+                .contains("\"keyStrengths\"")
                 .contains("\"status\": \"mentioned\"")
                 .contains("\"status\": \"fabricated\"")
                 .contains("\"missingKeywords\"")

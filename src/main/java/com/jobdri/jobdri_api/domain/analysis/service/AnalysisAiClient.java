@@ -41,7 +41,7 @@ public class AnalysisAiClient {
             - keyStrengths: 없으면 []
             - keyWeaknesses: 없으면 []
             - missingKeywords: 없으면 []
-            - questionAnalyses: 유효한 분석 대상에 따라 0~3개
+            - questionAnalyses: 실제 첨삭이 필요한 문장에 따라 0~3개
             - improvement: 안전한 개선문을 만들 수 없으면 null
             - 프롬프트 안에 특정 점수 숫자 조합을 JSON 예시로 넣지 않는다.
             - 0, 50, 70, 100 같은 임의 점수도 출력 예시로 사용하지 않는다.
@@ -50,17 +50,20 @@ public class AnalysisAiClient {
             """;
     private static final String EVALUATION_CRITERIA = """
             [평가 절차]
-            내부 판단 과정은 응답 JSON이나 reason에 출력하지 않는다.
-            1. 문장의 시제를 확인한다.
-            2. 문장 유형을 경험/성과, 포부/계획, 지원동기, 역량/자격 중 하나로 판단한다.
-            3. 문장 유형에 맞는 평가 기준만 적용한다.
-            4. mainTask와 qualification 중 실제로 관련된 요구사항을 찾는다.
-            5. preference는 보조 정보로만 확인한다.
-            6. 문장이 이미 충분히 구체적인지 판단한다.
-            7. 실제 보완이 필요한 경우에만 questionAnalyses 후보로 선택한다.
-            8. status와 reason이 논리적으로 일치하는지 다시 확인한다.
-            9. 원문의 사실만으로 안전한 개선문을 만들 수 있을 때만 improvement를 작성한다.
-            10. 최종 출력 전에 sentence, status, reason, improvement의 자기 일관성을 점검한다.
+            최종 JSON을 작성하기 전에 내부적으로 다음 순서를 따른다.
+            내부 판단 과정이나 chain-of-thought를 응답에 출력하지 않는다.
+            별도의 reasoning 필드나 analysis 필드를 API 응답에 추가하지 않는다.
+            모델의 상세 사고과정을 로그나 DB에 저장하지 않는다.
+            1. 문장 유형을 경험/성과, 포부/계획, 지원동기, 역량/자격으로 판단한다.
+            2. mainTask와 qualification 중 직접 관련된 요구사항을 찾는다.
+            3. preference만 근거인 경우 첨삭 대상에서 제외한다.
+            4. 문장 유형에 맞는 평가 기준만 적용한다.
+            5. 실제로 첨삭이 필요한 문장인지 판단한다.
+            6. mentioned 또는 fabricated 상태를 결정한다.
+            7. reason이 status 및 문장 유형과 일치하는지 확인한다.
+            8. 원문 사실만으로 안전한 improvement를 작성할 수 있는지 확인한다.
+            9. 새 경험, 수치, 기술, 계획, 시제 변경, 메타 조언이 없는지 재검사한다.
+            10. 최종 JSON만 반환한다.
 
             [문장 유형 구분]
             - 경험/성과: 과거에 수행한 행동, 역할, 문제 해결, 결과, 수치, 산출물이 드러나는 문장
@@ -152,20 +155,20 @@ public class AnalysisAiClient {
             """;
     private static final String STATUS_AND_WRITING_RULES = """
             [status 판정 기준]
-            - proven: 구체적인 경험, 행동, 기술, 프로젝트, 수치 또는 결과로 역량을 실질적으로 입증함
-            - mentioned: 관련 키워드나 경험은 언급했지만 구체적인 근거, 에피소드 또는 결과가 부족함
+            - questionAnalyses의 허용 status는 mentioned, fabricated뿐이다.
+            - mentioned: 관련 경험이나 의도는 있으나 구체성이 부족한 문장
             - missing: 해당 역량이나 요건을 자기소개서에서 전혀 다루지 않음
-            - fabricated: 주장 내용이 앞뒤 맥락과 명백히 충돌하거나 현실적으로 불가능한 수준의 비일관성이 있음
+            - fabricated: JD 또는 답변 내부의 명시적 사실과 직접 충돌하거나, 지원자가 실제로 하지 않았다고 밝힌 경험을 한 것처럼 주장한 경우
 
             [status 중요 규칙]
-            - proven은 완벽한 문장이라는 뜻이 아니라 해당 문장이 주장하는 핵심 역량이나 행동에 충분한 직접 근거가 있다는 뜻이다.
-            - 수치가 없어도 구체적인 행동, 역할, 사용 기술, 산출물, 검증 과정이 명확하면 proven이 될 수 있다.
-            - proven은 개선이 필요한 문장 목록에 반드시 포함할 필요는 없지만, 포함했다면 improvement는 null로 반환한다.
-            - proven의 reason에는 부족, 미흡, 보완 필요, 드러나지 않음처럼 핵심 근거가 불충분하다는 표현을 사용하지 않는다.
+            - PROVEN은 questionAnalyses에 반환하지 않는다.
+            - 충분히 좋은 문장은 questionAnalyses에 넣지 않고 keyStrengths로 반환한다.
+            - MISSING은 sentence가 없으므로 questionAnalyses에 넣지 않고 missingKeywords로만 반환한다.
             - 직접적인 증거가 부족해도 관련 경험이 있으면 mentioned로 분류한다.
             - missing은 관련 언급이 전혀 없을 때만 사용한다.
             - fabricated는 단순히 근거가 부족하다는 이유로 사용하지 않는다.
-            - fabricated는 명백한 모순이나 비현실적 과장이 있을 때만 사용한다.
+            - fabricated는 명시적 사실과 직접 충돌하거나 지원자가 하지 않았다고 밝힌 경험을 한 것처럼 주장한 경우에만 사용한다.
+            - status 다양성을 만들기 위해 억지로 fabricated를 생성하지 않는다.
             - 구체적인 경험이나 수치가 부족하다는 이유만으로 fabricated를 사용하지 않는다.
 
             [sentence 규칙]
@@ -173,13 +176,14 @@ public class AnalysisAiClient {
             - 원문에 없는 문장을 생성하지 않는다.
             - sentence를 요약하거나 수정하지 않는다.
             - 원문 매칭이 불확실하면 questionAnalyses에 포함하지 않는다.
-            - 충분히 구체적이고 직무 관련성이 높은 좋은 문장은 억지로 questionAnalyses에 포함하지 않는다.
-            - questionAnalyses는 유효한 보완 대상에 따라 문항당 0~3개 반환한다.
+            - 좋은 문장은 questionAnalyses에 넣지 않고 keyStrengths로 반환한다.
+            - questionAnalyses는 실제 첨삭이 필요한 문장만 반환한다.
+            - questionAnalyses는 문항당 0~3개 반환한다.
             - 항상 1개를 반환할 필요가 없다.
             - 실제로 보완이 필요한 문장만 문항당 최대 3개 반환한다.
-            - 서로 다른 독립 문제가 있으면 2개 이상 반환할 수 있다.
+            - 실제로 독립적인 문제 문장이 여러 개라면 대표 1개만 선택하지 말고 최대 3개까지 반환한다.
+            - 동일한 문제를 반복하는 문장은 하나만 선택한다.
             - 보완할 문장이 없으면 빈 배열 []을 반환한다.
-            - proven 문장은 questionAnalyses에 반드시 포함할 필요가 없다. 단, 포함했다면 improvement는 null로 반환한다.
             - 동일하거나 거의 동일한 문장을 중복 반환하지 않는다.
             - start/end index는 출력하지 않는다. 서버가 Java String character index 기준으로 계산한다.
             - missing은 원문에 해당 문장이 없을 수 있으므로 sentence를 임의로 만들지 않는다.
@@ -208,6 +212,10 @@ public class AnalysisAiClient {
             - title은 화면 카드 제목으로 바로 노출할 짧은 한국어 문장으로 작성한다.
             - quote는 반드시 실제 텍스트에서 가져온 짧은 직접 인용이어야 하며 새로 만들거나 요약하지 않는다.
             - keyStrengths의 quote는 자소서 answer에 실제 포함된 정확한 부분 문자열만 사용한다.
+            - 충분히 구체적인 좋은 문장은 keyStrengths 후보로 사용한다.
+            - keyStrengths는 mainTask 또는 qualification과 직접 연결된 근거를 우선한다.
+            - preference만 충족하는 문장은 핵심 강점으로 과대평가하지 않는다.
+            - keyStrengths와 questionAnalyses에 같은 quote/sentence를 동시에 넣지 않는다.
             - keyWeaknesses의 첫 항목들은 missingKeywords와 같은 누락 요건을 다룬다.
             - missingKeywords 기반 keyWeaknesses의 quote는 JD의 주요 업무, 자격 요건, 우대 사항에 실제 포함된 표현을 사용한다.
             - missingKeywords가 없으면 keyWeaknesses는 questionAnalyses의 보완 대상 문장 quote를 우선 사용한다.

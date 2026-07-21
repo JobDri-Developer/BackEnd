@@ -308,6 +308,7 @@ public class AnalysisService {
         Map<Long, Integer> analysisCountByQuestionId = new HashMap<>();
         Map<Long, Integer> nextSearchIndexByQuestionId = new HashMap<>();
         Set<String> seenSentences = new HashSet<>();
+        Set<String> keyStrengthQuotes = normalizedKeyStrengthQuotes(llmResponse);
 
         if (llmResponse.questionAnalyses() == null) {
             return result;
@@ -328,11 +329,13 @@ public class AnalysisService {
                 continue;
             }
             QuestionAnalysisStatus status = parseStatus(item.status());
-            if (status == null || status == QuestionAnalysisStatus.MISSING) {
+            if (status == null
+                    || status == QuestionAnalysisStatus.MISSING
+                    || status == QuestionAnalysisStatus.PROVEN) {
                 continue;
             }
-            if (status == QuestionAnalysisStatus.PROVEN
-                    && AnalysisSanitizationRules.isContradictoryProvenReason(item.reason())) {
+            if (status == QuestionAnalysisStatus.FABRICATED
+                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictReason(item.reason())) {
                 continue;
             }
             int currentCount = analysisCountByQuestionId.getOrDefault(question.getId(), 0);
@@ -340,6 +343,9 @@ public class AnalysisService {
                 continue;
             }
             String sentence = item.sentence();
+            if (keyStrengthQuotes.contains(normalizeKeyword(sentence))) {
+                continue;
+            }
             String dedupeKey = question.getId() + ":" + sentence.trim();
             if (!seenSentences.add(dedupeKey)) {
                 continue;
@@ -368,6 +374,16 @@ public class AnalysisService {
         }
 
         return result;
+    }
+
+    private Set<String> normalizedKeyStrengthQuotes(AnalysisLlmResponse llmResponse) {
+        if (llmResponse == null || llmResponse.keyStrengths() == null) {
+            return Set.of();
+        }
+        return llmResponse.keyStrengths().stream()
+                .filter(item -> item != null && StringUtils.hasText(item.quote()))
+                .map(item -> normalizeKeyword(item.quote()))
+                .collect(Collectors.toSet());
     }
 
     private AnalysisResponse toResponse(
