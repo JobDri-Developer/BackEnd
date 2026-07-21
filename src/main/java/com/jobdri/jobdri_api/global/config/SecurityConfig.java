@@ -8,10 +8,13 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.handler.CustomAuthentic
 import com.jobdri.jobdri_api.global.jwt.JwtAuthenticationFilter;
 import com.jobdri.jobdri_api.global.jwt.JwtUtil;
 import com.jobdri.jobdri_api.global.security.UserDetailsServiceImpl;
+import com.jobdri.jobdri_api.global.logging.RequestContextLoggingFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -19,6 +22,8 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.web.cors.CorsConfigurationSource;
+
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -40,7 +45,37 @@ public class SecurityConfig {
     }
 
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public RequestContextLoggingFilter requestContextLoggingFilter(
+            @Value("${app.logging.request-id-max-length:64}") int requestIdMaxLength,
+            @Value("${app.logging.trusted-proxies:}") List<String> trustedProxies
+    ) {
+        return new RequestContextLoggingFilter(requestIdMaxLength, trustedProxies);
+    }
+
+    @Bean
+    public FilterRegistrationBean<RequestContextLoggingFilter> requestContextLoggingFilterRegistration(
+            RequestContextLoggingFilter requestContextLoggingFilter
+    ) {
+        FilterRegistrationBean<RequestContextLoggingFilter> registration = new FilterRegistrationBean<>(requestContextLoggingFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    public FilterRegistrationBean<JwtAuthenticationFilter> jwtAuthenticationFilterRegistration(
+            JwtAuthenticationFilter jwtAuthenticationFilter
+    ) {
+        FilterRegistrationBean<JwtAuthenticationFilter> registration = new FilterRegistrationBean<>(jwtAuthenticationFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(
+            HttpSecurity http,
+            RequestContextLoggingFilter requestContextLoggingFilter,
+            JwtAuthenticationFilter jwtAuthenticationFilter
+    ) throws Exception {
 
         http.cors((cors) -> cors.configurationSource(corsConfigurationSource()));
 
@@ -72,7 +107,8 @@ public class SecurityConfig {
                 .failureHandler(oAuth2AuthenticationFailureHandler)
         );
 
-        http.addFilterBefore(jwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(requestContextLoggingFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterAfter(jwtAuthenticationFilter, RequestContextLoggingFilter.class);
 
         http.exceptionHandling((exceptions) -> exceptions
                 .authenticationEntryPoint(customAuthenticationEntryPoint)

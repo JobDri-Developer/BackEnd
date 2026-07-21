@@ -11,10 +11,13 @@ import com.jobdri.jobdri_api.domain.payment.repository.CreditTransactionReposito
 import com.jobdri.jobdri_api.domain.payment.repository.PaymentRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.global.apiPayload.code.BaseErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.logging.LoggingContext;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -22,9 +25,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class PaymentService {
@@ -55,6 +60,13 @@ public class PaymentService {
     public PaymentPrepareResponse prepare(User user, PaymentPrepareRequest request) {
         User validatedUser = userService.validateUser(user);
         CreditPlan plan = CreditPlan.from(request.planCode());
+        try (var ignored = LoggingContext.with(
+                "payment.prepare.started",
+                null,
+                PaymentLogMasking.paymentContext(null, null, validatedUser.getId(), request.planCode(), plan.getPrice())
+        )) {
+            log.info("Starting payment preparation");
+        }
         String orderId = "jobdri-" + UUID.randomUUID();
         Payment payment = paymentRepository.save(Payment.createPending(
                 validatedUser,
@@ -64,6 +76,13 @@ public class PaymentService {
                 plan.getCreditAmount(),
                 plan.getPrice()
         ));
+        try (var ignored = LoggingContext.with(
+                "payment.prepare.completed",
+                null,
+                PaymentLogMasking.paymentContext(payment.getOrderId(), null, validatedUser.getId(), plan.getCode(), plan.getPrice())
+        )) {
+            log.info("Payment preparation completed");
+        }
 
         return PaymentPrepareResponse.of(payment, tossClientKey);
     }
@@ -71,9 +90,22 @@ public class PaymentService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PaymentConfirmResponse confirm(User user, PaymentConfirmRequest request) {
         User validatedUser = userService.validateUser(user);
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(
+                request.orderId(),
+                request.paymentKey(),
+                validatedUser.getId(),
+                null,
+                request.amount()
+        );
+        try (var ignored = LoggingContext.with("payment.confirm.started", null, paymentContext)) {
+            log.info("Starting payment confirmation");
+        }
         PaymentTransactionService.PaymentConfirmationStart start =
                 paymentTransactionService.startConfirmation(validatedUser.getId(), request);
         if (start.alreadyCompleted()) {
+            try (var ignored = LoggingContext.with("payment.confirm.completed", null, paymentContext)) {
+                log.info("Payment confirmation already completed");
+            }
             return PaymentConfirmResponse.of(start.payment(), userService.getUser(validatedUser.getId()).getCredit());
         }
 
@@ -89,12 +121,25 @@ public class PaymentService {
                         request.orderId(),
                         request.paymentKey()
                 );
+                try (var ignored = LoggingContext.with("payment.confirm.unknown", generalException.getCode(), paymentContext)) {
+                    log.warn("Payment confirmation state marked as unknown");
+                }
                 throw e;
             }
             paymentTransactionService.failConfirmation(validatedUser.getId(), request.orderId(), request.paymentKey());
+            BaseErrorCode errorCode = e instanceof GeneralException generalException
+                    ? generalException.getCode()
+                    : GeneralErrorCode.PAYMENT_CONFIRM_FAILED;
+            try (var ignored = LoggingContext.with("payment.confirm.failed", errorCode, paymentContext)) {
+                log.warn("Payment confirmation failed: {}", e.getMessage());
+            }
             throw e;
         }
-        return paymentTransactionService.completeConfirmation(validatedUser.getId(), request);
+        PaymentConfirmResponse response = paymentTransactionService.completeConfirmation(validatedUser.getId(), request);
+        try (var ignored = LoggingContext.with("payment.confirm.completed", null, paymentContext)) {
+            log.info("Payment confirmation completed");
+        }
+        return response;
     }
 
     public CreditBalanceResponse getBalance(User user) {

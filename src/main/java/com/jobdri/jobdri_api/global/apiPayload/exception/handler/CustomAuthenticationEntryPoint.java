@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.global.apiPayload.exception.handler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
+import com.jobdri.jobdri_api.global.logging.LoggingContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -26,10 +27,15 @@ public class CustomAuthenticationEntryPoint implements AuthenticationEntryPoint 
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException authException) throws IOException, ServletException {
-
-        log.warn("인증되지 않은 사용자 접근: {} {} - {}", request.getMethod(), request.getRequestURI(), authException.getMessage());
-
         GeneralErrorCode errorCode = GeneralErrorCode.MISSING_AUTH_INFO;
+        try (var ignored = LoggingContext.with("auth.unauthorized", errorCode)) {
+            log.warn(
+                    "Unauthorized access detected: {} {} - {}",
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    authException.getMessage()
+            );
+        }
 
         ApiResponse<Void> apiResponse = ApiResponse.onFailure(errorCode, errorCode.getMessage());
 

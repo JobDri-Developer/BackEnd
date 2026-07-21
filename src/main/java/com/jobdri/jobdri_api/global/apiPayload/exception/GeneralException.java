@@ -16,4 +16,9 @@ public class GeneralException extends RuntimeException {
         super(message);
         this.code = code;
     }
+
+    public GeneralException(BaseErrorCode code, String message, Throwable cause) {
+        super(message, cause);
+        this.code = code;
+    }
 }
