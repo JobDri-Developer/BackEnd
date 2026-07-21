@@ -203,6 +203,34 @@ class AnalysisServiceTest {
                 60,
                 "누락 키워드 검증입니다.",
                 List.of(
+                        new AnalysisLlmResponse.HighlightItem(
+                                "직무 경험이 실제 구현 사례로 드러나요",
+                                "Spring Boot API를 개발했습니다."
+                        ),
+                        new AnalysisLlmResponse.HighlightItem(" ", "Spring Boot API를 개발했습니다."),
+                        new AnalysisLlmResponse.HighlightItem(
+                                "이 강점 제목은 너무 길어서 응답에서 제외되어야 하는 매우 긴 문장이며 허용 길이를 명확하게 초과하는 잘못된 핵심 강점 카드 제목입니다. 화면 카드 제목으로 사용할 수 없는 수준의 장문입니다.",
+                                "Spring Boot API를 개발했습니다."
+                        ),
+                        new AnalysisLlmResponse.HighlightItem("협업 기반 문제 해결이 보여요", "팀원들과 함께 일주일 동안 상권으로 나갔습니다."),
+                        new AnalysisLlmResponse.HighlightItem("실행력이 구체적으로 드러나요", "직접 심층 인터뷰를 진행하고"),
+                        new AnalysisLlmResponse.HighlightItem("네 번째 강점은 최대 개수 제한으로 제외돼요", "최우수상을 수상할 수 있었습니다.")
+                ),
+                List.of(
+                        new AnalysisLlmResponse.HighlightItem(
+                                "SQL 활용 경험 보강이 필요해요",
+                                "SQL 활용 경험"
+                        ),
+                        new AnalysisLlmResponse.HighlightItem(
+                                "SQL 활용 경험 보강이 필요해요",
+                                "SQL 활용 경험"
+                        ),
+                        new AnalysisLlmResponse.HighlightItem(" ", "테스트 자동화 경험"),
+                        new AnalysisLlmResponse.HighlightItem("대용량 트래픽 경험을 더 보여주세요", "대용량 트래픽 처리 경험"),
+                        new AnalysisLlmResponse.HighlightItem("테스트 자동화 경험을 보강하세요", "테스트 자동화 경험"),
+                        new AnalysisLlmResponse.HighlightItem("네 번째 약점은 최대 개수 제한으로 제외돼요", "성능 최적화 경험")
+                ),
+                List.of(
                         new AnalysisLlmResponse.MissingKeywordItem("SQL 활용 경험", "qualification"),
                         new AnalysisLlmResponse.MissingKeywordItem(" ", "qualification"),
                         new AnalysisLlmResponse.MissingKeywordItem("SQL 활용 경험", "preference"),
@@ -219,6 +247,16 @@ class AnalysisServiceTest {
 
         AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
 
+        assertThat(response.keyStrengths()).hasSize(3);
+        assertThat(response.keyStrengths()).extracting("title")
+                .containsExactly("직무 경험이 실제 구현 사례로 드러나요", "협업 기반 문제 해결이 보여요", "실행력이 구체적으로 드러나요");
+        assertThat(response.keyStrengths()).extracting("quote")
+                .containsExactly("Spring Boot API를 개발했습니다.", "팀원들과 함께 일주일 동안 상권으로 나갔습니다.", "직접 심층 인터뷰를 진행하고");
+        assertThat(response.keyWeaknesses()).hasSize(3);
+        assertThat(response.keyWeaknesses()).extracting("title")
+                .containsExactly("SQL 활용 경험 보강이 필요해요", "대용량 트래픽 경험을 더 보여주세요", "테스트 자동화 경험을 보강하세요");
+        assertThat(response.keyWeaknesses()).extracting("quote")
+                .containsExactly("SQL 활용 경험", "대용량 트래픽 처리 경험", "테스트 자동화 경험");
         assertThat(response.missingKeywords()).hasSize(3);
         assertThat(response.missingKeywords()).extracting("keyword")
                 .containsExactly("SQL 활용 경험", "대용량 트래픽 처리 경험", "테스트 자동화 경험");
@@ -226,6 +264,18 @@ class AnalysisServiceTest {
                 .containsExactly("qualification", "preference", "mainTask");
 
         Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
+        assertThat(analysis.getKeyStrengthsJson())
+                .contains("\"title\":\"직무 경험이 실제 구현 사례로 드러나요\"")
+                .contains("\"quote\":\"Spring Boot API를 개발했습니다.\"")
+                .contains("\"title\":\"협업 기반 문제 해결이 보여요\"")
+                .contains("\"title\":\"실행력이 구체적으로 드러나요\"")
+                .doesNotContain("너무 길어서")
+                .doesNotContain("네 번째 강점");
+        assertThat(analysis.getKeyWeaknessesJson())
+                .contains("\"title\":\"SQL 활용 경험 보강이 필요해요\"", "\"quote\":\"SQL 활용 경험\"")
+                .contains("\"title\":\"대용량 트래픽 경험을 더 보여주세요\"")
+                .contains("\"title\":\"테스트 자동화 경험을 보강하세요\"")
+                .doesNotContain("네 번째 약점");
         assertThat(analysis.getMissingKeywordsJson())
                 .contains("\"keyword\":\"SQL 활용 경험\"", "\"source\":\"qualification\"")
                 .contains("\"keyword\":\"대용량 트래픽 처리 경험\"", "\"source\":\"preference\"")
@@ -254,6 +304,32 @@ class AnalysisServiceTest {
         assertThat(response.missingKeywords()).isEmpty();
         Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
         assertThat(analysis.getMissingKeywordsJson()).isEqualTo("[]");
+    }
+
+    @Test
+    @DisplayName("keyStrengths와 keyWeaknesses가 null이면 빈 배열로 응답한다")
+    void analyzeReturnsEmptyHighlightsWhenLlmHighlightsAreNull() {
+        User user = saveUser("analysis-highlights-null@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "핵심 강약점이 없습니다.",
+                null,
+                null,
+                List.of(),
+                List.of()
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.keyStrengths()).isEmpty();
+        assertThat(response.keyWeaknesses()).isEmpty();
+        Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
+        assertThat(analysis.getKeyStrengthsJson()).isEqualTo("[]");
+        assertThat(analysis.getKeyWeaknessesJson()).isEqualTo("[]");
     }
 
     @Test
@@ -307,6 +383,49 @@ class AnalysisServiceTest {
         AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
 
         assertThat(response.questions().get(0).analyses()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("구버전 worker status는 백엔드 분석 상태로 매핑해 저장한다")
+    void analyzeMapsLegacyWorkerStatuses() {
+        User user = saveUser("analysis-legacy-status@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(
+                mockApply,
+                "문제 해결 경험",
+                "장애 로그를 분석해 원인을 찾았습니다. 배포 장애를 줄였습니다. 검증되지 않은 성과를 주장했습니다."
+        );
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "구버전 worker status 매핑입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "장애 로그를 분석해 원인을 찾았습니다.",
+                        "GOOD",
+                        "근거가 충분합니다.",
+                        "성과를 조금 더 구체화하세요."
+                ), new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "배포 장애를 줄였습니다.",
+                        "NEEDS_IMPROVEMENT",
+                        "성과 수치가 부족합니다.",
+                        "정량 지표를 추가하세요."
+                ), new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "검증되지 않은 성과를 주장했습니다.",
+                        "RISK",
+                        "과장 위험이 있습니다.",
+                        "검증 가능한 표현으로 낮추세요."
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses())
+                .extracting("status")
+                .containsExactly("proven", "mentioned", "fabricated");
     }
 
     @Test
@@ -743,6 +862,8 @@ class AnalysisServiceTest {
                 70,
                 60,
                 "저장된 분석입니다.",
+                List.of(new AnalysisLlmResponse.HighlightItem("저장된 강점", "Spring Boot API를 개발했습니다.")),
+                List.of(new AnalysisLlmResponse.HighlightItem("저장된 약점", "SQL 활용 경험")),
                 List.of(new AnalysisLlmResponse.MissingKeywordItem("LLM 저장 키워드", "qualification")),
                 List.of()
         ));
@@ -750,6 +871,10 @@ class AnalysisServiceTest {
         entityManager.clear();
 
         Analysis persisted = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
+        assertThat(persisted.getKeyStrengthsJson())
+                .contains("\"title\":\"저장된 강점\"", "\"quote\":\"Spring Boot API를 개발했습니다.\"");
+        assertThat(persisted.getKeyWeaknessesJson())
+                .contains("\"title\":\"저장된 약점\"", "\"quote\":\"SQL 활용 경험\"");
         assertThat(persisted.getMissingKeywordsJson())
                 .contains("\"keyword\":\"LLM 저장 키워드\"", "\"source\":\"qualification\"");
         entityManager.clear();
@@ -758,6 +883,10 @@ class AnalysisServiceTest {
 
         assertThat(saved.missingKeywords()).extracting("keyword")
                 .containsExactly("LLM 저장 키워드");
+        assertThat(response.keyStrengths()).extracting("title")
+                .containsExactly("저장된 강점");
+        assertThat(response.keyWeaknesses()).extracting("title")
+                .containsExactly("저장된 약점");
         assertThat(response.missingKeywords()).extracting("keyword")
                 .containsExactly("LLM 저장 키워드");
         assertThat(response.missingKeywords()).extracting(keyword -> keyword.source().value())
@@ -791,6 +920,39 @@ class AnalysisServiceTest {
 
         assertThat(response.analysisId()).isEqualTo(saved.analysisId());
         assertThat(response.missingKeywords()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("저장된 핵심 강약점 JSON이 깨져 있어도 조회 응답은 빈 배열로 fallback한다")
+    void getAnalysisReturnsEmptyHighlightsWhenPersistedJsonIsMalformed() {
+        User user = saveUser("analysis-get-malformed-highlights@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "저장된 분석입니다.",
+                List.of(new AnalysisLlmResponse.HighlightItem("저장된 강점", "Spring Boot API를 개발했습니다.")),
+                List.of(new AnalysisLlmResponse.HighlightItem("저장된 약점", "SQL 활용 경험")),
+                List.of(),
+                List.of()
+        ));
+        AnalysisResponse saved = analysisService.analyze(user, mockApply.getId());
+
+        jdbcTemplate.update(
+                "UPDATE analyses SET key_strengths = ?, key_weaknesses = ? WHERE id = ?",
+                "not-json",
+                "not-json",
+                saved.analysisId()
+        );
+        entityManager.clear();
+
+        AnalysisResponse response = analysisService.getAnalysis(user, mockApply.getId());
+
+        assertThat(response.analysisId()).isEqualTo(saved.analysisId());
+        assertThat(response.keyStrengths()).isEmpty();
+        assertThat(response.keyWeaknesses()).isEmpty();
     }
 
     @Test

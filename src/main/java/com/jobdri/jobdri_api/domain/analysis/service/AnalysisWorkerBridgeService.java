@@ -1,10 +1,10 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerContextResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
@@ -18,14 +18,20 @@ import com.jobdri.jobdri_api.domain.workerresult.entity.WorkerTaskResult.TaskTyp
 import com.jobdri.jobdri_api.domain.workerresult.service.WorkerTaskResultService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.logging.LoggingContext;
+import com.jobdri.jobdri_api.global.logging.LoggingMdcKeys;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 // 외부 분석 워커와 내부 분석 도메인 상태를 연결해 주는 브리지 서비스다.
 public class AnalysisWorkerBridgeService {
@@ -43,6 +49,9 @@ public class AnalysisWorkerBridgeService {
             return;
         }
         analysisAsyncTaskService.markRunning(taskId, workerId, retryCount, submittedAt);
+        try (var ignored = LoggingContext.with("worker.task.running", null, workerContext(taskId, "ANALYSIS", workerId, retryCount, null))) {
+            log.info("Analysis worker marked task as running");
+        }
     }
 
     @Transactional
@@ -60,6 +69,9 @@ public class AnalysisWorkerBridgeService {
         }
         analysisAsyncTaskService.updateWorkerMetadata(taskId, workerId, queueLatencyMillis);
         analysisAsyncTaskService.markRetryScheduled(taskId, failureReason, errorMessage, retryCount);
+        try (var ignored = LoggingContext.with("worker.task.retry", null, workerContext(taskId, "ANALYSIS", workerId, retryCount, queueLatencyMillis))) {
+            log.warn("Analysis worker scheduled retry: failureReason={}", failureReason);
+        }
     }
 
     @Transactional
@@ -79,6 +91,9 @@ public class AnalysisWorkerBridgeService {
         analysisAsyncTaskService.updateWorkerMetadata(taskId, workerId, queueLatencyMillis);
         releaseCreditIfNeeded(task);
         analysisAsyncTaskService.markFailed(taskId, failureReason, errorMessage, retryCount);
+        try (var ignored = LoggingContext.with("worker.task.failed", null, workerContext(taskId, "ANALYSIS", workerId, retryCount, queueLatencyMillis))) {
+            log.warn("Analysis worker failed task: failureReason={}", failureReason);
+        }
     }
 
     @Transactional
@@ -147,6 +162,13 @@ public class AnalysisWorkerBridgeService {
         confirmCreditIfNeeded(task);
         analysisAsyncTaskService.markSuccess(taskId, response);
         workerTaskResultService.markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, taskId);
+        try (var ignored = LoggingContext.with(
+                "worker.task.completed",
+                null,
+                workerContext(taskId, "ANALYSIS", request.workerId(), task.getRetryCount(), request.queueLatencyMillis())
+        )) {
+            log.info("Analysis worker completed task");
+        }
         return response;
     }
 
@@ -160,6 +182,9 @@ public class AnalysisWorkerBridgeService {
             );
         }
         workerTaskResultService.upsertGenerated(TaskType.ANALYSIS_COMPLETE, taskId, request);
+        try (var ignored = LoggingContext.with("worker.result.stored", null, workerContext(taskId, "ANALYSIS", null, task.getRetryCount(), null))) {
+            log.info("Analysis worker result stored");
+        }
     }
 
     @Transactional(readOnly = true)
@@ -212,5 +237,27 @@ public class AnalysisWorkerBridgeService {
         User user = userService.getUser(task.getUserId());
         analysisService.refundAnalysisCredit(user, task.getCreditReferenceId());
         analysisAsyncTaskService.markCreditReleased(task.getTaskId());
+    }
+
+    private Map<String, String> workerContext(
+            String taskId,
+            String taskType,
+            String workerId,
+            Integer retryCount,
+            Long queueLatencyMillis
+    ) {
+        Map<String, String> context = new LinkedHashMap<>();
+        context.put(LoggingMdcKeys.TASK_ID, taskId);
+        context.put(LoggingMdcKeys.TASK_TYPE, taskType);
+        if (workerId != null) {
+            context.put(LoggingMdcKeys.WORKER_ID, workerId);
+        }
+        if (retryCount != null) {
+            context.put(LoggingMdcKeys.RETRY_COUNT, String.valueOf(retryCount));
+        }
+        if (queueLatencyMillis != null) {
+            context.put(LoggingMdcKeys.QUEUE_LATENCY_MILLIS, String.valueOf(queueLatencyMillis));
+        }
+        return context;
     }
 }

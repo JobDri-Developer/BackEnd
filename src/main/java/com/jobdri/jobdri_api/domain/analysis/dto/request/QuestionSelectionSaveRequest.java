@@ -12,9 +12,9 @@ public record QuestionSelectionSaveRequest(
         @Valid
         @NotEmpty(message = "선택 문항은 1개 이상이어야 합니다.")
         @Size(max = 5, message = "문항은 최대 5개까지 선택할 수 있습니다.")
-        List<QuestionItem> questions
+        List<QuestionSelectionItem> questions
 ) {
-    public record QuestionItem(
+    public record QuestionSelectionItem(
             @NotBlank(message = "문항 내용은 필수입니다.")
             String content,
 

@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionAnswerSaveRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionCandidateCreateRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionSelectionSaveRequest;
@@ -68,14 +69,17 @@ class QuestionServiceTest {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @Test
     @DisplayName("선택 문항을 저장하고 지원 상태를 답변 작성 단계로 변경한다")
     void saveSelectedQuestions() {
         User user = saveUser("question-save@example.com");
         MockApply mockApply = saveMockApply(user);
         QuestionSelectionSaveRequest request = new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("지원 동기와 입사 후 목표를 작성해주세요.", 700, false),
-                new QuestionSelectionSaveRequest.QuestionItem("직접 추가한 문항입니다.", null, true)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("지원 동기와 입사 후 목표를 작성해주세요.", 700, false),
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("직접 추가한 문항입니다.", null, true)
         ));
 
         QuestionSelectionResponse response = questionService.saveSelectedQuestions(user, mockApply.getId(), request);
@@ -99,12 +103,12 @@ class QuestionServiceTest {
         User user = saveUser("question-replace@example.com");
         MockApply mockApply = saveMockApply(user);
         questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("기존 문항 1", 500, false),
-                new QuestionSelectionSaveRequest.QuestionItem("기존 문항 2", 500, false)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("기존 문항 1", 500, false),
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("기존 문항 2", 500, false)
         )));
 
         QuestionSelectionResponse response = questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("새 문항", 800, false)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("새 문항", 800, false)
         )));
 
         assertThat(response.questions()).hasSize(1);
@@ -121,8 +125,8 @@ class QuestionServiceTest {
         User user = saveUser("question-selected-custom-flag@example.com");
         MockApply mockApply = saveMockApply(user);
         questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("지원 동기와 입사 후 목표를 작성해주세요.", 700, false),
-                new QuestionSelectionSaveRequest.QuestionItem("직접 추가한 문항입니다.", 1000, true)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("지원 동기와 입사 후 목표를 작성해주세요.", 700, false),
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("직접 추가한 문항입니다.", 1000, true)
         )));
 
         QuestionSelectionResponse response = questionService.getSelectedQuestions(user, mockApply.getId());
@@ -222,7 +226,7 @@ class QuestionServiceTest {
                 new QuestionCandidateCreateRequest("이미 선택된 직접 추가 문항입니다.", 500)
         );
         questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("이미 선택된 직접 추가 문항입니다.", 500, true)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("이미 선택된 직접 추가 문항입니다.", 500, true)
         )));
 
         QuestionCandidateResponse second = questionService.addCustomQuestionCandidate(
@@ -244,7 +248,7 @@ class QuestionServiceTest {
         User user = saveUser("question-candidates@example.com");
         MockApply mockApply = saveMockApply(user);
         questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("지원 동기와 입사 후 목표를 작성해주세요.", 700, false)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("지원 동기와 입사 후 목표를 작성해주세요.", 700, false)
         )));
 
         List<QuestionCandidateResponse> candidates = questionService.getQuestionCandidates(user, mockApply.getId());
@@ -279,12 +283,12 @@ class QuestionServiceTest {
         User user = saveUser("question-too-many@example.com");
         MockApply mockApply = saveMockApply(user);
         QuestionSelectionSaveRequest request = new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("문항 1", 500, false),
-                new QuestionSelectionSaveRequest.QuestionItem("문항 2", 500, false),
-                new QuestionSelectionSaveRequest.QuestionItem("문항 3", 500, false),
-                new QuestionSelectionSaveRequest.QuestionItem("문항 4", 500, false),
-                new QuestionSelectionSaveRequest.QuestionItem("문항 5", 500, false),
-                new QuestionSelectionSaveRequest.QuestionItem("문항 6", 500, false)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("문항 1", 500, false),
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("문항 2", 500, false),
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("문항 3", 500, false),
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("문항 4", 500, false),
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("문항 5", 500, false),
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("문항 6", 500, false)
         ));
 
         assertThatThrownBy(() -> questionService.saveSelectedQuestions(user, mockApply.getId(), request))
@@ -300,7 +304,7 @@ class QuestionServiceTest {
         User other = saveUser("question-other@example.com");
         MockApply mockApply = saveMockApply(owner);
         QuestionSelectionSaveRequest request = new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("지원 동기", 700, false)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("지원 동기", 700, false)
         ));
 
         assertThatThrownBy(() -> questionService.saveSelectedQuestions(other, mockApply.getId(), request))
@@ -315,12 +319,12 @@ class QuestionServiceTest {
         User user = saveUser("answer-save@example.com");
         MockApply mockApply = saveMockApply(user);
         QuestionSelectionResponse selected = questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("지원 동기를 작성해주세요.", 700, false)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("지원 동기를 작성해주세요.", 700, false)
         )));
         Long questionId = selected.questions().get(0).questionId();
 
         QuestionAnswerResponse response = questionService.saveAnswers(user, mockApply.getId(), new QuestionAnswerSaveRequest(List.of(
-                new QuestionAnswerSaveRequest.QuestionItem(
+                new QuestionAnswerSaveRequest.QuestionAnswerItem(
                         questionId,
                         "지원 동기와 입사 후 목표를 작성해주세요.",
                         1000,
@@ -339,25 +343,69 @@ class QuestionServiceTest {
     }
 
     @Test
+    @DisplayName("답변 저장은 선택 저장에서 허용한 짧은 문항 내용도 동일하게 허용한다")
+    void saveAnswersAllowsShortQuestionContentAcceptedBySelectionSave() {
+        User user = saveUser("answer-short-question@example.com");
+        MockApply mockApply = saveMockApply(user);
+        QuestionSelectionResponse selected = questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("새 문항", 700, true)
+        )));
+        Long questionId = selected.questions().get(0).questionId();
+
+        QuestionAnswerResponse response = questionService.saveAnswers(user, mockApply.getId(), new QuestionAnswerSaveRequest(List.of(
+                new QuestionAnswerSaveRequest.QuestionAnswerItem(questionId, "새 문항", 700, "새 문항 답변입니다.")
+        )));
+
+        assertThat(response.questions()).hasSize(1);
+        assertThat(response.questions().get(0).content()).isEqualTo("새 문항");
+        assertThat(response.questions().get(0).answer()).isEqualTo("새 문항 답변입니다.");
+    }
+
+    @Test
+    @DisplayName("답변 저장 요청은 answers 필드명도 questions와 동일하게 역직렬화한다")
+    void questionAnswerSaveRequestAcceptsAnswersAlias() throws Exception {
+        QuestionAnswerSaveRequest request = objectMapper.readValue(
+                """
+                        {
+                          "answers": [
+                            {
+                              "questionId": 1,
+                              "content": "새 문항",
+                              "charLimit": 700,
+                              "answer": "새 문항 답변입니다."
+                            }
+                          ]
+                        }
+                        """,
+                QuestionAnswerSaveRequest.class
+        );
+
+        assertThat(request.questions()).hasSize(1);
+        assertThat(request.questions().get(0).questionId()).isEqualTo(1L);
+        assertThat(request.questions().get(0).content()).isEqualTo("새 문항");
+        assertThat(request.questions().get(0).answer()).isEqualTo("새 문항 답변입니다.");
+    }
+
+    @Test
     @DisplayName("답변 저장 시 문항 추가 수정 삭제와 글자수 제한을 화면 상태대로 동기화한다")
     void saveAnswersSyncsQuestionList() {
         User user = saveUser("answer-sync@example.com");
         MockApply mockApply = saveMockApply(user);
         QuestionSelectionResponse selected = questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("기존 문항 1", 700, false),
-                new QuestionSelectionSaveRequest.QuestionItem("기존 문항 2", 800, false)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("기존 문항 1", 700, false),
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("기존 문항 2", 800, false)
         )));
         Long retainedQuestionId = selected.questions().get(0).questionId();
         Long deletedQuestionId = selected.questions().get(1).questionId();
 
         QuestionAnswerResponse response = questionService.saveAnswers(user, mockApply.getId(), new QuestionAnswerSaveRequest(List.of(
-                new QuestionAnswerSaveRequest.QuestionItem(
+                new QuestionAnswerSaveRequest.QuestionAnswerItem(
                         retainedQuestionId,
                         "수정된 기존 문항",
                         1000,
                         "수정된 기존 문항 답변입니다."
                 ),
-                new QuestionAnswerSaveRequest.QuestionItem(
+                new QuestionAnswerSaveRequest.QuestionAnswerItem(
                         null,
                         "새로 추가한 문항",
                         700,
@@ -390,12 +438,12 @@ class QuestionServiceTest {
         mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
         MockApply secondMockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
         QuestionSelectionResponse selected = questionService.saveSelectedQuestions(user, secondMockApply.getId(), new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("재지원 답변 문항입니다.", 700, false)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("재지원 답변 문항입니다.", 700, false)
         )));
         Long questionId = selected.questions().get(0).questionId();
 
         QuestionAnswerResponse response = questionService.saveAnswers(user, secondMockApply.getId(), new QuestionAnswerSaveRequest(List.of(
-                new QuestionAnswerSaveRequest.QuestionItem(questionId, "재지원 답변 문항입니다.", 700, "두 번째 지원 답변입니다.")
+                new QuestionAnswerSaveRequest.QuestionAnswerItem(questionId, "재지원 답변 문항입니다.", 700, "두 번째 지원 답변입니다.")
         )));
 
         assertThat(response.mockApplyId()).isEqualTo(secondMockApply.getId());
@@ -409,12 +457,12 @@ class QuestionServiceTest {
         JobPosting jobPosting = saveJobPosting();
         MockApply mockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL, 4));
         QuestionSelectionResponse selected = questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("재지원 저장 순번 문항입니다.", 700, false)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("재지원 저장 순번 문항입니다.", 700, false)
         )));
         Long questionId = selected.questions().get(0).questionId();
 
         QuestionAnswerResponse response = questionService.saveAnswers(user, mockApply.getId(), new QuestionAnswerSaveRequest(List.of(
-                new QuestionAnswerSaveRequest.QuestionItem(questionId, "재지원 저장 순번 문항입니다.", 700, "네 번째 지원 답변입니다.")
+                new QuestionAnswerSaveRequest.QuestionAnswerItem(questionId, "재지원 저장 순번 문항입니다.", 700, "네 번째 지원 답변입니다.")
         )));
 
         assertThat(response.mockApplyId()).isEqualTo(mockApply.getId());
@@ -428,12 +476,12 @@ class QuestionServiceTest {
         MockApply mockApply = saveMockApply(user);
         MockApply otherMockApply = saveMockApply(user);
         QuestionSelectionResponse otherSelected = questionService.saveSelectedQuestions(user, otherMockApply.getId(), new QuestionSelectionSaveRequest(List.of(
-                new QuestionSelectionSaveRequest.QuestionItem("다른 지원서 문항", 700, false)
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("다른 지원서 문항", 700, false)
         )));
         Long otherQuestionId = otherSelected.questions().get(0).questionId();
 
         assertThatThrownBy(() -> questionService.saveAnswers(user, mockApply.getId(), new QuestionAnswerSaveRequest(List.of(
-                new QuestionAnswerSaveRequest.QuestionItem(otherQuestionId, "다른 지원서 문항", 700, "답변")
+                new QuestionAnswerSaveRequest.QuestionAnswerItem(otherQuestionId, "다른 지원서 문항", 700, "답변")
         ))))
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")

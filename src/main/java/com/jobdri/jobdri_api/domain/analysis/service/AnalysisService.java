@@ -5,6 +5,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisHighlightResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisQuestionResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordResponse;
@@ -48,6 +49,9 @@ import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConsta
 import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.IMPACT_WEIGHT;
 import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.JOB_FIT_WEIGHT;
 import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_ANALYSES_PER_QUESTION;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_HIGHLIGHTS;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_HIGHLIGHT_QUOTE_LENGTH;
+import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_HIGHLIGHT_TITLE_LENGTH;
 import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_MISSING_KEYWORDS;
 import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_MISSING_KEYWORD_LENGTH;
 import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants.MAX_SCORE;
@@ -60,6 +64,8 @@ import static com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConsta
 // 자소서 분석의 핵심 비즈니스 로직과 결과 저장을 담당하는 메인 서비스다.
 public class AnalysisService {
     private static final TypeReference<List<MissingKeywordResponse>> MISSING_KEYWORDS_TYPE = new TypeReference<>() {
+    };
+    private static final TypeReference<List<AnalysisHighlightResponse>> HIGHLIGHTS_TYPE = new TypeReference<>() {
     };
 
     private final MockApplyRepository mockApplyRepository;
@@ -171,6 +177,8 @@ public class AnalysisService {
         int jobFit = validateScore("jobFit", llmResponse.jobFit());
         int impact = validateScore("impact", llmResponse.impact());
         int completeness = validateScore("completeness", llmResponse.completeness());
+        List<AnalysisHighlightResponse> keyStrengths = buildHighlights(llmResponse.keyStrengths());
+        List<AnalysisHighlightResponse> keyWeaknesses = buildHighlights(llmResponse.keyWeaknesses());
         List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(llmResponse);
         replaceExistingAnalysis(mockApply);
 
@@ -181,7 +189,9 @@ public class AnalysisService {
                 impact,
                 completeness,
                 normalizeFeedback(llmResponse.feedback()),
-                serializeMissingKeywords(missingKeywords)
+                serializeMissingKeywords(missingKeywords),
+                serializeHighlights(keyStrengths, "keyStrengths"),
+                serializeHighlights(keyWeaknesses, "keyWeaknesses")
         ));
 
         List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(
@@ -193,7 +203,7 @@ public class AnalysisService {
         questionAnalysisRepository.saveAll(questionAnalyses);
         mockApply.updateStatus(MockApplyStatus.COMPLETED);
 
-        return toResponse(mockApply, analysis, questions, questionAnalyses, readMissingKeywords(analysis));
+        return toResponse(mockApply, analysis, questions, questionAnalyses, analysisResultPayload(analysis));
     }
 
     public AnalysisResponse getAnalysis(User user, Long mockApplyId) {
@@ -212,7 +222,7 @@ public class AnalysisService {
                 analysis,
                 questions,
                 questionAnalyses,
-                readMissingKeywords(analysis)
+                analysisResultPayload(analysis)
         );
     }
 
@@ -233,7 +243,7 @@ public class AnalysisService {
                 analysis,
                 questions,
                 questionAnalyses,
-                readMissingKeywords(analysis)
+                analysisResultPayload(analysis)
         );
     }
 
@@ -361,7 +371,7 @@ public class AnalysisService {
             Analysis analysis,
             List<Question> questions,
             List<QuestionAnalysis> questionAnalyses,
-            List<MissingKeywordResponse> missingKeywords
+            AnalysisResultPayload resultPayload
     ) {
         Map<Long, List<QuestionAnalysisResponse>> analysesByQuestionId = questionAnalyses.stream()
                 .collect(Collectors.groupingBy(
@@ -381,9 +391,23 @@ public class AnalysisService {
                 analysis,
                 mockApply.getStatus(),
                 mockApplyRepository.calculateSequence(mockApply),
-                missingKeywords,
+                resultPayload.keyStrengths(),
+                resultPayload.keyWeaknesses(),
+                resultPayload.missingKeywords(),
                 questionResponses
         );
+    }
+
+    private AnalysisResultPayload analysisResultPayload(Analysis analysis) {
+        return new AnalysisResultPayload(
+                readHighlights(analysis, analysis == null ? null : analysis.getKeyStrengthsJson(), "keyStrengths"),
+                readHighlights(analysis, analysis == null ? null : analysis.getKeyWeaknessesJson(), "keyWeaknesses"),
+                readMissingKeywords(analysis)
+        );
+    }
+
+    private List<AnalysisHighlightResponse> buildHighlights(List<AnalysisLlmResponse.HighlightItem> items) {
+        return sanitizeHighlights(items, AnalysisLlmResponse.HighlightItem::title, AnalysisLlmResponse.HighlightItem::quote);
     }
 
     private List<MissingKeywordResponse> buildMissingKeywords(AnalysisLlmResponse llmResponse) {
@@ -433,6 +457,34 @@ public class AnalysisService {
         } catch (JsonProcessingException e) {
             log.warn("Failed to serialize missingKeywords. Fallback to empty array.", e);
             return "[]";
+        }
+    }
+
+    private String serializeHighlights(List<AnalysisHighlightResponse> highlights, String fieldName) {
+        try {
+            return objectMapper.writeValueAsString(highlights == null ? List.of() : highlights);
+        } catch (JsonProcessingException e) {
+            log.warn("Failed to serialize {}. Fallback to empty array.", fieldName, e);
+            return "[]";
+        }
+    }
+
+    private List<AnalysisHighlightResponse> readHighlights(Analysis analysis, String json, String fieldName) {
+        if (!StringUtils.hasText(json)) {
+            return List.of();
+        }
+
+        try {
+            List<AnalysisHighlightResponse> highlights = objectMapper.readValue(json, HIGHLIGHTS_TYPE);
+            return sanitizeStoredHighlights(highlights);
+        } catch (Exception e) {
+            log.warn(
+                    "Failed to deserialize {}. analysisId={}, fallback to empty array.",
+                    fieldName,
+                    analysis == null ? null : analysis.getId(),
+                    e
+            );
+            return List.of();
         }
     }
 
@@ -487,6 +539,60 @@ public class AnalysisService {
         }
 
         return result;
+    }
+
+    private List<AnalysisHighlightResponse> sanitizeStoredHighlights(List<AnalysisHighlightResponse> highlights) {
+        return sanitizeHighlights(highlights, AnalysisHighlightResponse::title, AnalysisHighlightResponse::quote);
+    }
+
+    private <T> List<AnalysisHighlightResponse> sanitizeHighlights(
+            List<T> items,
+            Function<T, String> titleExtractor,
+            Function<T, String> quoteExtractor
+    ) {
+        if (items == null) {
+            return List.of();
+        }
+
+        List<AnalysisHighlightResponse> result = new ArrayList<>();
+        Set<String> seenHighlights = new HashSet<>();
+
+        for (T item : items) {
+            if (item == null) {
+                continue;
+            }
+
+            String rawTitle = titleExtractor.apply(item);
+            String rawQuote = quoteExtractor.apply(item);
+            if (!StringUtils.hasText(rawTitle) || !StringUtils.hasText(rawQuote)) {
+                continue;
+            }
+
+            String title = rawTitle.trim();
+            String quote = rawQuote.trim();
+            if (title.length() > MAX_HIGHLIGHT_TITLE_LENGTH || quote.length() > MAX_HIGHLIGHT_QUOTE_LENGTH) {
+                continue;
+            }
+
+            String dedupeKey = normalizeKeyword(title) + ":" + normalizeKeyword(quote);
+            if (!seenHighlights.add(dedupeKey)) {
+                continue;
+            }
+
+            result.add(new AnalysisHighlightResponse(title, quote));
+            if (result.size() >= MAX_HIGHLIGHTS) {
+                break;
+            }
+        }
+
+        return result;
+    }
+
+    private record AnalysisResultPayload(
+            List<AnalysisHighlightResponse> keyStrengths,
+            List<AnalysisHighlightResponse> keyWeaknesses,
+            List<MissingKeywordResponse> missingKeywords
+    ) {
     }
 
     private MockApply getOwnedMockApply(User user, Long mockApplyId) {
@@ -573,8 +679,19 @@ public class AnalysisService {
             return null;
         }
 
+        String normalizedStatus = status.trim().toUpperCase();
+        if ("GOOD".equals(normalizedStatus)) {
+            return QuestionAnalysisStatus.PROVEN;
+        }
+        if ("NEEDS_IMPROVEMENT".equals(normalizedStatus)) {
+            return QuestionAnalysisStatus.MENTIONED;
+        }
+        if ("RISK".equals(normalizedStatus)) {
+            return QuestionAnalysisStatus.FABRICATED;
+        }
+
         try {
-            return QuestionAnalysisStatus.valueOf(status.trim().toUpperCase());
+            return QuestionAnalysisStatus.valueOf(normalizedStatus);
         } catch (IllegalArgumentException e) {
             return null;
         }

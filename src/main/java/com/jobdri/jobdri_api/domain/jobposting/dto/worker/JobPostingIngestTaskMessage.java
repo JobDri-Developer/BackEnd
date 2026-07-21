@@ -1,7 +1,9 @@
 package com.jobdri.jobdri_api.domain.jobposting.dto.worker;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestCommand;
+import com.jobdri.jobdri_api.global.logging.LoggingMdcKeys;
 import lombok.Builder;
+import org.slf4j.MDC;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -11,6 +13,7 @@ public record JobPostingIngestTaskMessage(
         String messageId,
         String taskType,
         String taskId,
+        String requestId,
         Long userId,
         String rawText,
         String imageObjectKey,
@@ -24,6 +27,7 @@ public record JobPostingIngestTaskMessage(
                 .messageId(UUID.randomUUID().toString())
                 .taskType("JOB_POSTING_INGEST")
                 .taskId(taskId)
+                .requestId(MDC.get(LoggingMdcKeys.REQUEST_ID))
                 .userId(command.getUserId())
                 .rawText(command.getRawText())
                 .imageObjectKey(command.getImageObjectKey())

@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
