@@ -250,43 +250,6 @@ com.jobdri.jobdri_api
     └── schema.sql
 ```
 
-## 🚀 Local Run
-
-### 1. 애플리케이션 실행
-
-```bash
-cp .env.example .env
-./gradlew bootRun
-```
-
-기본 포트:
-
-- API: `http://localhost:8080`
-- Swagger: `http://localhost:8080/swagger-ui/index.html`
-
-### 2. 테스트 실행
-
-```bash
-./gradlew test
-```
-
-테스트 환경은 `H2 (MODE=PostgreSQL)`를 사용합니다.
-
-### 3. Docker Compose
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-포함 의도 서비스:
-
-- Spring Boot API
-- PostgreSQL
-- Redis
-- RabbitMQ
-- external FastAPI worker 연결용 worker service 정의
-
 ## 🧠 Corpus / Retrieval
 
 이 프로젝트는 단순 LLM 호출만 사용하는 구조가 아니라, corpus 기반 retrieval를 함께 사용합니다.
