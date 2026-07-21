@@ -1,0 +1,104 @@
+[# Few-shot examples]
+Few-shot 예시는 판정 기준과 출력 형식의 참고 사례다.
+예시의 분석 개수, 상태 비율, 문장 표현, 점수를 실제 입력에 복사하지 않는다.
+실제 입력마다 독립적으로 판단한다.
+questionAnalyses는 유효한 보완 대상에 따라 0~3개가 될 수 있다.
+항상 1개를 반환할 필요가 없다.
+Few-shot 출력에는 전체 점수를 포함하지 않는다.
+
+## 예시 A: 좋은 근거가 있으면 보완 문장이 0개일 수 있음
+관련 JD 요구사항:
+- mainTask: API 성능 개선 및 데이터베이스 쿼리 최적화
+
+평가 대상 답변:
+- questionId: 1
+- answer: 쿼리 실행 계획을 분석하고 복합 인덱스를 적용해 평균 응답 시간을 1.2초에서 300ms로 단축했습니다.
+
+판정 참고:
+- 위 문장은 구체적인 행동, 사용 기술, 수치 결과가 있어 PROVEN으로 볼 수 있다.
+- 그러나 이미 충분히 구체적이므로 questionAnalyses에는 포함하지 않는다.
+
+출력 중 문장/누락 관련 필드:
+{
+  "missingKeywords": [],
+  "questionAnalyses": []
+}
+
+## 예시 B: 관련 경험은 있으나 근거가 약한 경우
+관련 JD 요구사항:
+- mainTask: 재고 현황 분석 및 적정 재고 관리
+
+평가 대상 답변:
+- questionId: 1
+- answer: 입출고 기록을 확인하며 재고 관리 업무를 수행했습니다.
+
+출력 중 문장/누락 관련 필드:
+{
+  "missingKeywords": [],
+  "questionAnalyses": [
+    {
+      "questionId": 1,
+      "sentence": "입출고 기록을 확인하며 재고 관리 업무를 수행했습니다.",
+      "status": "mentioned",
+      "reason": "재고 관리 경험은 언급했지만 어떤 기준으로 현황을 분석하고 적정 재고를 관리했는지 설명이 부족합니다.",
+      "improvement": null
+    }
+  ]
+}
+
+## 예시 C: 포부/계획 문장은 과거 성과 문장처럼 평가하지 않음
+관련 JD 요구사항:
+- mainTask: 설비 점검 절차 개선 및 정비 이력 관리
+- qualification: 현장 설비 데이터 기록 경험
+
+평가 대상 답변:
+- questionId: 1
+- answer: 입사 후 설비 데이터를 꼼꼼히 관리하는 엔지니어가 되겠습니다. 또한 문제 발생 시 빠르게 대응하겠습니다.
+
+출력 중 문장/누락 관련 필드:
+{
+  "missingKeywords": [
+    {
+      "keyword": "정비 이력 관리",
+      "source": "mainTask"
+    }
+  ],
+  "questionAnalyses": [
+    {
+      "questionId": 1,
+      "sentence": "입사 후 설비 데이터를 꼼꼼히 관리하는 엔지니어가 되겠습니다.",
+      "status": "mentioned",
+      "reason": "포부의 실행 대상은 드러나지만 어떤 절차와 기준으로 설비 데이터를 관리할지 구체적인 방법이 부족합니다.",
+      "improvement": null
+    },
+    {
+      "questionId": 1,
+      "sentence": "또한 문제 발생 시 빠르게 대응하겠습니다.",
+      "status": "mentioned",
+      "reason": "문제 대응 의지는 있으나 대응 단계와 직무 수행 방식이 추상적입니다.",
+      "improvement": null
+    }
+  ]
+}
+
+## 예시 D: 확인된 조건과 직접 충돌하는 경우
+관련 JD 요구사항:
+- qualification: 관련 업무 경력 3년 이하
+
+평가 대상 답변:
+- questionId: 1
+- answer: 저는 같은 직무에서 6년간 근무하며 팀 운영을 담당했습니다.
+
+출력 중 문장/누락 관련 필드:
+{
+  "missingKeywords": [],
+  "questionAnalyses": [
+    {
+      "questionId": 1,
+      "sentence": "저는 같은 직무에서 6년간 근무하며 팀 운영을 담당했습니다.",
+      "status": "fabricated",
+      "reason": "답변의 6년 경력 주장이 JD의 경력 3년 이하 조건과 직접 충돌합니다.",
+      "improvement": null
+    }
+  ]
+}

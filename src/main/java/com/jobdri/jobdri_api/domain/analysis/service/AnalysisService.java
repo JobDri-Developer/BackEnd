@@ -179,7 +179,7 @@ public class AnalysisService {
         int completeness = validateScore("completeness", llmResponse.completeness());
         List<AnalysisHighlightResponse> keyStrengths = buildHighlights(llmResponse.keyStrengths());
         List<AnalysisHighlightResponse> keyWeaknesses = buildHighlights(llmResponse.keyWeaknesses());
-        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(llmResponse);
+        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(mockApply.getJobPosting(), llmResponse);
         replaceExistingAnalysis(mockApply);
 
         Analysis analysis = analysisRepository.save(Analysis.create(
@@ -331,6 +331,10 @@ public class AnalysisService {
             if (status == null || status == QuestionAnalysisStatus.MISSING) {
                 continue;
             }
+            if (status == QuestionAnalysisStatus.PROVEN
+                    && AnalysisSanitizationRules.isContradictoryProvenReason(item.reason())) {
+                continue;
+            }
             int currentCount = analysisCountByQuestionId.getOrDefault(question.getId(), 0);
             if (currentCount >= MAX_ANALYSES_PER_QUESTION) {
                 continue;
@@ -356,7 +360,7 @@ public class AnalysisService {
                     analysis,
                     sentence,
                     defaultString(item.reason()),
-                    normalizeImprovement(item.improvement()),
+                    normalizeImprovement(sentence, answer, item.improvement(), status),
                     status,
                     start,
                     start + sentence.length()
@@ -410,7 +414,7 @@ public class AnalysisService {
         return sanitizeHighlights(items, AnalysisLlmResponse.HighlightItem::title, AnalysisLlmResponse.HighlightItem::quote);
     }
 
-    private List<MissingKeywordResponse> buildMissingKeywords(AnalysisLlmResponse llmResponse) {
+    private List<MissingKeywordResponse> buildMissingKeywords(JobPosting jobPosting, AnalysisLlmResponse llmResponse) {
         if (llmResponse == null || llmResponse.missingKeywords() == null) {
             return List.of();
         }
@@ -430,6 +434,14 @@ public class AnalysisService {
 
             Optional<MissingKeywordSource> source = MissingKeywordSource.from(item.source());
             if (source.isEmpty()) {
+                continue;
+            }
+            if (!AnalysisSanitizationRules.isValidMissingKeyword(
+                    keyword,
+                    source.get(),
+                    jobPosting == null ? "" : jobPosting.getTask(),
+                    jobPosting == null ? "" : jobPosting.getRequirement()
+            )) {
                 continue;
             }
 
@@ -658,20 +670,18 @@ public class AnalysisService {
         return value == null ? "" : value;
     }
 
-    private String normalizeImprovement(String improvement) {
-        if (!StringUtils.hasText(improvement)) {
-            return "";
-        }
-
-        String normalized = improvement.trim();
-        if (isInstructionLikeImprovement(normalized)) {
-            return "";
-        }
-        return normalized;
-    }
-
-    private boolean isInstructionLikeImprovement(String improvement) {
-        return AnalysisImprovementRules.isInstructionLike(improvement);
+    private String normalizeImprovement(
+            String sentence,
+            String answer,
+            String improvement,
+            QuestionAnalysisStatus status
+    ) {
+        return AnalysisSanitizationRules.normalizeImprovement(
+                sentence,
+                answer,
+                improvement,
+                status == QuestionAnalysisStatus.PROVEN
+        );
     }
 
     private QuestionAnalysisStatus parseStatus(String status) {

@@ -32,52 +32,73 @@ public class AnalysisAiClient {
     private static final int MAX_REFERENCE_FIELD_LENGTH = 300;
     private static final int MAX_CRITERIA_ITEMS = 5;
     private static final String OUTPUT_SCHEMA = """
-            [출력 형식]
-            {
-              "jobFit": 70,
-              "impact": 55,
-              "completeness": 67,
-              "feedback": "한 줄 피드백",
-              "keyStrengths": [
-                {
-                  "title": "직무 연관 경험이 명확하게 드러나요",
-                  "quote": "자소서 답변 안에 실제 존재하는 정확한 부분 문자열"
-                }
-              ],
-              "keyWeaknesses": [
-                {
-                  "title": "SQL 활용 경험이 보강되면 더 설득력 있어요",
-                  "quote": "JD 또는 자소서 답변 안에 실제 존재하는 정확한 부분 문자열"
-                }
-              ],
-              "missingKeywords": [
-                {
-                  "keyword": "SQL 활용 경험",
-                  "source": "qualification"
-                }
-              ],
-              "questionAnalyses": [
-                {
-                  "questionId": 1,
-                  "sentence": "자소서 답변 안에 실제 존재하는 정확한 부분 문자열",
-                  "status": "mentioned",
-                  "reason": "문제 이유",
-                  "improvement": "사용자가 그대로 붙여 넣을 수 있는 완성된 개선 예시 문장"
-                }
-              ]
-            }
+            [출력 규칙]
+            - Structured Output 스키마에 맞는 JSON object만 반환한다.
+            - jobFit: 실제 JD와 실제 답변 전체를 기준으로 독립 산정한 0~100 정수
+            - impact: 실제 JD와 실제 답변 전체를 기준으로 독립 산정한 0~100 정수
+            - completeness: 실제 JD와 실제 답변 전체를 기준으로 독립 산정한 0~100 정수
+            - feedback: 한 줄 피드백
+            - keyStrengths: 없으면 []
+            - keyWeaknesses: 없으면 []
+            - missingKeywords: 없으면 []
+            - questionAnalyses: 유효한 분석 대상에 따라 0~3개
+            - improvement: 안전한 개선문을 만들 수 없으면 null
+            - 프롬프트 안에 특정 점수 숫자 조합을 JSON 예시로 넣지 않는다.
+            - 0, 50, 70, 100 같은 임의 점수도 출력 예시로 사용하지 않는다.
+            - Structured Output은 JSON 형식과 타입만 보장한다.
+            - sentence 원문 존재 여부, status/reason 정합성, improvement 사실 생성 여부, missingKeyword JD 근거 여부는 서버가 다시 검증한다.
             """;
     private static final String EVALUATION_CRITERIA = """
             [평가 절차]
-            1. JD의 주요 업무, 필수 자격요건, 우대사항을 구분한다.
-            2. 각 요건에 대응하는 자기소개서 원문 근거를 찾는다.
-            3. 근거를 proven, mentioned, missing, fabricated 중 하나로 판정한다.
-            4. jobFit, impact, completeness를 각각 평가한다.
-            5. 감점 금지 조건과 status 오남용 여부를 확인한다.
-            6. 보완이 필요한 원문 문장을 문항당 최대 3개만 추출한다.
-            7. 총점 한 줄 평가 feedback과 핵심 강점/약점 카드를 작성한다.
-            8. JD에는 있지만 자소서에 충분히 드러나지 않은 역량을 missingKeywords로 최대 3개 추출한다.
-            9. 지정된 JSON만 반환한다.
+            내부 판단 과정은 응답 JSON이나 reason에 출력하지 않는다.
+            1. 문장의 시제를 확인한다.
+            2. 문장 유형을 경험/성과, 포부/계획, 지원동기, 역량/자격 중 하나로 판단한다.
+            3. 문장 유형에 맞는 평가 기준만 적용한다.
+            4. mainTask와 qualification 중 실제로 관련된 요구사항을 찾는다.
+            5. preference는 보조 정보로만 확인한다.
+            6. 문장이 이미 충분히 구체적인지 판단한다.
+            7. 실제 보완이 필요한 경우에만 questionAnalyses 후보로 선택한다.
+            8. status와 reason이 논리적으로 일치하는지 다시 확인한다.
+            9. 원문의 사실만으로 안전한 개선문을 만들 수 있을 때만 improvement를 작성한다.
+            10. 최종 출력 전에 sentence, status, reason, improvement의 자기 일관성을 점검한다.
+
+            [문장 유형 구분]
+            - 경험/성과: 과거에 수행한 행동, 역할, 문제 해결, 결과, 수치, 산출물이 드러나는 문장
+            - 포부/계획: 입사 후 하겠다, 기여하겠다, 성장하겠다처럼 미래 실행 의지를 말하는 문장
+            - 지원동기: 회사/직무를 선택한 이유, 관심, 가치관, 동기를 설명하는 문장
+            - 역량/자격: 보유 기술, 자격, 면허, 전공, 경력, 교육 이수 여부를 설명하는 문장
+
+            [포부/계획 문장 평가 규칙]
+            - "~하겠습니다", "~되겠습니다", "~기여하겠습니다", "~노력하겠습니다", "~성장하고 싶습니다" 등 미래 시점 문장은 포부/계획으로 우선 판단한다.
+            - 포부/계획 문장에는 과거 성과 수치, 과거 결과, Before-After를 요구하지 않는다.
+            - 포부/계획은 실행 대상, 실행 방법, 단계, 직무 연결성이 구체적인지 중심으로 판단한다.
+            - 포부/계획 문장을 "성과 수치가 부족하다"는 이유로 questionAnalyses에 포함하지 않는다.
+            - 포부/계획 문장의 reason에는 "성과 수치가 부족", "정량적 결과가 부족", "Before-After가 부족", "과거 성과가 드러나지 않음"을 사용하지 않는다.
+            - 포부가 너무 추상적일 때만 실행 대상, 방법, 단계, 직무 연결성을 보완하도록 reason을 작성한다.
+
+            [문장 유형별 평가 기준]
+            - 경험/성과: 과거 수행 행동, 역할, 문제, 결과를 평가한다. 모든 경험에 반드시 수치를 요구하지 않는다.
+            - 경험/성과: 과정, 역할, 산출물, 검증 결과 중 하나 이상이 충분히 구체적이면 인정한다.
+            - 경험/성과: 이미 수치나 명확한 결과가 있으면 "성과 수치 부족" reason을 생성하지 않는다.
+            - 포부/계획: 미래 시점 문장에는 과거 성과 수치나 Before-After를 요구하지 않고 실행 대상, 방법, 단계, 직무 연결성을 평가한다.
+            - 지원동기: 회사 또는 직무를 선택한 이유가 개인 경험·관심과 연결되는지 평가하며, 지원동기를 성과 문장처럼 평가하지 않는다.
+            - 지원동기: 해당 회사만의 이유가 없는 일반론인지 확인한다.
+            - 역량/자격: 보유 기술이나 역량의 실제 사용 맥락을 평가한다.
+            - 역량/자격: 자격증이나 전공 자체를 문장 첨삭의 핵심 문제로 삼지 않는다.
+            - 역량/자격: 해당 기술을 실제로 어떻게 사용했는지가 있으면 그 근거를 평가한다.
+
+            [JD 반영 우선순위]
+            - 판단 우선순위는 mainTask > qualification >>> preference다.
+            - mainTask와 qualification은 직무 적합성 판단의 핵심 기준이다.
+            - preference는 reason과 점수에 보조적으로만 반영한다.
+            - preference만 누락된 경우 questionAnalyses의 첨삭 대상으로 선택하지 않는다.
+            - preference만 근거로 jobFit을 크게 감점하지 않는다.
+
+            [점수 산정 규칙]
+            - Few-shot 예시는 문장 상태 판정과 출력 형식 참고용이며 점수 예시가 아니다.
+            - 점수는 실제 JD와 실제 답변 전체를 기준으로 독립적으로 산정한다.
+            - 예시의 수치나 특정 고정 점수를 추론해서 사용하지 않는다.
+            - 서로 다른 입력에 동일한 점수를 기계적으로 반복하지 않는다.
 
             [jobFit 평가 기준]
             JD가 요구하는 역량, 경험, 기술을 자기소개서가 얼마나 증명하는지 평가한다.
@@ -137,6 +158,10 @@ public class AnalysisAiClient {
             - fabricated: 주장 내용이 앞뒤 맥락과 명백히 충돌하거나 현실적으로 불가능한 수준의 비일관성이 있음
 
             [status 중요 규칙]
+            - proven은 완벽한 문장이라는 뜻이 아니라 해당 문장이 주장하는 핵심 역량이나 행동에 충분한 직접 근거가 있다는 뜻이다.
+            - 수치가 없어도 구체적인 행동, 역할, 사용 기술, 산출물, 검증 과정이 명확하면 proven이 될 수 있다.
+            - proven은 개선이 필요한 문장 목록에 반드시 포함할 필요는 없지만, 포함했다면 improvement는 null로 반환한다.
+            - proven의 reason에는 부족, 미흡, 보완 필요, 드러나지 않음처럼 핵심 근거가 불충분하다는 표현을 사용하지 않는다.
             - 직접적인 증거가 부족해도 관련 경험이 있으면 mentioned로 분류한다.
             - missing은 관련 언급이 전혀 없을 때만 사용한다.
             - fabricated는 단순히 근거가 부족하다는 이유로 사용하지 않는다.
@@ -148,20 +173,33 @@ public class AnalysisAiClient {
             - 원문에 없는 문장을 생성하지 않는다.
             - sentence를 요약하거나 수정하지 않는다.
             - 원문 매칭이 불확실하면 questionAnalyses에 포함하지 않는다.
-            - 분석 대상 문장은 문항당 최대 3개만 반환한다.
+            - 충분히 구체적이고 직무 관련성이 높은 좋은 문장은 억지로 questionAnalyses에 포함하지 않는다.
+            - questionAnalyses는 유효한 보완 대상에 따라 문항당 0~3개 반환한다.
+            - 항상 1개를 반환할 필요가 없다.
+            - 실제로 보완이 필요한 문장만 문항당 최대 3개 반환한다.
+            - 서로 다른 독립 문제가 있으면 2개 이상 반환할 수 있다.
+            - 보완할 문장이 없으면 빈 배열 []을 반환한다.
+            - proven 문장은 questionAnalyses에 반드시 포함할 필요가 없다. 단, 포함했다면 improvement는 null로 반환한다.
             - 동일하거나 거의 동일한 문장을 중복 반환하지 않는다.
             - start/end index는 출력하지 않는다. 서버가 Java String character index 기준으로 계산한다.
             - missing은 원문에 해당 문장이 없을 수 있으므로 sentence를 임의로 만들지 않는다.
             - missing은 questionAnalyses에 억지로 넣지 않는다.
 
             [missingKeywords 규칙]
-            - JD에는 있지만 자소서에 충분히 드러나지 않은 요건이나 역량을 추출한다.
+            - 실제 입력 JD의 주요 업무, 자격 요건 원문에 존재하지만 자소서에 충분히 드러나지 않은 경험형 역량만 추출한다.
+            - 유사 JD 검색 결과, 직무별 보조 평가 기준, few-shot 예시, 모델의 일반 지식에서 키워드를 생성하지 않는다.
+            - JD 원문에 없는 SQL, Python, AWS, 대용량 트래픽 같은 키워드를 생성하지 않는다.
+            - 자격증, 면허, 어학성적, 학위, 전공, 경력 연차, 근무 가능 여부, 나이, 국적, 졸업 여부 같은 정형 자격요건은 missingKeywords에 넣지 않는다.
+            - preference에만 존재하는 항목은 원칙적으로 missingKeywords에서 제외한다.
+            - mainTask와 qualification에서 근거를 찾지 못한 경우 preference만으로 문장을 문제 삼지 않는다.
+            - reason에서 preference를 핵심 결격 사유처럼 표현하지 않는다.
+            - preference가 없다는 이유만으로 mentioned를 생성하지 않는다.
             - questionAnalyses와 분리해서 missingKeywords에만 넣는다.
             - 최대 3개만 반환한다.
             - 누락 키워드가 없으면 null이나 필드 생략이 아니라 빈 배열 []을 반환한다.
-            - 우선순위는 자격요건(qualification) > 우대사항(preference) > 주요 업무(mainTask)다.
+            - 우선순위는 주요 업무(mainTask) > 자격요건(qualification) >>> 우대사항(preference)다.
             - keyword는 단순 단어보다 짧은 역량 문구 형태로 작성한다.
-            - 가능하면 JD에 실제 들어간 표현을 유지한다.
+            - 반드시 실제 입력 JD에 들어간 표현을 유지한다.
             - 중복되거나 유사한 keyword는 하나로 묶고, 대표 문구는 자격요건 표현을 우선한다.
             - source는 qualification, preference, mainTask 중 하나만 사용한다.
 
@@ -186,9 +224,19 @@ public class AnalysisAiClient {
 
             [improvement 작성 규칙]
             - improvement는 첨삭 조언이 아니라 사용자가 sentence를 대체해 사용할 수 있는 완성된 한국어 문장이어야 한다.
+            - improvement는 사용자가 그대로 교체해 쓸 수 있는 자기소개서 문장이어야 하며 첨삭 행위를 설명하는 메타 문장이 아니어야 한다.
+            - 개선이 필요하지 않으면 improvement는 null로 반환한다.
+            - 원문 정보만으로 개선문을 만들 수 없으면 improvement는 null로 반환한다.
             - 반드시 한국어 평서문으로 작성한다.
             - "추가하세요", "보완하세요", "수정해주세요", "필요합니다" 같은 지시문을 사용하지 않는다.
+            - "구체적으로 작성했습니다", "명확히 설명했습니다" 같은 메타 조언을 improvement로 반환하지 않는다.
+            - 원문과 실질적으로 동일한 문장을 improvement로 반환하지 않는다.
+            - 답변의 다른 문장을 그대로 복사해 improvement로 반환하지 않는다.
+            - JD 요구사항을 지원자가 실제 수행한 경험처럼 생성하지 않는다.
             - 사용자가 언급하지 않은 경험, 기술, 도구명, 인원수, 금액, 성과 수치를 임의로 만들지 않는다.
+            - 원문이 과거 경험이면 개선문도 과거 경험을 유지한다.
+            - 원문이 포부이면 개선문도 포부를 유지한다.
+            - 새로운 경험이나 계획을 추가하지 않는다.
             - 수치가 필요하지만 원문에 없다면 N건, X%%, 약 N시간 같은 빈칸 표현을 사용한다.
             - 원래 경험과 맥락을 최대한 유지한다.
             - 가능하면 행동, 역할, 결과가 드러나도록 개선한다.
@@ -199,6 +247,7 @@ public class AnalysisAiClient {
     private final OpenAIClient openAIClient;
     private final CorpusRetrievalService corpusRetrievalService;
     private final LlmConcurrencyLimiter llmConcurrencyLimiter;
+    private final FewShotPromptProvider fewShotPromptProvider;
 
     @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}")
     private String analysisModel;
@@ -323,17 +372,28 @@ public class AnalysisAiClient {
 
                 %s
 
+                [Few-shot 예시]
+                %s
+
                 [채용 공고]
                 회사명: %s
                 직무명: %s
-                주요 업무:
-                %s
+                아래 JD 영역의 역할:
+                - <main_tasks>는 최우선 업무 기준이다.
+                - <qualifications>는 핵심 자격요건 기준이다.
+                - <preferences role="secondary_only">는 보조 기준이며 단독 결격 사유로 사용하지 않는다.
 
-                자격 요건:
+                <main_tasks>
                 %s
+                </main_tasks>
 
-                우대 사항:
+                <qualifications>
                 %s
+                </qualifications>
+
+                <preferences role="secondary_only">
+                %s
+                </preferences>
 
                 [유사 JD 검색 결과]
                 %s
@@ -366,6 +426,7 @@ public class AnalysisAiClient {
                 OUTPUT_SCHEMA,
                 EVALUATION_CRITERIA,
                 STATUS_AND_WRITING_RULES.formatted(AnalysisImprovementRules.bannedPhrasesText()),
+                fewShotPromptProvider.getPrompt(),
                 defaultString(promptInput.companyName()),
                 defaultString(promptInput.jobName()),
                 defaultString(promptInput.mainTasks()),

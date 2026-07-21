@@ -22,7 +22,8 @@ class AnalysisAiClientTest {
     private final AnalysisAiClient analysisAiClient = new AnalysisAiClient(
             mock(OpenAIClient.class),
             mock(CorpusRetrievalService.class),
-            mock(LlmConcurrencyLimiter.class)
+            mock(LlmConcurrencyLimiter.class),
+            new FewShotPromptProvider()
     );
 
     @Test
@@ -66,6 +67,90 @@ class AnalysisAiClientTest {
 
         assertThat(prompt).doesNotContain("[직무별 보조 평가 기준]");
         assertThat(prompt).doesNotContain("이 직무별 기준은 실제 JD를 대체하지 않는다.");
+    }
+
+    @Test
+    @DisplayName("프롬프트는 포부 문장, JD 우선순위, missingKeywords, improvement 안전 규칙을 포함한다")
+    void buildPromptIncludesReviewPolicyRules() {
+        String prompt = analysisAiClient.buildPrompt(
+                mockJobPosting(),
+                List.of(mockQuestion()),
+                new RetrievalContext(List.of(), List.of()),
+                null
+        );
+
+        assertThat(prompt)
+                .contains("[출력 규칙]")
+                .contains("Structured Output 스키마에 맞는 JSON object만 반환한다.")
+                .contains("jobFit: 실제 JD와 실제 답변 전체를 기준으로 독립 산정한 0~100 정수")
+                .contains("impact: 실제 JD와 실제 답변 전체를 기준으로 독립 산정한 0~100 정수")
+                .contains("completeness: 실제 JD와 실제 답변 전체를 기준으로 독립 산정한 0~100 정수")
+                .contains("questionAnalyses: 유효한 분석 대상에 따라 0~3개")
+                .contains("improvement: 안전한 개선문을 만들 수 없으면 null")
+                .contains("[문장 유형 구분]")
+                .contains("경험/성과")
+                .contains("포부/계획")
+                .contains("지원동기")
+                .contains("역량/자격")
+                .contains("포부/계획 문장에는 과거 성과 수치, 과거 결과, Before-After를 요구하지 않는다.")
+                .contains("포부/계획은 실행 대상, 실행 방법, 단계, 직무 연결성이 구체적인지 중심으로 판단한다.")
+                .contains("판단 우선순위는 mainTask > qualification >>> preference다.")
+                .contains("Few-shot 예시는 문장 상태 판정과 출력 형식 참고용이며 점수 예시가 아니다.")
+                .contains("점수는 실제 JD와 실제 답변 전체를 기준으로 독립적으로 산정한다.")
+                .contains("서로 다른 입력에 동일한 점수를 기계적으로 반복하지 않는다.")
+                .contains("preference만 누락된 경우 questionAnalyses의 첨삭 대상으로 선택하지 않는다.")
+                .contains("preference는 reason과 점수에 보조적으로만 반영한다.")
+                .contains("실제 입력 JD의 주요 업무, 자격 요건 원문에 존재하지만 자소서에 충분히 드러나지 않은 경험형 역량만 추출한다.")
+                .contains("유사 JD 검색 결과, 직무별 보조 평가 기준, few-shot 예시, 모델의 일반 지식에서 키워드를 생성하지 않는다.")
+                .contains("자격증, 면허, 어학성적, 학위, 전공, 경력 연차, 근무 가능 여부")
+                .contains("충분히 구체적이고 직무 관련성이 높은 좋은 문장은 억지로 questionAnalyses에 포함하지 않는다.")
+                .contains("개선이 필요하지 않으면 improvement는 null로 반환한다.")
+                .contains("원문 정보만으로 개선문을 만들 수 없으면 improvement는 null로 반환한다.")
+                .contains("원문과 실질적으로 동일한 문장을 improvement로 반환하지 않는다.")
+                .contains("답변의 다른 문장을 그대로 복사해 improvement로 반환하지 않는다.")
+                .contains("메타 조언을 improvement로 반환하지 않는다.")
+                .contains("JD 요구사항을 지원자가 실제 수행한 경험처럼 생성하지 않는다.");
+
+        assertThat(prompt)
+                .doesNotContain("[출력 형식]")
+                .doesNotContain("\"jobFit\"")
+                .doesNotContain("\"impact\"")
+                .doesNotContain("\"completeness\"");
+    }
+
+    @Test
+    @DisplayName("프롬프트는 v4 few-shot 편향 완화 규칙과 JD 영역 분리를 포함한다")
+    void buildPromptIncludesFewShotV4Rules() {
+        String prompt = analysisAiClient.buildPrompt(
+                mockJobPosting(),
+                List.of(mockQuestion()),
+                new RetrievalContext(List.of(), List.of()),
+                null
+        );
+
+        assertThat(prompt)
+                .contains("[Few-shot 예시]")
+                .contains("questionAnalyses\": []")
+                .contains("status\": \"mentioned\"")
+                .contains("status\": \"fabricated\"")
+                .contains("PROVEN으로 볼 수 있다")
+                .contains("예시의 분석 개수, 상태 비율, 문장 표현, 점수를 실제 입력에 복사하지 않는다.")
+                .contains("questionAnalyses는 유효한 보완 대상에 따라 0~3개가 될 수 있다.")
+                .contains("항상 1개를 반환할 필요가 없다.")
+                .contains("Few-shot 출력에는 전체 점수를 포함하지 않는다.")
+                .contains("포부/계획 문장의 reason에는 \"성과 수치가 부족\"")
+                .contains("preference가 없다는 이유만으로 mentioned를 생성하지 않는다.")
+                .contains("수치가 없어도 구체적인 행동, 역할, 사용 기술, 산출물, 검증 과정이 명확하면 proven이 될 수 있다.")
+                .contains("원문이 과거 경험이면 개선문도 과거 경험을 유지한다.")
+                .contains("원문이 포부이면 개선문도 포부를 유지한다.")
+                .contains("<main_tasks>")
+                .contains("<qualifications>")
+                .contains("<preferences role=\"secondary_only\">");
+
+        assertThat(prompt.indexOf("[Few-shot 예시]"))
+                .isLessThan(prompt.indexOf("[채용 공고]"));
+        assertThat(prompt.indexOf("[Few-shot 예시]"))
+                .isLessThan(prompt.indexOf("[자소서 문항과 답변]"));
     }
 
     private JobPosting mockJobPosting() {

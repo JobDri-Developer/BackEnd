@@ -7,9 +7,9 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordResponse
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAiClient;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisImprovementRules;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisPromptInput;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisSanitizationRules;
 import com.jobdri.jobdri_api.domain.analysis.service.JobCategoryEvaluationCriteriaProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -127,7 +127,7 @@ public class EvaluationAnalysisBatchService {
         int jobFit = validateScore("jobFit", llmResponse == null ? null : llmResponse.jobFit());
         int impact = validateScore("impact", llmResponse == null ? null : llmResponse.impact());
         int completeness = validateScore("completeness", llmResponse == null ? null : llmResponse.completeness());
-        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(llmResponse);
+        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(evaluationCase, llmResponse);
         List<EvaluationQuestionAnalysisResult> questionAnalyses = buildQuestionAnalyses(evaluationCase, llmResponse);
 
         return new EvaluationAnalysisResult(
@@ -147,7 +147,10 @@ public class EvaluationAnalysisBatchService {
         );
     }
 
-    private List<MissingKeywordResponse> buildMissingKeywords(AnalysisLlmResponse llmResponse) {
+    private List<MissingKeywordResponse> buildMissingKeywords(
+            EvaluationAnalysisCase evaluationCase,
+            AnalysisLlmResponse llmResponse
+    ) {
         if (llmResponse == null || llmResponse.missingKeywords() == null) {
             return List.of();
         }
@@ -167,6 +170,14 @@ public class EvaluationAnalysisBatchService {
 
             Optional<MissingKeywordSource> source = MissingKeywordSource.from(item.source());
             if (source.isEmpty()) {
+                continue;
+            }
+            if (!AnalysisSanitizationRules.isValidMissingKeyword(
+                    keyword,
+                    source.get(),
+                    evaluationCase.mainTasks(),
+                    evaluationCase.qualifications()
+            )) {
                 continue;
             }
 
@@ -213,6 +224,10 @@ public class EvaluationAnalysisBatchService {
             if (status == null || status == QuestionAnalysisStatus.MISSING) {
                 continue;
             }
+            if (status == QuestionAnalysisStatus.PROVEN
+                    && AnalysisSanitizationRules.isContradictoryProvenReason(item.reason())) {
+                continue;
+            }
 
             int currentCount = analysisCountByQuestionId.getOrDefault(item.questionId(), 0);
             if (currentCount >= AnalysisResultConstants.MAX_ANALYSES_PER_QUESTION) {
@@ -241,7 +256,7 @@ public class EvaluationAnalysisBatchService {
                     sentence,
                     status.name().toLowerCase(),
                     defaultString(item.reason()),
-                    normalizeImprovement(item.improvement()),
+                    normalizeImprovement(sentence, answer, item.improvement(), status),
                     start,
                     start + sentence.length()
             ));
@@ -302,16 +317,18 @@ public class EvaluationAnalysisBatchService {
         return "자소서 분석 결과를 확인해주세요.";
     }
 
-    private String normalizeImprovement(String improvement) {
-        if (!StringUtils.hasText(improvement)) {
-            return "";
-        }
-
-        String normalized = improvement.trim();
-        if (AnalysisImprovementRules.isInstructionLike(normalized)) {
-            return "";
-        }
-        return normalized;
+    private String normalizeImprovement(
+            String sentence,
+            String answer,
+            String improvement,
+            QuestionAnalysisStatus status
+    ) {
+        return AnalysisSanitizationRules.normalizeImprovement(
+                sentence,
+                answer,
+                improvement,
+                status == QuestionAnalysisStatus.PROVEN
+        );
     }
 
     private String normalizeKeyword(String keyword) {

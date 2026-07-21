@@ -195,7 +195,13 @@ class AnalysisServiceTest {
     @DisplayName("missingKeywords는 검증 후 최대 3개까지 응답에 포함한다")
     void analyzeReturnsValidatedMissingKeywords() {
         User user = saveUser("analysis-missing-keywords@example.com");
-        MockApply mockApply = saveMockApply(user);
+        JobPosting jobPosting = saveJobPosting(
+                user,
+                "테스트 자동화 경험",
+                "SQL 활용 경험",
+                "대용량 트래픽 처리 경험"
+        );
+        MockApply mockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
         saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
                 80,
@@ -257,11 +263,11 @@ class AnalysisServiceTest {
                 .containsExactly("SQL 활용 경험 보강이 필요해요", "대용량 트래픽 경험을 더 보여주세요", "테스트 자동화 경험을 보강하세요");
         assertThat(response.keyWeaknesses()).extracting("quote")
                 .containsExactly("SQL 활용 경험", "대용량 트래픽 처리 경험", "테스트 자동화 경험");
-        assertThat(response.missingKeywords()).hasSize(3);
+        assertThat(response.missingKeywords()).hasSize(2);
         assertThat(response.missingKeywords()).extracting("keyword")
-                .containsExactly("SQL 활용 경험", "대용량 트래픽 처리 경험", "테스트 자동화 경험");
+                .containsExactly("SQL 활용 경험", "테스트 자동화 경험");
         assertThat(response.missingKeywords()).extracting(keyword -> keyword.source().value())
-                .containsExactly("qualification", "preference", "mainTask");
+                .containsExactly("qualification", "mainTask");
 
         Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
         assertThat(analysis.getKeyStrengthsJson())
@@ -278,10 +284,227 @@ class AnalysisServiceTest {
                 .doesNotContain("네 번째 약점");
         assertThat(analysis.getMissingKeywordsJson())
                 .contains("\"keyword\":\"SQL 활용 경험\"", "\"source\":\"qualification\"")
-                .contains("\"keyword\":\"대용량 트래픽 처리 경험\"", "\"source\":\"preference\"")
                 .contains("\"keyword\":\"테스트 자동화 경험\"", "\"source\":\"mainTask\"")
+                .doesNotContain("대용량 트래픽 처리 경험")
                 .doesNotContain("잘못된 출처")
                 .doesNotContain("이 키워드는 너무 길어서");
+    }
+
+    @Test
+    @DisplayName("정형 자격요건과 JD에 없는 missingKeywords를 제외한다")
+    void analyzeSkipsStructuredAndNonJdMissingKeywords() {
+        User user = saveUser("analysis-missing-keywords-strict@example.com");
+        JobPosting jobPosting = saveJobPosting(
+                user,
+                "장비 설치 및 유지보수 경험",
+                "데이터 분석 관련 Tool 활용 경험",
+                "온라인 쇼핑몰 근무 경험자"
+        );
+        MockApply mockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
+        saveQuestion(mockApply, "지원 직무 경험", "장비 운용 경험이 있습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "엄격한 누락 키워드 검증입니다.",
+                List.of(
+                        new AnalysisLlmResponse.MissingKeywordItem("영어 공인성적", "qualification"),
+                        new AnalysisLlmResponse.MissingKeywordItem("반도체 관련 전공", "qualification"),
+                        new AnalysisLlmResponse.MissingKeywordItem("SQL 활용 경험", "qualification"),
+                        new AnalysisLlmResponse.MissingKeywordItem("온라인 쇼핑몰 근무 경험자", "preference"),
+                        new AnalysisLlmResponse.MissingKeywordItem("장비 설치 및 유지보수 경험", "mainTask"),
+                        new AnalysisLlmResponse.MissingKeywordItem("데이터 분석 관련 Tool 활용 경험", "qualification")
+                ),
+                List.of()
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.missingKeywords()).extracting("keyword")
+                .containsExactly("장비 설치 및 유지보수 경험", "데이터 분석 관련 Tool 활용 경험");
+    }
+
+    @Test
+    @DisplayName("improvement가 원문 동일, 다른 원문 문장 복사, 메타 조언이면 제거한다")
+    void analyzeRemovesUnsafeImprovements() {
+        User user = saveUser("analysis-unsafe-improvement@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(
+                mockApply,
+                "문제 해결 경험",
+                "첫 번째 문장입니다. 두 번째 문장입니다. 세 번째 문장입니다."
+        );
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                70,
+                70,
+                70,
+                "improvement 검증입니다.",
+                List.of(
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "첫 번째 문장입니다.",
+                                "mentioned",
+                                "구체성이 부족합니다.",
+                                "첫 번째 문장입니다."
+                        ),
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "두 번째 문장입니다.",
+                                "mentioned",
+                                "결과가 부족합니다.",
+                                "세 번째 문장입니다."
+                        ),
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "세 번째 문장입니다.",
+                                "mentioned",
+                                "직무 연결이 부족합니다.",
+                                "직무 연결성을 구체적으로 설명했습니다."
+                        )
+                )
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).hasSize(3);
+        assertThat(response.questions().get(0).analyses()).extracting("improvement")
+                .containsExactly("", "", "");
+    }
+
+    @Test
+    @DisplayName("PROVEN인데 reason이 부족이나 보완 필요를 말하면 모순 결과로 제외한다")
+    void analyzeSkipsProvenWithContradictoryReason() {
+        User user = saveUser("analysis-proven-contradictory-reason@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "성과 경험", "평균 거칠기(Ra)를 1.5nm 감소시켰습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                80,
+                80,
+                "PROVEN 모순 검증입니다.",
+                List.of(
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "평균 거칠기(Ra)를 1.5nm 감소시켰습니다.",
+                                "proven",
+                                "구체적인 성과 보완이 필요합니다.",
+                                "평균 거칠기(Ra)를 1.5nm 감소시킨 성과를 강조했습니다."
+                        )
+                )
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("PROVEN 분석은 유지하되 improvement는 기본 제거한다")
+    void analyzeRemovesImprovementForProvenStatus() {
+        User user = saveUser("analysis-proven-improvement-empty@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "성과 경험", "평균 거칠기(Ra)를 1.5nm 감소시켰습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                80,
+                80,
+                "PROVEN improvement 검증입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "평균 거칠기(Ra)를 1.5nm 감소시켰습니다.",
+                        "proven",
+                        "수치와 결과가 구체적으로 제시되어 있습니다.",
+                        "평균 거칠기(Ra)를 1.5nm 감소시킨 성과를 강조했습니다."
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).improvement()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("PROVEN reason의 긍정 문맥 필요 표현은 모순으로 보지 않는다")
+    void analyzeKeepsValidProvenReasonWithPositiveNeedContext() {
+        User user = saveUser("analysis-valid-proven-need-context@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "성과 경험", "Spring Boot API를 개발해 장애 대응 시간을 단축했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                80,
+                80,
+                "PROVEN 긍정 문맥 검증입니다.",
+                List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                        question.getId(),
+                        "Spring Boot API를 개발해 장애 대응 시간을 단축했습니다.",
+                        "proven",
+                        "직무에 필요한 역량을 보여줍니다.",
+                        "Spring Boot API 개발 경험을 더 구체적으로 작성했습니다."
+                ))
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).status()).isEqualTo("proven");
+        assertThat(response.questions().get(0).analyses().get(0).improvement()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("questionAnalyses 빈 배열도 유효한 분석 결과로 허용한다")
+    void analyzeAllowsEmptyQuestionAnalyses() {
+        User user = saveUser("analysis-empty-question-analyses@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "성과 경험", "Spring Boot API를 개발해 장애 대응 시간을 단축했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                80,
+                80,
+                "보완 대상이 없습니다.",
+                List.of()
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("유효한 문장이 2개면 두 분석 모두 저장한다")
+    void analyzeKeepsTwoValidQuestionAnalyses() {
+        User user = saveUser("analysis-two-valid-items@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "성과 경험", "첫 번째 문장입니다. 두 번째 문장입니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                80,
+                80,
+                "두 문장 검증입니다.",
+                List.of(
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "첫 번째 문장입니다.",
+                                "mentioned",
+                                "실행 방법이 부족합니다.",
+                                null
+                        ),
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "두 번째 문장입니다.",
+                                "fabricated",
+                                "확인된 사실과 직접 충돌합니다.",
+                                null
+                        )
+                )
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().get(0).analyses()).hasSize(2);
+        assertThat(response.questions().get(0).analyses())
+                .extracting("status")
+                .containsExactly("mentioned", "fabricated");
     }
 
     @Test
@@ -799,7 +1022,7 @@ class AnalysisServiceTest {
                                 question.getId(),
                                 "API 응답 속도를 개선했습니다.",
                                 "proven",
-                                "성과 기준이 더 필요합니다.",
+                                "성과가 구체적으로 제시되어 있습니다.",
                                 "API 응답 속도를 300ms 단축했습니다."
                         ))
                 ));
@@ -864,7 +1087,7 @@ class AnalysisServiceTest {
                 "저장된 분석입니다.",
                 List.of(new AnalysisLlmResponse.HighlightItem("저장된 강점", "Spring Boot API를 개발했습니다.")),
                 List.of(new AnalysisLlmResponse.HighlightItem("저장된 약점", "SQL 활용 경험")),
-                List.of(new AnalysisLlmResponse.MissingKeywordItem("LLM 저장 키워드", "qualification")),
+                List.of(new AnalysisLlmResponse.MissingKeywordItem("SQL 활용 경험", "qualification")),
                 List.of()
         ));
         AnalysisResponse saved = analysisService.analyze(user, mockApply.getId());
@@ -876,19 +1099,19 @@ class AnalysisServiceTest {
         assertThat(persisted.getKeyWeaknessesJson())
                 .contains("\"title\":\"저장된 약점\"", "\"quote\":\"SQL 활용 경험\"");
         assertThat(persisted.getMissingKeywordsJson())
-                .contains("\"keyword\":\"LLM 저장 키워드\"", "\"source\":\"qualification\"");
+                .contains("\"keyword\":\"SQL 활용 경험\"", "\"source\":\"qualification\"");
         entityManager.clear();
 
         AnalysisResponse response = analysisService.getAnalysis(user, mockApply.getId());
 
         assertThat(saved.missingKeywords()).extracting("keyword")
-                .containsExactly("LLM 저장 키워드");
+                .containsExactly("SQL 활용 경험");
         assertThat(response.keyStrengths()).extracting("title")
                 .containsExactly("저장된 강점");
         assertThat(response.keyWeaknesses()).extracting("title")
                 .containsExactly("저장된 약점");
         assertThat(response.missingKeywords()).extracting("keyword")
-                .containsExactly("LLM 저장 키워드");
+                .containsExactly("SQL 활용 경험");
         assertThat(response.missingKeywords()).extracting(keyword -> keyword.source().value())
                 .containsExactly("qualification");
     }
