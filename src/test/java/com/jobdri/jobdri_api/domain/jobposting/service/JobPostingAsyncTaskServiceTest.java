@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRep
 import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -41,6 +42,9 @@ class JobPostingAsyncTaskServiceTest {
     @Mock
     private NotificationService notificationService;
 
+    @Mock
+    private AsyncMetricsRecorder asyncMetricsRecorder;
+
     private JobPostingAsyncTaskService jobPostingAsyncTaskService;
 
     @BeforeEach
@@ -49,7 +53,8 @@ class JobPostingAsyncTaskServiceTest {
                 jobPostingAsyncTaskRepository,
                 new ObjectMapper(),
                 jobPostingAsyncSseService,
-                notificationService
+                notificationService,
+                asyncMetricsRecorder
         );
     }
 

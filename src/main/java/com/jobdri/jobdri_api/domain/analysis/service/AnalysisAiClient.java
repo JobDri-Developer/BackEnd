@@ -14,6 +14,7 @@ import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.Retrie
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedQuestionReference;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
+import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.openai.client.OpenAIClient;
@@ -34,6 +35,7 @@ import java.util.Set;
 import java.util.ArrayList;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.concurrent.TimeUnit;
 
 @Component
 @Slf4j
@@ -43,6 +45,7 @@ public class AnalysisAiClient {
     private static final int MAX_REFERENCE_SECTION_LENGTH = 3000;
     private static final int MAX_REFERENCE_FIELD_LENGTH = 300;
     private static final int MAX_CRITERIA_ITEMS = 5;
+    private final AsyncMetricsRecorder asyncMetricsRecorder;
     private static final String OUTPUT_SCHEMA = """
             [출력 규칙]
             - Structured Output 스키마에 맞는 JSON object만 반환한다.
@@ -425,11 +428,21 @@ public class AnalysisAiClient {
                 .temperature(0.2)
                 .text(responseType)
                 .build();
-        StructuredResponse<T> response = llmConcurrencyLimiter.execute(
-                operationName,
-                () -> openAIClient.responses().create(params)
-        );
-        return extractStructuredContent(response);
+        long startedAt = System.nanoTime();
+        try {
+            StructuredResponse<T> response = llmConcurrencyLimiter.execute(
+                    operationName,
+                    () -> openAIClient.responses().create(params)
+            );
+            asyncMetricsRecorder.recordLlmRequest(operationName, "success", elapsedMillis(startedAt));
+            return extractStructuredContent(response);
+        } catch (RuntimeException e) {
+            asyncMetricsRecorder.recordLlmRequest(operationName, "error", elapsedMillis(startedAt));
+            throw e;
+        } catch (Error e) {
+            asyncMetricsRecorder.recordLlmRequest(operationName, "error", elapsedMillis(startedAt));
+            throw e;
+        }
     }
 
     String buildPrompt(
