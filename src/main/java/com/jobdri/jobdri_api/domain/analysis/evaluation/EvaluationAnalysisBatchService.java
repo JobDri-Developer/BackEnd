@@ -387,7 +387,9 @@ public class EvaluationAnalysisBatchService {
             return "";
         }
         Map<String, Long> counts = reviewResponse.decisions().stream()
-                .filter(decision -> decision != null && decision.rejectionCode() != null)
+                .filter(decision -> decision != null
+                        && decision.rejectionCode() != null
+                        && decision.rejectionCode() != CandidateReviewResponse.RejectionCode.NONE)
                 .collect(java.util.stream.Collectors.groupingBy(
                         decision -> decision.rejectionCode().name(),
                         java.util.stream.Collectors.counting()

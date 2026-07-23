@@ -140,12 +140,14 @@ class NlgEvaluationBatchService {
             return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
         }
 
-        List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations =
-                validQuestionEvaluations(input.questionAnalyses(), response.questionAnalysisEvaluations());
-        if (input.questionAnalyses().isEmpty() && !evaluations.isEmpty()) {
+        if (input.questionAnalyses().isEmpty()
+                && response.questionAnalysisEvaluations() != null
+                && !response.questionAnalysisEvaluations().isEmpty()) {
             return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
         }
 
+        List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations =
+                validQuestionEvaluations(input.questionAnalyses(), response.questionAnalysisEvaluations());
         List<NlgEvaluationErrorCode> errorCodes = mergeErrorCodes(response, evaluations);
         boolean hasFatalError = hasFatalError(errorCodes);
         return new NlgEvaluationResult(

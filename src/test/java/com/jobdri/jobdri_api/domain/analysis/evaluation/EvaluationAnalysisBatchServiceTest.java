@@ -351,9 +351,57 @@ class EvaluationAnalysisBatchServiceTest {
                 .thenReturn(new AnalysisAiCallResult(
                         new AnalysisLlmResponse(80, 70, 60, "피드백", List.of(), List.of()),
                         null,
-                        new AnalysisCandidateResponse(List.of(), List.of(), List.of()),
-                        new CandidateReviewResponse(
+                        new AnalysisCandidateResponse(
                                 List.of(),
+                                List.of(
+                                        new AnalysisCandidateResponse.AnalysisCandidate(
+                                                "candidate-1",
+                                                1L,
+                                                "Spring Boot API를 개발했습니다.",
+                                                null,
+                                                null,
+                                                "EXPERIENCE",
+                                                "MAIN_TASK",
+                                                "API 개발",
+                                                "MENTIONED",
+                                                "LACK_OF_RESULT",
+                                                "성과가 부족합니다."
+                                        ),
+                                        new AnalysisCandidateResponse.AnalysisCandidate(
+                                                "candidate-2",
+                                                1L,
+                                                "Spring Boot API를 개발했습니다.",
+                                                null,
+                                                null,
+                                                "EXPERIENCE",
+                                                "MAIN_TASK",
+                                                "API 개발",
+                                                "MENTIONED",
+                                                "LACK_OF_ROLE",
+                                                "역할이 부족합니다."
+                                        )
+                                ),
+                                List.of()
+                        ),
+                        new CandidateReviewResponse(
+                                List.of(
+                                        new CandidateReviewResponse.CandidateDecision(
+                                                "candidate-1",
+                                                true,
+                                                CandidateReviewResponse.RejectionCode.NONE,
+                                                "MENTIONED",
+                                                "성과가 부족합니다.",
+                                                null
+                                        ),
+                                        new CandidateReviewResponse.CandidateDecision(
+                                                "candidate-2",
+                                                false,
+                                                CandidateReviewResponse.RejectionCode.NOT_ACTIONABLE,
+                                                null,
+                                                "이미 수정 가치가 낮습니다.",
+                                                null
+                                        )
+                                ),
                                 List.of(),
                                 List.of(),
                                 80,
@@ -378,10 +426,11 @@ class EvaluationAnalysisBatchServiceTest {
         service.run(input, output);
 
         Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
-        assertThat(row.get("candidateCount")).isEqualTo("0");
-        assertThat(row.get("acceptedCandidateCount")).isEqualTo("0");
-        assertThat(row.get("rejectedCandidateCount")).isEqualTo("0");
-        assertThat(row.get("rejectionCodeCounts")).isEqualTo("{}");
+        assertThat(row.get("candidateCount")).isEqualTo("2");
+        assertThat(row.get("acceptedCandidateCount")).isEqualTo("1");
+        assertThat(row.get("rejectedCandidateCount")).isEqualTo("1");
+        assertThat(row.get("rejectionCodeCounts")).contains("NOT_ACTIONABLE");
+        assertThat(row.get("rejectionCodeCounts")).doesNotContain("NONE");
     }
 
     private AnalysisAiCallResult result(AnalysisLlmResponse response) {
