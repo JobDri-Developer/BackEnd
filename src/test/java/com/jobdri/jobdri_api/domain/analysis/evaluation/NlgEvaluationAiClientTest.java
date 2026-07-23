@@ -44,5 +44,14 @@ class NlgEvaluationAiClientTest {
         assertThat(prompt).contains("FALSE_POSITIVE_ANALYSIS");
         assertThat(prompt).contains("UNSUPPORTED_FACT");
         assertThat(prompt).contains("questionAnalyses가 없으면 questionAnalysisEvaluations는 []");
+        assertThat(prompt).contains("problemValidity <= 2이면 FALSE_POSITIVE_ANALYSIS");
+        assertThat(prompt).contains("낮은 점수가 있는데 NONE만 반환하지 않는다");
+        assertThat(prompt).contains("noAnalysisAppropriateness");
+        assertThat(prompt).contains("MISSED_ANALYSIS");
+        assertThat(prompt).contains("strengthsCoverage");
+        assertThat(prompt).contains("missingKeywordsCoverage");
+        assertThat(prompt).contains("MISSED_MISSING_KEYWORD");
+        assertThat(prompt).contains("기본값을 4로 두지 말고");
+        assertThat(prompt).contains("1,2,3,4,5를 실제 오류 심각도에 따라 분산");
     }
 }

@@ -116,7 +116,8 @@ class NlgEvaluationBatchService {
             return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
         }
 
-        List<NlgEvaluationErrorCode> errorCodes = mergeErrorCodes(response.caseErrorCodes(), evaluations);
+        List<NlgEvaluationErrorCode> errorCodes = mergeErrorCodes(response, evaluations);
+        boolean hasFatalError = hasFatalError(errorCodes);
         return new NlgEvaluationResult(
                 input.caseId(),
                 input.sourceResultFile(),
@@ -131,9 +132,12 @@ class NlgEvaluationBatchService {
                 average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::usability),
                 average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::nonMeta),
                 average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::meaningPreservation),
+                validCaseScore(response.noAnalysisAppropriateness()),
                 validCaseScore(response.strengthsPrecision()),
+                validCaseScore(response.strengthsCoverage()),
                 validCaseScore(response.missingKeywordsPrecision()),
-                validCaseScore(response.overallUsefulness()),
+                validCaseScore(response.missingKeywordsCoverage()),
+                validOverallUsefulness(response.overallUsefulness(), hasFatalError),
                 writeJson(errorCodes.stream().map(Enum::name).toList()),
                 truncateShortRationale(response.shortRationale()),
                 callResult.inputTokens(),
@@ -176,7 +180,7 @@ class NlgEvaluationBatchService {
                     evaluation.usability(),
                     evaluation.nonMeta(),
                     evaluation.meaningPreservation(),
-                    sanitizeErrorCodes(evaluation.errorCodes())
+                    sanitizeErrorCodes(evaluation.errorCodes(), hasLowCriterionScore(evaluation))
             ));
         }
         return valid;
@@ -216,17 +220,29 @@ class NlgEvaluationBatchService {
     }
 
     private List<NlgEvaluationErrorCode> mergeErrorCodes(
-            List<NlgEvaluationErrorCode> caseErrorCodes,
+            NlgEvaluationResponse response,
             List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations
     ) {
-        Set<NlgEvaluationErrorCode> codes = new HashSet<>(sanitizeErrorCodes(caseErrorCodes));
+        boolean hasLowScore = hasLowCaseScore(response);
+        Set<NlgEvaluationErrorCode> codes = new HashSet<>(sanitizeErrorCodes(
+                response.caseErrorCodes(),
+                hasLowScore
+        ));
         for (NlgEvaluationResponse.QuestionAnalysisEvaluation evaluation : evaluations) {
-            codes.addAll(sanitizeErrorCodes(evaluation.errorCodes()));
+            boolean hasLowCriterionScore = hasLowCriterionScore(evaluation);
+            hasLowScore = hasLowScore || hasLowCriterionScore;
+            codes.addAll(sanitizeErrorCodes(evaluation.errorCodes(), hasLowCriterionScore));
         }
         if (codes.size() > 1) {
             codes.remove(NlgEvaluationErrorCode.NONE);
         }
+        if (hasLowScore && codes.size() == 1 && codes.contains(NlgEvaluationErrorCode.NONE)) {
+            return List.of();
+        }
         if (codes.isEmpty()) {
+            if (hasLowScore) {
+                return List.of();
+            }
             return List.of(NlgEvaluationErrorCode.NONE);
         }
         return codes.stream()
@@ -234,14 +250,27 @@ class NlgEvaluationBatchService {
                 .toList();
     }
 
-    private List<NlgEvaluationErrorCode> sanitizeErrorCodes(List<NlgEvaluationErrorCode> errorCodes) {
+    private List<NlgEvaluationErrorCode> sanitizeErrorCodes(
+            List<NlgEvaluationErrorCode> errorCodes,
+            boolean hasLowScore
+    ) {
         if (errorCodes == null || errorCodes.isEmpty()) {
             return List.of();
         }
-        return errorCodes.stream()
+        List<NlgEvaluationErrorCode> sanitized = errorCodes.stream()
                 .filter(Objects::nonNull)
                 .distinct()
                 .toList();
+        boolean hasNonNone = sanitized.stream().anyMatch(code -> code != NlgEvaluationErrorCode.NONE);
+        if (hasNonNone) {
+            return sanitized.stream()
+                    .filter(code -> code != NlgEvaluationErrorCode.NONE)
+                    .toList();
+        }
+        if (hasLowScore) {
+            return List.of();
+        }
+        return sanitized;
     }
 
     private Double average(
@@ -266,8 +295,49 @@ class NlgEvaluationBatchService {
         return validScore(score) ? score : null;
     }
 
+    private Integer validOverallUsefulness(Integer score, boolean hasFatalError) {
+        if (!validScore(score)) {
+            return null;
+        }
+        if (hasFatalError && score >= 4) {
+            return null;
+        }
+        return score;
+    }
+
     private boolean validScore(Integer score) {
         return score != null && score >= MIN_SCORE && score <= MAX_SCORE;
+    }
+
+    private boolean hasLowCriterionScore(NlgEvaluationResponse.QuestionAnalysisEvaluation evaluation) {
+        return lowScore(evaluation.problemValidity())
+                || lowScore(evaluation.contextAwareness())
+                || lowScore(evaluation.sentenceTypeConsistency())
+                || lowScore(evaluation.faithfulness())
+                || lowScore(evaluation.tenseConsistency())
+                || lowScore(evaluation.nonMeta());
+    }
+
+    private boolean hasLowCaseScore(NlgEvaluationResponse response) {
+        return lowScore(response.noAnalysisAppropriateness())
+                || lowScore(response.strengthsPrecision())
+                || lowScore(response.strengthsCoverage())
+                || lowScore(response.missingKeywordsPrecision())
+                || lowScore(response.missingKeywordsCoverage())
+                || lowScore(response.overallUsefulness());
+    }
+
+    private boolean lowScore(Integer score) {
+        return score != null && score <= 2;
+    }
+
+    private boolean hasFatalError(List<NlgEvaluationErrorCode> errorCodes) {
+        return errorCodes.stream().anyMatch(code -> Set.of(
+                NlgEvaluationErrorCode.UNSUPPORTED_FACT,
+                NlgEvaluationErrorCode.TENSE_CHANGED,
+                NlgEvaluationErrorCode.FALSE_POSITIVE_ANALYSIS,
+                NlgEvaluationErrorCode.INVALID_MISSING_KEYWORD
+        ).contains(code));
     }
 
     private List<EvaluationQuestionAnalysisResult> readQuestionAnalyses(String json) {
@@ -344,8 +414,11 @@ class NlgEvaluationBatchService {
                 averageColumn(successfulRows, "averageUsability"),
                 averageColumn(successfulRows, "averageNonMeta"),
                 averageColumn(successfulRows, "averageMeaningPreservation"),
+                averageColumn(successfulRows, "noAnalysisAppropriateness"),
                 averageColumn(successfulRows, "strengthsPrecision"),
+                averageColumn(successfulRows, "strengthsCoverage"),
                 averageColumn(successfulRows, "missingKeywordsPrecision"),
+                averageColumn(successfulRows, "missingKeywordsCoverage"),
                 averageColumn(successfulRows, "overallUsefulness"),
                 averageColumn(successfulRows, "judgeInputTokens"),
                 averageColumn(successfulRows, "judgeOutputTokens"),

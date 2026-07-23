@@ -5,8 +5,11 @@ import java.util.List;
 public record NlgEvaluationResponse(
         String caseId,
         List<QuestionAnalysisEvaluation> questionAnalysisEvaluations,
+        Integer noAnalysisAppropriateness,
         Integer strengthsPrecision,
+        Integer strengthsCoverage,
         Integer missingKeywordsPrecision,
+        Integer missingKeywordsCoverage,
         Integer overallUsefulness,
         List<NlgEvaluationErrorCode> caseErrorCodes,
         String shortRationale

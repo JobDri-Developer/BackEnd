@@ -47,8 +47,11 @@ class NlgEvaluationBatchServiceTest {
                                 5,
                                 List.of(NlgEvaluationErrorCode.FALSE_POSITIVE_ANALYSIS)
                         )),
+                        4,
                         5,
                         4,
+                        4,
+                        3,
                         3,
                         List.of(NlgEvaluationErrorCode.FALSE_POSITIVE_ANALYSIS),
                         "좋은 문장을 첨삭 대상으로 잡은 오류가 있습니다."
@@ -88,6 +91,9 @@ class NlgEvaluationBatchServiceTest {
                 new NlgEvaluationResponse(
                         "EV-02",
                         List.of(),
+                        5,
+                        5,
+                        5,
                         5,
                         5,
                         5,
@@ -137,7 +143,10 @@ class NlgEvaluationBatchServiceTest {
                                         NlgEvaluationErrorCode.TENSE_CHANGED
                                 )
                         )),
+                        3,
                         4,
+                        2,
+                        3,
                         2,
                         3,
                         List.of(NlgEvaluationErrorCode.INVALID_MISSING_KEYWORD),
@@ -170,6 +179,162 @@ class NlgEvaluationBatchServiceTest {
                 .contains("TENSE_CHANGED")
                 .contains("INVALID_MISSING_KEYWORD");
         assertThat(row.get("averageFaithfulness")).isEqualTo("1.0");
+    }
+
+    @Test
+    @DisplayName("낮은 criterion 점수와 NONE-only 조합은 NONE을 제거한다")
+    void removesNoneWhenLowCriterionScoreExists() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
+                new NlgEvaluationResponse(
+                        "EV-06",
+                        List.of(new NlgEvaluationResponse.QuestionAnalysisEvaluation(
+                                0,
+                                "좋은 문장을 문제로 잡았습니다.",
+                                5,
+                                2,
+                                5,
+                                4,
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                List.of(NlgEvaluationErrorCode.NONE)
+                        )),
+                        4,
+                        5,
+                        5,
+                        5,
+                        5,
+                        3,
+                        List.of(NlgEvaluationErrorCode.NONE),
+                        "낮은 점수와 NONE이 함께 반환된 케이스입니다."
+                ),
+                100L,
+                null,
+                null
+        ));
+
+        Path input = writeJudgeInput("EV-06", analysesJson(List.of(new EvaluationQuestionAnalysisResult(
+                1L,
+                "좋은 문장을 문제로 잡았습니다.",
+                "mentioned",
+                "부족합니다.",
+                null,
+                0,
+                16
+        ))));
+        Path output = tempDir.resolve("judge_none_removed.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("errorCodes")).isEqualTo("[]");
+        assertThat(row.get("averageProblemValidity")).isEqualTo("2.0");
+    }
+
+    @Test
+    @DisplayName("errorCode와 NONE이 동시에 있으면 NONE을 제거한다")
+    void removesNoneWhenOtherErrorCodeExists() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
+                new NlgEvaluationResponse(
+                        "EV-07",
+                        List.of(),
+                        2,
+                        5,
+                        4,
+                        5,
+                        2,
+                        2,
+                        List.of(NlgEvaluationErrorCode.NONE, NlgEvaluationErrorCode.MISSED_ANALYSIS),
+                        "빈 분석이지만 명백한 문제를 놓쳤습니다."
+                ),
+                100L,
+                null,
+                null
+        ));
+
+        Path input = writeJudgeInput("EV-07", "[]");
+        Path output = tempDir.resolve("judge_missed_analysis.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("analysisCount")).isEqualTo("0");
+        assertThat(row.get("noAnalysisAppropriateness")).isEqualTo("2");
+        assertThat(row.get("errorCodes"))
+                .contains("MISSED_ANALYSIS")
+                .doesNotContain("NONE");
+    }
+
+    @Test
+    @DisplayName("strength와 missing keyword coverage 평가를 CSV에 기록한다")
+    void writesCoverageScores() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
+                new NlgEvaluationResponse(
+                        "EV-08",
+                        List.of(),
+                        5,
+                        5,
+                        2,
+                        5,
+                        2,
+                        3,
+                        List.of(NlgEvaluationErrorCode.MISSED_STRENGTH, NlgEvaluationErrorCode.MISSED_MISSING_KEYWORD),
+                        "강점과 누락 키워드 coverage가 낮습니다."
+                ),
+                100L,
+                null,
+                null
+        ));
+
+        Path input = writeJudgeInput("EV-08", "[]");
+        Path output = tempDir.resolve("judge_coverage.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("strengthsCoverage")).isEqualTo("2");
+        assertThat(row.get("missingKeywordsCoverage")).isEqualTo("2");
+        assertThat(row.get("errorCodes"))
+                .contains("MISSED_STRENGTH")
+                .contains("MISSED_MISSING_KEYWORD");
+    }
+
+    @Test
+    @DisplayName("치명 오류가 있으면 overallUsefulness 4~5점은 검증에서 제외한다")
+    void rejectsHighOverallUsefulnessWithFatalError() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
+                new NlgEvaluationResponse(
+                        "EV-09",
+                        List.of(),
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        4,
+                        List.of(NlgEvaluationErrorCode.UNSUPPORTED_FACT),
+                        "치명 오류가 있는데 overallUsefulness가 높습니다."
+                ),
+                100L,
+                null,
+                null
+        ));
+
+        Path input = writeJudgeInput("EV-09", "[]");
+        Path output = tempDir.resolve("judge_overall.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("overallUsefulness")).isBlank();
+        assertThat(row.get("errorCodes")).contains("UNSUPPORTED_FACT");
     }
 
     @Test
@@ -219,6 +384,9 @@ class NlgEvaluationBatchServiceTest {
                         1.0,
                         3.0,
                         5,
+                        5,
+                        2,
+                        4,
                         2,
                         4,
                         objectMapper.writeValueAsString(List.of(
