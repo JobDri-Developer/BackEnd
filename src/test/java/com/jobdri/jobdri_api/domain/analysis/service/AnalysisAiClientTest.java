@@ -19,6 +19,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -576,12 +577,17 @@ class AnalysisAiClientTest {
                         "candidate-2",
                         "MENTIONED",
                         "장애 대응 경험은 언급했지만 구체적인 역할과 결과가 부족합니다.",
-                        null,
+                        "장애 대응 경험에서 제가 맡은 역할을 정리하고 문제 확인 과정과 처리 결과를 기록하며 대응 역량을 키웠습니다.",
                         5,
                         4,
                         4,
-                        3,
-                        1
+                        4,
+                        1,
+                        true,
+                        true,
+                        true,
+                        true,
+                        false
                 )
         );
 
@@ -632,7 +638,12 @@ class AnalysisAiClientTest {
                         1,
                         1,
                         1,
-                        1
+                        1,
+                        true,
+                        true,
+                        true,
+                        true,
+                        false
                 )
         );
         CandidateReviewResponse invalidScore = analysisAiClient.applyRecheckResponse(
@@ -649,7 +660,12 @@ class AnalysisAiClientTest {
                         4,
                         4,
                         4,
-                        1
+                        1,
+                        true,
+                        true,
+                        true,
+                        true,
+                        false
                 )
         );
 
@@ -657,6 +673,177 @@ class AnalysisAiClientTest {
         assertThat(noCorrection.decisions().getFirst().accepted()).isFalse();
         assertThat(invalidScore.decisions()).hasSize(1);
         assertThat(invalidScore.decisions().getFirst().accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("재검증은 점수 임계값과 boolean 검증 기준을 모두 만족해야 복원한다")
+    void applyRecheckResponseRequiresThresholdsAndBooleanFlags() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(candidate("candidate-1", "장애 대응 경험이 있습니다.")),
+                List.of()
+        );
+        CandidateReviewResponse review = rejectedReview("candidate-1");
+
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.problemClarity = 3))
+                .decisions().getFirst().accepted()).isFalse();
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.jobRelevance = 3))
+                .decisions().getFirst().accepted()).isFalse();
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.improvementUsefulness = 3))
+                .decisions().getFirst().accepted()).isFalse();
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.questionTypeMatched = false))
+                .decisions().getFirst().accepted()).isFalse();
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.contextConsistent = false))
+                .decisions().getFirst().accepted()).isFalse();
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.reasonSpecific = false))
+                .decisions().getFirst().accepted()).isFalse();
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.improvementActionable = false))
+                .decisions().getFirst().accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("재검증은 일반론 reason과 활용성 낮은 improvement를 복원하지 않는다")
+    void applyRecheckResponseRejectsGenericReasonAndNonActionableImprovement() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(candidate("candidate-1", "장애 대응 경험이 있습니다.")),
+                List.of()
+        );
+        CandidateReviewResponse review = rejectedReview("candidate-1");
+
+        CandidateReviewResponse genericReason = applyRecheck(
+                candidates,
+                review,
+                validMentionedRecheck("candidate-1", builder -> builder.reason = "구체성이 부족합니다.")
+        );
+        CandidateReviewResponse styleOnlyImprovement = applyRecheck(
+                candidates,
+                review,
+                validMentionedRecheck("candidate-1", builder -> builder.improvement = "더 구체적으로 작성하겠습니다.")
+        );
+        CandidateReviewResponse unsupportedNumber = applyRecheck(
+                candidates,
+                review,
+                validMentionedRecheck("candidate-1", builder -> builder.improvement = "장애 대응 경험에서 제가 맡은 역할을 정리하고 30% 개선한 결과를 기록했습니다.")
+        );
+
+        assertThat(genericReason.decisions().getFirst().accepted()).isFalse();
+        assertThat(styleOnlyImprovement.decisions().getFirst().accepted()).isFalse();
+        assertThat(unsupportedNumber.decisions().getFirst().accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("재검증은 문항 유형에 맞지 않는 성과 수치 부족 reason을 복원하지 않는다")
+    void applyRecheckResponseRejectsWrongSentenceTypeCriteria() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(new AnalysisCandidateResponse.AnalysisCandidate(
+                        "plan-1",
+                        1L,
+                        "장애 대응 경험이 있습니다.",
+                        "",
+                        "",
+                        "PLAN",
+                        "MAIN_TASK",
+                        "API 개발",
+                        "MENTIONED",
+                        "ABSTRACT_PLAN",
+                        "포부가 추상적입니다."
+                )),
+                List.of()
+        );
+
+        CandidateReviewResponse rechecked = applyRecheck(
+                candidates,
+                rejectedReview("plan-1"),
+                validMentionedRecheck("plan-1", builder -> builder.reason = "장애 대응 경험은 언급했지만 성과 수치가 부족하여 직무 기준에서 보완이 필요합니다.")
+        );
+
+        assertThat(rechecked.decisions().getFirst().accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("재검증은 FABRICATED 직접 충돌 기준을 만족할 때만 복원한다")
+    void applyRecheckResponseRequiresDirectContradictionForFabricated() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(new AnalysisCandidateResponse.AnalysisCandidate(
+                        "fabricated-1",
+                        1L,
+                        "장애 대응 경험이 있습니다.",
+                        "",
+                        "",
+                        "EXPERIENCE",
+                        "QUALIFICATION",
+                        "장애 대응 경험",
+                        "FABRICATED",
+                        "DIRECT_CONTRADICTION",
+                        "답변 내부의 명시적 사실과 직접 충돌합니다."
+                )),
+                List.of()
+        );
+        CandidateReviewResponse review = rejectedReview("fabricated-1");
+
+        CandidateReviewResponse invalidFabricated = applyRecheck(
+                candidates,
+                review,
+                validFabricatedRecheck("fabricated-1", builder -> builder.directContradiction = false)
+        );
+        CandidateReviewResponse lowConfidence = applyRecheck(
+                candidates,
+                review,
+                validFabricatedRecheck("fabricated-1", builder -> builder.fabricationConfidence = 3)
+        );
+        CandidateReviewResponse validFabricated = applyRecheck(
+                candidates,
+                review,
+                validFabricatedRecheck("fabricated-1", builder -> {
+                })
+        );
+
+        assertThat(invalidFabricated.decisions().getFirst().accepted()).isFalse();
+        assertThat(lowConfidence.decisions().getFirst().accepted()).isFalse();
+        assertThat(validFabricated.decisions().getFirst().accepted()).isTrue();
+        assertThat(validFabricated.decisions().getFirst().status()).isEqualTo("FABRICATED");
+    }
+
+    @Test
+    @DisplayName("재검증은 최대 1건만 복원하고 missingKeywords에는 영향 주지 않는다")
+    void applyRecheckResponseRecoversAtMostOneAndKeepsMissingKeywords() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(
+                        candidate("candidate-1", "Spring Boot API를 개발했습니다."),
+                        candidate("candidate-2", "장애 대응 경험이 있습니다.")
+                ),
+                List.of(new AnalysisCandidateResponse.MissingKeywordCandidate(
+                        "장애 대응 경험",
+                        "QUALIFICATION",
+                        "장애 대응 경험"
+                ))
+        );
+        CandidateReviewResponse review = new CandidateReviewResponse(
+                List.of(
+                        new CandidateReviewResponse.CandidateDecision("candidate-1", false, RejectionCode.NOT_ACTIONABLE, null, "수정 가치가 낮습니다.", null),
+                        new CandidateReviewResponse.CandidateDecision("candidate-2", false, RejectionCode.NOT_ACTIONABLE, null, "수정 가치가 낮습니다.", null)
+                ),
+                List.of(),
+                List.of(new CandidateReviewResponse.FinalMissingKeywordCandidate("장애 대응 경험", "QUALIFICATION")),
+                80,
+                70,
+                60,
+                "피드백"
+        );
+
+        CandidateReviewResponse rechecked = applyRecheck(
+                candidates,
+                review,
+                validMentionedRecheck("candidate-2", builder -> {
+                })
+        );
+
+        assertThat(rechecked.decisions()).filteredOn(CandidateReviewResponse.CandidateDecision::accepted).hasSize(1);
+        assertThat(rechecked.missingKeywords()).extracting("keyword").containsExactly("장애 대응 경험");
     }
 
     @Test
@@ -806,6 +993,56 @@ class AnalysisAiClientTest {
                 .doesNotContain("LACK_OF_RESULT", "DIRECT_CONTRADICTION");
     }
 
+    private CandidateReviewResponse applyRecheck(
+            AnalysisCandidateResponse candidates,
+            CandidateReviewResponse review,
+            CandidateRecheckResponse recheck
+    ) {
+        return analysisAiClient.applyRecheckResponse(promptInput(), candidates, review, recheck);
+    }
+
+    private CandidateReviewResponse rejectedReview(String candidateId) {
+        return new CandidateReviewResponse(
+                List.of(new CandidateReviewResponse.CandidateDecision(
+                        candidateId,
+                        false,
+                        RejectionCode.NOT_ACTIONABLE,
+                        null,
+                        "수정 가치가 낮습니다.",
+                        null
+                )),
+                List.of(),
+                List.of(),
+                80,
+                70,
+                60,
+                "피드백"
+        );
+    }
+
+    private CandidateRecheckResponse validMentionedRecheck(
+            String candidateId,
+            Consumer<RecheckBuilder> customizer
+    ) {
+        RecheckBuilder builder = new RecheckBuilder(candidateId);
+        customizer.accept(builder);
+        return builder.build();
+    }
+
+    private CandidateRecheckResponse validFabricatedRecheck(
+            String candidateId,
+            Consumer<RecheckBuilder> customizer
+    ) {
+        RecheckBuilder builder = new RecheckBuilder(candidateId);
+        builder.status = "FABRICATED";
+        builder.reason = "장애 대응 경험이 있습니다라는 문장은 답변 내부의 명시적 사실과 직접 충돌합니다.";
+        builder.improvement = "장애 대응 경험은 아직 부족하지만 관련 상황을 확인하며 대응 역량을 키우고 있습니다.";
+        builder.fabricationConfidence = 4;
+        builder.directContradiction = true;
+        customizer.accept(builder);
+        return builder.build();
+    }
+
     private JobPosting mockJobPosting() {
         JobPosting jobPosting = mock(JobPosting.class, org.mockito.Answers.RETURNS_DEEP_STUBS);
         Company company = mock(Company.class);
@@ -855,5 +1092,47 @@ class AnalysisAiClientTest {
                 "LACK_OF_RESULT",
                 "결과가 부족합니다."
         );
+    }
+
+    private static class RecheckBuilder {
+        private final String candidateId;
+        private RecheckDecision decision = RecheckDecision.KEEP_BEST_CANDIDATE;
+        private String status = "MENTIONED";
+        private String reason = "장애 대응 경험은 언급했지만 구체적인 역할과 결과가 부족합니다.";
+        private String improvement = "장애 대응 경험에서 제가 맡은 역할을 정리하고 문제 확인 과정과 처리 결과를 기록하며 대응 역량을 키웠습니다.";
+        private Integer problemClarity = 4;
+        private Integer jobRelevance = 4;
+        private Integer evidenceGap = 4;
+        private Integer improvementUsefulness = 4;
+        private Integer fabricationConfidence = 1;
+        private Boolean questionTypeMatched = true;
+        private Boolean contextConsistent = true;
+        private Boolean reasonSpecific = true;
+        private Boolean improvementActionable = true;
+        private Boolean directContradiction = false;
+
+        private RecheckBuilder(String candidateId) {
+            this.candidateId = candidateId;
+        }
+
+        private CandidateRecheckResponse build() {
+            return new CandidateRecheckResponse(
+                    decision,
+                    candidateId,
+                    status,
+                    reason,
+                    improvement,
+                    problemClarity,
+                    jobRelevance,
+                    evidenceGap,
+                    improvementUsefulness,
+                    fabricationConfidence,
+                    questionTypeMatched,
+                    contextConsistent,
+                    reasonSpecific,
+                    improvementActionable,
+                    directContradiction
+            );
+        }
     }
 }

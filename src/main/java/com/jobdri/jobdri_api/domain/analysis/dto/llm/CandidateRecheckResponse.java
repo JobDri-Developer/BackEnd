@@ -10,7 +10,12 @@ public record CandidateRecheckResponse(
         Integer jobRelevance,
         Integer evidenceGap,
         Integer improvementUsefulness,
-        Integer fabricationConfidence
+        Integer fabricationConfidence,
+        Boolean questionTypeMatched,
+        Boolean contextConsistent,
+        Boolean reasonSpecific,
+        Boolean improvementActionable,
+        Boolean directContradiction
 ) {
     public enum RecheckDecision {
         NO_CORRECTION_NEEDED,
