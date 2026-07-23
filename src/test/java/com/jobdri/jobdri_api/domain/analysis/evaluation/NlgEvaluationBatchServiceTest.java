@@ -119,6 +119,52 @@ class NlgEvaluationBatchServiceTest {
     }
 
     @Test
+    @DisplayName("빈 questionAnalyses에 대해 judge가 문장 평가를 생성하면 검증 실패로 기록한다")
+    void rejectsHallucinatedQuestionEvaluationForEmptyQuestionAnalyses() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
+                new NlgEvaluationResponse(
+                        "EV-02",
+                        List.of(new NlgEvaluationResponse.QuestionAnalysisEvaluation(
+                                0,
+                                "없는 분석 문장입니다.",
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                List.of(NlgEvaluationErrorCode.NONE)
+                        )),
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        List.of(NlgEvaluationErrorCode.NONE),
+                        "빈 분석인데 문장 평가를 생성했습니다."
+                ),
+                90L,
+                null,
+                null
+        ));
+
+        Path input = writeJudgeInput("EV-02", "[]");
+        Path output = tempDir.resolve("judge_empty_hallucination.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("analysisCount")).isBlank();
+        assertThat(row.get("failureStage")).isEqualTo("judge_validation_failed");
+    }
+
+    @Test
     @DisplayName("메타 improvement, 새 사실 생성, 시제 변경 오류 코드를 검증 후 CSV에 기록한다")
     void writesValidatedErrorCodesForNlgFailures() throws Exception {
         NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
