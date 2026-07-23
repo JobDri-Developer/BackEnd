@@ -5,9 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
@@ -25,7 +23,7 @@ import java.util.List;
 @Slf4j
 // 수동 실행 예:
 // ./gradlew bootRun --args='--spring.profiles.active=analysis-eval --evaluation.nlg-judge.enabled=true --evaluation.nlg-judge.input=evaluation/evaluation_ai_results_two_pass_v2.csv --evaluation.nlg-judge.output=evaluation/evaluation_nlg_judge_two_pass_v2.csv --evaluation.confirm-openai-cost=true'
-class NlgEvaluationRunner implements ApplicationRunner {
+public class NlgEvaluationRunner implements ApplicationRunner {
 
     @Value("${evaluation.nlg-judge.input:}")
     private String inputPath;
@@ -49,13 +47,18 @@ class NlgEvaluationRunner implements ApplicationRunner {
     private boolean analysisEvaluationEnabled;
 
     private final NlgEvaluationBatchService nlgEvaluationBatchService;
-    private final ConfigurableApplicationContext applicationContext;
+    private final EvaluationExitCoordinator evaluationExitCoordinator;
     private final Environment environment;
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
         try {
             validateProfiles();
+            log.info(
+                    "NLG judge Runner가 시작되었습니다. compareMode={}, output={}",
+                    StringUtils.hasText(compareInputPaths),
+                    outputPath
+            );
             if (StringUtils.hasText(compareInputPaths)) {
                 validateComparisonProperties();
                 List<Path> inputs = Arrays.stream(compareInputPaths.split(","))
@@ -65,12 +68,14 @@ class NlgEvaluationRunner implements ApplicationRunner {
                         .toList();
                 NlgEvaluationBatchService.NlgEvaluationComparisonSummary summary =
                         nlgEvaluationBatchService.compare(inputs, Path.of(outputPath));
+                validateOutputFile(Path.of(outputPath));
                 log.info("NLG judge 비교 리포트 생성 완료. files={}, output={}", summary.fileCount(), summary.outputPath());
             } else {
                 validateJudgeProperties();
                 log.info("NLG judge 평가를 시작합니다. input={}, output={}, model={}", inputPath, outputPath, judgeModel);
                 NlgEvaluationBatchService.NlgEvaluationSummary summary =
                         nlgEvaluationBatchService.run(Path.of(inputPath), Path.of(outputPath));
+                validateOutputFile(Path.of(outputPath));
                 log.info(
                         "NLG judge 평가 완료. total={}, success={}, failure={}, output={}",
                         summary.totalCount(),
@@ -81,10 +86,10 @@ class NlgEvaluationRunner implements ApplicationRunner {
             }
         } catch (Exception e) {
             log.error("NLG judge 실행에 실패했습니다. message={}", e.getMessage(), e);
-            exitApplication(1);
+            evaluationExitCoordinator.exit(1);
             throw e;
         }
-        exitApplication(0);
+        evaluationExitCoordinator.exit(0);
     }
 
     void validateProfiles() {
@@ -148,12 +153,10 @@ class NlgEvaluationRunner implements ApplicationRunner {
         }
     }
 
-    private void exitApplication(int exitCode) {
-        Thread shutdownThread = new Thread(() -> {
-            int resolvedExitCode = SpringApplication.exit(applicationContext, () -> exitCode);
-            System.exit(resolvedExitCode);
-        });
-        shutdownThread.setDaemon(false);
-        shutdownThread.start();
+    private void validateOutputFile(Path output) throws java.io.IOException {
+        if (!Files.isRegularFile(output) || Files.size(output) == 0) {
+            throw new IllegalStateException("NLG judge output CSV가 생성되지 않았거나 비어 있습니다. path=" + output);
+        }
     }
+
 }

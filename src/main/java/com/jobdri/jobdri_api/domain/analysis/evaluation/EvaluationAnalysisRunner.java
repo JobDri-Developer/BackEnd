@@ -6,8 +6,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.SpringApplication;
-import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
@@ -46,7 +44,7 @@ public class EvaluationAnalysisRunner implements ApplicationRunner {
     private boolean nlgJudgeEnabled;
 
     private final EvaluationAnalysisBatchService evaluationAnalysisBatchService;
-    private final ConfigurableApplicationContext applicationContext;
+    private final EvaluationExitCoordinator evaluationExitCoordinator;
     private final Environment environment;
 
     @Override
@@ -54,6 +52,7 @@ public class EvaluationAnalysisRunner implements ApplicationRunner {
         try {
             validateProfiles();
             validateExecutionProperties();
+            log.info("EvaluationAnalysisRunner start. enabled=true");
             log.info("평가용 자소서 분석을 시작합니다. input={}, output={}, model={}", inputPath, outputPath, analysisModel);
             EvaluationAnalysisBatchService.EvaluationBatchSummary summary =
                     evaluationAnalysisBatchService.run(Path.of(inputPath), Path.of(outputPath));
@@ -66,19 +65,10 @@ public class EvaluationAnalysisRunner implements ApplicationRunner {
             );
         } catch (Exception e) {
             log.error("평가용 자소서 분석 실행에 실패했습니다. message={}", e.getMessage(), e);
-            exitApplication(1);
+            evaluationExitCoordinator.exit(1);
             throw e;
         }
-        exitApplication(0);
-    }
-
-    private void exitApplication(int exitCode) {
-        Thread shutdownThread = new Thread(() -> {
-            int resolvedExitCode = SpringApplication.exit(applicationContext, () -> exitCode);
-            System.exit(resolvedExitCode);
-        });
-        shutdownThread.setDaemon(false);
-        shutdownThread.start();
+        evaluationExitCoordinator.exit(0);
     }
 
     void validateProfiles() {
