@@ -18,7 +18,12 @@ import java.util.List;
 
 @Component
 @Profile("analysis-eval")
-@ConditionalOnProperty(name = "evaluation.analysis.enabled", havingValue = "true")
+@ConditionalOnProperty(
+        prefix = "evaluation.analysis",
+        name = "enabled",
+        havingValue = "true",
+        matchIfMissing = false
+)
 @RequiredArgsConstructor
 @Slf4j
 // 수동 실행 예:
@@ -49,6 +54,7 @@ public class EvaluationAnalysisRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
+        log.info("EvaluationAnalysisRunner run entered.");
         try {
             validateProfiles();
             validateExecutionProperties();
@@ -65,10 +71,10 @@ public class EvaluationAnalysisRunner implements ApplicationRunner {
             );
         } catch (Exception e) {
             log.error("평가용 자소서 분석 실행에 실패했습니다. message={}", e.getMessage(), e);
-            evaluationExitCoordinator.exit(1);
+            evaluationExitCoordinator.exit("analysis-evaluation", 1);
             throw e;
         }
-        evaluationExitCoordinator.exit(0);
+        evaluationExitCoordinator.exit("analysis-evaluation", 0);
     }
 
     void validateProfiles() {

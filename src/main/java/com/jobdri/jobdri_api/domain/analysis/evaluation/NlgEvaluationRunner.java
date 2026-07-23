@@ -18,7 +18,12 @@ import java.util.List;
 
 @Component
 @Profile("analysis-eval")
-@ConditionalOnProperty(name = "evaluation.nlg-judge.enabled", havingValue = "true")
+@ConditionalOnProperty(
+        prefix = "evaluation.nlg-judge",
+        name = "enabled",
+        havingValue = "true",
+        matchIfMissing = false
+)
 @RequiredArgsConstructor
 @Slf4j
 // 수동 실행 예:
@@ -52,6 +57,10 @@ public class NlgEvaluationRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
+        log.info(
+                "NlgEvaluationRunner run entered. compareMode={}",
+                StringUtils.hasText(compareInputPaths)
+        );
         try {
             validateProfiles();
             log.info(
@@ -86,10 +95,10 @@ public class NlgEvaluationRunner implements ApplicationRunner {
             }
         } catch (Exception e) {
             log.error("NLG judge 실행에 실패했습니다. message={}", e.getMessage(), e);
-            evaluationExitCoordinator.exit(1);
+            evaluationExitCoordinator.exit("nlg-judge", 1);
             throw e;
         }
-        evaluationExitCoordinator.exit(0);
+        evaluationExitCoordinator.exit("nlg-judge", 0);
     }
 
     void validateProfiles() {

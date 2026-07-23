@@ -4,6 +4,7 @@ import com.jobdri.jobdri_api.domain.corpus.service.CorpusAdminRunner;
 import com.jobdri.jobdri_api.global.scheduling.AsyncTaskSweepScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -16,7 +17,6 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.FilterType;
 import org.springframework.context.annotation.Import;
-import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 import org.springframework.core.io.ClassPathResource;
@@ -31,7 +31,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -102,7 +104,8 @@ class EvaluationAnalysisRunnerSafetyTest {
         ConditionalOnProperty condition = EvaluationAnalysisRunner.class.getAnnotation(ConditionalOnProperty.class);
 
         assertThat(condition).isNotNull();
-        assertThat(condition.name()).containsExactly("evaluation.analysis.enabled");
+        assertThat(condition.prefix()).isEqualTo("evaluation.analysis");
+        assertThat(condition.name()).containsExactly("enabled");
         assertThat(condition.havingValue()).isEqualTo("true");
         assertThat(condition.matchIfMissing()).isFalse();
     }
@@ -113,7 +116,8 @@ class EvaluationAnalysisRunnerSafetyTest {
         ConditionalOnProperty condition = NlgEvaluationRunner.class.getAnnotation(ConditionalOnProperty.class);
 
         assertThat(condition).isNotNull();
-        assertThat(condition.name()).containsExactly("evaluation.nlg-judge.enabled");
+        assertThat(condition.prefix()).isEqualTo("evaluation.nlg-judge");
+        assertThat(condition.name()).containsExactly("enabled");
         assertThat(condition.havingValue()).isEqualTo("true");
         assertThat(condition.matchIfMissing()).isFalse();
     }
@@ -132,6 +136,8 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).hasSingleBean(NlgEvaluationRunner.class);
+                    assertThat(context.getBeanNamesForType(ApplicationRunner.class))
+                            .containsExactly("nlgEvaluationRunner");
                 });
     }
 
@@ -147,13 +153,14 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                    assertThat(context.getBeanNamesForType(ApplicationRunner.class)).isEmpty();
                 });
     }
 
     @Test
     @DisplayName("analysis-eval + analysis.enabled=true이면 분석 Runner만 생성된다")
     void analysisRunnerIsCreatedWhenAnalysisFlagIsTrue() {
-        runnerContext()
+        scannedRunnerContext()
                 .withPropertyValues(
                         "spring.profiles.active=analysis-eval",
                         "evaluation.analysis.enabled=true",
@@ -162,13 +169,15 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .run(context -> {
                     assertThat(context).hasSingleBean(EvaluationAnalysisRunner.class);
                     assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                    assertThat(context.getBeanNamesForType(ApplicationRunner.class))
+                            .containsExactly("evaluationAnalysisRunner");
                 });
     }
 
     @Test
     @DisplayName("analysis-eval + nlg-judge.enabled=true이면 NLG Runner만 생성된다")
     void nlgRunnerIsCreatedWhenNlgJudgeFlagIsTrue() {
-        runnerContext()
+        scannedRunnerContext()
                 .withPropertyValues(
                         "spring.profiles.active=analysis-eval",
                         "evaluation.analysis.enabled=false",
@@ -177,6 +186,9 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).hasSingleBean(NlgEvaluationRunner.class);
+                    assertThat(context.getBeanNamesForType(ApplicationRunner.class))
+                            .containsExactly("nlgEvaluationRunner");
+                    verifyNoInteractions(context.getBean(EvaluationExitCoordinator.class));
                 });
     }
 
@@ -192,6 +204,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                    assertThat(context.getBeanNamesForType(ApplicationRunner.class)).isEmpty();
                 });
     }
 
@@ -227,6 +240,37 @@ class EvaluationAnalysisRunnerSafetyTest {
     }
 
     @Test
+    @DisplayName("분석 평가 Runner는 analysis-evaluation source로 정상 종료를 요청한다")
+    void analysisEvaluationRunRequestsExitWithSource() throws Exception {
+        EvaluationAnalysisBatchService batchService = mock(EvaluationAnalysisBatchService.class);
+        EvaluationExitCoordinator exitCoordinator = mock(EvaluationExitCoordinator.class);
+        Environment environment = mock(Environment.class);
+        when(environment.getActiveProfiles()).thenReturn(new String[]{"analysis-eval"});
+        Path input = tempDir.resolve("evaluation-cases.csv");
+        Path output = tempDir.resolve("analysis-output.csv");
+        Files.writeString(input, "caseId\nEV-01\n");
+        when(batchService.run(input, output)).thenReturn(new EvaluationAnalysisBatchService.EvaluationBatchSummary(
+                1,
+                1,
+                0,
+                output
+        ));
+        EvaluationAnalysisRunner runner = new EvaluationAnalysisRunner(batchService, exitCoordinator, environment);
+        ReflectionTestUtils.setField(runner, "inputPath", input.toString());
+        ReflectionTestUtils.setField(runner, "outputPath", output.toString());
+        ReflectionTestUtils.setField(runner, "openAiApiKey", "test-key");
+        ReflectionTestUtils.setField(runner, "confirmOpenAiCost", true);
+        ReflectionTestUtils.setField(runner, "analysisModel", "gpt-4o-mini");
+        ReflectionTestUtils.setField(runner, "nlgJudgeEnabled", false);
+
+        runner.run(new DefaultApplicationArguments());
+
+        var order = inOrder(batchService, exitCoordinator);
+        order.verify(batchService).run(input, output);
+        order.verify(exitCoordinator).exit("analysis-evaluation", 0);
+    }
+
+    @Test
     @DisplayName("NLG judge 평가 모드는 run에 진입해 output CSV를 생성하고 정상 종료를 요청한다")
     void nlgJudgeRunCreatesOutputCsv() throws Exception {
         NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
@@ -247,7 +291,9 @@ class EvaluationAnalysisRunnerSafetyTest {
                 null,
                 null
         ));
-        NlgEvaluationBatchService batchService = new NlgEvaluationBatchService(aiClient, objectMapper);
+        NlgEvaluationBatchService batchService = org.mockito.Mockito.spy(
+                new NlgEvaluationBatchService(aiClient, objectMapper)
+        );
         EvaluationExitCoordinator exitCoordinator = mock(EvaluationExitCoordinator.class);
         Environment environment = mock(Environment.class);
         when(environment.getActiveProfiles()).thenReturn(new String[]{"analysis-eval"});
@@ -266,7 +312,9 @@ class EvaluationAnalysisRunnerSafetyTest {
 
         assertThat(output).isRegularFile();
         assertThat(Files.size(output)).isGreaterThan(0);
-        verify(exitCoordinator).exit(0);
+        var order = inOrder(batchService, exitCoordinator);
+        order.verify(batchService).run(input, output);
+        order.verify(exitCoordinator).exit("nlg-judge", 0);
     }
 
     @Test
@@ -296,7 +344,7 @@ class EvaluationAnalysisRunnerSafetyTest {
         assertThatThrownBy(() -> runner.run(new DefaultApplicationArguments()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("output CSV");
-        verify(exitCoordinator).exit(1);
+        verify(exitCoordinator).exit("nlg-judge", 1);
     }
 
     @Test
@@ -311,6 +359,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                    assertThat(context.getBeanNamesForType(ApplicationRunner.class)).isEmpty();
                 });
     }
 
