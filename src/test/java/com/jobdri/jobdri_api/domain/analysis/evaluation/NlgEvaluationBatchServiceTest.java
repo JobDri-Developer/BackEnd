@@ -15,6 +15,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -365,6 +366,200 @@ class NlgEvaluationBatchServiceTest {
     }
 
     @Test
+    @DisplayName("표준 헤더 mainTasks/qualifications/question/answer를 직접 읽는다")
+    void readsStandardHeaders() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        stubJudge(aiClient, "EV-10");
+        Path input = writeJudgeInput("EV-10", "[]");
+        Path output = tempDir.resolve("judge_standard.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(NlgEvaluationAiClient.NlgJudgeInput.class);
+        verify(aiClient).evaluate(captor.capture());
+        assertThat(captor.getValue().mainTasks()).isEqualTo("재고 분석");
+        assertThat(captor.getValue().qualifications()).isEqualTo("장애 대응 경험");
+        assertThat(captor.getValue().question()).isEqualTo("지원 동기");
+        assertThat(captor.getValue().answer()).contains("좋은 문장을 문제로 잡았습니다.");
+    }
+
+    @Test
+    @DisplayName("v5-A 결과 CSV는 같은 디렉터리의 evaluation_cases_reviewed.csv를 caseId로 보강해 읽는다")
+    void readsV5aResultHeadersWithSourceCases() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        stubJudge(aiClient, "EV-11");
+        writeSourceCases("EV-11", "주요 업무 원문", "자격요건 원문", "우대사항 원문", "문항 원문", "답변 원문");
+        Path input = writeResultOnlyInput("EV-11");
+        Path output = tempDir.resolve("judge_v5a.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(NlgEvaluationAiClient.NlgJudgeInput.class);
+        verify(aiClient).evaluate(captor.capture());
+        assertThat(captor.getValue().mainTasks()).isEqualTo("주요 업무 원문");
+        assertThat(captor.getValue().qualifications()).isEqualTo("자격요건 원문");
+        assertThat(captor.getValue().preferences()).isEqualTo("우대사항 원문");
+        assertThat(captor.getValue().question()).isEqualTo("문항 원문");
+        assertThat(captor.getValue().answer()).isEqualTo("답변 원문");
+    }
+
+    @Test
+    @DisplayName("two-pass 평가 CSV의 실제 헤더는 원본 평가셋 보강 없이 직접 읽는다")
+    void readsTwoPassResultHeadersDirectly() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        stubJudge(aiClient, "EV-12");
+        Path input = tempDir.resolve("two_pass.csv");
+        Files.writeString(
+                input,
+                String.join(",", List.of(
+                        "caseId",
+                        "jobCategoryMiddle",
+                        "jobCategorySmall",
+                        "mainTasks",
+                        "qualifications",
+                        "preferences",
+                        "question",
+                        "answer",
+                        "aiScore",
+                        "aiQuestionAnalysesJson",
+                        "aiMissingKeywordsJson",
+                        "rawLlmResponseJson",
+                        "rawCandidateResponseJson",
+                        "candidateReviewResponseJson"
+                )) + "\n"
+                        + csv("EV-12") + ",중분류,소분류,"
+                        + csv("two-pass 주요 업무") + ","
+                        + csv("two-pass 자격요건") + ","
+                        + csv("two-pass 우대사항") + ","
+                        + csv("two-pass 문항") + ","
+                        + csv("two-pass 답변") + ",80,"
+                        + csv("[]") + ","
+                        + csv("[]") + ","
+                        + csv(rawLlmResponseJson()) + ",,"
+                        + "\n",
+                StandardCharsets.UTF_8
+        );
+        Path output = tempDir.resolve("judge_two_pass.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(NlgEvaluationAiClient.NlgJudgeInput.class);
+        verify(aiClient).evaluate(captor.capture());
+        assertThat(captor.getValue().mainTasks()).isEqualTo("two-pass 주요 업무");
+        assertThat(captor.getValue().answer()).isEqualTo("two-pass 답변");
+    }
+
+    @Test
+    @DisplayName("입력 문맥이 JSON 컬럼 내부에 있으면 안전하게 추출한다")
+    void readsInputContextFromJsonColumn() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        stubJudge(aiClient, "EV-13");
+        Path input = tempDir.resolve("json_context.csv");
+        String inputJson = objectMapper.writeValueAsString(Map.of(
+                "mainTasks", "JSON 주요 업무",
+                "qualifications", "JSON 자격요건",
+                "preferences", "JSON 우대사항",
+                "question", "JSON 문항",
+                "answer", "JSON 답변"
+        ));
+        Files.writeString(
+                input,
+                "caseId,inputJson,aiQuestionAnalysesJson,aiMissingKeywordsJson,rawLlmResponseJson\n"
+                        + csv("EV-13") + ","
+                        + csv(inputJson) + ","
+                        + csv("[]") + ","
+                        + csv("[]") + ","
+                        + csv(rawLlmResponseJson()) + "\n",
+                StandardCharsets.UTF_8
+        );
+        Path output = tempDir.resolve("judge_json_context.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(NlgEvaluationAiClient.NlgJudgeInput.class);
+        verify(aiClient).evaluate(captor.capture());
+        assertThat(captor.getValue().mainTasks()).isEqualTo("JSON 주요 업무");
+        assertThat(captor.getValue().question()).isEqualTo("JSON 문항");
+    }
+
+    @Test
+    @DisplayName("필수 컬럼과 보강 원본이 모두 없으면 명확한 예외를 반환한다")
+    void rejectsMissingRequiredInputHeaders() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        Path input = tempDir.resolve("missing_headers.csv");
+        Files.writeString(
+                input,
+                "caseId,aiQuestionAnalysesJson,aiMissingKeywordsJson,rawLlmResponseJson\n"
+                        + csv("EV-14") + ",[],[]," + csv(rawLlmResponseJson()) + "\n",
+                StandardCharsets.UTF_8
+        );
+
+        assertThatThrownBy(() -> new NlgEvaluationBatchService(aiClient, objectMapper)
+                .run(input, tempDir.resolve("missing_headers_output.csv")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("missing required headers or source data")
+                .hasMessageContaining("mainTasks")
+                .hasMessageContaining("evaluation_cases_reviewed.csv");
+    }
+
+    @Test
+    @DisplayName("필수 셀이 비어 있으면 실패 행으로 기록한다")
+    void recordsFailureForBlankRequiredCells() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        Path input = tempDir.resolve("blank_cell.csv");
+        Files.writeString(
+                input,
+                "caseId,mainTasks,qualifications,question,answer,aiQuestionAnalysesJson,aiMissingKeywordsJson,rawLlmResponseJson\n"
+                        + csv("EV-15") + ","
+                        + csv("") + ","
+                        + csv("자격요건") + ","
+                        + csv("문항") + ","
+                        + csv("답변") + ","
+                        + csv("[]") + ","
+                        + csv("[]") + ","
+                        + csv(rawLlmResponseJson()) + "\n",
+                StandardCharsets.UTF_8
+        );
+        Path output = tempDir.resolve("blank_cell_output.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("caseId")).isEqualTo("EV-15");
+        assertThat(row.get("failureStage")).isEqualTo("judge_validation_failed");
+    }
+
+    @Test
+    @DisplayName("UTF-8 BOM이 있는 CSV 헤더도 정상 처리한다")
+    void readsCsvWithUtf8Bom() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        stubJudge(aiClient, "EV-16");
+        Path input = tempDir.resolve("bom.csv");
+        Files.writeString(
+                input,
+                "\uFEFFcaseId,mainTasks,qualifications,preferences,question,answer,aiQuestionAnalysesJson,aiMissingKeywordsJson,rawLlmResponseJson\n"
+                        + csv("EV-16") + ","
+                        + csv("BOM 주요 업무") + ","
+                        + csv("BOM 자격요건") + ","
+                        + csv("") + ","
+                        + csv("BOM 문항") + ","
+                        + csv("BOM 답변") + ","
+                        + csv("[]") + ","
+                        + csv("[]") + ","
+                        + csv(rawLlmResponseJson()) + "\n",
+                StandardCharsets.UTF_8
+        );
+        Path output = tempDir.resolve("bom_output.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(NlgEvaluationAiClient.NlgJudgeInput.class);
+        verify(aiClient).evaluate(captor.capture());
+        assertThat(captor.getValue().caseId()).isEqualTo("EV-16");
+        assertThat(captor.getValue().mainTasks()).isEqualTo("BOM 주요 업무");
+    }
+
+    @Test
     @DisplayName("비교 리포트는 치명 오류율과 평균 지표를 함께 출력한다")
     void writesComparisonReport() throws Exception {
         Path judgeResult = tempDir.resolve("judge_result.csv");
@@ -414,16 +609,6 @@ class NlgEvaluationBatchServiceTest {
 
     private Path writeJudgeInput(String caseId, String analysesJson) throws Exception {
         Path input = tempDir.resolve(caseId + ".csv");
-        String rawLlmResponseJson = objectMapper.writeValueAsString(new AnalysisLlmResponse(
-                70,
-                60,
-                65,
-                "피드백",
-                List.of(new AnalysisLlmResponse.HighlightItem("강점", "좋은 문장")),
-                List.of(),
-                List.of(),
-                List.of()
-        ));
         Files.writeString(
                 input,
                 String.join(",", List.of(
@@ -447,12 +632,82 @@ class NlgEvaluationBatchServiceTest {
                         + csv("좋은 문장을 문제로 잡았습니다. 입사 후 SQL로 자동화하겠습니다.") + ","
                         + csv(analysesJson) + ","
                         + csv("[]") + ","
-                        + csv(rawLlmResponseJson) + ","
+                        + csv(rawLlmResponseJson()) + ","
                         + csv("") + ","
                         + csv("") + "\n",
                 StandardCharsets.UTF_8
         );
         return input;
+    }
+
+    private void stubJudge(NlgEvaluationAiClient aiClient, String caseId) {
+        when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
+                new NlgEvaluationResponse(
+                        caseId,
+                        List.of(),
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        List.of(NlgEvaluationErrorCode.NONE),
+                        "정상 평가입니다."
+                ),
+                100L,
+                10,
+                20
+        ));
+    }
+
+    private void writeSourceCases(
+            String caseId,
+            String mainTasks,
+            String qualifications,
+            String preferences,
+            String question,
+            String answer
+    ) throws Exception {
+        Files.writeString(
+                tempDir.resolve("evaluation_cases_reviewed.csv"),
+                "caseId,mainTasks,qualifications,preferences,question,answer\n"
+                        + csv(caseId) + ","
+                        + csv(mainTasks) + ","
+                        + csv(qualifications) + ","
+                        + csv(preferences) + ","
+                        + csv(question) + ","
+                        + csv(answer) + "\n",
+                StandardCharsets.UTF_8
+        );
+    }
+
+    private Path writeResultOnlyInput(String caseId) throws Exception {
+        Path input = tempDir.resolve("v5a_result.csv");
+        Files.writeString(
+                input,
+                "caseId,jobCategoryMiddle,jobCategorySmall,aiScore,aiJobFit,aiImpact,aiCompleteness,aiFeedback,aiMissingKeywordsJson,aiQuestionAnalysesJson,rawLlmResponseJson,errorMessage,createdAt\n"
+                        + csv(caseId) + ",중분류,소분류,80,80,80,80,"
+                        + csv("피드백") + ","
+                        + csv("[]") + ","
+                        + csv("[]") + ","
+                        + csv(rawLlmResponseJson()) + ",,"
+                        + csv("2026-07-23T00:00:00") + "\n",
+                StandardCharsets.UTF_8
+        );
+        return input;
+    }
+
+    private String rawLlmResponseJson() throws Exception {
+        return objectMapper.writeValueAsString(new AnalysisLlmResponse(
+                70,
+                60,
+                65,
+                "피드백",
+                List.of(new AnalysisLlmResponse.HighlightItem("강점", "좋은 문장")),
+                List.of(),
+                List.of(),
+                List.of()
+        ));
     }
 
     private String analysesJson(List<EvaluationQuestionAnalysisResult> analyses) throws Exception {

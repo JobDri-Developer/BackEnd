@@ -12,10 +12,12 @@ import org.springframework.util.StringUtils;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -26,7 +28,24 @@ class NlgEvaluationBatchService {
     private static final int MIN_SCORE = 1;
     private static final int MAX_SCORE = 5;
     private static final int MAX_SHORT_RATIONALE_LENGTH = 300;
-    private static final List<String> REQUIRED_HEADERS = List.of(
+    private static final String DEFAULT_SOURCE_CASES_FILE = "evaluation_cases_reviewed.csv";
+    private static final Map<String, List<String>> HEADER_ALIASES = Map.of(
+            "caseId", List.of("caseId"),
+            "mainTasks", List.of("mainTasks"),
+            "qualifications", List.of("qualifications"),
+            "preferences", List.of("preferences"),
+            "question", List.of("question"),
+            "answer", List.of("answer"),
+            "aiQuestionAnalysesJson", List.of("aiQuestionAnalysesJson", "questionAnalysesJson"),
+            "aiMissingKeywordsJson", List.of("aiMissingKeywordsJson", "missingKeywordsJson"),
+            "rawLlmResponseJson", List.of("rawLlmResponseJson")
+    );
+    private static final List<String> INPUT_JSON_HEADERS = List.of(
+            "inputJson",
+            "sourceInputJson",
+            "evaluationInputJson"
+    );
+    private static final List<String> REQUIRED_LOGICAL_FIELDS = List.of(
             "caseId",
             "mainTasks",
             "qualifications",
@@ -42,16 +61,20 @@ class NlgEvaluationBatchService {
 
     NlgEvaluationSummary run(Path inputPath, Path outputPath) throws IOException {
         validateDifferentFiles(inputPath, outputPath);
-        validateHeaders(EvaluationCsvSupport.readHeaders(inputPath));
-
+        List<String> inputHeaders = EvaluationCsvSupport.readHeaders(inputPath);
         List<Map<String, String>> rows = EvaluationCsvSupport.read(inputPath);
+        SourceCaseRows sourceCaseRows = loadSourceCaseRowsIfNeeded(inputPath, inputHeaders);
+        ResolvedHeaders resolvedHeaders = resolveHeaders(inputHeaders, sourceCaseRows.headers());
+        validateHeaders(inputPath, resolvedHeaders, sourceCaseRows);
+        log.info("NLG judge input headers resolved. {}", resolvedHeaders.logSummary());
+
         List<NlgEvaluationResult> results = new ArrayList<>();
         int successCount = 0;
 
         for (Map<String, String> row : rows) {
-            String caseId = value(row, "caseId");
+            String caseId = resolvedValue(row, sourceCaseRows, resolvedHeaders, "caseId");
             try {
-                NlgEvaluationAiClient.NlgJudgeInput input = buildJudgeInput(inputPath, row);
+                NlgEvaluationAiClient.NlgJudgeInput input = buildJudgeInput(inputPath, row, sourceCaseRows, resolvedHeaders);
                 NlgEvaluationAiClient.JudgeCallResult callResult = nlgEvaluationAiClient.evaluate(input);
                 NlgEvaluationResult result = validateAndBuildResult(input, callResult);
                 results.add(result);
@@ -82,19 +105,26 @@ class NlgEvaluationBatchService {
         return new NlgEvaluationComparisonSummary(inputPaths.size(), outputPath);
     }
 
-    private NlgEvaluationAiClient.NlgJudgeInput buildJudgeInput(Path inputPath, Map<String, String> row) {
-        List<EvaluationQuestionAnalysisResult> questionAnalyses = readQuestionAnalyses(value(row, "aiQuestionAnalysesJson"));
+    private NlgEvaluationAiClient.NlgJudgeInput buildJudgeInput(
+            Path inputPath,
+            Map<String, String> row,
+            SourceCaseRows sourceCaseRows,
+            ResolvedHeaders resolvedHeaders
+    ) {
+        String caseId = resolvedValue(row, sourceCaseRows, resolvedHeaders, "caseId");
+        String questionAnalysesJson = resolvedValue(row, sourceCaseRows, resolvedHeaders, "aiQuestionAnalysesJson");
+        List<EvaluationQuestionAnalysisResult> questionAnalyses = readQuestionAnalyses(questionAnalysesJson);
         return new NlgEvaluationAiClient.NlgJudgeInput(
-                value(row, "caseId"),
+                caseId,
                 inputPath.toString(),
-                value(row, "mainTasks"),
-                value(row, "qualifications"),
-                value(row, "preferences"),
-                value(row, "question"),
-                value(row, "answer"),
-                value(row, "aiQuestionAnalysesJson"),
-                readKeyStrengthsJson(value(row, "rawLlmResponseJson")),
-                value(row, "aiMissingKeywordsJson"),
+                requiredResolvedValue(row, sourceCaseRows, resolvedHeaders, "mainTasks", caseId),
+                requiredResolvedValue(row, sourceCaseRows, resolvedHeaders, "qualifications", caseId),
+                resolvedValue(row, sourceCaseRows, resolvedHeaders, "preferences"),
+                requiredResolvedValue(row, sourceCaseRows, resolvedHeaders, "question", caseId),
+                requiredResolvedValue(row, sourceCaseRows, resolvedHeaders, "answer", caseId),
+                questionAnalysesJson,
+                readKeyStrengthsJson(resolvedValue(row, sourceCaseRows, resolvedHeaders, "rawLlmResponseJson")),
+                resolvedValue(row, sourceCaseRows, resolvedHeaders, "aiMissingKeywordsJson"),
                 value(row, "rawCandidateResponseJson"),
                 value(row, "candidateReviewResponseJson"),
                 questionAnalyses
@@ -368,13 +398,79 @@ class NlgEvaluationBatchService {
         }
     }
 
-    private void validateHeaders(List<String> headers) {
-        Set<String> headerSet = new HashSet<>(headers);
-        List<String> missingHeaders = REQUIRED_HEADERS.stream()
-                .filter(header -> !headerSet.contains(header))
+    private SourceCaseRows loadSourceCaseRowsIfNeeded(Path inputPath, List<String> inputHeaders) throws IOException {
+        boolean hasAllContextHeaders = List.of("mainTasks", "qualifications", "question", "answer").stream()
+                .allMatch(field -> directHeader(inputHeaders, field).isPresent());
+        if (hasAllContextHeaders) {
+            return SourceCaseRows.empty();
+        }
+
+        Path sourcePath = inputPath.toAbsolutePath().normalize().getParent();
+        if (sourcePath == null) {
+            return SourceCaseRows.empty();
+        }
+        sourcePath = sourcePath.resolve(DEFAULT_SOURCE_CASES_FILE);
+        if (!java.nio.file.Files.isRegularFile(sourcePath)) {
+            return SourceCaseRows.empty();
+        }
+
+        List<String> sourceHeaders = EvaluationCsvSupport.readHeaders(sourcePath);
+        Map<String, Map<String, String>> rowsByCaseId = EvaluationCsvSupport.read(sourcePath).stream()
+                .filter(row -> StringUtils.hasText(value(row, "caseId")))
+                .collect(Collectors.toMap(
+                        row -> value(row, "caseId"),
+                        row -> row,
+                        (first, ignored) -> first,
+                        LinkedHashMap::new
+                ));
+        return new SourceCaseRows(sourcePath, sourceHeaders, rowsByCaseId);
+    }
+
+    private ResolvedHeaders resolveHeaders(List<String> inputHeaders, List<String> sourceHeaders) {
+        Map<String, ResolvedHeader> resolved = new LinkedHashMap<>();
+        for (String logicalField : REQUIRED_LOGICAL_FIELDS) {
+            resolved.put(logicalField, resolveHeader(logicalField, inputHeaders, sourceHeaders));
+        }
+        resolved.put("preferences", resolveHeader("preferences", inputHeaders, sourceHeaders));
+        return new ResolvedHeaders(resolved);
+    }
+
+    private ResolvedHeader resolveHeader(String logicalField, List<String> inputHeaders, List<String> sourceHeaders) {
+        Optional<String> inputHeader = directHeader(inputHeaders, logicalField);
+        if (inputHeader.isPresent()) {
+            return ResolvedHeader.input(inputHeader.get());
+        }
+        Optional<String> sourceHeader = directHeader(sourceHeaders, logicalField);
+        if (sourceHeader.isPresent()) {
+            return ResolvedHeader.source(sourceHeader.get());
+        }
+        if (inputHeaders != null && inputHeaders.stream().anyMatch(INPUT_JSON_HEADERS::contains)) {
+            return ResolvedHeader.json(logicalField);
+        }
+        return ResolvedHeader.missing(logicalField);
+    }
+
+    private Optional<String> directHeader(List<String> headers, String logicalField) {
+        Set<String> headerSet = new HashSet<>(headers == null ? List.of() : headers);
+        return HEADER_ALIASES.getOrDefault(logicalField, List.of(logicalField)).stream()
+                .filter(headerSet::contains)
+                .findFirst();
+    }
+
+    private void validateHeaders(Path inputPath, ResolvedHeaders resolvedHeaders, SourceCaseRows sourceCaseRows) {
+        List<String> missingHeaders = REQUIRED_LOGICAL_FIELDS.stream()
+                .filter(field -> !resolvedHeaders.has(field, sourceCaseRows))
                 .toList();
         if (!missingHeaders.isEmpty()) {
-            throw new IllegalArgumentException("NLG judge input CSV missing required headers: " + missingHeaders);
+            throw new IllegalArgumentException(
+                    "NLG judge input CSV missing required headers or source data: "
+                            + missingHeaders
+                            + ". input="
+                            + inputPath
+                            + ", expected direct headers or "
+                            + DEFAULT_SOURCE_CASES_FILE
+                            + " with caseId/mainTasks/qualifications/question/answer."
+            );
         }
     }
 
@@ -529,6 +625,70 @@ class NlgEvaluationBatchService {
         return row.getOrDefault(key, "");
     }
 
+    private String requiredResolvedValue(
+            Map<String, String> row,
+            SourceCaseRows sourceCaseRows,
+            ResolvedHeaders resolvedHeaders,
+            String logicalField,
+            String caseId
+    ) {
+        String value = resolvedValue(row, sourceCaseRows, resolvedHeaders, logicalField);
+        if (!StringUtils.hasText(value)) {
+            throw new IllegalArgumentException(
+                    "NLG judge input CSV has blank required field. caseId="
+                            + caseId
+                            + ", field="
+                            + logicalField
+                            + ", resolvedHeader="
+                            + resolvedHeaders.describe(logicalField)
+            );
+        }
+        return value;
+    }
+
+    private String resolvedValue(
+            Map<String, String> row,
+            SourceCaseRows sourceCaseRows,
+            ResolvedHeaders resolvedHeaders,
+            String logicalField
+    ) {
+        ResolvedHeader resolvedHeader = resolvedHeaders.get(logicalField);
+        if (resolvedHeader == null) {
+            return "";
+        }
+        if (resolvedHeader.location() == HeaderLocation.INPUT) {
+            return value(row, resolvedHeader.headerName());
+        }
+        if (resolvedHeader.location() == HeaderLocation.SOURCE) {
+            String caseId = value(row, resolvedHeaders.get("caseId").headerName());
+            return value(sourceCaseRows.row(caseId), resolvedHeader.headerName());
+        }
+        if (resolvedHeader.location() == HeaderLocation.MISSING) {
+            return "";
+        }
+        return valueFromJson(row, logicalField);
+    }
+
+    private String valueFromJson(Map<String, String> row, String logicalField) {
+        for (String header : INPUT_JSON_HEADERS) {
+            String json = value(row, header);
+            if (!StringUtils.hasText(json)) {
+                continue;
+            }
+            try {
+                Map<String, Object> values = objectMapper.readValue(json, new TypeReference<>() {
+                });
+                Object value = values.get(logicalField);
+                if (value instanceof String text && StringUtils.hasText(text)) {
+                    return text;
+                }
+            } catch (JsonProcessingException ignored) {
+                // Ignore non-object or malformed JSON fields and continue with other sources.
+            }
+        }
+        return "";
+    }
+
     private String failureStage(Exception e) {
         if (e instanceof JsonProcessingException || e instanceof IllegalArgumentException) {
             return "judge_validation_failed";
@@ -548,5 +708,84 @@ class NlgEvaluationBatchService {
             int fileCount,
             Path outputPath
     ) {
+    }
+
+    private enum HeaderLocation {
+        INPUT,
+        SOURCE,
+        JSON,
+        MISSING
+    }
+
+    private record ResolvedHeader(HeaderLocation location, String headerName) {
+        static ResolvedHeader input(String headerName) {
+            return new ResolvedHeader(HeaderLocation.INPUT, headerName);
+        }
+
+        static ResolvedHeader source(String headerName) {
+            return new ResolvedHeader(HeaderLocation.SOURCE, headerName);
+        }
+
+        static ResolvedHeader json(String logicalField) {
+            return new ResolvedHeader(HeaderLocation.JSON, logicalField);
+        }
+
+        static ResolvedHeader missing(String logicalField) {
+            return new ResolvedHeader(HeaderLocation.MISSING, logicalField);
+        }
+
+        String describe() {
+            return switch (location) {
+                case INPUT -> headerName;
+                case SOURCE -> DEFAULT_SOURCE_CASES_FILE + ":" + headerName;
+                case JSON -> "json:" + headerName;
+                case MISSING -> "missing:" + headerName;
+            };
+        }
+    }
+
+    private record ResolvedHeaders(Map<String, ResolvedHeader> headers) {
+        ResolvedHeader get(String logicalField) {
+            return headers.get(logicalField);
+        }
+
+        boolean has(String logicalField, SourceCaseRows sourceCaseRows) {
+            ResolvedHeader header = get(logicalField);
+            if (header == null) {
+                return false;
+            }
+            if (header.location() == HeaderLocation.SOURCE) {
+                return sourceCaseRows.hasRows();
+            }
+            return header.location() == HeaderLocation.INPUT || header.location() == HeaderLocation.JSON;
+        }
+
+        String describe(String logicalField) {
+            ResolvedHeader header = get(logicalField);
+            return header == null ? "" : header.describe();
+        }
+
+        String logSummary() {
+            return headers.entrySet().stream()
+                    .map(entry -> entry.getKey() + "=" + entry.getValue().describe())
+                    .collect(Collectors.joining(", "));
+        }
+    }
+
+    private record SourceCaseRows(Path path, List<String> headers, Map<String, Map<String, String>> rowsByCaseId) {
+        static SourceCaseRows empty() {
+            return new SourceCaseRows(null, List.of(), Map.of());
+        }
+
+        boolean hasRows() {
+            return !rowsByCaseId.isEmpty();
+        }
+
+        Map<String, String> row(String caseId) {
+            if (!StringUtils.hasText(caseId)) {
+                return Map.of();
+            }
+            return rowsByCaseId.getOrDefault(caseId, Map.of());
+        }
     }
 }
