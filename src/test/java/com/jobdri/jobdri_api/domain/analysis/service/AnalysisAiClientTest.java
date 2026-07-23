@@ -14,6 +14,7 @@ import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
+import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.openai.client.OpenAIClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -32,6 +33,7 @@ class AnalysisAiClientTest {
             mock(CorpusRetrievalService.class),
             mock(LlmConcurrencyLimiter.class),
             new FewShotPromptProvider(),
+            mock(AsyncMetricsRecorder.class),
             new ObjectMapper()
     );
 

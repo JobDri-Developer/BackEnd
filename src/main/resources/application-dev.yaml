@@ -76,6 +76,9 @@ mail:
   from: ${MAIL_FROM:${MAIL_USERNAME:}}
 
 app:
+  logging:
+    path: ${APP_LOG_PATH:logs}
+    audit-path: ${APP_AUDIT_LOG_PATH:logs/audit}
   oauth2:
     redirect-uri: ${APP_OAUTH2_REDIRECT_URI:http://localhost:3000/oauth2/redirect}
   worker:
@@ -116,6 +119,27 @@ app:
 
 server:
   port: 8080
+
+management:
+  server:
+    port: 9090
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http:
+          server:
+            requests: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+    prometheus:
+      access: unrestricted
 
 jwt:
   secret:

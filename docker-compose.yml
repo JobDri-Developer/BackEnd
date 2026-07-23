@@ -23,8 +23,12 @@ services:
       RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       APP_WORKER_INTERNAL_API_KEY: ${APP_WORKER_INTERNAL_API_KEY:-change-me-internal-worker-key}
+      APP_LOG_PATH: ${APP_LOG_PATH:-/var/log/spring-boot}
+      APP_AUDIT_LOG_PATH: ${APP_AUDIT_LOG_PATH:-/var/log/spring-boot/audit}
     ports:
       - "8080:8080"
+    volumes:
+      - spring-boot-logs:/var/log/spring-boot
     depends_on:
       postgres:
         condition: service_healthy
@@ -114,5 +118,78 @@ services:
       retries: 10
     restart: unless-stopped
 
+  loki:
+    image: grafana/loki:3.5.6
+    container_name: jobdri-loki
+    command: ["-config.file=/etc/loki/local-config.yaml"]
+    volumes:
+      - ./ops/observability/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - loki-data:/loki
+    ports:
+      - "3100:3100"
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.10.2
+    container_name: jobdri-alloy
+    command:
+      - run
+      - /etc/alloy/config.alloy
+      - --storage.path=/var/lib/alloy
+    volumes:
+      - ./ops/observability/alloy-config.alloy:/etc/alloy/config.alloy:ro
+      - spring-boot-logs:/var/log/spring-boot:ro
+      - alloy-data:/var/lib/alloy
+    depends_on:
+      - api
+      - loki
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    container_name: jobdri-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    volumes:
+      - ./ops/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    depends_on:
+      - api
+      - node-exporter
+    restart: unless-stopped
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    container_name: jobdri-node-exporter
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    pid: host
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    container_name: jobdri-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    depends_on:
+      - loki
+      - prometheus
+    restart: unless-stopped
+
 volumes:
   postgres-data:
+  spring-boot-logs:
+  loki-data:
+  alloy-data:
+  prometheus-data:
+  grafana-data:

@@ -18,6 +18,7 @@ import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingImageStorageSer
 import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.openai.client.OpenAIClient;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -61,6 +62,9 @@ class JobPostingAiServiceTest {
     @Mock
     private LlmConcurrencyLimiter llmConcurrencyLimiter;
 
+    @Mock
+    private AsyncMetricsRecorder asyncMetricsRecorder;
+
     private JobPostingAiService jobPostingAiService;
 
     @BeforeEach
@@ -70,7 +74,8 @@ class JobPostingAiServiceTest {
                 detailClassificationRepository,
                 corpusRetrievalService,
                 jobPostingImageStorageService,
-                llmConcurrencyLimiter
+                llmConcurrencyLimiter,
+                asyncMetricsRecorder
         );
         ReflectionTestUtils.setField(TEST_COMPANY, "id", 1L);
         ReflectionTestUtils.setField(TEST_USER, "id", 1L);

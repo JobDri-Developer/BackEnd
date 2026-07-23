@@ -1,4 +1,6 @@
 # JobDri SERVER
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/7c3f119d-420f-4c6b-a5ff-a6f0377c4306" />
+
 
 **AI 기반 채용 공고 정리 · 모의 지원서 생성 · 자소서 분석 플랫폼 `JobDri`의 백엔드 서버**입니다.
 
@@ -23,6 +25,30 @@ Server: `https://api.jobdri.site`
    작성한 답변을 AI가 비동기로 분석하고, 점수/피드백/문항별 코멘트/누락 키워드를 저장합니다.
 4. **실시간 상태 추적**
    긴 작업은 `RabbitMQ + 외부 FastAPI worker + internal callback API + SSE` 구조로 처리하며, 사용자는 진행 상태와 완료 알림을 실시간으로 확인할 수 있습니다.
+
+## Contributors
+
+<table>
+  <tr>
+    <td align="center" width="220">
+       <img width="257" height="417" alt="image" src="https://github.com/user-attachments/assets/000db60f-10b9-4239-b16e-5ba0df4c6d87" />
+      <br />
+      <strong><a href="https://github.com/shinae1023">@shinae1023</a></strong>
+      <br />
+      <br />
+      <sub>역할입력</sub>
+    </td>
+    <td align="center" width="220">
+      <img width="257" height="417" alt="image" src="https://github.com/user-attachments/assets/9eeffead-ddfc-4556-9e33-8aa455fdd000" />
+      <br />
+      <strong><a href="https://github.com/whc9999">@whc9999</a></strong>
+      <br />
+      <br />
+      <sub>역할입력</sub>
+    </td>
+  </tr>
+</table>
+
 
 ## 🔄 Core Flow
 
@@ -127,90 +153,6 @@ Server: `https://api.jobdri.site`
 - 비동기 task timeout sweep 스케줄러
 - 감사 로그 AOP (`@AuditLogEvent`)
 
-## 🔍 상세 기능 명세
-
-### 🧩 인증 및 유저
-
-- `POST /api/auth/email-verifications`
-- `POST /api/auth/email-verifications/confirmations`
-- `POST /api/auth/signup`
-- `POST /api/auth/login`
-- `POST /api/auth/reissue`
-- `POST /api/auth/logout`
-- `GET /oauth2/authorization/google`
-- `GET /login/oauth2/code/google`
-
-### 🗂️ 직무 분류
-
-- `GET /api/classifications`
-- `GET /api/classifications/{bigId}/middles`
-- `GET /api/classifications/middles/{middleId}/details`
-
-### 📝 채용 공고
-
-- `POST /api/job-postings`
-- `PATCH /api/job-postings/{jobPostingId}`
-- `GET /api/job-postings/me`
-- `GET /api/job-postings/me/{jobPostingId}`
-- `DELETE /api/job-postings/{jobPostingId}`
-- `POST /api/job-postings/generate`
-- `POST /api/job-postings/extract`
-- `POST /api/job-postings/ingest`
-- `GET /api/job-postings/ingest/async/{taskId}`
-- `GET /api/job-postings/ingest/async/{taskId}/stream`
-- `POST /api/job-postings/images/presign-upload`
-- `POST /api/job-postings/extension/ingest`
-
-### 🎯 모의 공고 / 모의 지원
-
-- `POST /api/job-postings/mock/generate`
-- `GET /api/job-postings/mock/questions`
-- `POST /api/job-postings/mock/questions`
-- `GET /api/mock-applies/me`
-- `POST /api/mock-applies/actual`
-- `POST /api/mock-applies/mock/from-job-posting`
-- `POST /api/mock-applies/mock`
-- `POST /api/mock-applies/{mockApplyId}/retry`
-- `GET /api/mock-applies/{mockApplyId}/job-posting`
-- `GET /api/mock-applies/{mockApplyId}/sequence`
-
-### ✍️ 문항 / 답변 / 분석
-
-- `GET /api/mock-applies/{mockApplyId}/questions/candidates`
-- `POST /api/mock-applies/{mockApplyId}/questions/candidates`
-- `GET /api/mock-applies/{mockApplyId}/questions`
-- `PUT /api/mock-applies/{mockApplyId}/questions`
-- `PATCH /api/mock-applies/{mockApplyId}/questions/answers`
-- `POST /api/mock-applies/{mockApplyId}/analysis`
-- `GET /api/mock-applies/{mockApplyId}/analysis`
-- `GET /api/mock-applies/{mockApplyId}/analysis/async/{taskId}`
-- `GET /api/mock-applies/{mockApplyId}/analysis/async/{taskId}/stream`
-- `GET /api/job-postings/{jobPostingId}/analysis`
-
-### 💳 결제 / 크레딧
-
-- `GET /api/payments/plans`
-- `POST /api/payments/prepare`
-- `POST /api/payments/confirm`
-- `GET /api/payments/credits/me`
-- `GET /api/payments/credits/me/transactions`
-
-### 🔔 알림
-
-- `GET /api/notifications`
-- `GET /api/notifications/unread-count`
-- `GET /api/notifications/stream`
-- `PATCH /api/notifications/{notificationId}/read`
-- `PATCH /api/notifications/read-all`
-
-### 🛠️ 관리자 / 워커 내부 API
-
-- `POST /api/admin/corpus/import`
-- `POST /api/admin/corpus/import/upload`
-- `POST /api/admin/corpus/embeddings/sync`
-- `POST /api/admin/analysis/retrieval-preview`
-- `POST /api/internal/worker/job-postings/...`
-- `POST /api/internal/worker/analysis/...`
 
 ## 🏛️ System Architecture
 
@@ -278,6 +220,14 @@ sequenceDiagram
 6. worker가 AI 처리 결과를 internal callback API로 완료/실패 반영합니다.
 7. Spring 서버가 DB 저장, 알림 생성, SSE 상태 전파를 수행합니다.
 
+## 📈 Observability Notes
+
+- `ops/observability/prometheus.yml`의 `analysis_worker` scrape job은 `worker:8000/metrics`를 기본값으로 사용합니다.
+- 이 설정은 Docker Compose 안의 `worker` 서비스가 별도 FastAPI worker 이미지를 실행하고, 그 이미지가 `0.0.0.0:8000`에서 `/metrics`를 노출할 때만 유효합니다.
+- 이 repo 루트의 [Dockerfile](/Users/shinae/Desktop/ceos/Dockerfile)는 Spring Boot API 이미지용이며 `8080`만 노출합니다. 즉, 루트 Dockerfile만 기준으로 보면 `analysis_worker` target의 `/metrics`는 제공되지 않습니다.
+- 배포 환경의 worker 이미지가 `/metrics`를 열지 않는다면 Prometheus에서 `analysis_worker` target은 `DOWN`으로 보일 수 있습니다.
+- 이 경우에는 `analysis_worker` scrape target을 실제 worker metrics endpoint로 바꾸거나, 아직 worker metrics를 배포하지 않았다면 해당 job을 제거한 뒤 API 메트릭만 먼저 수집하는 구성이 맞습니다.
+
 ## 📂 Project Structure
 
 ```bash
@@ -308,65 +258,6 @@ com.jobdri.jobdri_api
     └── schema.sql
 ```
 
-## 🚀 Local Run
-
-### 1. 애플리케이션 실행
-
-```bash
-cp .env.example .env
-./gradlew bootRun
-```
-
-기본 포트:
-
-- API: `http://localhost:8080`
-- Swagger: `http://localhost:8080/swagger-ui/index.html`
-
-### 2. 테스트 실행
-
-```bash
-./gradlew test
-```
-
-테스트 환경은 `H2 (MODE=PostgreSQL)`를 사용합니다.
-
-### 3. Docker Compose
-
-```bash
-cp .env.example .env
-docker compose up --build
-```
-
-포함 의도 서비스:
-
-- Spring Boot API
-- PostgreSQL
-- Redis
-- RabbitMQ
-- external FastAPI worker 연결용 worker service 정의
-
-
-## ⚙️ Environment
-
-주요 환경 변수:
-
-- `DB_URL`, `DB_USERNAME`, `DB_PASSWORD`
-- `REDIS_HOST`, `REDIS_PORT`
-- `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USERNAME`, `RABBITMQ_PASSWORD`
-- `JWT_SECRET_KEY`, `JWT_ACCESS_TOKEN_EXPIRATION`, `JWT_REFRESH_TOKEN_EXPIRATION`
-- `MAIL_HOST`, `MAIL_USERNAME`, `MAIL_PASSWORD`
-- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
-- `OPENAI_API_KEY`
-- `COHERE_API_KEY`
-- `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `S3_BUCKET`
-- `TOSS_CLIENT_KEY`, `TOSS_SECRET_KEY`
-- `APP_WORKER_INTERNAL_API_KEY`
-
-worker 연동 관련 기본 queue 설정:
-
-- `APP_WORKER_JOB_POSTING_QUEUE=jobdri.job-posting.ingest`
-- `APP_WORKER_ANALYSIS_QUEUE=jobdri.analysis.execute`
-
 ## 🧠 Corpus / Retrieval
 
 이 프로젝트는 단순 LLM 호출만 사용하는 구조가 아니라, corpus 기반 retrieval를 함께 사용합니다.
@@ -377,35 +268,6 @@ worker 연동 관련 기본 queue 설정:
 - pgvector 저장
 - 모의 공고 생성 및 자소서 분석 시 retrieval context 참고
 - 관리자 preview API로 retrieval 결과 사전 점검 가능
-
-Python 스크립트도 포함되어 있습니다.
-
-- `scripts/import_corpus.py`
-- `scripts/sync_corpus_embeddings.py`
-
-## 🚀 Deployment Pipeline
-
-GitHub Actions 기준 배포 흐름:
-
-1. `main`, `dev` 브랜치 push 또는 PR 발생
-2. CI에서 JDK 21 기반 `./gradlew clean test` 실행
-3. Docker image build
-4. Deploy workflow에서 GHCR에 이미지 push
-5. 배포 secret이 존재하면 원격 서버에 SSH 접속
-6. 서버에서 `docker compose -f docker-compose.prod.yml pull api`
-7. `docker compose -f docker-compose.prod.yml up -d api`
-
-## 📝 API Documentation
-
-SpringDoc Swagger UI:
-
-- Local: `http://localhost:8080/swagger-ui/index.html`
-- Production: `https://api.jobdri.site/swagger-ui/index.html`
-
-추가 공개 경로:
-
-- OpenAPI docs: `/v3/api-docs`
-- Health check: `/actuator/health`
 
 ## 📌 현재 구현 범위
 

@@ -4,6 +4,7 @@ import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.logging.LoggingContext;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -22,6 +23,8 @@ import java.nio.charset.StandardCharsets;
 import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @Component
 @RequiredArgsConstructor
@@ -56,8 +59,12 @@ public class TossPaymentClient {
     }
 
     public TossPaymentConfirmResponse confirm(String paymentKey, String orderId, int amount) {
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderId, paymentKey, amount);
+        try (var ignored = LoggingContext.with("payment.confirm.external_called", null, paymentContext)) {
+            log.info("Calling Toss payment confirm API");
+        }
         try {
-            return restClient
+            TossPaymentConfirmResponse response = restClient
                     .post()
                     .uri("/v1/payments/confirm")
                     .header(HttpHeaders.AUTHORIZATION, authorizationHeader())
@@ -66,38 +73,54 @@ public class TossPaymentClient {
                     .body(new TossPaymentConfirmRequest(paymentKey, orderId, amount))
                     .retrieve()
                     .body(TossPaymentConfirmResponse.class);
+            try (var ignored = LoggingContext.with("payment.confirm.external_succeeded", null, paymentContext)) {
+                log.info("Toss payment confirm API succeeded");
+            }
+            return response;
         } catch (HttpStatusCodeException e) {
-            log.warn(
-                    "Toss payment confirm failed. status={}, response={}",
-                    e.getStatusCode(),
-                    truncate(e.getResponseBodyAsString())
-            );
-            log.warn("Toss payment confirm exception", e);
+            try (var ignored = LoggingContext.with("payment.confirm.failed", GeneralErrorCode.PAYMENT_CONFIRM_FAILED, paymentContext)) {
+                log.warn(
+                        "Toss payment confirm failed. status={}, response={}",
+                        e.getStatusCode(),
+                        truncate(e.getResponseBodyAsString())
+                );
+                log.warn("Toss payment confirm exception", e);
+            }
             throw new GeneralException(
                     GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
-                    "토스페이먼츠 결제 승인 실패"
+                    "토스페이먼츠 결제 승인 실패",
+                    e
             );
         } catch (ResourceAccessException e) {
             if (isTimeoutException(e)) {
-                log.warn("Toss payment confirm request timed out. message={}", truncate(e.getMessage()));
-                log.warn("Toss payment confirm timeout exception", e);
+                try (var ignored = LoggingContext.with("payment.confirm.external_timeout", GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, paymentContext)) {
+                    log.warn("Toss payment confirm request timed out. message={}", truncate(e.getMessage()));
+                    log.warn("Toss payment confirm timeout exception", e);
+                }
                 throw new GeneralException(
                         GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT,
-                        "토스페이먼츠 결제 승인 응답이 지연되고 있습니다."
+                        "토스페이먼츠 결제 승인 응답이 지연되고 있습니다.",
+                        e
                 );
             }
-            log.warn("Toss payment confirm request failed. message={}", truncate(e.getMessage()));
-            log.warn("Toss payment confirm request exception", e);
+            try (var ignored = LoggingContext.with("payment.confirm.failed", GeneralErrorCode.PAYMENT_CONFIRM_FAILED, paymentContext)) {
+                log.warn("Toss payment confirm request failed. message={}", truncate(e.getMessage()));
+                log.warn("Toss payment confirm request exception", e);
+            }
             throw new GeneralException(
                     GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
-                    "토스페이먼츠 결제 승인 중 오류 발생"
+                    "토스페이먼츠 결제 승인 중 오류 발생",
+                    e
             );
         } catch (RestClientException e) {
-            log.warn("Toss payment confirm request failed. message={}", truncate(e.getMessage()));
-            log.warn("Toss payment confirm request exception", e);
+            try (var ignored = LoggingContext.with("payment.confirm.failed", GeneralErrorCode.PAYMENT_CONFIRM_FAILED, paymentContext)) {
+                log.warn("Toss payment confirm request failed. message={}", truncate(e.getMessage()));
+                log.warn("Toss payment confirm request exception", e);
+            }
             throw new GeneralException(
                     GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
-                    "토스페이먼츠 결제 승인 중 오류 발생"
+                    "토스페이먼츠 결제 승인 중 오류 발생",
+                    e
             );
         }
     }

@@ -1,6 +1,8 @@
 package com.jobdri.jobdri_api.global.jwt;
 
 import com.jobdri.jobdri_api.global.security.UserDetailsServiceImpl;
+import com.jobdri.jobdri_api.global.logging.LoggingMdcKeys;
+import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -8,6 +10,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -60,11 +63,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 SecurityContext context = SecurityContextHolder.getContext();
                 context.setAuthentication(authentication);
                 SecurityContextHolder.setContext(context);
+                populateUserLoggingContext(userDetails);
 
                 log.info("사용자 인증 성공: email = {}", email);
             }
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private void populateUserLoggingContext(UserDetails userDetails) {
+        if (userDetails instanceof UserDetailsImpl userDetailsImpl) {
+            MDC.put(LoggingMdcKeys.USER_ID, String.valueOf(userDetailsImpl.getUser().getId()));
+        }
     }
 }

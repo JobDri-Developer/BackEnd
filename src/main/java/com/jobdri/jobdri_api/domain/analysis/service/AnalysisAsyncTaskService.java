@@ -10,6 +10,7 @@ import com.jobdri.jobdri_api.domain.notification.entity.NotificationTargetType;
 import com.jobdri.jobdri_api.domain.notification.entity.NotificationType;
 import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
+import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,8 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
+import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.LinkedHashMap;
@@ -35,6 +38,7 @@ public class AnalysisAsyncTaskService {
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
     private final AnalysisAsyncSseService analysisAsyncSseService;
     private final NotificationService notificationService;
+    private final AsyncMetricsRecorder asyncMetricsRecorder;
     
     @Value("${app.worker.analysis.max-retry-count:3}")
     private int maxRetryCount;
@@ -64,6 +68,9 @@ public class AnalysisAsyncTaskService {
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
         AnalysisAsyncTask task = getTask(taskId);
         task.markRunning(workerId, retryCount, submittedAt);
+        if (task.getQueueLatencyMillis() != null) {
+            asyncMetricsRecorder.recordQueueWait("analysis", task.getQueueLatencyMillis());
+        }
         publishAfterCommit(toStatusResponse(task));
     }
 
@@ -71,6 +78,7 @@ public class AnalysisAsyncTaskService {
     public void markSuccess(String taskId, AnalysisResponse result) {
         AnalysisAsyncTask task = getTask(taskId);
         task.markSuccess();
+        recordProcessingMetric(task, "succeeded");
         publishAfterCommit(toStatusResponse(task, result));
         createSuccessNotificationSafely(task);
     }
@@ -78,6 +86,7 @@ public class AnalysisAsyncTaskService {
     @Transactional
     public void markRetryScheduled(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
         AnalysisAsyncTask task = getTask(taskId);
+        recordProcessingMetric(task, "retry");
         task.markRetryScheduled(failureReason, errorMessage, retryCount);
         publishAfterCommit(toStatusResponse(task));
     }
@@ -85,6 +94,7 @@ public class AnalysisAsyncTaskService {
     @Transactional
     public void markFailed(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
         AnalysisAsyncTask task = getTask(taskId);
+        recordProcessingMetric(task, "failed");
         task.markFailed(failureReason, errorMessage, retryCount);
         publishAfterCommit(toStatusResponse(task));
         createFailureNotificationSafely(task);
@@ -136,6 +146,14 @@ public class AnalysisAsyncTaskService {
                         GeneralErrorCode.ANALYSIS_ASYNC_TASK_NOT_FOUND,
                         "해당 자소서 분석 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
                 ));
+    }
+
+    private void recordProcessingMetric(AnalysisAsyncTask task, String outcome) {
+        if (task.getStartedAt() == null) {
+            return;
+        }
+        long durationMillis = Math.max(0L, Duration.between(task.getStartedAt(), LocalDateTime.now()).toMillis());
+        asyncMetricsRecorder.recordProcessing("analysis", outcome, durationMillis);
     }
 
     private AnalysisAsyncStatusResponse toStatusResponse(AnalysisAsyncTask task) {
