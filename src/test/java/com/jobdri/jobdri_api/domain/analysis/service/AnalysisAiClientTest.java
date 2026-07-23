@@ -3,6 +3,8 @@ package com.jobdri.jobdri_api.domain.analysis.service;
 import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateRecheckResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateRecheckResponse.RecheckDecision;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse.RejectionCode;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
@@ -367,6 +369,13 @@ class AnalysisAiClientTest {
         assertThat(prompt)
                 .contains("[검증된 1차 후보]")
                 .contains("1차에 없는 새로운 questionAnalysis를 임의로 추가하지 않는다.")
+                .contains("확실하지 않으면 무조건 제거하지 않는다.")
+                .contains("[후보 유지 조건]")
+                .contains("구체적인 행동, 역할, 성과/결과, 문제 해결 과정, JD 요구 역량 연결, 기여 범위 중 하나가 부족한 경우 유지한다.")
+                .contains("[후보 제거 조건]")
+                .contains("다짐이나 포부 문장을 성과 문장처럼 잘못 평가한 경우 제거한다.")
+                .contains("누락 키워드가 없어도 문장 첨삭은 존재할 수 있다.")
+                .contains("누락 키워드가 있어도 문장 자체는 정상일 수 있다.")
                 .contains("첨삭 행위를 설명하는 메타 문장을 금지한다.")
                 .contains("원문에 없는 수치, 도구, 경험, 직무 수행, 계획 추가를 금지한다.")
                 .contains("과거 문장을 미래 포부로 변경하지 않는다.")
@@ -376,6 +385,47 @@ class AnalysisAiClientTest {
                 .contains("점수는 JD 전체와 답변 전체를 기준으로 독립적으로 산정한다.")
                 .contains("장애 대응 경험이 있습니다.")
                 .doesNotContain("답변에 없는 문장");
+    }
+
+    @Test
+    @DisplayName("재검증 프롬프트는 1차 후보가 모두 제거된 경우 KEEP_BEST_CANDIDATE 판단 기준을 포함한다")
+    void buildRecheckPromptIncludesUnderDetectionRules() {
+        String prompt = analysisAiClient.buildRecheckPrompt(
+                promptInput(),
+                new RetrievalContext(List.of(), List.of()),
+                null,
+                new AnalysisCandidateResponse(
+                        List.of(),
+                        List.of(candidate("candidate-1", "장애 대응 경험이 있습니다.")),
+                        List.of()
+                ),
+                new CandidateReviewResponse(
+                        List.of(new CandidateReviewResponse.CandidateDecision(
+                                "candidate-1",
+                                false,
+                                RejectionCode.NOT_ACTIONABLE,
+                                null,
+                                "실질 개선이 어렵습니다.",
+                                null
+                        )),
+                        List.of(),
+                        List.of(),
+                        80,
+                        70,
+                        60,
+                        "피드백"
+                )
+        );
+
+        assertThat(prompt)
+                .contains("1차 후보가 하나 이상 있었지만 2차 검증 후 accepted 후보가 0개다.")
+                .contains("1차 후보 중 사용자가 실제로 수정하면 도움이 되는 문장이 정말 하나도 없는가?")
+                .contains("NO_CORRECTION_NEEDED")
+                .contains("KEEP_BEST_CANDIDATE")
+                .contains("단순히 첫 번째 후보를 선택하지 않는다.")
+                .contains("problemClarity, jobRelevance, evidenceGap, improvementUsefulness, fabricationConfidence를 1~5로 내부 평가한다.")
+                .contains("status는 MENTIONED 또는 FABRICATED만 사용한다.")
+                .contains("안전한 교체 문장을 만들 수 없으면 null이다.");
     }
 
     @Test
@@ -477,6 +527,136 @@ class AnalysisAiClientTest {
                 .containsExactly("Spring Boot API를 개발했습니다.");
         assertThat(response.missingKeywords()).extracting("keyword")
                 .containsExactly("장애 대응 경험");
+    }
+
+    @Test
+    @DisplayName("재검증이 KEEP_BEST_CANDIDATE를 반환하면 검증을 통과한 후보 1건만 accepted로 복원한다")
+    void applyRecheckResponseKeepsBestCandidateWhenValid() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(
+                        candidate("candidate-1", "Spring Boot API를 개발했습니다."),
+                        candidate("candidate-2", "장애 대응 경험이 있습니다.")
+                ),
+                List.of()
+        );
+        CandidateReviewResponse review = new CandidateReviewResponse(
+                List.of(
+                        new CandidateReviewResponse.CandidateDecision(
+                                "candidate-1",
+                                false,
+                                RejectionCode.ALREADY_SPECIFIC,
+                                null,
+                                "이미 구체적입니다.",
+                                null
+                        ),
+                        new CandidateReviewResponse.CandidateDecision(
+                                "candidate-2",
+                                false,
+                                RejectionCode.NOT_ACTIONABLE,
+                                null,
+                                "수정 가치가 낮습니다.",
+                                null
+                        )
+                ),
+                List.of(),
+                List.of(),
+                80,
+                70,
+                60,
+                "피드백"
+        );
+
+        CandidateReviewResponse rechecked = analysisAiClient.applyRecheckResponse(
+                promptInput(),
+                candidates,
+                review,
+                new CandidateRecheckResponse(
+                        RecheckDecision.KEEP_BEST_CANDIDATE,
+                        "candidate-2",
+                        "MENTIONED",
+                        "장애 대응 경험은 언급했지만 구체적인 역할과 결과가 부족합니다.",
+                        null,
+                        5,
+                        4,
+                        4,
+                        3,
+                        1
+                )
+        );
+
+        assertThat(rechecked.decisions()).hasSize(2);
+        assertThat(rechecked.decisions().getFirst().candidateId()).isEqualTo("candidate-2");
+        assertThat(rechecked.decisions().getFirst().accepted()).isTrue();
+        assertThat(rechecked.decisions().getFirst().rejectionCode()).isEqualTo(RejectionCode.NONE);
+        assertThat(rechecked.decisions()).extracting("candidateId")
+                .containsExactly("candidate-2", "candidate-1");
+    }
+
+    @Test
+    @DisplayName("재검증이 NO_CORRECTION_NEEDED이거나 점수가 유효하지 않으면 후보를 복원하지 않는다")
+    void applyRecheckResponseDoesNotHardCodeFallbackCandidate() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(candidate("candidate-1", "장애 대응 경험이 있습니다.")),
+                List.of()
+        );
+        CandidateReviewResponse review = new CandidateReviewResponse(
+                List.of(new CandidateReviewResponse.CandidateDecision(
+                        "candidate-1",
+                        false,
+                        RejectionCode.NOT_ACTIONABLE,
+                        null,
+                        "수정 가치가 낮습니다.",
+                        null
+                )),
+                List.of(),
+                List.of(),
+                80,
+                70,
+                60,
+                "피드백"
+        );
+
+        CandidateReviewResponse noCorrection = analysisAiClient.applyRecheckResponse(
+                promptInput(),
+                candidates,
+                review,
+                new CandidateRecheckResponse(
+                        RecheckDecision.NO_CORRECTION_NEEDED,
+                        null,
+                        null,
+                        null,
+                        null,
+                        1,
+                        1,
+                        1,
+                        1,
+                        1
+                )
+        );
+        CandidateReviewResponse invalidScore = analysisAiClient.applyRecheckResponse(
+                promptInput(),
+                candidates,
+                review,
+                new CandidateRecheckResponse(
+                        RecheckDecision.KEEP_BEST_CANDIDATE,
+                        "candidate-1",
+                        "MENTIONED",
+                        "장애 대응 경험은 언급했지만 구체적인 역할과 결과가 부족합니다.",
+                        null,
+                        6,
+                        4,
+                        4,
+                        4,
+                        1
+                )
+        );
+
+        assertThat(noCorrection.decisions()).hasSize(1);
+        assertThat(noCorrection.decisions().getFirst().accepted()).isFalse();
+        assertThat(invalidScore.decisions()).hasSize(1);
+        assertThat(invalidScore.decisions().getFirst().accepted()).isFalse();
     }
 
     @Test

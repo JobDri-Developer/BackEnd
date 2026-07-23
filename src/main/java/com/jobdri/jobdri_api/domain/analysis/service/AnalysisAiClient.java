@@ -4,6 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateRecheckResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateRecheckResponse.RecheckDecision;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse.RejectionCode;
 import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
@@ -32,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.ArrayList;
 import java.util.Optional;
@@ -414,14 +417,33 @@ public class AnalysisAiClient {
                 sanitizedCandidates,
                 reviewResponse
         );
-        AnalysisLlmResponse response = buildFinalResponse(promptInput, sanitizedCandidates, validatedReviewResponse);
-        long finalLatencyMs = elapsedMillis(finalStartedAt);
         log.debug(
-                "analysis two-pass final result. enabled={}, acceptedCandidateCount={}, rejectedCandidateCount={}, finalAnalysisCount={}, model={}, latencyMs={}",
-                true,
+                "analysis two-pass review validation. firstPassCandidates={}, rawDecisions={}, validatedDecisions={}, secondPassAccepted={}, secondPassRejected={}, rejectionCodeCounts={}",
+                size(sanitizedCandidates.analysisCandidates()),
+                size(reviewResponse == null ? null : reviewResponse.decisions()),
+                size(validatedReviewResponse.decisions()),
                 acceptedDecisionCount(validatedReviewResponse),
                 rejectedDecisionCount(validatedReviewResponse),
+                rejectionCodeCounts(validatedReviewResponse)
+        );
+        CandidateReviewResponse recheckedReviewResponse = recheckWhenAllCandidatesRejected(
+                promptInput,
+                referenceContext,
+                jobCategoryEvaluationCriteria,
+                sanitizedCandidates,
+                validatedReviewResponse,
+                operationName
+        );
+        AnalysisLlmResponse response = buildFinalResponse(promptInput, sanitizedCandidates, recheckedReviewResponse);
+        long finalLatencyMs = elapsedMillis(finalStartedAt);
+        logQuestionFlowStats(sanitizedCandidates, recheckedReviewResponse, response);
+        log.debug(
+                "analysis two-pass final result. enabled={}, firstPassCandidates={}, secondPassAccepted={}, finalAnalysisCount={}, removedByRejected={}, model={}, latencyMs={}",
+                true,
+                size(sanitizedCandidates.analysisCandidates()),
+                acceptedDecisionCount(recheckedReviewResponse),
                 size(response == null ? null : response.questionAnalyses()),
+                rejectedDecisionCount(recheckedReviewResponse),
                 analysisModel,
                 finalLatencyMs
         );
@@ -429,7 +451,7 @@ public class AnalysisAiClient {
                 response,
                 rawCandidates,
                 sanitizedCandidates,
-                validatedReviewResponse,
+                recheckedReviewResponse,
                 candidateLatencyMs,
                 finalLatencyMs
         );
@@ -631,6 +653,22 @@ public class AnalysisAiClient {
                 10. 승인된 후보에 대해서만 reason과 improvement를 작성한다.
                 - 내부 판단 과정은 출력하지 않는다.
 
+                [후보 유지 조건]
+                - 2차 단계의 역할은 새로운 분석 생성이 아니라 1차 후보가 실제 수정 대상인지 검증하는 것이다.
+                - 확실하지 않으면 무조건 제거하지 않는다.
+                - mentioned는 문장 자체는 사실일 수 있지만 구체적인 행동, 역할, 성과/결과, 문제 해결 과정, JD 요구 역량 연결, 기여 범위 중 하나가 부족한 경우 유지한다.
+                - mentioned는 추상적인 표현만 있거나 주장에 비해 근거가 부족하거나 지원자 기여와 팀 성과가 구분되지 않는 경우 유지한다.
+                - 단순히 숫자가 없다는 이유만으로 제거하거나 유지하지 않는다.
+                - fabricated는 존재하지 않는 경험을 사실처럼 기술, 실제 역할보다 과장된 역할 주장, 성과 수치나 책임 범위 임의 확대, 앞뒤 문장과 명백히 모순되는 경우에만 유지한다.
+                - 근거가 부족하다는 이유만으로 fabricated를 사용하지 않는다.
+
+                [후보 제거 조건]
+                - 문장이 이미 충분히 구체적이고 행동, 역할, 결과, JD 연결성이 충분할 때만 제거한다.
+                - 단순 문체 선호 차이이거나 후보 분석이 자기소개서 질문 의도와 무관할 때 제거한다.
+                - 다짐이나 포부 문장을 성과 문장처럼 잘못 평가한 경우 제거한다.
+                - 자격증, 학력, 기술명 등 단순 정량 키워드가 없다는 이유만으로 문제 삼은 경우 제거한다.
+                - 수정안이 원문보다 실질적으로 개선되지 않으면 accepted=true로 두더라도 improvement는 null로 둔다.
+
                 [decision 정합성]
                 - accepted=true이면 rejectionCode=NONE, status는 MENTIONED 또는 FABRICATED, reason은 사용자 노출 가능한 최종 사유다.
                 - accepted=false이면 rejectionCode는 NONE이 아니어야 하고, improvement는 반드시 null이다.
@@ -673,6 +711,9 @@ public class AnalysisAiClient {
                 [missingKeywords 복구 규칙]
                 - 검증된 missingKeywordCandidates 범위 안에서만 missingKeywords를 정리한다.
                 - questionAnalyses 후보 개수와 독립적으로 판단한다.
+                - 누락 키워드가 없어도 문장 첨삭은 존재할 수 있다.
+                - 누락 키워드가 있어도 문장 자체는 정상일 수 있다.
+                - 문장 분석이 0건이라고 missingKeywords를 비우지 않는다.
                 - mainTask와 qualification만 사용하고 preference는 제외한다.
                 - 정형 자격요건은 제외하고 경험형 요구사항은 유지 가능하다.
                 - 새 keyword를 임의 생성하지 않는다.
@@ -718,6 +759,98 @@ public class AnalysisAiClient {
                 defaultString(promptInput.qualifications()),
                 defaultString(promptInput.preferences()),
                 candidateJson,
+                formatJobPostingReferences(referenceContext.jobPostingReferences()),
+                formatQuestionReferences(referenceContext.questionReferences()),
+                jobCategoryCriteriaSection,
+                questionText
+        );
+    }
+
+    String buildRecheckPrompt(
+            AnalysisPromptInput promptInput,
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
+            AnalysisCandidateResponse candidates,
+            CandidateReviewResponse reviewResponse
+    ) {
+        String questionText = formatQuestions(promptInput);
+        String candidateJson = writeJson(candidates);
+        String reviewJson = writeJson(reviewResponse);
+        String jobCategoryCriteriaSection = formatJobCategoryEvaluationCriteriaSection(jobCategoryEvaluationCriteria);
+        return """
+                [시스템 지시]
+                너는 자기소개서 two-pass 분석의 재검증기다.
+                반드시 Structured Output 스키마에 맞는 JSON object만 반환한다.
+                내부 판단 과정이나 chain-of-thought를 출력하지 않는다.
+
+                [재검증 목적]
+                1차 후보가 하나 이상 있었지만 2차 검증 후 accepted 후보가 0개다.
+                바로 빈 배열로 확정하지 말고 다음 질문만 판단한다.
+                - 1차 후보 중 사용자가 실제로 수정하면 도움이 되는 문장이 정말 하나도 없는가?
+
+                [decision]
+                - NO_CORRECTION_NEEDED: 후보들이 모두 실제 첨삭 대상이 아니다.
+                - KEEP_BEST_CANDIDATE: 가장 명확한 수정 필요성이 있는 후보 1건만 유지한다.
+
+                [KEEP_BEST_CANDIDATE 선택 기준]
+                - 단순히 첫 번째 후보를 선택하지 않는다.
+                - problemClarity, jobRelevance, evidenceGap, improvementUsefulness, fabricationConfidence를 1~5로 내부 평가한다.
+                - 문제 명확성, JD 관련성, 근거 부족 정도, 안전한 개선 가능성이 높은 후보를 선택한다.
+                - status는 MENTIONED 또는 FABRICATED만 사용한다.
+                - MENTIONED: 관련 경험이나 의도는 있으나 행동, 역할, 결과, 문제 해결 과정, JD 연결, 기여 범위 중 하나가 부족하다.
+                - FABRICATED: 원문 또는 제공 정보와 명백히 충돌할 때만 사용한다.
+                - 근거 부족만으로 FABRICATED를 사용하지 않는다.
+                - 원문에 없는 사실, 수치, 경험, 계획을 추가하지 않는다.
+
+                [NO_CORRECTION_NEEDED 판단 기준]
+                - 모든 후보 문장이 이미 충분히 구체적이다.
+                - 후보가 단순 문체 선호 차이이거나 질문 의도와 무관하다.
+                - 다짐/포부 문장을 성과 부족으로 잘못 평가했다.
+                - 자격증, 학력, 기술명 등 단순 정량 키워드 부재만 문제 삼았다.
+                - 안전하고 실질적인 개선문을 만들 수 없고 reason도 사용자에게 도움이 되지 않는다.
+
+                [improvement]
+                - 안전한 교체 문장을 만들 수 없으면 null이다.
+                - 첨삭 행위를 설명하는 메타 문장을 쓰지 않는다.
+                - 원문과 같은 문장, 다른 원문 문장 복사, JD 경험 생성, 시제 변경을 금지한다.
+
+                [채용 공고]
+                회사명: %s
+                직무명: %s
+                <main_tasks>
+                %s
+                </main_tasks>
+                <qualifications>
+                %s
+                </qualifications>
+                <preferences role="secondary_only">
+                %s
+                </preferences>
+
+                [검증된 1차 후보]
+                %s
+
+                [2차 검증 결과]
+                %s
+
+                [유사 JD 검색 결과]
+                %s
+
+                [유사 자소서 문항 검색 결과]
+                %s
+
+                %s
+
+                [자소서 문항과 답변]
+                %s
+                """.formatted(
+                defaultString(promptInput.companyName()),
+                defaultString(promptInput.jobName()),
+                defaultString(promptInput.mainTasks()),
+                defaultString(promptInput.qualifications()),
+                defaultString(promptInput.preferences()),
+                candidateJson,
+                reviewJson,
                 formatJobPostingReferences(referenceContext.jobPostingReferences()),
                 formatQuestionReferences(referenceContext.questionReferences()),
                 jobCategoryCriteriaSection,
@@ -998,6 +1131,123 @@ public class AnalysisAiClient {
                 missingKeywords,
                 questionAnalyses
         );
+    }
+
+    CandidateReviewResponse recheckWhenAllCandidatesRejected(
+            AnalysisPromptInput promptInput,
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
+            AnalysisCandidateResponse sanitizedCandidates,
+            CandidateReviewResponse reviewResponse,
+            String operationName
+    ) {
+        int firstPassCandidates = sanitizedCandidates == null || sanitizedCandidates.analysisCandidates() == null
+                ? 0
+                : sanitizedCandidates.analysisCandidates().size();
+        int acceptedCandidates = acceptedDecisionCount(reviewResponse);
+        if (firstPassCandidates == 0 || acceptedCandidates > 0) {
+            return reviewResponse;
+        }
+
+        log.debug(
+                "analysis two-pass recheck triggered. firstPassCandidates={}, secondPassAccepted={}, secondPassRejected={}, rejectionCodeCounts={}",
+                firstPassCandidates,
+                acceptedCandidates,
+                rejectedDecisionCount(reviewResponse),
+                rejectionCodeCounts(reviewResponse)
+        );
+        CandidateRecheckResponse recheckResponse = createStructuredResponse(
+                operationName + "-recheck",
+                buildRecheckPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria, sanitizedCandidates, reviewResponse),
+                CandidateRecheckResponse.class
+        );
+        CandidateReviewResponse rechecked = applyRecheckResponse(promptInput, sanitizedCandidates, reviewResponse, recheckResponse);
+        log.debug(
+                "analysis two-pass recheck result. decision={}, candidateIdPresent={}, acceptedCandidateCount={}, finalRejectedCandidateCount={}",
+                recheckResponse == null ? null : recheckResponse.decision(),
+                recheckResponse != null && StringUtils.hasText(recheckResponse.candidateId()),
+                acceptedDecisionCount(rechecked),
+                rejectedDecisionCount(rechecked)
+        );
+        return rechecked;
+    }
+
+    CandidateReviewResponse applyRecheckResponse(
+            AnalysisPromptInput promptInput,
+            AnalysisCandidateResponse sanitizedCandidates,
+            CandidateReviewResponse reviewResponse,
+            CandidateRecheckResponse recheckResponse
+    ) {
+        if (reviewResponse == null || recheckResponse == null
+                || recheckResponse.decision() != RecheckDecision.KEEP_BEST_CANDIDATE
+                || sanitizedCandidates == null
+                || sanitizedCandidates.analysisCandidates() == null
+                || !StringUtils.hasText(recheckResponse.candidateId())) {
+            return reviewResponse;
+        }
+
+        Map<String, AnalysisCandidateResponse.AnalysisCandidate> candidateById = sanitizedCandidates.analysisCandidates().stream()
+                .filter(candidate -> StringUtils.hasText(candidate.candidateId()))
+                .collect(Collectors.toMap(
+                        candidate -> candidate.candidateId().trim(),
+                        candidate -> candidate,
+                        (left, right) -> left
+                ));
+        String candidateId = recheckResponse.candidateId().trim();
+        AnalysisCandidateResponse.AnalysisCandidate candidate = candidateById.get(candidateId);
+        if (candidate == null || !validRecheckScores(recheckResponse)) {
+            return reviewResponse;
+        }
+        Map<Long, String> answerByQuestionId = promptInput.questions().stream()
+                .collect(Collectors.toMap(AnalysisPromptInput.QuestionAnswer::questionId, AnalysisPromptInput.QuestionAnswer::answer));
+        CandidateReviewResponse.CandidateDecision accepted = validateAcceptedDecision(
+                new CandidateReviewResponse.CandidateDecision(
+                        candidateId,
+                        true,
+                        RejectionCode.NONE,
+                        recheckResponse.status(),
+                        recheckResponse.reason(),
+                        recheckResponse.improvement()
+                ),
+                candidate,
+                answerByQuestionId.get(candidate.questionId())
+        );
+        if (accepted == null) {
+            return reviewResponse;
+        }
+
+        List<CandidateReviewResponse.CandidateDecision> decisions = new ArrayList<>();
+        if (reviewResponse.decisions() != null) {
+            for (CandidateReviewResponse.CandidateDecision decision : reviewResponse.decisions()) {
+                if (decision == null || !StringUtils.hasText(decision.candidateId())
+                        || candidateId.equals(decision.candidateId().trim())) {
+                    continue;
+                }
+                decisions.add(decision);
+            }
+        }
+        decisions.add(0, accepted);
+        return new CandidateReviewResponse(
+                decisions,
+                reviewResponse.strengths() == null ? List.of() : reviewResponse.strengths(),
+                reviewResponse.missingKeywords() == null ? List.of() : reviewResponse.missingKeywords(),
+                reviewResponse.jobFit(),
+                reviewResponse.impact(),
+                reviewResponse.completeness(),
+                reviewResponse.feedback()
+        );
+    }
+
+    private boolean validRecheckScores(CandidateRecheckResponse response) {
+        return validRecheckScore(response.problemClarity())
+                && validRecheckScore(response.jobRelevance())
+                && validRecheckScore(response.evidenceGap())
+                && validRecheckScore(response.improvementUsefulness())
+                && validRecheckScore(response.fabricationConfidence());
+    }
+
+    private boolean validRecheckScore(Integer score) {
+        return score != null && score >= 1 && score <= 5;
     }
 
     private List<AnalysisLlmResponse.QuestionAnalysisItem> buildAcceptedQuestionAnalyses(
@@ -1300,6 +1550,72 @@ public class AnalysisAiClient {
         return (int) reviewResponse.decisions().stream()
                 .filter(decision -> decision != null && !Boolean.TRUE.equals(decision.accepted()))
                 .count();
+    }
+
+    private Map<String, Long> rejectionCodeCounts(CandidateReviewResponse reviewResponse) {
+        if (reviewResponse == null || reviewResponse.decisions() == null) {
+            return Map.of();
+        }
+        return reviewResponse.decisions().stream()
+                .filter(decision -> decision != null && decision.rejectionCode() != null && decision.rejectionCode() != RejectionCode.NONE)
+                .collect(Collectors.groupingBy(
+                        decision -> decision.rejectionCode().name(),
+                        java.util.TreeMap::new,
+                        Collectors.counting()
+                ));
+    }
+
+    private void logQuestionFlowStats(
+            AnalysisCandidateResponse sanitizedCandidates,
+            CandidateReviewResponse reviewResponse,
+            AnalysisLlmResponse response
+    ) {
+        if (!log.isDebugEnabled() || sanitizedCandidates == null || sanitizedCandidates.analysisCandidates() == null) {
+            return;
+        }
+        Map<String, AnalysisCandidateResponse.AnalysisCandidate> candidateById = sanitizedCandidates.analysisCandidates().stream()
+                .filter(candidate -> StringUtils.hasText(candidate.candidateId()))
+                .collect(Collectors.toMap(
+                        candidate -> candidate.candidateId().trim(),
+                        candidate -> candidate,
+                        (left, right) -> left
+                ));
+        Set<Long> questionIds = sanitizedCandidates.analysisCandidates().stream()
+                .map(AnalysisCandidateResponse.AnalysisCandidate::questionId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(java.util.TreeSet::new));
+        if (response != null && response.questionAnalyses() != null) {
+            response.questionAnalyses().stream()
+                    .map(AnalysisLlmResponse.QuestionAnalysisItem::questionId)
+                    .filter(Objects::nonNull)
+                    .forEach(questionIds::add);
+        }
+        for (Long questionId : questionIds) {
+            long firstPassCandidates = sanitizedCandidates.analysisCandidates().stream()
+                    .filter(candidate -> Objects.equals(questionId, candidate.questionId()))
+                    .count();
+            long secondPassAccepted = reviewResponse == null || reviewResponse.decisions() == null ? 0 : reviewResponse.decisions().stream()
+                    .filter(decision -> decision != null && Boolean.TRUE.equals(decision.accepted()))
+                    .map(decision -> candidateById.get(defaultString(decision.candidateId()).trim()))
+                    .filter(candidate -> candidate != null && Objects.equals(questionId, candidate.questionId()))
+                    .count();
+            long secondPassRejected = reviewResponse == null || reviewResponse.decisions() == null ? 0 : reviewResponse.decisions().stream()
+                    .filter(decision -> decision != null && !Boolean.TRUE.equals(decision.accepted()))
+                    .map(decision -> candidateById.get(defaultString(decision.candidateId()).trim()))
+                    .filter(candidate -> candidate != null && Objects.equals(questionId, candidate.questionId()))
+                    .count();
+            long finalAnalyses = response == null || response.questionAnalyses() == null ? 0 : response.questionAnalyses().stream()
+                    .filter(item -> Objects.equals(questionId, item.questionId()))
+                    .count();
+            log.debug(
+                    "analysis two-pass question flow. questionId={}, firstPassCandidates={}, secondPassAccepted={}, secondPassRejected={}, finalAnalyses={}",
+                    questionId,
+                    firstPassCandidates,
+                    secondPassAccepted,
+                    secondPassRejected,
+                    finalAnalyses
+            );
+        }
     }
 
     private String contextBefore(String answer, String sentence) {
