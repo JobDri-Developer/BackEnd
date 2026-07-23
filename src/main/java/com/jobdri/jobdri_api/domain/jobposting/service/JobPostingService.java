@@ -51,6 +51,9 @@ public class JobPostingService {
                 validatedUser,
                 company,
                 detailClassification,
+                request.profileColor(),
+                request.postingName(),
+                request.jobTitle(),
                 request.task(),
                 request.requirement(),
                 request.preferred()
@@ -72,6 +75,9 @@ public class JobPostingService {
                 validatedUser,
                 company,
                 detailClassification,
+                request.profileColor(),
+                request.postingName(),
+                request.jobTitle(),
                 request.task(),
                 request.requirement(),
                 request.preferred()

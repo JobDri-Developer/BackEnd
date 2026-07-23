@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassifica
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerFinalizeRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
@@ -147,8 +148,11 @@ public class JobPostingWorkerBridgeService {
         var saved = jobPostingService.createJobPosting(
                 userService.getUser(userId),
                 new JobPostingCreateRequest(
+                        JobPostingProfileColor.DEFAULT,
+                        generated.jobTitle(),
                         fallbackCompanyName(extracted.companyName()),
                         null,
+                        generated.jobTitle(),
                         classification.detailClassificationId(),
                         generated.task(),
                         generated.requirements(),

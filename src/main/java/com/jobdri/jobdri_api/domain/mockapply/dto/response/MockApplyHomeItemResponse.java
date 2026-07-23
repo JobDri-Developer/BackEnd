@@ -34,7 +34,7 @@ public record MockApplyHomeItemResponse(
                 mockApply.getStatus(),
                 jobPosting.getCompany().getName(),
                 detailClassificationName,
-                detailClassificationName,
+                jobPosting.getJobTitle(),
                 mockApply.getCreatedAt(),
                 mockApply.getApplyType(),
                 analysis == null ? null : analysis.getScore()
