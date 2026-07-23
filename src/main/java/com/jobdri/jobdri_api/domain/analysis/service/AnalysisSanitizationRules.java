@@ -21,11 +21,18 @@ public final class AnalysisSanitizationRules {
             "구체적으로 작성했습니다", "명확히 설명했습니다", "성과를 강조했습니다", "수치로 명시했습니다",
             "더 설득력 있게 작성했습니다", "경험을 구체적으로 작성했습니다", "구체적으로 설명했습니다",
             "구체적으로 서술했습니다", "명확히 서술했습니다", "구체적으로 설명합니다",
-            "구체적으로 서술합니다", "명확히 설명합니다", "명확히 서술합니다"
+            "구체적으로 서술합니다", "명확히 설명합니다", "명확히 서술합니다",
+            "추가해 보", "추가하면 좋", "설명해 보", "구체적으로 작성", "구체적으로 설명",
+            "강조하겠", "추가하겠", "명확히 작성", "작성할 수 있", "설명할 수 있",
+            "보완하겠", "드러내겠", "제시하겠"
     };
     private static final String[] CONTRADICTORY_PROVEN_REASON_TERMS = {
             "근거가 부족", "성과가 부족", "수치가 부족", "구체성이 부족", "보완이 필요",
             "드러나지 않음", "확인하기 어려움"
+    };
+    private static final String[] POSITIVE_MENTIONED_REASON_TERMS = {
+            "충분히 구체", "근거가 충분", "성과가 구체", "강점", "명확히 보여", "잘 드러",
+            "직접 드러", "구체적으로 제시", "충분한 근거", "역량을 보여"
     };
     private static final String[] FABRICATED_DIRECT_CONFLICT_TERMS = {
             "직접 충돌", "명시적 사실과 충돌", "사실과 충돌", "조건과 충돌", "요건과 충돌",
@@ -71,7 +78,7 @@ public final class AnalysisSanitizationRules {
             String improvement,
             boolean provenStatus
     ) {
-        if (provenStatus || !StringUtils.hasText(improvement)) {
+        if (provenStatus || !StringUtils.hasText(improvement) || isNullLikeImprovement(improvement)) {
             return "";
         }
 
@@ -92,6 +99,19 @@ public final class AnalysisSanitizationRules {
         }
         String normalized = normalize(reason);
         for (String term : CONTRADICTORY_PROVEN_REASON_TERMS) {
+            if (normalized.contains(normalize(term))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public static boolean isPositiveMentionedReason(String reason) {
+        if (!StringUtils.hasText(reason)) {
+            return false;
+        }
+        String normalized = normalize(reason);
+        for (String term : POSITIVE_MENTIONED_REASON_TERMS) {
             if (normalized.contains(normalize(term))) {
                 return true;
             }
@@ -216,6 +236,14 @@ public final class AnalysisSanitizationRules {
             }
         }
         return false;
+    }
+
+    private static boolean isNullLikeImprovement(String improvement) {
+        String normalized = normalize(improvement);
+        return "null".equals(normalized)
+                || "n/a".equals(normalized)
+                || "na".equals(normalized)
+                || "없음".equals(normalized);
     }
 
     private static boolean changesSentenceTense(String sentence, String improvement) {

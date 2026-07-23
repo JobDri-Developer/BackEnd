@@ -17,8 +17,11 @@ public record AnalysisCandidateResponse(
     }
 
     public record AnalysisCandidate(
+            String candidateId,
             Long questionId,
             String sentence,
+            String contextBefore,
+            String contextAfter,
             String sentenceType,
             String relatedSource,
             String relatedRequirement,
@@ -35,4 +38,3 @@ public record AnalysisCandidateResponse(
     ) {
     }
 }
-

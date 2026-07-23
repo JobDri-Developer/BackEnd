@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.analysis.evaluation;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
@@ -136,6 +137,11 @@ public class EvaluationAnalysisBatchService {
                 evaluationCase.caseId(),
                 evaluationCase.jobCategoryMiddle(),
                 evaluationCase.jobCategorySmall(),
+                evaluationCase.mainTasks(),
+                evaluationCase.qualifications(),
+                evaluationCase.preferences(),
+                evaluationCase.question(),
+                evaluationCase.answer(),
                 calculateScore(jobFit, impact, completeness),
                 jobFit,
                 impact,
@@ -146,11 +152,29 @@ public class EvaluationAnalysisBatchService {
                 writeJson(llmResponse),
                 writeJson(aiCallResult.rawCandidateResponse()),
                 writeJson(aiCallResult.sanitizedCandidateResponse()),
+                writeJson(aiCallResult.candidateReviewResponse()),
+                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().analysisCandidates()),
                 size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().analysisCandidates()),
                 size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().strengthCandidates()),
                 size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().missingKeywordCandidates()),
+                acceptedDecisionCount(aiCallResult.candidateReviewResponse()),
+                rejectedDecisionCount(aiCallResult.candidateReviewResponse()),
+                rejectionCodeCounts(aiCallResult.candidateReviewResponse()),
+                questionAnalyses.size(),
+                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().strengthCandidates()),
+                llmResponse.keyStrengths() == null ? 0 : llmResponse.keyStrengths().size(),
+                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().missingKeywordCandidates()),
+                missingKeywords.size(),
                 aiCallResult.candidateCallLatencyMs(),
                 aiCallResult.finalCallLatencyMs(),
+                aiCallResult.candidateCallLatencyMs(),
+                aiCallResult.finalCallLatencyMs(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
                 "",
                 "",
                 createdAt()
@@ -338,6 +362,37 @@ public class EvaluationAnalysisBatchService {
 
     private Integer size(List<?> values) {
         return values == null ? null : values.size();
+    }
+
+    private Integer acceptedDecisionCount(CandidateReviewResponse reviewResponse) {
+        if (reviewResponse == null || reviewResponse.decisions() == null) {
+            return null;
+        }
+        return (int) reviewResponse.decisions().stream()
+                .filter(decision -> decision != null && Boolean.TRUE.equals(decision.accepted()))
+                .count();
+    }
+
+    private Integer rejectedDecisionCount(CandidateReviewResponse reviewResponse) {
+        if (reviewResponse == null || reviewResponse.decisions() == null) {
+            return null;
+        }
+        return (int) reviewResponse.decisions().stream()
+                .filter(decision -> decision != null && !Boolean.TRUE.equals(decision.accepted()))
+                .count();
+    }
+
+    private String rejectionCodeCounts(CandidateReviewResponse reviewResponse) {
+        if (reviewResponse == null || reviewResponse.decisions() == null) {
+            return "";
+        }
+        Map<String, Long> counts = reviewResponse.decisions().stream()
+                .filter(decision -> decision != null && decision.rejectionCode() != null)
+                .collect(java.util.stream.Collectors.groupingBy(
+                        decision -> decision.rejectionCode().name(),
+                        java.util.stream.Collectors.counting()
+                ));
+        return writeJson(counts);
     }
 
     private String normalizeFeedback(String feedback) {

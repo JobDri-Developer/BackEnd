@@ -66,6 +66,15 @@ app:
     embedding:
       sync-on-startup: false
 
+evaluation:
+  analysis:
+    enabled: false
+  nlg-judge:
+    enabled: false
+    input: ""
+    output: ""
+    model: ${OPENAI_NLG_JUDGE_MODEL:gpt-4o-mini}
+
 jwt:
   secret:
     key: ${JWT_SECRET_KEY:am9iZHJpLWFuYWx5c2lzLWV2YWwtbG9jYWwtc2VjcmV0LWtleQ==}
