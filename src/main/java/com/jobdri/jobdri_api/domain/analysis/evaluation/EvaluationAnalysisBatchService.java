@@ -7,9 +7,10 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordResponse
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAiClient;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisImprovementRules;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAiClient.AnalysisAiCallResult;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisPromptInput;
 import com.jobdri.jobdri_api.domain.analysis.service.AnalysisResultConstants;
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisSanitizationRules;
 import com.jobdri.jobdri_api.domain.analysis.service.JobCategoryEvaluationCriteriaProvider;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -117,17 +118,18 @@ public class EvaluationAnalysisBatchService {
                 ))
         );
 
-        AnalysisLlmResponse llmResponse = analysisAiClient.analyzeForEvaluation(
+        AnalysisAiCallResult aiCallResult = analysisAiClient.analyzeForEvaluationResult(
                 promptInput,
                 jobCategoryEvaluationCriteriaProvider
                         .findByMiddleName(evaluationCase.jobCategoryMiddle())
                         .orElse(null)
         );
+        AnalysisLlmResponse llmResponse = aiCallResult.response();
 
         int jobFit = validateScore("jobFit", llmResponse == null ? null : llmResponse.jobFit());
         int impact = validateScore("impact", llmResponse == null ? null : llmResponse.impact());
         int completeness = validateScore("completeness", llmResponse == null ? null : llmResponse.completeness());
-        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(llmResponse);
+        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(evaluationCase, llmResponse);
         List<EvaluationQuestionAnalysisResult> questionAnalyses = buildQuestionAnalyses(evaluationCase, llmResponse);
 
         return new EvaluationAnalysisResult(
@@ -142,12 +144,23 @@ public class EvaluationAnalysisBatchService {
                 writeJson(missingKeywords),
                 writeJson(questionAnalyses),
                 writeJson(llmResponse),
+                writeJson(aiCallResult.rawCandidateResponse()),
+                writeJson(aiCallResult.sanitizedCandidateResponse()),
+                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().analysisCandidates()),
+                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().strengthCandidates()),
+                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().missingKeywordCandidates()),
+                aiCallResult.candidateCallLatencyMs(),
+                aiCallResult.finalCallLatencyMs(),
+                "",
                 "",
                 createdAt()
         );
     }
 
-    private List<MissingKeywordResponse> buildMissingKeywords(AnalysisLlmResponse llmResponse) {
+    private List<MissingKeywordResponse> buildMissingKeywords(
+            EvaluationAnalysisCase evaluationCase,
+            AnalysisLlmResponse llmResponse
+    ) {
         if (llmResponse == null || llmResponse.missingKeywords() == null) {
             return List.of();
         }
@@ -167,6 +180,14 @@ public class EvaluationAnalysisBatchService {
 
             Optional<MissingKeywordSource> source = MissingKeywordSource.from(item.source());
             if (source.isEmpty()) {
+                continue;
+            }
+            if (!AnalysisSanitizationRules.isValidMissingKeyword(
+                    keyword,
+                    source.get(),
+                    evaluationCase.mainTasks(),
+                    evaluationCase.qualifications()
+            )) {
                 continue;
             }
 
@@ -200,6 +221,7 @@ public class EvaluationAnalysisBatchService {
         Map<Long, Integer> analysisCountByQuestionId = new HashMap<>();
         Map<Long, Integer> nextSearchIndexByQuestionId = new HashMap<>();
         Set<String> seenSentences = new HashSet<>();
+        Set<String> keyStrengthQuotes = normalizedKeyStrengthQuotes(llmResponse);
 
         for (AnalysisLlmResponse.QuestionAnalysisItem item : llmResponse.questionAnalyses()) {
             if (item == null || item.questionId() == null || !StringUtils.hasText(item.sentence())) {
@@ -210,7 +232,13 @@ public class EvaluationAnalysisBatchService {
             }
 
             QuestionAnalysisStatus status = parseStatus(item.status());
-            if (status == null || status == QuestionAnalysisStatus.MISSING) {
+            if (status == null
+                    || status == QuestionAnalysisStatus.MISSING
+                    || status == QuestionAnalysisStatus.PROVEN) {
+                continue;
+            }
+            if (status == QuestionAnalysisStatus.FABRICATED
+                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictReason(item.reason())) {
                 continue;
             }
 
@@ -220,6 +248,9 @@ public class EvaluationAnalysisBatchService {
             }
 
             String sentence = item.sentence();
+            if (keyStrengthQuotes.contains(normalizeKeyword(sentence))) {
+                continue;
+            }
             String dedupeKey = item.questionId() + ":" + sentence.trim();
             if (!seenSentences.add(dedupeKey)) {
                 continue;
@@ -241,12 +272,22 @@ public class EvaluationAnalysisBatchService {
                     sentence,
                     status.name().toLowerCase(),
                     defaultString(item.reason()),
-                    normalizeImprovement(item.improvement()),
+                    normalizeImprovement(sentence, answer, item.improvement(), status),
                     start,
                     start + sentence.length()
             ));
         }
         return result;
+    }
+
+    private Set<String> normalizedKeyStrengthQuotes(AnalysisLlmResponse llmResponse) {
+        if (llmResponse == null || llmResponse.keyStrengths() == null) {
+            return Set.of();
+        }
+        return llmResponse.keyStrengths().stream()
+                .filter(item -> item != null && StringUtils.hasText(item.quote()))
+                .map(item -> normalizeKeyword(item.quote()))
+                .collect(java.util.stream.Collectors.toSet());
     }
 
     private int validateScore(String fieldName, Integer score) {
@@ -295,6 +336,10 @@ public class EvaluationAnalysisBatchService {
         }
     }
 
+    private Integer size(List<?> values) {
+        return values == null ? null : values.size();
+    }
+
     private String normalizeFeedback(String feedback) {
         if (StringUtils.hasText(feedback)) {
             return feedback;
@@ -302,16 +347,18 @@ public class EvaluationAnalysisBatchService {
         return "자소서 분석 결과를 확인해주세요.";
     }
 
-    private String normalizeImprovement(String improvement) {
-        if (!StringUtils.hasText(improvement)) {
-            return "";
-        }
-
-        String normalized = improvement.trim();
-        if (AnalysisImprovementRules.isInstructionLike(normalized)) {
-            return "";
-        }
-        return normalized;
+    private String normalizeImprovement(
+            String sentence,
+            String answer,
+            String improvement,
+            QuestionAnalysisStatus status
+    ) {
+        return AnalysisSanitizationRules.normalizeImprovement(
+                sentence,
+                answer,
+                improvement,
+                status == QuestionAnalysisStatus.PROVEN
+        );
     }
 
     private String normalizeKeyword(String keyword) {
