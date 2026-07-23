@@ -9,6 +9,18 @@ scrape_configs:
         labels:
           instance: "ceos-app"
 
+  # This target assumes the external analysis worker container exposes a FastAPI
+  # metrics endpoint on 0.0.0.0:8000/metrics inside the same Docker network.
+  # The backend root Dockerfile in this repo is API-only (8080) and does not
+  # provide this route. If the deployed worker image does not expose /metrics,
+  # update the target to the real worker endpoint or remove this job.
+  - job_name: "analysis_worker"
+    metrics_path: "/metrics"
+    static_configs:
+      - targets: ["worker:8000"]
+        labels:
+          instance: "analysis-worker"
+
   - job_name: "node_exporter"
     static_configs:
       - targets: ["node-exporter:9100"]

@@ -220,6 +220,14 @@ sequenceDiagram
 6. worker가 AI 처리 결과를 internal callback API로 완료/실패 반영합니다.
 7. Spring 서버가 DB 저장, 알림 생성, SSE 상태 전파를 수행합니다.
 
+## 📈 Observability Notes
+
+- `ops/observability/prometheus.yml`의 `analysis_worker` scrape job은 `worker:8000/metrics`를 기본값으로 사용합니다.
+- 이 설정은 Docker Compose 안의 `worker` 서비스가 별도 FastAPI worker 이미지를 실행하고, 그 이미지가 `0.0.0.0:8000`에서 `/metrics`를 노출할 때만 유효합니다.
+- 이 repo 루트의 [Dockerfile](/Users/shinae/Desktop/ceos/Dockerfile)는 Spring Boot API 이미지용이며 `8080`만 노출합니다. 즉, 루트 Dockerfile만 기준으로 보면 `analysis_worker` target의 `/metrics`는 제공되지 않습니다.
+- 배포 환경의 worker 이미지가 `/metrics`를 열지 않는다면 Prometheus에서 `analysis_worker` target은 `DOWN`으로 보일 수 있습니다.
+- 이 경우에는 `analysis_worker` scrape target을 실제 worker metrics endpoint로 바꾸거나, 아직 worker metrics를 배포하지 않았다면 해당 job을 제거한 뒤 API 메트릭만 먼저 수집하는 구성이 맞습니다.
+
 ## 📂 Project Structure
 
 ```bash
