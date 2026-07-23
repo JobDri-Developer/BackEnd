@@ -124,6 +124,12 @@ server:
 management:
   server:
     port: 9090
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http:
+          server:
+            requests: true
   endpoints:
     web:
       exposure:
