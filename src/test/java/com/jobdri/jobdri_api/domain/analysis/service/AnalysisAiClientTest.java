@@ -3,6 +3,11 @@ package com.jobdri.jobdri_api.domain.analysis.service;
 import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateRecheckResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateRecheckResponse.RecheckDecision;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse.RejectionCode;
+import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
@@ -15,6 +20,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -23,11 +29,11 @@ import static org.mockito.Mockito.when;
 class AnalysisAiClientTest {
 
     private final AnalysisAiClient analysisAiClient = new AnalysisAiClient(
-            mock(AsyncMetricsRecorder.class),
             mock(OpenAIClient.class),
             mock(CorpusRetrievalService.class),
             mock(LlmConcurrencyLimiter.class),
             new FewShotPromptProvider(),
+            mock(AsyncMetricsRecorder.class),
             new ObjectMapper()
     );
 
@@ -211,8 +217,11 @@ class AnalysisAiClientTest {
                         ),
                         List.of(
                                 new AnalysisCandidateResponse.AnalysisCandidate(
+                                        "bad-question",
                                         99L,
                                         "Spring Boot API를 개발했습니다.",
+                                        "",
+                                        "",
                                         "EXPERIENCE",
                                         "MAIN_TASK",
                                         "API 개발",
@@ -221,8 +230,11 @@ class AnalysisAiClientTest {
                                         "잘못된 questionId입니다."
                                 ),
                                 new AnalysisCandidateResponse.AnalysisCandidate(
+                                        "missing-sentence",
                                         1L,
                                         "답변에 없는 문장",
+                                        "",
+                                        "",
                                         "EXPERIENCE",
                                         "MAIN_TASK",
                                         "API 개발",
@@ -231,8 +243,11 @@ class AnalysisAiClientTest {
                                         "원문에 없습니다."
                                 ),
                                 new AnalysisCandidateResponse.AnalysisCandidate(
+                                        "preference-only",
                                         1L,
                                         "Spring Boot API를 개발했습니다.",
+                                        "",
+                                        "",
                                         "EXPERIENCE",
                                         "PREFERENCE",
                                         "대용량 트래픽",
@@ -241,8 +256,11 @@ class AnalysisAiClientTest {
                                         "preference-only입니다."
                                 ),
                                 new AnalysisCandidateResponse.AnalysisCandidate(
+                                        "bad-status",
                                         1L,
                                         "Spring Boot API를 개발했습니다.",
+                                        "",
+                                        "",
                                         "EXPERIENCE",
                                         "MAIN_TASK",
                                         "API 개발",
@@ -251,8 +269,11 @@ class AnalysisAiClientTest {
                                         "허용하지 않은 status입니다."
                                 ),
                                 new AnalysisCandidateResponse.AnalysisCandidate(
+                                        "fabricated-no-reason",
                                         1L,
                                         "장애 대응 경험이 있습니다.",
+                                        "",
+                                        "",
                                         "EXPERIENCE",
                                         "QUALIFICATION",
                                         "장애 대응 경험",
@@ -261,8 +282,11 @@ class AnalysisAiClientTest {
                                         ""
                                 ),
                                 new AnalysisCandidateResponse.AnalysisCandidate(
+                                        "fabricated-valid",
                                         1L,
                                         "장애 대응 경험이 있습니다.",
+                                        "",
+                                        "",
                                         "EXPERIENCE",
                                         "QUALIFICATION",
                                         "장애 대응 경험",
@@ -271,8 +295,11 @@ class AnalysisAiClientTest {
                                         "답변 내부의 명시적 사실과 직접 충돌합니다."
                                 ),
                                 new AnalysisCandidateResponse.AnalysisCandidate(
+                                        "mentioned-valid",
                                         1L,
                                         "Spring Boot API를 개발했습니다.",
+                                        "",
+                                        "",
                                         "EXPERIENCE",
                                         "MAIN_TASK",
                                         "API 개발",
@@ -320,8 +347,11 @@ class AnalysisAiClientTest {
                         "직접 근거입니다."
                 )),
                 List.of(new AnalysisCandidateResponse.AnalysisCandidate(
+                        "candidate-1",
                         1L,
                         "장애 대응 경험이 있습니다.",
+                        "",
+                        "",
                         "EXPERIENCE",
                         "QUALIFICATION",
                         "장애 대응 경험",
@@ -342,6 +372,13 @@ class AnalysisAiClientTest {
         assertThat(prompt)
                 .contains("[검증된 1차 후보]")
                 .contains("1차에 없는 새로운 questionAnalysis를 임의로 추가하지 않는다.")
+                .contains("확실하지 않으면 무조건 제거하지 않는다.")
+                .contains("[후보 유지 조건]")
+                .contains("구체적인 행동, 역할, 성과/결과, 문제 해결 과정, JD 요구 역량 연결, 기여 범위 중 하나가 부족한 경우 유지한다.")
+                .contains("[후보 제거 조건]")
+                .contains("다짐이나 포부 문장을 성과 문장처럼 잘못 평가한 경우 제거한다.")
+                .contains("누락 키워드가 없어도 문장 첨삭은 존재할 수 있다.")
+                .contains("누락 키워드가 있어도 문장 자체는 정상일 수 있다.")
                 .contains("첨삭 행위를 설명하는 메타 문장을 금지한다.")
                 .contains("원문에 없는 수치, 도구, 경험, 직무 수행, 계획 추가를 금지한다.")
                 .contains("과거 문장을 미래 포부로 변경하지 않는다.")
@@ -351,6 +388,661 @@ class AnalysisAiClientTest {
                 .contains("점수는 JD 전체와 답변 전체를 기준으로 독립적으로 산정한다.")
                 .contains("장애 대응 경험이 있습니다.")
                 .doesNotContain("답변에 없는 문장");
+    }
+
+    @Test
+    @DisplayName("재검증 프롬프트는 1차 후보가 모두 제거된 경우 KEEP_BEST_CANDIDATE 판단 기준을 포함한다")
+    void buildRecheckPromptIncludesUnderDetectionRules() {
+        String prompt = analysisAiClient.buildRecheckPrompt(
+                promptInput(),
+                new RetrievalContext(List.of(), List.of()),
+                null,
+                new AnalysisCandidateResponse(
+                        List.of(),
+                        List.of(candidate("candidate-1", "장애 대응 경험이 있습니다.")),
+                        List.of()
+                ),
+                new CandidateReviewResponse(
+                        List.of(new CandidateReviewResponse.CandidateDecision(
+                                "candidate-1",
+                                false,
+                                RejectionCode.NOT_ACTIONABLE,
+                                null,
+                                "실질 개선이 어렵습니다.",
+                                null
+                        )),
+                        List.of(),
+                        List.of(),
+                        80,
+                        70,
+                        60,
+                        "피드백"
+                )
+        );
+
+        assertThat(prompt)
+                .contains("1차 후보가 하나 이상 있었지만 2차 검증 후 accepted 후보가 0개다.")
+                .contains("1차 후보 중 사용자가 실제로 수정하면 도움이 되는 문장이 정말 하나도 없는가?")
+                .contains("NO_CORRECTION_NEEDED")
+                .contains("KEEP_BEST_CANDIDATE")
+                .contains("단순히 첫 번째 후보를 선택하지 않는다.")
+                .contains("problemClarity, jobRelevance, evidenceGap, improvementUsefulness, fabricationConfidence를 1~5로 내부 평가한다.")
+                .contains("status는 MENTIONED 또는 FABRICATED만 사용한다.")
+                .contains("안전한 교체 문장을 만들 수 없으면 null이다.");
+    }
+
+    @Test
+    @DisplayName("2차 review 결과는 accepted 후보만 최종 AnalysisLlmResponse로 변환한다")
+    void buildFinalResponseUsesAcceptedCandidateDecisionsOnly() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(new AnalysisCandidateResponse.StrengthCandidate(
+                        1L,
+                        "Spring Boot API를 개발했습니다.",
+                        "MAIN_TASK",
+                        "API 개발",
+                        "직접 근거입니다."
+                )),
+                List.of(
+                        new AnalysisCandidateResponse.AnalysisCandidate(
+                                "accepted-1",
+                                1L,
+                                "장애 대응 경험이 있습니다.",
+                                "Spring Boot API를 개발했습니다.",
+                                "",
+                                "EXPERIENCE",
+                                "QUALIFICATION",
+                                "장애 대응 경험",
+                                "MENTIONED",
+                                "LACK_OF_RESULT",
+                                "결과가 부족합니다."
+                        ),
+                        new AnalysisCandidateResponse.AnalysisCandidate(
+                                "rejected-1",
+                                1L,
+                                "Spring Boot API를 개발했습니다.",
+                                "",
+                                "장애 대응 경험이 있습니다.",
+                                "EXPERIENCE",
+                                "MAIN_TASK",
+                                "API 개발",
+                                "MENTIONED",
+                                "LACK_OF_RESULT",
+                                "결과가 부족합니다."
+                        )
+                ),
+                List.of(new AnalysisCandidateResponse.MissingKeywordCandidate(
+                        "장애 대응 경험",
+                        "QUALIFICATION",
+                        "장애 대응 경험"
+                ))
+        );
+
+        AnalysisLlmResponse response = analysisAiClient.buildFinalResponse(
+                promptInput(),
+                candidates,
+                new CandidateReviewResponse(
+                        List.of(
+                                new CandidateReviewResponse.CandidateDecision(
+                                        "accepted-1",
+                                        true,
+                                        RejectionCode.NONE,
+                                        "MENTIONED",
+                                        "장애 대응 경험은 언급했지만 결과가 부족합니다.",
+                                        "장애 대응 경험이 있습니다."
+                                ),
+                                new CandidateReviewResponse.CandidateDecision(
+                                        "rejected-1",
+                                        false,
+                                        RejectionCode.ALREADY_SPECIFIC,
+                                        null,
+                                        "이미 구체적입니다.",
+                                        "추가해 보세요."
+                                ),
+                                new CandidateReviewResponse.CandidateDecision(
+                                        "missing-from-first",
+                                        true,
+                                        RejectionCode.NONE,
+                                        "MENTIONED",
+                                        "1차에 없는 후보입니다.",
+                                        null
+                                )
+                        ),
+                        List.of(new CandidateReviewResponse.FinalStrengthCandidate(
+                                "API 개발 경험이 직접 드러나요",
+                                "Spring Boot API를 개발했습니다.",
+                                "MAIN_TASK"
+                        )),
+                        List.of(new CandidateReviewResponse.FinalMissingKeywordCandidate(
+                                "장애 대응 경험",
+                                "QUALIFICATION"
+                        )),
+                        80,
+                        70,
+                        60,
+                        "검증된 후보 기반 피드백"
+                )
+        );
+
+        assertThat(response.questionAnalyses()).hasSize(1);
+        assertThat(response.questionAnalyses().getFirst().sentence()).isEqualTo("장애 대응 경험이 있습니다.");
+        assertThat(response.questionAnalyses().getFirst().improvement()).isNull();
+        assertThat(response.keyStrengths()).extracting("quote")
+                .containsExactly("Spring Boot API를 개발했습니다.");
+        assertThat(response.missingKeywords()).extracting("keyword")
+                .containsExactly("장애 대응 경험");
+    }
+
+    @Test
+    @DisplayName("재검증이 KEEP_BEST_CANDIDATE를 반환하면 검증을 통과한 후보 1건만 accepted로 복원한다")
+    void applyRecheckResponseKeepsBestCandidateWhenValid() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(
+                        candidate("candidate-1", "Spring Boot API를 개발했습니다."),
+                        candidate("candidate-2", "장애 대응 경험이 있습니다.")
+                ),
+                List.of()
+        );
+        CandidateReviewResponse review = new CandidateReviewResponse(
+                List.of(
+                        new CandidateReviewResponse.CandidateDecision(
+                                "candidate-1",
+                                false,
+                                RejectionCode.ALREADY_SPECIFIC,
+                                null,
+                                "이미 구체적입니다.",
+                                null
+                        ),
+                        new CandidateReviewResponse.CandidateDecision(
+                                "candidate-2",
+                                false,
+                                RejectionCode.NOT_ACTIONABLE,
+                                null,
+                                "수정 가치가 낮습니다.",
+                                null
+                        )
+                ),
+                List.of(),
+                List.of(),
+                80,
+                70,
+                60,
+                "피드백"
+        );
+
+        CandidateReviewResponse rechecked = analysisAiClient.applyRecheckResponse(
+                promptInput(),
+                candidates,
+                review,
+                new CandidateRecheckResponse(
+                        RecheckDecision.KEEP_BEST_CANDIDATE,
+                        "candidate-2",
+                        "MENTIONED",
+                        "장애 대응 경험은 언급했지만 구체적인 역할과 결과가 부족합니다.",
+                        "장애 대응 경험에서 제가 맡은 역할을 정리하고 문제 확인 과정과 처리 결과를 기록하며 대응 역량을 키웠습니다.",
+                        5,
+                        4,
+                        4,
+                        4,
+                        1,
+                        true,
+                        true,
+                        true,
+                        true,
+                        false
+                )
+        );
+
+        assertThat(rechecked.decisions()).hasSize(2);
+        assertThat(rechecked.decisions().getFirst().candidateId()).isEqualTo("candidate-2");
+        assertThat(rechecked.decisions().getFirst().accepted()).isTrue();
+        assertThat(rechecked.decisions().getFirst().rejectionCode()).isEqualTo(RejectionCode.NONE);
+        assertThat(rechecked.decisions()).extracting("candidateId")
+                .containsExactly("candidate-2", "candidate-1");
+    }
+
+    @Test
+    @DisplayName("재검증이 NO_CORRECTION_NEEDED이거나 점수가 유효하지 않으면 후보를 복원하지 않는다")
+    void applyRecheckResponseDoesNotHardCodeFallbackCandidate() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(candidate("candidate-1", "장애 대응 경험이 있습니다.")),
+                List.of()
+        );
+        CandidateReviewResponse review = new CandidateReviewResponse(
+                List.of(new CandidateReviewResponse.CandidateDecision(
+                        "candidate-1",
+                        false,
+                        RejectionCode.NOT_ACTIONABLE,
+                        null,
+                        "수정 가치가 낮습니다.",
+                        null
+                )),
+                List.of(),
+                List.of(),
+                80,
+                70,
+                60,
+                "피드백"
+        );
+
+        CandidateReviewResponse noCorrection = analysisAiClient.applyRecheckResponse(
+                promptInput(),
+                candidates,
+                review,
+                new CandidateRecheckResponse(
+                        RecheckDecision.NO_CORRECTION_NEEDED,
+                        null,
+                        null,
+                        null,
+                        null,
+                        1,
+                        1,
+                        1,
+                        1,
+                        1,
+                        true,
+                        true,
+                        true,
+                        true,
+                        false
+                )
+        );
+        CandidateReviewResponse invalidScore = analysisAiClient.applyRecheckResponse(
+                promptInput(),
+                candidates,
+                review,
+                new CandidateRecheckResponse(
+                        RecheckDecision.KEEP_BEST_CANDIDATE,
+                        "candidate-1",
+                        "MENTIONED",
+                        "장애 대응 경험은 언급했지만 구체적인 역할과 결과가 부족합니다.",
+                        null,
+                        6,
+                        4,
+                        4,
+                        4,
+                        1,
+                        true,
+                        true,
+                        true,
+                        true,
+                        false
+                )
+        );
+
+        assertThat(noCorrection.decisions()).hasSize(1);
+        assertThat(noCorrection.decisions().getFirst().accepted()).isFalse();
+        assertThat(invalidScore.decisions()).hasSize(1);
+        assertThat(invalidScore.decisions().getFirst().accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("재검증은 점수 임계값과 boolean 검증 기준을 모두 만족해야 복원한다")
+    void applyRecheckResponseRequiresThresholdsAndBooleanFlags() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(candidate("candidate-1", "장애 대응 경험이 있습니다.")),
+                List.of()
+        );
+        CandidateReviewResponse review = rejectedReview("candidate-1");
+
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.problemClarity = 3))
+                .decisions().getFirst().accepted()).isFalse();
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.jobRelevance = 3))
+                .decisions().getFirst().accepted()).isFalse();
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.improvementUsefulness = 3))
+                .decisions().getFirst().accepted()).isFalse();
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.questionTypeMatched = false))
+                .decisions().getFirst().accepted()).isFalse();
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.contextConsistent = false))
+                .decisions().getFirst().accepted()).isFalse();
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.reasonSpecific = false))
+                .decisions().getFirst().accepted()).isFalse();
+        assertThat(applyRecheck(candidates, review, validMentionedRecheck("candidate-1", builder -> builder.improvementActionable = false))
+                .decisions().getFirst().accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("재검증은 일반론 reason과 활용성 낮은 improvement를 복원하지 않는다")
+    void applyRecheckResponseRejectsGenericReasonAndNonActionableImprovement() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(candidate("candidate-1", "장애 대응 경험이 있습니다.")),
+                List.of()
+        );
+        CandidateReviewResponse review = rejectedReview("candidate-1");
+
+        CandidateReviewResponse genericReason = applyRecheck(
+                candidates,
+                review,
+                validMentionedRecheck("candidate-1", builder -> builder.reason = "구체성이 부족합니다.")
+        );
+        CandidateReviewResponse styleOnlyImprovement = applyRecheck(
+                candidates,
+                review,
+                validMentionedRecheck("candidate-1", builder -> builder.improvement = "더 구체적으로 작성하겠습니다.")
+        );
+        CandidateReviewResponse unsupportedNumber = applyRecheck(
+                candidates,
+                review,
+                validMentionedRecheck("candidate-1", builder -> builder.improvement = "장애 대응 경험에서 제가 맡은 역할을 정리하고 30% 개선한 결과를 기록했습니다.")
+        );
+
+        assertThat(genericReason.decisions().getFirst().accepted()).isFalse();
+        assertThat(styleOnlyImprovement.decisions().getFirst().accepted()).isFalse();
+        assertThat(unsupportedNumber.decisions().getFirst().accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("재검증은 문항 유형에 맞지 않는 성과 수치 부족 reason을 복원하지 않는다")
+    void applyRecheckResponseRejectsWrongSentenceTypeCriteria() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(new AnalysisCandidateResponse.AnalysisCandidate(
+                        "plan-1",
+                        1L,
+                        "장애 대응 경험이 있습니다.",
+                        "",
+                        "",
+                        "PLAN",
+                        "MAIN_TASK",
+                        "API 개발",
+                        "MENTIONED",
+                        "ABSTRACT_PLAN",
+                        "포부가 추상적입니다."
+                )),
+                List.of()
+        );
+
+        CandidateReviewResponse rechecked = applyRecheck(
+                candidates,
+                rejectedReview("plan-1"),
+                validMentionedRecheck("plan-1", builder -> builder.reason = "장애 대응 경험은 언급했지만 성과 수치가 부족하여 직무 기준에서 보완이 필요합니다.")
+        );
+
+        assertThat(rechecked.decisions().getFirst().accepted()).isFalse();
+    }
+
+    @Test
+    @DisplayName("재검증은 FABRICATED 직접 충돌 기준을 만족할 때만 복원한다")
+    void applyRecheckResponseRequiresDirectContradictionForFabricated() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(new AnalysisCandidateResponse.AnalysisCandidate(
+                        "fabricated-1",
+                        1L,
+                        "장애 대응 경험이 있습니다.",
+                        "",
+                        "",
+                        "EXPERIENCE",
+                        "QUALIFICATION",
+                        "장애 대응 경험",
+                        "FABRICATED",
+                        "DIRECT_CONTRADICTION",
+                        "답변 내부의 명시적 사실과 직접 충돌합니다."
+                )),
+                List.of()
+        );
+        CandidateReviewResponse review = rejectedReview("fabricated-1");
+
+        CandidateReviewResponse invalidFabricated = applyRecheck(
+                candidates,
+                review,
+                validFabricatedRecheck("fabricated-1", builder -> builder.directContradiction = false)
+        );
+        CandidateReviewResponse lowConfidence = applyRecheck(
+                candidates,
+                review,
+                validFabricatedRecheck("fabricated-1", builder -> builder.fabricationConfidence = 3)
+        );
+        CandidateReviewResponse validFabricated = applyRecheck(
+                candidates,
+                review,
+                validFabricatedRecheck("fabricated-1", builder -> {
+                })
+        );
+
+        assertThat(invalidFabricated.decisions().getFirst().accepted()).isFalse();
+        assertThat(lowConfidence.decisions().getFirst().accepted()).isFalse();
+        assertThat(validFabricated.decisions().getFirst().accepted()).isTrue();
+        assertThat(validFabricated.decisions().getFirst().status()).isEqualTo("FABRICATED");
+    }
+
+    @Test
+    @DisplayName("재검증은 최대 1건만 복원하고 missingKeywords에는 영향 주지 않는다")
+    void applyRecheckResponseRecoversAtMostOneAndKeepsMissingKeywords() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(
+                        candidate("candidate-1", "Spring Boot API를 개발했습니다."),
+                        candidate("candidate-2", "장애 대응 경험이 있습니다.")
+                ),
+                List.of(new AnalysisCandidateResponse.MissingKeywordCandidate(
+                        "장애 대응 경험",
+                        "QUALIFICATION",
+                        "장애 대응 경험"
+                ))
+        );
+        CandidateReviewResponse review = new CandidateReviewResponse(
+                List.of(
+                        new CandidateReviewResponse.CandidateDecision("candidate-1", false, RejectionCode.NOT_ACTIONABLE, null, "수정 가치가 낮습니다.", null),
+                        new CandidateReviewResponse.CandidateDecision("candidate-2", false, RejectionCode.NOT_ACTIONABLE, null, "수정 가치가 낮습니다.", null)
+                ),
+                List.of(),
+                List.of(new CandidateReviewResponse.FinalMissingKeywordCandidate("장애 대응 경험", "QUALIFICATION")),
+                80,
+                70,
+                60,
+                "피드백"
+        );
+
+        CandidateReviewResponse rechecked = applyRecheck(
+                candidates,
+                review,
+                validMentionedRecheck("candidate-2", builder -> {
+                })
+        );
+
+        assertThat(rechecked.decisions()).filteredOn(CandidateReviewResponse.CandidateDecision::accepted).hasSize(1);
+        assertThat(rechecked.missingKeywords()).extracting("keyword").containsExactly("장애 대응 경험");
+    }
+
+    @Test
+    @DisplayName("candidate review는 검증된 candidateId와 accepted/rejectionCode 조합만 유지한다")
+    void validateCandidateReviewKeepsOnlyConsistentDecisions() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(
+                        candidate("accepted-1", "Spring Boot API를 개발했습니다."),
+                        candidate("rejected-1", "장애 대응 경험이 있습니다."),
+                        candidate("bad-accepted-code", "Spring Boot API를 개발했습니다."),
+                        candidate("bad-rejected-code", "장애 대응 경험이 있습니다.")
+                ),
+                List.of()
+        );
+
+        CandidateReviewResponse validated = analysisAiClient.validateCandidateReview(
+                promptInput(),
+                candidates,
+                new CandidateReviewResponse(
+                        List.of(
+                                new CandidateReviewResponse.CandidateDecision(
+                                        "accepted-1",
+                                        true,
+                                        RejectionCode.NONE,
+                                        "MENTIONED",
+                                        "결과가 부족합니다.",
+                                        "null"
+                                ),
+                                new CandidateReviewResponse.CandidateDecision(
+                                        "rejected-1",
+                                        false,
+                                        RejectionCode.CONTEXT_PROVIDES_EVIDENCE,
+                                        null,
+                                        "주변 문맥이 근거를 제공합니다.",
+                                        "추가해 보세요."
+                                ),
+                                new CandidateReviewResponse.CandidateDecision(
+                                        "unknown",
+                                        true,
+                                        RejectionCode.NONE,
+                                        "MENTIONED",
+                                        "1차에 없는 후보입니다.",
+                                        null
+                                ),
+                                new CandidateReviewResponse.CandidateDecision(
+                                        "bad-accepted-code",
+                                        true,
+                                        RejectionCode.ALREADY_SPECIFIC,
+                                        "MENTIONED",
+                                        "accepted=true인데 비NONE입니다.",
+                                        null
+                                ),
+                                new CandidateReviewResponse.CandidateDecision(
+                                        "bad-rejected-code",
+                                        false,
+                                        RejectionCode.NONE,
+                                        null,
+                                        "accepted=false인데 NONE입니다.",
+                                        null
+                                )
+                        ),
+                        List.of(),
+                        List.of(),
+                        80,
+                        70,
+                        60,
+                        "피드백"
+                )
+        );
+
+        assertThat(validated.decisions()).hasSize(2);
+        assertThat(validated.decisions()).extracting("candidateId")
+                .containsExactly("accepted-1", "rejected-1");
+        assertThat(validated.decisions().getFirst().improvement()).isNull();
+        assertThat(validated.decisions().get(1).improvement()).isNull();
+    }
+
+    @Test
+    @DisplayName("candidate가 없으면 review decisions는 빈 배열로 검증된다")
+    void validateCandidateReviewReturnsEmptyDecisionsWhenNoCandidates() {
+        CandidateReviewResponse validated = analysisAiClient.validateCandidateReview(
+                promptInput(),
+                new AnalysisCandidateResponse(List.of(), List.of(), List.of()),
+                new CandidateReviewResponse(
+                        List.of(new CandidateReviewResponse.CandidateDecision(
+                                "unknown",
+                                true,
+                                RejectionCode.NONE,
+                                "MENTIONED",
+                                "1차에 없는 후보입니다.",
+                                null
+                        )),
+                        List.of(),
+                        List.of(),
+                        80,
+                        70,
+                        60,
+                        "피드백"
+                )
+        );
+
+        assertThat(validated.decisions()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("긍정 reason은 MENTIONED 최종 분석으로 변환하지 않는다")
+    void buildFinalResponseSkipsPositiveMentionedReason() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(candidate("positive-1", "Spring Boot API를 개발했습니다.")),
+                List.of()
+        );
+
+        CandidateReviewResponse validated = analysisAiClient.validateCandidateReview(
+                promptInput(),
+                candidates,
+                new CandidateReviewResponse(
+                        List.of(new CandidateReviewResponse.CandidateDecision(
+                                "positive-1",
+                                true,
+                                RejectionCode.NONE,
+                                "MENTIONED",
+                                "직무 역량을 보여주는 강점입니다.",
+                                null
+                        )),
+                        List.of(),
+                        List.of(),
+                        80,
+                        70,
+                        60,
+                        "피드백"
+                )
+        );
+
+        AnalysisLlmResponse response = analysisAiClient.buildFinalResponse(promptInput(), candidates, validated);
+
+        assertThat(validated.decisions()).isEmpty();
+        assertThat(response.questionAnalyses()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("issueType 값은 rejectionCode enum이 될 수 없다")
+    void rejectionCodeDoesNotContainIssueTypeValues() {
+        assertThat(RejectionCode.values())
+                .extracting(Enum::name)
+                .doesNotContain("LACK_OF_RESULT", "DIRECT_CONTRADICTION");
+    }
+
+    private CandidateReviewResponse applyRecheck(
+            AnalysisCandidateResponse candidates,
+            CandidateReviewResponse review,
+            CandidateRecheckResponse recheck
+    ) {
+        return analysisAiClient.applyRecheckResponse(promptInput(), candidates, review, recheck);
+    }
+
+    private CandidateReviewResponse rejectedReview(String candidateId) {
+        return new CandidateReviewResponse(
+                List.of(new CandidateReviewResponse.CandidateDecision(
+                        candidateId,
+                        false,
+                        RejectionCode.NOT_ACTIONABLE,
+                        null,
+                        "수정 가치가 낮습니다.",
+                        null
+                )),
+                List.of(),
+                List.of(),
+                80,
+                70,
+                60,
+                "피드백"
+        );
+    }
+
+    private CandidateRecheckResponse validMentionedRecheck(
+            String candidateId,
+            Consumer<RecheckBuilder> customizer
+    ) {
+        RecheckBuilder builder = new RecheckBuilder(candidateId);
+        customizer.accept(builder);
+        return builder.build();
+    }
+
+    private CandidateRecheckResponse validFabricatedRecheck(
+            String candidateId,
+            Consumer<RecheckBuilder> customizer
+    ) {
+        RecheckBuilder builder = new RecheckBuilder(candidateId);
+        builder.status = "FABRICATED";
+        builder.reason = "장애 대응 경험이 있습니다라는 문장은 답변 내부의 명시적 사실과 직접 충돌합니다.";
+        builder.improvement = "장애 대응 경험은 아직 부족하지만 관련 상황을 확인하며 대응 역량을 키우고 있습니다.";
+        builder.fabricationConfidence = 4;
+        builder.directContradiction = true;
+        customizer.accept(builder);
+        return builder.build();
     }
 
     private JobPosting mockJobPosting() {
@@ -386,5 +1078,63 @@ class AnalysisAiClientTest {
                         "Spring Boot API를 개발했습니다. 장애 대응 경험이 있습니다."
                 ))
         );
+    }
+
+    private AnalysisCandidateResponse.AnalysisCandidate candidate(String candidateId, String sentence) {
+        return new AnalysisCandidateResponse.AnalysisCandidate(
+                candidateId,
+                1L,
+                sentence,
+                "",
+                "",
+                "EXPERIENCE",
+                "MAIN_TASK",
+                "API 개발",
+                "MENTIONED",
+                "LACK_OF_RESULT",
+                "결과가 부족합니다."
+        );
+    }
+
+    private static class RecheckBuilder {
+        private final String candidateId;
+        private RecheckDecision decision = RecheckDecision.KEEP_BEST_CANDIDATE;
+        private String status = "MENTIONED";
+        private String reason = "장애 대응 경험은 언급했지만 구체적인 역할과 결과가 부족합니다.";
+        private String improvement = "장애 대응 경험에서 제가 맡은 역할을 정리하고 문제 확인 과정과 처리 결과를 기록하며 대응 역량을 키웠습니다.";
+        private Integer problemClarity = 4;
+        private Integer jobRelevance = 4;
+        private Integer evidenceGap = 4;
+        private Integer improvementUsefulness = 4;
+        private Integer fabricationConfidence = 1;
+        private Boolean questionTypeMatched = true;
+        private Boolean contextConsistent = true;
+        private Boolean reasonSpecific = true;
+        private Boolean improvementActionable = true;
+        private Boolean directContradiction = false;
+
+        private RecheckBuilder(String candidateId) {
+            this.candidateId = candidateId;
+        }
+
+        private CandidateRecheckResponse build() {
+            return new CandidateRecheckResponse(
+                    decision,
+                    candidateId,
+                    status,
+                    reason,
+                    improvement,
+                    problemClarity,
+                    jobRelevance,
+                    evidenceGap,
+                    improvementUsefulness,
+                    fabricationConfidence,
+                    questionTypeMatched,
+                    contextConsistent,
+                    reasonSpecific,
+                    improvementActionable,
+                    directContradiction
+            );
+        }
     }
 }

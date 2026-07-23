@@ -71,6 +71,7 @@ jobs:
         if: env.HAS_DEPLOY_SECRETS == 'true'
         uses: appleboy/ssh-action@v1.2.0
         env:
+          DEPLOY_BRANCH: ${{ github.ref_name }}
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           IMAGE_TAG: latest
           GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
@@ -80,12 +81,15 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
-          envs: IMAGE_NAME,IMAGE_TAG,GHCR_USERNAME,GHCR_TOKEN
+          envs: DEPLOY_BRANCH,IMAGE_NAME,IMAGE_TAG,GHCR_USERNAME,GHCR_TOKEN
           script: |
             cd "${{ secrets.DEPLOY_PATH }}"
+            git fetch origin "$DEPLOY_BRANCH"
+            git checkout "$DEPLOY_BRANCH"
+            git pull --ff-only origin "$DEPLOY_BRANCH"
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USERNAME" --password-stdin
             export IMAGE_NAME="$IMAGE_NAME"
             export IMAGE_TAG="$IMAGE_TAG"
-            docker compose -f docker-compose.prod.yml pull api
-            docker compose -f docker-compose.prod.yml up -d api
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --force-recreate --remove-orphans
             docker image prune -f

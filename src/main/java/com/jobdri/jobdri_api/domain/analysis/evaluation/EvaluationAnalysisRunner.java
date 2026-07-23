@@ -2,11 +2,10 @@ package com.jobdri.jobdri_api.domain.analysis.evaluation;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
-import org.springframework.boot.SpringApplication;
-import org.springframework.context.ConfigurableApplicationContext;
 import org.springframework.context.annotation.Profile;
 import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
@@ -19,10 +18,16 @@ import java.util.List;
 
 @Component
 @Profile("analysis-eval")
+@ConditionalOnProperty(
+        prefix = "evaluation.analysis",
+        name = "enabled",
+        havingValue = "true",
+        matchIfMissing = false
+)
 @RequiredArgsConstructor
 @Slf4j
 // 수동 실행 예:
-// ./gradlew bootRun --args='--spring.profiles.active=analysis-eval --evaluation.input=/path/evaluation_cases_검수.csv --evaluation.output=/path/evaluation_ai_results.csv --evaluation.confirm-openai-cost=true'
+// ./gradlew bootRun --args='--spring.profiles.active=analysis-eval --evaluation.analysis.enabled=true --evaluation.input=/path/evaluation_cases_검수.csv --evaluation.output=/path/evaluation_ai_results.csv --evaluation.confirm-openai-cost=true'
 public class EvaluationAnalysisRunner implements ApplicationRunner {
 
     @Value("${evaluation.input:}")
@@ -40,15 +45,20 @@ public class EvaluationAnalysisRunner implements ApplicationRunner {
     @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}")
     private String analysisModel;
 
+    @Value("${evaluation.nlg-judge.enabled:false}")
+    private boolean nlgJudgeEnabled;
+
     private final EvaluationAnalysisBatchService evaluationAnalysisBatchService;
-    private final ConfigurableApplicationContext applicationContext;
+    private final EvaluationExitCoordinator evaluationExitCoordinator;
     private final Environment environment;
 
     @Override
     public void run(ApplicationArguments args) throws Exception {
+        log.info("EvaluationAnalysisRunner run entered.");
         try {
             validateProfiles();
             validateExecutionProperties();
+            log.info("EvaluationAnalysisRunner start. enabled=true");
             log.info("평가용 자소서 분석을 시작합니다. input={}, output={}, model={}", inputPath, outputPath, analysisModel);
             EvaluationAnalysisBatchService.EvaluationBatchSummary summary =
                     evaluationAnalysisBatchService.run(Path.of(inputPath), Path.of(outputPath));
@@ -61,19 +71,10 @@ public class EvaluationAnalysisRunner implements ApplicationRunner {
             );
         } catch (Exception e) {
             log.error("평가용 자소서 분석 실행에 실패했습니다. message={}", e.getMessage(), e);
-            exitApplication(1);
+            evaluationExitCoordinator.exit("analysis-evaluation", 1);
             throw e;
         }
-        exitApplication(0);
-    }
-
-    private void exitApplication(int exitCode) {
-        Thread shutdownThread = new Thread(() -> {
-            int resolvedExitCode = SpringApplication.exit(applicationContext, () -> exitCode);
-            System.exit(resolvedExitCode);
-        });
-        shutdownThread.setDaemon(false);
-        shutdownThread.start();
+        evaluationExitCoordinator.exit("analysis-evaluation", 0);
     }
 
     void validateProfiles() {
@@ -87,6 +88,11 @@ public class EvaluationAnalysisRunner implements ApplicationRunner {
     }
 
     void validateExecutionProperties() {
+        if (nlgJudgeEnabled) {
+            throw new IllegalArgumentException(
+                    "evaluation.analysis.enabled와 evaluation.nlg-judge.enabled를 동시에 true로 설정할 수 없습니다."
+            );
+        }
         if (!StringUtils.hasText(inputPath)) {
             throw new IllegalArgumentException("evaluation.input 값을 지정해야 합니다.");
         }
