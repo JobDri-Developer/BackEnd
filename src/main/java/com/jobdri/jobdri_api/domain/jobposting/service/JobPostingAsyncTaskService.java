@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.entity.UserRole;
+import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -39,6 +40,7 @@ public class JobPostingAsyncTaskService {
     private final ObjectMapper objectMapper;
     private final JobPostingAsyncSseService jobPostingAsyncSseService;
     private final NotificationService notificationService;
+    private final AsyncMetricsRecorder asyncMetricsRecorder;
 
     @Value("${app.worker.job-posting.max-retry-count:3}")
     private int maxRetryCount;
@@ -66,6 +68,9 @@ public class JobPostingAsyncTaskService {
             return;
         }
         task.markRunning(workerId, retryCount, submittedAt);
+        if (task.getQueueLatencyMillis() != null) {
+            asyncMetricsRecorder.recordQueueWait("jobposting", task.getQueueLatencyMillis());
+        }
         publishAfterCommit(toStatusResponse(task));
     }
 
@@ -82,6 +87,7 @@ public class JobPostingAsyncTaskService {
             );
         }
         task.markSuccess(serializeResult(result));
+        recordProcessingMetric(task, "succeeded");
         publishAfterCommit(toStatusResponse(task));
         createSuccessNotificationSafely(task, result);
         return result;
@@ -93,6 +99,7 @@ public class JobPostingAsyncTaskService {
         if (isTerminal(task)) {
             return;
         }
+        recordProcessingMetric(task, "retry");
         task.markRetryScheduled(failureReason, errorMessage, retryCount);
         publishAfterCommit(toStatusResponse(task));
     }
@@ -103,6 +110,7 @@ public class JobPostingAsyncTaskService {
         if (isTerminal(task)) {
             return;
         }
+        recordProcessingMetric(task, "failed");
         task.markFailed(failureReason, errorMessage, retryCount);
         publishAfterCommit(toStatusResponse(task));
         createFailureNotificationSafely(task);
@@ -214,6 +222,14 @@ public class JobPostingAsyncTaskService {
             return false;
         }
         return Duration.between(baseTime, now).toMinutes() >= timeoutMinutes;
+    }
+
+    private void recordProcessingMetric(JobPostingAsyncTask task, String outcome) {
+        if (task.getStartedAt() == null) {
+            return;
+        }
+        long durationMillis = Math.max(0L, Duration.between(task.getStartedAt(), LocalDateTime.now()).toMillis());
+        asyncMetricsRecorder.recordProcessing("jobposting", outcome, durationMillis);
     }
 
     private String serializeResult(JobPostingIngestResponse result) {
