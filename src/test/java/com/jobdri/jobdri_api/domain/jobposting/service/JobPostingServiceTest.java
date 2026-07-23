@@ -15,7 +15,11 @@ import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificati
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingUpdateRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
@@ -75,6 +79,62 @@ class JobPostingServiceTest {
 
     @Autowired
     private DetailClassificationRepository detailClassificationRepository;
+
+    @Test
+    @DisplayName("채용 공고 프로필 색상, 공고명, 직무명을 생성하고 조회한다")
+    void createAndGetJobPostingIncludesEditableProfileFields() {
+        User user = saveUser("job-posting-create@example.com");
+        DetailClassification detailClassification = saveDetailClassification();
+
+        JobPostingResponse created = jobPostingService.createJobPosting(
+                user,
+                new JobPostingCreateRequest(
+                        JobPostingProfileColor.LIGHTBLUE,
+                        "여름 인턴 채용",
+                        "생성 테스트 기업",
+                        CompanySize.LARGE,
+                        "백엔드 엔지니어",
+                        detailClassification.getId(),
+                        "주요 업무",
+                        "자격 요건",
+                        "우대 사항"
+                )
+        );
+
+        JobPostingResponse found = jobPostingService.getJobPosting(user, created.getJobPostingId());
+
+        assertThat(found.getProfileColor()).isEqualTo(JobPostingProfileColor.LIGHTBLUE);
+        assertThat(found.getPostingName()).isEqualTo("여름 인턴 채용");
+        assertThat(found.getJobTitle()).isEqualTo("백엔드 엔지니어");
+    }
+
+    @Test
+    @DisplayName("채용 공고 프로필 색상, 공고명, 직무명을 수정한다")
+    void updateJobPostingUpdatesEditableProfileFields() {
+        User user = saveUser("job-posting-update@example.com");
+        JobPosting jobPosting = saveJobPosting(user);
+        DetailClassification detailClassification = jobPosting.getDetailClassification();
+
+        JobPostingResponse updated = jobPostingService.updateJobPosting(
+                user,
+                jobPosting.getId(),
+                new JobPostingUpdateRequest(
+                        JobPostingProfileColor.PINK,
+                        "수정된 공고명",
+                        jobPosting.getCompany().getName(),
+                        jobPosting.getCompany().getSize(),
+                        "수정된 직무명",
+                        detailClassification.getId(),
+                        "수정된 주요 업무",
+                        "수정된 자격 요건",
+                        "수정된 우대 사항"
+                )
+        );
+
+        assertThat(updated.getProfileColor()).isEqualTo(JobPostingProfileColor.PINK);
+        assertThat(updated.getPostingName()).isEqualTo("수정된 공고명");
+        assertThat(updated.getJobTitle()).isEqualTo("수정된 직무명");
+    }
 
     @Test
     @DisplayName("채용 공고를 삭제하면 연결된 모의 서류 결과도 함께 삭제한다")
