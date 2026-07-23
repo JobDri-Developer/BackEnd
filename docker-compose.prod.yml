@@ -74,9 +74,9 @@ services:
   loki:
     image: grafana/loki:3.5.6
     container_name: jobdri-loki
-    command: ["-config.file=/etc/loki/config.yaml"]
+    command: ["-config.file=/etc/loki/local-config.yaml"]
     volumes:
-      - ./ops/observability/loki-config.yaml:/etc/loki/config.yaml:ro
+      - ./ops/observability/loki-config.yaml:/etc/loki/local-config.yaml:ro
       - loki-data:/loki
     restart: unless-stopped
 
