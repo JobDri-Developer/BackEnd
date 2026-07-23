@@ -356,15 +356,17 @@ class EvaluationAnalysisRunnerSafetyTest {
         var applicationContext = mock(org.springframework.context.ConfigurableApplicationContext.class);
         AtomicInteger springExitCount = new AtomicInteger();
         AtomicInteger systemExitCount = new AtomicInteger();
+        AtomicInteger systemExitCode = new AtomicInteger(-1);
         CountDownLatch exited = new CountDownLatch(1);
         EvaluationExitCoordinator coordinator = new EvaluationExitCoordinator(
                 applicationContext,
                 (context, exitCode) -> {
                     springExitCount.incrementAndGet();
-                    return exitCode;
+                    return 17;
                 },
                 exitCode -> {
                     systemExitCount.incrementAndGet();
+                    systemExitCode.set(exitCode);
                     exited.countDown();
                 }
         );
@@ -375,6 +377,7 @@ class EvaluationAnalysisRunnerSafetyTest {
         assertThat(exited.await(1, TimeUnit.SECONDS)).isTrue();
         assertThat(springExitCount).hasValue(1);
         assertThat(systemExitCount).hasValue(1);
+        assertThat(systemExitCode).hasValue(17);
     }
 
     @Test
