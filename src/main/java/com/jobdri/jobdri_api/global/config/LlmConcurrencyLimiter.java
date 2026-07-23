@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.global.config;
 
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -15,8 +16,10 @@ public class LlmConcurrencyLimiter {
 
     private final Semaphore semaphore;
     private final long acquireTimeoutMillis;
+    private final AsyncMetricsRecorder asyncMetricsRecorder;
 
     public LlmConcurrencyLimiter(
+            AsyncMetricsRecorder asyncMetricsRecorder,
             @Value("${llm.concurrency.max-concurrent-requests:4}") int maxConcurrentRequests,
             @Value("${llm.concurrency.acquire-timeout-millis:3000}") long acquireTimeoutMillis
     ) {
@@ -26,15 +29,24 @@ public class LlmConcurrencyLimiter {
         if (acquireTimeoutMillis <= 0) {
             throw new IllegalArgumentException("llm.concurrency.acquire-timeout-millis must be positive");
         }
+        this.asyncMetricsRecorder = asyncMetricsRecorder;
         this.semaphore = new Semaphore(maxConcurrentRequests, true);
         this.acquireTimeoutMillis = acquireTimeoutMillis;
+        this.asyncMetricsRecorder.bindLlmConcurrencyMetrics(this.semaphore, maxConcurrentRequests);
     }
 
     public <T> T execute(String operationName, CheckedSupplier<T> supplier) {
         boolean acquired = false;
+        long acquireStartedAt = System.nanoTime();
         try {
             acquired = semaphore.tryAcquire(acquireTimeoutMillis, TimeUnit.MILLISECONDS);
+            asyncMetricsRecorder.recordLlmConcurrencyAcquire(
+                    operationName,
+                    acquired ? "acquired" : "timeout",
+                    elapsedMillis(acquireStartedAt)
+            );
             if (!acquired) {
+                asyncMetricsRecorder.incrementLlmConcurrencyTimeout(operationName);
                 log.warn(
                         "LLM concurrency limiter timeout. operation={}, availablePermits={}",
                         operationName,
@@ -47,6 +59,11 @@ public class LlmConcurrencyLimiter {
             }
             return supplier.get();
         } catch (InterruptedException e) {
+            asyncMetricsRecorder.recordLlmConcurrencyAcquire(
+                    operationName,
+                    "interrupted",
+                    elapsedMillis(acquireStartedAt)
+            );
             Thread.currentThread().interrupt();
             throw new GeneralException(
                     GeneralErrorCode.SERVICE_UNAVAILABLE,
@@ -63,6 +80,10 @@ public class LlmConcurrencyLimiter {
                 semaphore.release();
             }
         }
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
     }
 
     @FunctionalInterface
