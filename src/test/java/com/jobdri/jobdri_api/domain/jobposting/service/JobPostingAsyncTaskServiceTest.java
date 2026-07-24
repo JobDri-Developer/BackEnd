@@ -46,15 +46,18 @@ class JobPostingAsyncTaskServiceTest {
     private AsyncMetricsRecorder asyncMetricsRecorder;
 
     private JobPostingAsyncTaskService jobPostingAsyncTaskService;
+    private JobPostingQueueProperties jobPostingQueueProperties;
 
     @BeforeEach
     void setUp() {
+        jobPostingQueueProperties = new JobPostingQueueProperties();
         jobPostingAsyncTaskService = new JobPostingAsyncTaskService(
                 jobPostingAsyncTaskRepository,
                 new ObjectMapper(),
                 jobPostingAsyncSseService,
                 notificationService,
-                asyncMetricsRecorder
+                asyncMetricsRecorder,
+                jobPostingQueueProperties
         );
     }
 
@@ -104,7 +107,7 @@ class JobPostingAsyncTaskServiceTest {
     @Test
     @DisplayName("대기 시간이 임계치를 넘은 task는 QUEUE_TIMEOUT으로 실패 처리한다")
     void getTaskMarksPendingTimeout() {
-        ReflectionTestUtils.setField(jobPostingAsyncTaskService, "queueTimeoutMinutes", 1L);
+        jobPostingQueueProperties.setQueueTimeoutMinutes(1L);
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
         ReflectionTestUtils.setField(task, "submittedAt", java.time.LocalDateTime.now().minusMinutes(2));
 
@@ -119,7 +122,7 @@ class JobPostingAsyncTaskServiceTest {
     @Test
     @DisplayName("실행 중 시간이 임계치를 넘은 task는 WORKER_TIMEOUT으로 실패 처리한다")
     void getTaskMarksRunningTimeout() {
-        ReflectionTestUtils.setField(jobPostingAsyncTaskService, "processingTimeoutMinutes", 1L);
+        jobPostingQueueProperties.setProcessingTimeoutMinutes(1L);
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
         task.markRunning("worker-1", 1, java.time.Instant.now().minusSeconds(120));
         ReflectionTestUtils.setField(task, "lastAttemptAt", java.time.LocalDateTime.now().minusMinutes(2));
