@@ -39,6 +39,7 @@
 ## 결정 (Decision)
 - 다음 리팩토링의 중심은 `Spring 전체 reactive 전환`이 아니라 `external worker의 처리량 확장과 내부 I/O async화`로 한다.
 - 즉시 바꾸지 않는 것과 우선 바꾸는 것을 다음처럼 구분한다.
+- 메인 API 서버의 현재 worker-facing contract truth는 [worker-internal-api-contract.md](/Users/shinae/Desktop/ceos/docs/worker-internal-api-contract.md)에 별도로 정리한다.
 
 - 유지할 구조
   - `RabbitMQ + external worker + internal callback + SSE` 비동기 파이프라인
