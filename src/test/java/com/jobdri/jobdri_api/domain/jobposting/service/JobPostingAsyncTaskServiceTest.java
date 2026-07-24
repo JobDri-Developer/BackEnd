@@ -217,6 +217,25 @@ class JobPostingAsyncTaskServiceTest {
     }
 
     @Test
+    @DisplayName("이미 성공한 task의 complete 재호출은 기존 결과를 반환한다")
+    void markSuccessReturnsExistingResultWhenTaskAlreadySucceeded() throws Exception {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+        JobPostingIngestResponse existing = new JobPostingIngestResponse(true, "done", null, null, null, null, null);
+        task.markSuccess(new ObjectMapper().writeValueAsString(existing));
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        JobPostingIngestResponse replayed = new JobPostingIngestResponse(false, "ignored", null, null, null, null, null);
+
+        JobPostingIngestResponse response = jobPostingAsyncTaskService.markSuccess(task.getTaskId(), replayed);
+
+        assertThat(response.isSavedToDatabase()).isTrue();
+        assertThat(response.getMessage()).isEqualTo("done");
+        verify(jobPostingAsyncSseService, never()).publish(any());
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("실패 처리 시 사용자에게는 일반화된 실패 알림을 보낸다")
     void markFailedCreatesSanitizedNotification() {
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);

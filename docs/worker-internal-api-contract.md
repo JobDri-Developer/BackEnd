@@ -54,9 +54,9 @@
 
 | Endpoint | 목적 | 요청 식별자 | 재시도/멱등 동작 | worker 메모 |
 | --- | --- | --- | --- | --- |
-| `POST /api/internal/worker/analysis/context` | 분석 실행 컨텍스트 조회 | `taskId + userId + mockApplyId` | 같은 task에 대해 재호출 가능 | 첫 성공 시 크레딧 1회 예약을 동반한다. 완전한 read-only API가 아니다. |
+| `POST /api/internal/worker/analysis/context` | 분석 실행 컨텍스트 조회 | `taskId + userId + mockApplyId` | 같은 taskId 재호출 가능 | 첫 성공 시 크레딧 1회 예약을 동반한다. 재호출이어도 크레딧은 중복 차감되지 않아야 한다. |
 | `POST /api/internal/worker/analysis/tasks/{taskId}/running` | task를 `RUNNING`으로 전이 | path `taskId` | 이미 `SUCCEEDED`/`FAILED`면 `200` no-op | 네트워크 불확실 시 재호출 가능 |
-| `POST /api/internal/worker/analysis/tasks/{taskId}/result` | complete 전 durable result 저장 | `taskId + userId + mockApplyId` | 같은 taskId 기준 upsert | `complete` 전에 선저장하는 경로 |
+| `POST /api/internal/worker/analysis/tasks/{taskId}/result` | complete 전 durable result 저장 | `taskId + userId + mockApplyId` | 같은 taskId 기준 upsert | 같은 payload 재전송은 성공으로 처리한다. terminal task여도 저장 자체는 no-op 성격으로 흡수한다. |
 | `POST /api/internal/worker/analysis/tasks/{taskId}/complete` | 결과 반영 후 성공 종료 | `taskId + userId + mockApplyId` | 이미 `SUCCEEDED`면 기존 분석 결과를 반환, 이미 `FAILED`면 `400` | 네트워크 유실 시 가장 먼저 재조회/재호출 후보 |
 | `POST /api/internal/worker/analysis/tasks/{taskId}/retry` | 재시도 예정 상태 반영 | path `taskId` | 이미 `SUCCEEDED`/`FAILED`면 `200` no-op | `retryCount`, `failureReason`, `queueLatencyMillis` 반영 |
 | `POST /api/internal/worker/analysis/tasks/{taskId}/failed` | 최종 실패 반영 | path `taskId` | 이미 `SUCCEEDED`/`FAILED`면 `200` no-op | reserved credit가 있으면 환불 처리 |
@@ -82,7 +82,7 @@
 
 `tasks/{taskId}/complete`
 
-`complete`는 worker가 이미 최종 `JobPostingIngestResponse`를 조립한 경우의 direct completion 경로다. 현재 저장/완료 일체형 메인 경로는 `ingest/finalize`다.
+`complete`는 worker가 이미 최종 `JobPostingIngestResponse`를 조립한 경우에만 쓰는 legacy compatibility 경로다. 현재 저장/완료 일체형 메인 경로는 `ingest/finalize`다.
 
 ### Endpoint 계약표
 
@@ -91,9 +91,9 @@
 | `POST /api/internal/worker/job-postings/ingest/context` | 이미지 접근용 readable URL 발급 | 현재는 `userId + imageObjectKey` | 재호출 가능 | 현재 구현은 `taskId`를 받지 않는다. task 상태와 직접 결합된 검증은 없다. |
 | `POST /api/internal/worker/job-postings/classification/candidates` | 추출 결과 기반 분류 후보 조회 | 추출 payload | 재호출 가능 | 현재 구현은 stateless 조회성 endpoint다. |
 | `POST /api/internal/worker/job-postings/tasks/{taskId}/running` | task를 `RUNNING`으로 전이 | path `taskId` | 이미 `SUCCEEDED`/`FAILED`면 `200` no-op | analysis와 동일 패턴 |
-| `POST /api/internal/worker/job-postings/tasks/{taskId}/result` | finalize 전 durable finalize payload 저장 | `taskId + userId + result.taskId` | 같은 taskId 기준 upsert | `result.taskId`가 path와 일치해야 한다. |
+| `POST /api/internal/worker/job-postings/tasks/{taskId}/result` | finalize 전 durable finalize payload 저장 | `taskId + userId + result.taskId` | 같은 taskId 기준 upsert | `result.taskId`가 path와 일치해야 한다. 같은 payload 재전송은 성공으로 처리한다. |
 | `POST /api/internal/worker/job-postings/ingest/finalize` | 공고 저장 후 성공 종료 | `taskId + userId` | 이미 `SUCCEEDED`면 기존 결과 반환, 이미 `FAILED`면 `400` | 현재 주 성공 callback |
-| `POST /api/internal/worker/job-postings/tasks/{taskId}/complete` | 완성된 `JobPostingIngestResponse`로 즉시 성공 종료 | path `taskId` | `markSuccess` 기준으로 성공 재호출 시 기존 결과 반환, 실패 task면 `400` | 호환/대체 completion 경로 |
+| `POST /api/internal/worker/job-postings/tasks/{taskId}/complete` | 완성된 `JobPostingIngestResponse`로 즉시 성공 종료 | path `taskId` | `markSuccess` 기준으로 성공 재호출 시 기존 결과 반환, 실패 task면 `400` | legacy compatibility completion 경로 |
 | `POST /api/internal/worker/job-postings/tasks/{taskId}/retry` | 재시도 예정 상태 반영 | path `taskId` | 이미 `SUCCEEDED`/`FAILED`면 `200` no-op | `retryCount`, `failureReason`, `queueLatencyMillis` 반영 |
 | `POST /api/internal/worker/job-postings/tasks/{taskId}/failed` | 최종 실패 반영 | path `taskId` | 이미 `SUCCEEDED`/`FAILED`면 `200` no-op | 실패 알림과 상태 전이 수행 |
 | `GET /api/internal/worker/job-postings/tasks/{taskId}` | 현재 task 상태 조회 | path `taskId` | 조회성 | callback 결과 확인용 |
