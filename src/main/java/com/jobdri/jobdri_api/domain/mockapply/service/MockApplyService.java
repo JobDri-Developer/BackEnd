@@ -30,6 +30,7 @@ import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.pagination.PaginationPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -48,6 +49,7 @@ import java.util.Locale;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class MockApplyService {
+    public static final int MAX_PAGE_SIZE = PaginationPolicy.MAX_PAGE_SIZE;
     private static final int SEQUENCE_SAVE_MAX_RETRY = 5;
     private static final int SEQUENCE_ALLOCATE_MAX_RETRY = 5;
     private static final String SEQUENCE_UNIQUE_CONSTRAINT = "uk_mock_apply_user_posting_sequence";
@@ -221,7 +223,7 @@ public class MockApplyService {
                 .toList();
         Pageable pageable = PageRequest.of(
                 Math.max(page, 0),
-                Math.max(size, 1),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(
                         Sort.Order.desc("createdAt"),
                         Sort.Order.desc("id")

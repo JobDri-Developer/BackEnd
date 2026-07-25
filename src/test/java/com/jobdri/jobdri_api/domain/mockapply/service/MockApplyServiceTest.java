@@ -381,6 +381,7 @@ class MockApplyServiceTest {
         User user = saveUser("home-page@example.com");
         JobPosting posting = saveJobPosting(user, "백엔드 개발");
         LocalDateTime baseTime = LocalDateTime.of(2026, 1, 1, 12, 0);
+        List<Long> createdIds = new java.util.ArrayList<>();
 
         for (int i = 0; i < 10; i++) {
             MockApply completed = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK, i + 1));
@@ -389,16 +390,31 @@ class MockApplyServiceTest {
             completed.assignAnalysis(analysis);
             ReflectionTestUtils.setField(completed, "createdAt", baseTime.plusMinutes(i));
             mockApplyRepository.saveAndFlush(completed);
+            createdIds.add(completed.getId());
         }
 
         MockApplyHomeResponse firstPage = mockApplyService.getMyMockApplies(user, 0, 9);
         MockApplyHomeResponse secondPage = mockApplyService.getMyMockApplies(user, 1, 9);
 
         assertThat(firstPage.completed().getContent()).hasSize(9);
+        assertThat(firstPage.completed().getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(
+                        createdIds.get(9),
+                        createdIds.get(8),
+                        createdIds.get(7),
+                        createdIds.get(6),
+                        createdIds.get(5),
+                        createdIds.get(4),
+                        createdIds.get(3),
+                        createdIds.get(2),
+                        createdIds.get(1)
+                );
         assertThat(firstPage.completed().getTotalElements()).isEqualTo(10);
         assertThat(firstPage.completed().getTotalPages()).isEqualTo(2);
         assertThat(firstPage.completed().hasNext()).isTrue();
         assertThat(secondPage.completed().getContent()).hasSize(1);
+        assertThat(secondPage.completed().getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(createdIds.get(0));
         assertThat(secondPage.completed().getNumber()).isEqualTo(1);
         assertThat(secondPage.completed().hasNext()).isFalse();
     }

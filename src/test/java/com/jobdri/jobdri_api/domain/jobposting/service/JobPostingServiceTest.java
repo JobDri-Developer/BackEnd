@@ -277,6 +277,36 @@ class JobPostingServiceTest {
         });
     }
 
+    @Test
+    @DisplayName("채용 공고 목록 페이지 크기는 최대값으로 제한된다")
+    void getAllJobPostingsCapsOversizedPageSize() {
+        User user = saveUser("job-posting-max-page-size@example.com");
+        DetailClassification detailClassification = saveDetailClassification();
+
+        for (int i = 0; i < 4; i++) {
+            jobPostingService.createJobPosting(
+                    user,
+                    new JobPostingCreateRequest(
+                            JobPostingProfileColor.DEFAULT,
+                            "공고 " + i,
+                            "목록 테스트 기업 " + i,
+                            CompanySize.SMALL,
+                            "백엔드 엔지니어 " + i,
+                            detailClassification.getId(),
+                            "주요 업무 " + i,
+                            "자격 요건 " + i,
+                            "우대 사항 " + i
+                    )
+            );
+        }
+
+        Page<JobPostingResponse> page = jobPostingService.getAllJobPostings(user, 0, JobPostingService.MAX_PAGE_SIZE + 50);
+
+        assertThat(page.getSize()).isEqualTo(JobPostingService.MAX_PAGE_SIZE);
+        assertThat(page.getContent()).hasSize(4);
+        assertThat(page.getTotalElements()).isEqualTo(4);
+    }
+
     private User saveUser(String email) {
         return userRepository.save(User.signup("테스트 사용자", email, "encoded-password"));
     }

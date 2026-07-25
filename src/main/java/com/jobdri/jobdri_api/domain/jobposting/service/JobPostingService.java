@@ -19,6 +19,7 @@ import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.pagination.PaginationPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -33,6 +34,7 @@ import java.util.List;
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class JobPostingService {
+    static final int MAX_PAGE_SIZE = PaginationPolicy.MAX_PAGE_SIZE;
 
     private final JobPostingRepository jobPostingRepository;
     private final CompanyRepository companyRepository;
@@ -99,7 +101,7 @@ public class JobPostingService {
         User validatedUser = userService.validateUser(user);
         Pageable pageable = PageRequest.of(
                 Math.max(page, 0),
-                Math.max(size, 1),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(
                         Sort.Order.desc("createdAt"),
                         Sort.Order.desc("id")
