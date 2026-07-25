@@ -23,7 +23,10 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -93,6 +96,9 @@ class JobPostingWorkerBridgeServiceTest {
     @Test
     @DisplayName("채용 공고 finalize 입력이 유효하지 않으면 worker 결과 저장과 성공 처리를 하지 않는다")
     void finalizeAndCompleteRejectsInvalidInputBeforePersistingWorkerResult() {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(1L, 3);
+        when(jobPostingAsyncTaskRepository.findById("task-1")).thenReturn(Optional.of(task));
+
         JobPostingExtractResponse extracted = new JobPostingExtractResponse(
                 "미분류 회사",
                 "string",
@@ -122,12 +128,12 @@ class JobPostingWorkerBridgeServiceTest {
                 .isInstanceOf(GeneralException.class)
                 .hasMessageContaining("채용 공고로 인식할 수 없는 입력입니다.");
 
-        verifyNoInteractions(
-                workerTaskResultService,
-                jobPostingAsyncTaskService,
-                jobPostingAsyncTaskRepository,
-                jobPostingService,
-                userService
+        verify(workerTaskResultService, never()).upsertGenerated(
+                eq(TaskType.JOB_POSTING_FINALIZE),
+                eq("task-1"),
+                any(JobPostingWorkerFinalizeRequest.class)
         );
+        verify(jobPostingAsyncTaskService, never()).markSuccess(eq("task-1"), any(JobPostingIngestResponse.class));
+        verifyNoInteractions(jobPostingService, userService);
     }
 }
