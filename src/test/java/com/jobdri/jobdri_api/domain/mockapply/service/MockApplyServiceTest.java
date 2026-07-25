@@ -17,6 +17,7 @@ import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationService;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
@@ -327,6 +328,10 @@ class MockApplyServiceTest {
         JobPosting backendPosting = saveJobPosting(user, "백엔드 개발");
         JobPosting dataPosting = saveJobPosting(user, "데이터 분석");
         JobPosting otherPosting = saveJobPosting(otherUser, "프론트엔드 개발");
+        ReflectionTestUtils.setField(backendPosting, "profileColor", JobPostingProfileColor.BLUE);
+        ReflectionTestUtils.setField(dataPosting, "profileColor", JobPostingProfileColor.GREEN);
+        jobPostingRepository.saveAndFlush(backendPosting);
+        jobPostingRepository.saveAndFlush(dataPosting);
 
         MockApply inProgress = mockApplyRepository.save(MockApply.create(user, backendPosting, ApplyType.ACTUAL));
         inProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
@@ -359,6 +364,7 @@ class MockApplyServiceTest {
         assertThat(response.inProgress().get(0).companyName()).isEqualTo("테스트 기업");
         assertThat(response.inProgress().get(0).detailClassificationName()).isEqualTo("백엔드 개발");
         assertThat(response.inProgress().get(0).jobTitle()).isEqualTo("백엔드 개발");
+        assertThat(response.inProgress().get(0).profileColor()).isEqualTo(JobPostingProfileColor.BLUE);
         assertThat(response.inProgress().get(0).createdAt()).isEqualTo(baseTime);
         assertThat(response.inProgress().get(0).applyType()).isEqualTo(ApplyType.ACTUAL);
         assertThat(response.inProgress().get(0).score()).isNull();
@@ -370,6 +376,7 @@ class MockApplyServiceTest {
         assertThat(response.completed().getSize()).isEqualTo(9);
         assertThat(response.completed().getNumber()).isEqualTo(0);
         assertThat(response.completed().getContent().get(0).createdAt()).isEqualTo(baseTime.plusMinutes(2));
+        assertThat(response.completed().getContent().get(0).profileColor()).isEqualTo(JobPostingProfileColor.GREEN);
         assertThat(response.completed().getContent().get(0).score()).isEqualTo(81);
         assertThat(response.completed().getContent().get(0).applyType()).isEqualTo(ApplyType.ACTUAL);
         assertThat(response.completed().getContent().get(0).resumePath()).isEqualTo("/mock-applies/" + completedSecond.getId() + "/analysis");

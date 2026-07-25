@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.mockapply.dto.response;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
@@ -17,6 +18,7 @@ public record MockApplyHomeItemResponse(
         String companyName,
         String detailClassificationName,
         String jobTitle,
+        JobPostingProfileColor profileColor,
         LocalDateTime createdAt,
         ApplyType applyType,
         Integer score
@@ -35,6 +37,7 @@ public record MockApplyHomeItemResponse(
                 jobPosting.getCompany().getName(),
                 detailClassificationName,
                 jobPosting.getJobTitle(),
+                jobPosting.getProfileColor(),
                 mockApply.getCreatedAt(),
                 mockApply.getApplyType(),
                 analysis == null ? null : analysis.getScore()
