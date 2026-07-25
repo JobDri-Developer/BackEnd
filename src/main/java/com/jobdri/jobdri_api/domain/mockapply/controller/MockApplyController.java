@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -38,15 +39,17 @@ public class MockApplyController {
 
     @Operation(
             summary = "내 모의 서류 지원 홈 목록 조회",
-            description = "홈 화면에서 이어서 작성할 지원과 완료된 분석 결과 카드를 조회합니다."
+            description = "홈 화면에서 이어서 작성할 지원과 완료된 분석 결과 카드를 조회합니다. 완료된 분석 결과 카드는 페이지 단위로 조회합니다."
     )
     @GetMapping("/me")
     public ApiResponse<MockApplyHomeResponse> getMyMockApplies(
-            @AuthenticationPrincipal UserDetailsImpl userDetails
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "9") int size
     ) {
         return ApiResponse.onSuccess(
                 "모의 서류 지원 목록 조회에 성공했습니다.",
-                mockApplyService.getMyMockApplies(userDetails.getUser())
+                mockApplyService.getMyMockApplies(userDetails.getUser(), page, size)
         );
     }
 
