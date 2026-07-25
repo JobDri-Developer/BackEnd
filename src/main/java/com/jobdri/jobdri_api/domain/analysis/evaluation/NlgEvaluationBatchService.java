@@ -104,13 +104,14 @@ class NlgEvaluationBatchService {
         }
 
         NlgEvaluationComparisonCsvSupport.write(resolvedOutputPath, results);
+        int actualSummaryRows = EvaluationCsvSupport.read(resolvedOutputPath).size();
         long sizeBytes = validateCreatedOutputFile(
                 resolvedOutputPath,
                 "NLG judge comparison output",
-                results.size(),
+                actualSummaryRows,
                 inputPaths.size()
         );
-        return new NlgEvaluationComparisonSummary(inputPaths.size(), resolvedOutputPath, results.size(), sizeBytes);
+        return new NlgEvaluationComparisonSummary(inputPaths.size(), resolvedOutputPath, actualSummaryRows, sizeBytes);
     }
 
     private NlgEvaluationAiClient.NlgJudgeInput buildJudgeInput(

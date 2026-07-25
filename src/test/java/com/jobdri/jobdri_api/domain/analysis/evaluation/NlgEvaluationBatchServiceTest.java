@@ -642,19 +642,53 @@ class NlgEvaluationBatchServiceTest {
                         ""
                 )
         ));
+        Path judgeResultSecond = tempDir.resolve("judge_result_second.csv");
+        NlgEvaluationCsvSupport.write(judgeResultSecond, List.of(
+                new NlgEvaluationResult(
+                        "EV-02",
+                        "source-second.csv",
+                        0,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        5,
+                        4,
+                        4,
+                        5,
+                        5,
+                        5,
+                        objectMapper.writeValueAsString(List.of("NONE")),
+                        "요약",
+                        80,
+                        20,
+                        200L,
+                        ""
+                )
+        ));
         Path output = tempDir.resolve("nested").resolve("compare.csv");
 
         NlgEvaluationBatchService.NlgEvaluationComparisonSummary summary =
                 new NlgEvaluationBatchService(mock(NlgEvaluationAiClient.class), objectMapper)
-                .compare(List.of(judgeResult), output);
+                .compare(List.of(judgeResult, judgeResultSecond), output);
 
+        assertThat(EvaluationCsvSupport.read(judgeResult)).hasSize(1);
+        assertThat(EvaluationCsvSupport.read(judgeResultSecond)).hasSize(1);
         assertThat(output).isRegularFile();
         assertThat(Files.size(output)).isGreaterThan(0);
         assertThat(summary.outputPath()).isEqualTo(output.toAbsolutePath().normalize());
-        assertThat(summary.fileCount()).isEqualTo(1);
-        assertThat(summary.summaryRowCount()).isEqualTo(1);
+        assertThat(summary.fileCount()).isEqualTo(2);
+        assertThat(summary.summaryRowCount()).isEqualTo(2);
         assertThat(summary.sizeBytes()).isEqualTo(Files.size(output));
-        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        List<Map<String, String>> outputRows = EvaluationCsvSupport.read(output);
+        assertThat(outputRows).hasSize(2);
+        Map<String, String> row = outputRows.getFirst();
         assertThat(row.get("averageProblemValidity")).isEqualTo("3.0");
         assertThat(row.get("metaImprovementRate")).isEqualTo("100.0");
         assertThat(row.get("fatalErrorRate")).isEqualTo("100.0");
