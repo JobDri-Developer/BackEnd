@@ -143,6 +143,8 @@ public class JobPostingWorkerBridgeService {
                     "이미 실패 처리된 채용 공고 비동기 작업입니다. taskId=" + taskId
             );
         }
+        JobPostingIngestQualityValidator.validateExtracted(extracted);
+        JobPostingIngestQualityValidator.validateGenerated(generated);
 
         var saved = jobPostingService.createJobPosting(
                 userService.getUser(userId),

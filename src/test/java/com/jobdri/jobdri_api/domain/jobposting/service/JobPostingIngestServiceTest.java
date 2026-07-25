@@ -10,6 +10,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResp
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -23,9 +24,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -67,7 +70,7 @@ class JobPostingIngestServiceTest {
                 "해커스 교육그룹",
                 "클라우드 엔지니어",
                 "클라우드 운영",
-                "경력",
+                "클라우드 운영 경력",
                 "",
                 "채용 공고 원문",
                 0.9
@@ -130,5 +133,88 @@ class JobPostingIngestServiceTest {
 
         assertThat(imageObjectKeyCaptor.getValue()).isEqualTo("job-postings/1/posting.png");
         assertThat(response.isSavedToDatabase()).isTrue();
+    }
+
+    @Test
+    @DisplayName("공고로 인식할 수 없는 추출 결과는 저장하지 않고 오류 처리한다")
+    void ingestAndCreateRejectsInvalidExtractedResult() {
+        JobPostingIngestRequest request = new JobPostingIngestRequest(
+                "양식에 맞지 않는 입력",
+                null
+        );
+        JobPostingExtractResponse extracted = new JobPostingExtractResponse(
+                "미분류 회사",
+                "string",
+                "string",
+                "string",
+                "",
+                "양식에 맞지 않는 입력",
+                0.9
+        );
+
+        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
+                .thenReturn(extracted);
+
+        assertThatThrownBy(() -> jobPostingIngestService.ingestAndCreate(user, request))
+                .isInstanceOf(GeneralException.class)
+                .hasMessageContaining("채용 공고로 인식할 수 없는 입력입니다.");
+
+        verifyNoInteractions(jobPostingClassificationService, jobPostingService, userService);
+    }
+
+    @Test
+    @DisplayName("공고 생성 결과가 placeholder이면 DB 저장 전에 오류 처리한다")
+    void ingestAndCreateRejectsInvalidGeneratedResult() {
+        JobPostingIngestRequest request = new JobPostingIngestRequest(
+                "백엔드 개발자 채용 공고 원문입니다. 주요 업무는 API 개발이고 자격 요건은 Spring 경험입니다.",
+                null
+        );
+        JobPostingExtractResponse extracted = new JobPostingExtractResponse(
+                "잡드리",
+                "백엔드 개발자",
+                "Spring 기반 API 개발",
+                "Spring Boot 개발 경험",
+                "",
+                request.rawText(),
+                0.9
+        );
+        JobPostingClassificationCandidateResponse candidate = new JobPostingClassificationCandidateResponse(
+                1L,
+                "백엔드 개발",
+                "AI·개발·데이터",
+                "개발·데이터",
+                0.8
+        );
+        JobPostingClassificationResultResponse classification = new JobPostingClassificationResultResponse(
+                1L,
+                "백엔드 개발",
+                "AI·개발·데이터",
+                "개발·데이터",
+                "가장 적합한 소분류입니다.",
+                0.9
+        );
+        JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                "잡드리",
+                "백엔드 개발자",
+                "string",
+                "string",
+                "",
+                ""
+        );
+
+        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
+                .thenReturn(extracted);
+        when(jobPostingClassificationService.findCandidates(extracted, 5))
+                .thenReturn(List.of(candidate));
+        when(jobPostingAiService.classifyDetailClassification(extracted, List.of(candidate)))
+                .thenReturn(classification);
+        when(jobPostingAiService.generateJobPosting(any()))
+                .thenReturn(generated);
+
+        assertThatThrownBy(() -> jobPostingIngestService.ingestAndCreate(user, request))
+                .isInstanceOf(GeneralException.class)
+                .hasMessageContaining("채용 공고로 인식할 수 없는 입력입니다.");
+
+        verifyNoInteractions(jobPostingService, userService);
     }
 }

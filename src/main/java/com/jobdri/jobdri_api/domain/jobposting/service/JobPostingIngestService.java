@@ -49,6 +49,7 @@ public class JobPostingIngestService {
                 command.getRawText(),
                 command.getImageObjectKey()
         );
+        JobPostingIngestQualityValidator.validateExtracted(extracted);
 
         List<JobPostingClassificationCandidateResponse> candidates =
                 jobPostingClassificationService.findCandidates(extracted, FIXED_CANDIDATE_LIMIT);
@@ -89,6 +90,7 @@ public class JobPostingIngestService {
                         extracted.jobTitle()
                 )
         );
+        JobPostingIngestQualityValidator.validateGenerated(generated);
 
         JobPostingResponse saved = jobPostingService.createJobPosting(
                 resolveUser(command),
