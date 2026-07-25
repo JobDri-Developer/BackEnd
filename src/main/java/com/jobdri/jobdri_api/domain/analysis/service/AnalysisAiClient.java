@@ -2170,7 +2170,7 @@ public class AnalysisAiClient {
             try {
                 return AnalysisMode.valueOf(normalized);
             } catch (IllegalArgumentException e) {
-                throw new IllegalStateException("Unsupported analysis mode: " + analysisMode);
+                throw new IllegalStateException("Unsupported analysis mode: " + analysisMode, e);
             }
         }
         return twoPassEnabled ? AnalysisMode.TWO_PASS : AnalysisMode.SINGLE_PASS;

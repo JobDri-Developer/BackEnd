@@ -266,6 +266,33 @@ class EvaluationAnalysisRunnerSafetyTest {
     }
 
     @Test
+    @DisplayName("Hybrid merge Runner는 실행 실패 시 실패 종료를 요청하고 원래 예외를 전파한다")
+    void hybridMergeRunRequestsFailureExitAndRethrowsOriginalException() throws Exception {
+        HybridExactMergeService mergeService = mock(HybridExactMergeService.class);
+        EvaluationExitCoordinator exitCoordinator = mock(EvaluationExitCoordinator.class);
+        Environment environment = mock(Environment.class);
+        when(environment.getActiveProfiles()).thenReturn(new String[]{"analysis-eval"});
+        Path single = tempDir.resolve("single.csv");
+        Path twoPass = tempDir.resolve("two-pass.csv");
+        Path output = tempDir.resolve("hybrid.csv");
+        Files.writeString(single, "caseId\nEV-01\n");
+        Files.writeString(twoPass, "caseId\nEV-01\n");
+        RuntimeException failure = new RuntimeException("merge failed");
+        when(mergeService.merge(single, twoPass, output)).thenThrow(failure);
+        HybridExactMergeRunner runner = new HybridExactMergeRunner(mergeService, exitCoordinator, environment);
+        ReflectionTestUtils.setField(runner, "singlePassInputPath", single.toString());
+        ReflectionTestUtils.setField(runner, "twoPassInputPath", twoPass.toString());
+        ReflectionTestUtils.setField(runner, "outputPath", output.toString());
+        ReflectionTestUtils.setField(runner, "analysisEvaluationEnabled", false);
+        ReflectionTestUtils.setField(runner, "nlgJudgeEnabled", false);
+
+        assertThatThrownBy(() -> runner.run(new DefaultApplicationArguments()))
+                .isSameAs(failure);
+
+        verify(exitCoordinator).exit("hybrid-exact-merge", 1);
+    }
+
+    @Test
     @DisplayName("NLG judge 비교 모드는 OpenAI 키와 비용 확인 없이 입력 파일과 출력 경로만 검증한다")
     void nlgJudgeComparisonModeDoesNotRequireOpenAiProperties() throws Exception {
         NlgEvaluationRunner runner = nlgRunnerWithProfiles("analysis-eval");

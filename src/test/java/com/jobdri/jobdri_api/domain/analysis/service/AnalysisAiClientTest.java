@@ -68,7 +68,9 @@ class AnalysisAiClientTest {
 
         assertThatThrownBy(analysisAiClient::resolveAnalysisMode)
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("Unsupported analysis mode: unknown");
+                .hasMessageContaining("Unsupported analysis mode: unknown")
+                .cause()
+                .isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test

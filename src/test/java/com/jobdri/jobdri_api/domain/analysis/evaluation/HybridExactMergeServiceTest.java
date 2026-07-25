@@ -145,6 +145,60 @@ class HybridExactMergeServiceTest {
                 .hasMessageContaining("two-pass aiMissingKeywordsJson is not valid JSON");
     }
 
+    @Test
+    @DisplayName("입력 row에 errorMessage가 있으면 병합하지 않는다")
+    void mergeFailsOnErrorRow() throws Exception {
+        Path single = tempDir.resolve("single.csv");
+        Path twoPass = tempDir.resolve("two-pass.csv");
+        Path output = tempDir.resolve("hybrid.csv");
+        writeSinglePassCsv(single, List.of(row("EV-01", "90", "[]", "[]", validRawJson(), "single failed")));
+        writeTwoPassCsv(twoPass, List.of(row("EV-01", "90", "[]", "[]", validRawJson(), "")));
+
+        assertThatThrownBy(() -> service.merge(single, twoPass, output))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("single-pass row has errorMessage")
+                .hasMessageContaining("EV-01");
+    }
+
+    @Test
+    @DisplayName("output이 single-pass 입력과 같으면 거부한다")
+    void mergeFailsWhenOutputOverwritesSinglePassInput() throws Exception {
+        Path single = tempDir.resolve("single.csv");
+        Path twoPass = tempDir.resolve("two-pass.csv");
+        writeSinglePassCsv(single, List.of(row("EV-01", "90", "[]", "[]", validRawJson(), "")));
+        writeTwoPassCsv(twoPass, List.of(row("EV-01", "90", "[]", "[]", validRawJson(), "")));
+
+        assertThatThrownBy(() -> service.merge(single, twoPass, single))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Hybrid exact output must not overwrite single-pass input");
+    }
+
+    @Test
+    @DisplayName("output이 two-pass 입력과 같으면 거부한다")
+    void mergeFailsWhenOutputOverwritesTwoPassInput() throws Exception {
+        Path single = tempDir.resolve("single.csv");
+        Path twoPass = tempDir.resolve("two-pass.csv");
+        writeSinglePassCsv(single, List.of(row("EV-01", "90", "[]", "[]", validRawJson(), "")));
+        writeTwoPassCsv(twoPass, List.of(row("EV-01", "90", "[]", "[]", validRawJson(), "")));
+
+        assertThatThrownBy(() -> service.merge(single, twoPass, twoPass))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Hybrid exact output must not overwrite two-pass input");
+    }
+
+    @Test
+    @DisplayName("single-pass 입력과 two-pass 입력이 같으면 거부한다")
+    void mergeFailsWhenInputFilesAreSame() throws Exception {
+        Path input = tempDir.resolve("same.csv");
+        Path output = tempDir.resolve("hybrid.csv");
+        writeSinglePassCsv(input, List.of(row("EV-01", "90", "[]", "[]", validRawJson(), "")));
+
+        assertThatThrownBy(() -> service.merge(input, input, output))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Hybrid exact input paths must be different")
+                .hasMessageContaining("single-pass input and two-pass input");
+    }
+
     private void writeSinglePassCsv(Path path, List<Map<String, String>> rows) throws Exception {
         EvaluationCsvSupport.writeRows(path, List.of(singleHeader().split(",")), rows);
     }

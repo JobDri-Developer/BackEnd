@@ -45,6 +45,7 @@ class HybridExactMergeService {
     private final ObjectMapper objectMapper;
 
     HybridExactMergeSummary merge(Path singlePassInput, Path twoPassInput, Path output) throws IOException {
+        validateDifferentFiles(singlePassInput, twoPassInput, "single-pass input and two-pass input");
         validateDifferentFiles(singlePassInput, output, "single-pass input");
         validateDifferentFiles(twoPassInput, output, "two-pass input");
 
@@ -149,6 +150,9 @@ class HybridExactMergeService {
 
     private void validateDifferentFiles(Path input, Path output, String inputName) {
         if (input.toAbsolutePath().normalize().equals(output.toAbsolutePath().normalize())) {
+            if ("single-pass input and two-pass input".equals(inputName)) {
+                throw new IllegalArgumentException("Hybrid exact input paths must be different: " + inputName + ".");
+            }
             throw new IllegalArgumentException("Hybrid exact output must not overwrite " + inputName + ".");
         }
     }
