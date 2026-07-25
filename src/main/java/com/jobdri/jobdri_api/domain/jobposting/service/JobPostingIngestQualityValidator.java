@@ -36,7 +36,10 @@ final class JobPostingIngestQualityValidator {
         if (extracted == null) {
             throwInvalidJobPosting();
         }
-        if (extracted.confidence() < MIN_EXTRACT_CONFIDENCE) {
+        if (Double.isNaN(extracted.confidence())
+                || Double.isInfinite(extracted.confidence())
+                || extracted.confidence() < MIN_EXTRACT_CONFIDENCE
+                || extracted.confidence() > 1.0) {
             throwInvalidJobPosting();
         }
         validateField(extracted.companyName(), MIN_SHORT_FIELD_LENGTH);

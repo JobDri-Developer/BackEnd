@@ -117,11 +117,9 @@ public class JobPostingWorkerBridgeService {
             com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse classification,
             JobPostingGenerateResponse generated
     ) {
-        workerTaskResultService.upsertGenerated(
-                TaskType.JOB_POSTING_FINALIZE,
-                taskId,
-                new JobPostingWorkerFinalizeRequest(taskId, userId, extracted, candidates, classification, generated)
-        );
+        JobPostingIngestQualityValidator.validateExtracted(extracted);
+        JobPostingIngestQualityValidator.validateGenerated(generated);
+
         JobPostingAsyncTask task = jobPostingAsyncTaskRepository.findById(taskId)
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.JOB_POSTING_ASYNC_TASK_NOT_FOUND,
@@ -143,8 +141,11 @@ public class JobPostingWorkerBridgeService {
                     "이미 실패 처리된 채용 공고 비동기 작업입니다. taskId=" + taskId
             );
         }
-        JobPostingIngestQualityValidator.validateExtracted(extracted);
-        JobPostingIngestQualityValidator.validateGenerated(generated);
+        workerTaskResultService.upsertGenerated(
+                TaskType.JOB_POSTING_FINALIZE,
+                taskId,
+                new JobPostingWorkerFinalizeRequest(taskId, userId, extracted, candidates, classification, generated)
+        );
 
         var saved = jobPostingService.createJobPosting(
                 userService.getUser(userId),

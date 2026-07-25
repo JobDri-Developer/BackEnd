@@ -15,6 +15,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.Arguments;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -22,6 +25,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,6 +54,43 @@ class JobPostingIngestServiceTest {
     private JobPostingIngestService jobPostingIngestService;
 
     private User user;
+
+    private static Stream<Arguments> invalidConfidenceValues() {
+        return Stream.of(
+                Arguments.of(0.299),
+                Arguments.of(-0.1),
+                Arguments.of(1.001),
+                Arguments.of(Double.NaN),
+                Arguments.of(Double.POSITIVE_INFINITY),
+                Arguments.of(Double.NEGATIVE_INFINITY)
+        );
+    }
+
+    private static Stream<Arguments> invalidExtractedFieldValues() {
+        return Stream.of(
+                Arguments.of(null, "백엔드 개발자", "Spring 기반 API 개발", "Spring Boot 개발 경험"),
+                Arguments.of("잡", "백엔드 개발자", "Spring 기반 API 개발", "Spring Boot 개발 경험"),
+                Arguments.of("잡드리", null, "Spring 기반 API 개발", "Spring Boot 개발 경험"),
+                Arguments.of("잡드리", "백", "Spring 기반 API 개발", "Spring Boot 개발 경험"),
+                Arguments.of("잡드리", "백엔드 개발자", null, "Spring Boot 개발 경험"),
+                Arguments.of("잡드리", "백엔드 개발자", "업무1", "Spring Boot 개발 경험"),
+                Arguments.of("잡드리", "백엔드 개발자", "Spring 기반 API 개발", null),
+                Arguments.of("잡드리", "백엔드 개발자", "Spring 기반 API 개발", "요건1")
+        );
+    }
+
+    private static Stream<Arguments> invalidGeneratedFieldValues() {
+        return Stream.of(
+                Arguments.of(null, "백엔드 개발자", "정제된 주요 업무", "정제된 자격 요건"),
+                Arguments.of("잡", "백엔드 개발자", "정제된 주요 업무", "정제된 자격 요건"),
+                Arguments.of("잡드리", null, "정제된 주요 업무", "정제된 자격 요건"),
+                Arguments.of("잡드리", "백", "정제된 주요 업무", "정제된 자격 요건"),
+                Arguments.of("잡드리", "백엔드 개발자", null, "정제된 자격 요건"),
+                Arguments.of("잡드리", "백엔드 개발자", "업무1", "정제된 자격 요건"),
+                Arguments.of("잡드리", "백엔드 개발자", "정제된 주요 업무", null),
+                Arguments.of("잡드리", "백엔드 개발자", "정제된 주요 업무", "요건1")
+        );
+    }
 
     @BeforeEach
     void setUp() {
@@ -136,6 +177,46 @@ class JobPostingIngestServiceTest {
     }
 
     @Test
+    @DisplayName("추출 confidence 경계값과 필드 최소 길이를 만족하면 저장한다")
+    void ingestAndCreateAcceptsBoundaryValidExtractedResult() {
+        JobPostingIngestRequest request = new JobPostingIngestRequest(
+                "백엔드 개발자 채용 공고 원문입니다. 주요 업무는 API 개발이고 자격 요건은 Spring 경험입니다.",
+                null
+        );
+        JobPostingExtractResponse extracted = new JobPostingExtractResponse(
+                "잡드",
+                "백엔",
+                "업무내용1",
+                "요건내용1",
+                "",
+                request.rawText(),
+                0.3
+        );
+        JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                "잡드",
+                "백엔",
+                "업무내용1",
+                "요건내용1",
+                "",
+                ""
+        );
+        JobPostingResponse saved = JobPostingResponse.builder()
+                .jobPostingId(10L)
+                .userId(1L)
+                .companyName("잡드")
+                .task("업무내용1")
+                .requirement("요건내용1")
+                .build();
+
+        stubSuccessfulPipeline(extracted, generated, saved);
+
+        JobPostingIngestResponse response = jobPostingIngestService.ingestAndCreate(user, request);
+
+        assertThat(response.isSavedToDatabase()).isTrue();
+        verify(jobPostingService).createJobPosting(eq(user), any(JobPostingCreateRequest.class));
+    }
+
+    @Test
     @DisplayName("공고로 인식할 수 없는 추출 결과는 저장하지 않고 오류 처리한다")
     void ingestAndCreateRejectsInvalidExtractedResult() {
         JobPostingIngestRequest request = new JobPostingIngestRequest(
@@ -149,6 +230,53 @@ class JobPostingIngestServiceTest {
                 "string",
                 "",
                 "양식에 맞지 않는 입력",
+                0.9
+        );
+
+        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
+                .thenReturn(extracted);
+
+        assertThatThrownBy(() -> jobPostingIngestService.ingestAndCreate(user, request))
+                .isInstanceOf(GeneralException.class)
+                .hasMessageContaining("채용 공고로 인식할 수 없는 입력입니다.");
+
+        verifyNoInteractions(jobPostingClassificationService, jobPostingService, userService);
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidConfidenceValues")
+    @DisplayName("추출 confidence가 0.3 미만이거나 0~1 범위를 벗어나면 저장하지 않는다")
+    void ingestAndCreateRejectsInvalidExtractedConfidence(double confidence) {
+        JobPostingIngestRequest request = new JobPostingIngestRequest("공고 입력", null);
+        JobPostingExtractResponse extracted = validExtracted(confidence);
+
+        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
+                .thenReturn(extracted);
+
+        assertThatThrownBy(() -> jobPostingIngestService.ingestAndCreate(user, request))
+                .isInstanceOf(GeneralException.class)
+                .hasMessageContaining("채용 공고로 인식할 수 없는 입력입니다.");
+
+        verifyNoInteractions(jobPostingClassificationService, jobPostingService, userService);
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidExtractedFieldValues")
+    @DisplayName("추출 필수 필드가 null이거나 최소 길이 미만이면 저장하지 않는다")
+    void ingestAndCreateRejectsInvalidExtractedField(
+            String companyName,
+            String jobTitle,
+            String task,
+            String requirements
+    ) {
+        JobPostingIngestRequest request = new JobPostingIngestRequest("공고 입력", null);
+        JobPostingExtractResponse extracted = new JobPostingExtractResponse(
+                companyName,
+                jobTitle,
+                task,
+                requirements,
+                "",
+                request.rawText(),
                 0.9
         );
 
@@ -216,5 +344,87 @@ class JobPostingIngestServiceTest {
                 .hasMessageContaining("채용 공고로 인식할 수 없는 입력입니다.");
 
         verifyNoInteractions(jobPostingService, userService);
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidGeneratedFieldValues")
+    @DisplayName("생성 필수 필드가 null이거나 최소 길이 미만이면 저장하지 않는다")
+    void ingestAndCreateRejectsInvalidGeneratedField(
+            String companyName,
+            String jobTitle,
+            String task,
+            String requirements
+    ) {
+        JobPostingIngestRequest request = new JobPostingIngestRequest(
+                "백엔드 개발자 채용 공고 원문입니다. 주요 업무는 API 개발이고 자격 요건은 Spring 경험입니다.",
+                null
+        );
+        JobPostingExtractResponse extracted = validExtracted(0.9);
+        JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                companyName,
+                jobTitle,
+                task,
+                requirements,
+                "",
+                ""
+        );
+
+        stubUntilGenerated(extracted, generated);
+
+        assertThatThrownBy(() -> jobPostingIngestService.ingestAndCreate(user, request))
+                .isInstanceOf(GeneralException.class)
+                .hasMessageContaining("채용 공고로 인식할 수 없는 입력입니다.");
+
+        verifyNoInteractions(jobPostingService, userService);
+    }
+
+    private void stubSuccessfulPipeline(
+            JobPostingExtractResponse extracted,
+            JobPostingGenerateResponse generated,
+            JobPostingResponse saved
+    ) {
+        stubUntilGenerated(extracted, generated);
+        when(userService.getUser(1L)).thenReturn(user);
+        when(jobPostingService.createJobPosting(eq(user), any(JobPostingCreateRequest.class)))
+                .thenReturn(saved);
+    }
+
+    private void stubUntilGenerated(JobPostingExtractResponse extracted, JobPostingGenerateResponse generated) {
+        JobPostingClassificationCandidateResponse candidate = new JobPostingClassificationCandidateResponse(
+                1L,
+                "백엔드 개발",
+                "AI·개발·데이터",
+                "개발·데이터",
+                0.8
+        );
+        JobPostingClassificationResultResponse classification = new JobPostingClassificationResultResponse(
+                1L,
+                "백엔드 개발",
+                "AI·개발·데이터",
+                "개발·데이터",
+                "가장 적합한 소분류입니다.",
+                0.9
+        );
+
+        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
+                .thenReturn(extracted);
+        when(jobPostingClassificationService.findCandidates(extracted, 5))
+                .thenReturn(List.of(candidate));
+        when(jobPostingAiService.classifyDetailClassification(extracted, List.of(candidate)))
+                .thenReturn(classification);
+        when(jobPostingAiService.generateJobPosting(any()))
+                .thenReturn(generated);
+    }
+
+    private JobPostingExtractResponse validExtracted(double confidence) {
+        return new JobPostingExtractResponse(
+                "잡드리",
+                "백엔드 개발자",
+                "Spring 기반 API 개발",
+                "Spring Boot 개발 경험",
+                "",
+                "백엔드 개발자 채용 공고 원문입니다.",
+                confidence
+        );
     }
 }
