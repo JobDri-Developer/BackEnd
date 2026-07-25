@@ -32,6 +32,7 @@ import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.data.domain.Page;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
@@ -186,8 +187,8 @@ class JobPostingServiceTest {
     }
 
     @Test
-    @DisplayName("내 채용 공고 목록은 최신순으로 조회된다")
-    void getAllJobPostingsReturnsNewestFirst() {
+    @DisplayName("내 채용 공고 목록은 페이지네이션으로 최신순 조회된다")
+    void getAllJobPostingsReturnsPagedNewestFirst() {
         User user = saveUser("job-posting-list@example.com");
         DetailClassification detailClassification = saveDetailClassification();
 
@@ -221,11 +222,56 @@ class JobPostingServiceTest {
                 )
         );
 
-        List<JobPostingResponse> responses = jobPostingService.getAllJobPostings(user);
+        JobPostingResponse third = jobPostingService.createJobPosting(
+                user,
+                new JobPostingCreateRequest(
+                        JobPostingProfileColor.PINK,
+                        "세 번째 공고",
+                        "목록 테스트 기업 C",
+                        CompanySize.LARGE,
+                        "데이터 엔지니어",
+                        detailClassification.getId(),
+                        "주요 업무 C",
+                        "자격 요건 C",
+                        "우대 사항 C"
+                )
+        );
 
-        assertThat(responses).extracting(JobPostingResponse::getJobPostingId)
-                .containsSequence(second.getJobPostingId(), first.getJobPostingId());
-        assertThat(responses).allSatisfy(response -> {
+        JobPostingResponse fourth = jobPostingService.createJobPosting(
+                user,
+                new JobPostingCreateRequest(
+                        JobPostingProfileColor.GREEN,
+                        "네 번째 공고",
+                        "목록 테스트 기업 D",
+                        CompanySize.MEDIUM,
+                        "모바일 엔지니어",
+                        detailClassification.getId(),
+                        "주요 업무 D",
+                        "자격 요건 D",
+                        "우대 사항 D"
+                )
+        );
+
+        Page<JobPostingResponse> firstPage = jobPostingService.getAllJobPostings(user, 0, 3);
+        Page<JobPostingResponse> secondPage = jobPostingService.getAllJobPostings(user, 1, 3);
+
+        assertThat(firstPage.getContent()).extracting(JobPostingResponse::getJobPostingId)
+                .containsExactly(fourth.getJobPostingId(), third.getJobPostingId(), second.getJobPostingId());
+        assertThat(firstPage.getTotalElements()).isEqualTo(4);
+        assertThat(firstPage.getTotalPages()).isEqualTo(2);
+        assertThat(firstPage.getSize()).isEqualTo(3);
+        assertThat(firstPage.getNumber()).isEqualTo(0);
+        assertThat(firstPage.hasNext()).isTrue();
+
+        assertThat(secondPage.getContent()).extracting(JobPostingResponse::getJobPostingId)
+                .containsExactly(first.getJobPostingId());
+        assertThat(secondPage.getNumber()).isEqualTo(1);
+        assertThat(secondPage.hasNext()).isFalse();
+        assertThat(firstPage.getContent()).allSatisfy(response -> {
+            assertThat(response.getCreatedAt()).isNotNull();
+            assertThat(response.getUpdatedAt()).isNotNull();
+        });
+        assertThat(secondPage.getContent()).allSatisfy(response -> {
             assertThat(response.getCreatedAt()).isNotNull();
             assertThat(response.getUpdatedAt()).isNotNull();
         });

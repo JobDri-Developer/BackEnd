@@ -20,6 +20,10 @@ import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -91,11 +95,18 @@ public class JobPostingService {
         return JobPostingResponse.from(getOwnedJobPosting(validatedUser, jobPostingId));
     }
 
-    public List<JobPostingResponse> getAllJobPostings(User user) {
+    public Page<JobPostingResponse> getAllJobPostings(User user, int page, int size) {
         User validatedUser = userService.validateUser(user);
-        return jobPostingRepository.findAllByUserIdOrderByCreatedAtDescIdDesc(validatedUser.getId()).stream()
-                .map(JobPostingResponse::from)
-                .toList();
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.max(size, 1),
+                Sort.by(
+                        Sort.Order.desc("createdAt"),
+                        Sort.Order.desc("id")
+                )
+        );
+        return jobPostingRepository.findAllByUserId(validatedUser.getId(), pageable)
+                .map(JobPostingResponse::from);
     }
 
     public List<JobPostingResponse> getJobPostingsByCompany(User user, Long companyId) {
