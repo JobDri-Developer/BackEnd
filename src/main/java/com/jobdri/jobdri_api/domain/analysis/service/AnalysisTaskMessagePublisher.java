@@ -35,7 +35,7 @@ public class AnalysisTaskMessagePublisher {
         try {
             rabbitPublishSupport.publish(
                     workerExchange.getName(),
-                    analysisQueueProperties.routingKey(),
+                    analysisQueueProperties.getRoutingKey(),
                     message,
                     message.messageId(),
                     "자소서 분석 작업 메시지 발행에 실패했습니다.",

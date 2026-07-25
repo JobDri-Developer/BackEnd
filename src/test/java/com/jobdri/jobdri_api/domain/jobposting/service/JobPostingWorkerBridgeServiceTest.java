@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
@@ -22,6 +23,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -91,6 +93,43 @@ class JobPostingWorkerBridgeServiceTest {
 
         verify(workerTaskResultService).upsertGenerated(TaskType.JOB_POSTING_COMPLETE, "task-1", result);
         verify(workerTaskResultService).markDeliveredIfPresent(TaskType.JOB_POSTING_COMPLETE, "task-1");
+    }
+
+    @Test
+    @DisplayName("finalize 재호출 시 이미 성공한 task는 기존 결과를 반환하고 전달 완료만 마킹한다")
+    void finalizeAndCompleteReturnsExistingResultWhenTaskAlreadySucceeded() {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(1L, 3);
+        task.markSuccess("{\"savedToDatabase\":true}");
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        JobPostingIngestResponse existing = mock(JobPostingIngestResponse.class);
+        when(jobPostingAsyncTaskService.getTask(task.getTaskId())).thenReturn(
+                JobPostingAsyncStatusResponse.builder()
+                        .taskId(task.getTaskId())
+                        .status("SUCCEEDED")
+                        .result(existing)
+                        .build()
+        );
+
+        JobPostingIngestResponse response = jobPostingWorkerBridgeService.finalizeAndComplete(
+                task.getTaskId(),
+                1L,
+                mock(JobPostingExtractResponse.class),
+                List.of(mock(JobPostingClassificationCandidateResponse.class)),
+                mock(JobPostingClassificationResultResponse.class),
+                mock(JobPostingGenerateResponse.class)
+        );
+
+        assertThat(response).isSameAs(existing);
+        verify(workerTaskResultService).markDeliveredIfPresent(TaskType.JOB_POSTING_FINALIZE, task.getTaskId());
+        verify(jobPostingAsyncTaskService).getTask(task.getTaskId());
+        verify(workerTaskResultService, never()).upsertGenerated(
+                eq(TaskType.JOB_POSTING_FINALIZE),
+                eq(task.getTaskId()),
+                any(JobPostingWorkerFinalizeRequest.class)
+        );
+        verify(jobPostingAsyncTaskService, never()).markSuccess(eq(task.getTaskId()), any(JobPostingIngestResponse.class));
+        verifyNoInteractions(jobPostingService, userService);
     }
 
     @Test

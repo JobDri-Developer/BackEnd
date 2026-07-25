@@ -1,7 +1,7 @@
 # [ADR-001] RabbitMQ 도입 결정
 
 ## 상태 (Status)
-- 작성일: 2026-07-22
+- 작성일: 2026-07-10
 - 상태: Accepted
 
 ## 맥락 (Context)

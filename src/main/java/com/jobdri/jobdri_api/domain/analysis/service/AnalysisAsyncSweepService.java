@@ -9,7 +9,6 @@ import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -28,12 +27,7 @@ public class AnalysisAsyncSweepService {
     private final AnalysisService analysisService;
     private final UserService userService;
     private final TransactionTemplate transactionTemplate;
-
-    @Value("${app.worker.analysis.queue-timeout-minutes:10}")
-    private long queueTimeoutMinutes;
-
-    @Value("${app.worker.analysis.processing-timeout-minutes:20}")
-    private long processingTimeoutMinutes;
+    private final AnalysisQueueProperties analysisQueueProperties;
 
     public int sweepTimedOutTasks() {
         int expiredCount = 0;
@@ -70,7 +64,8 @@ public class AnalysisAsyncSweepService {
 
     private ExpirationDecision resolveExpiration(AnalysisAsyncTask task) {
         LocalDateTime now = LocalDateTime.now();
-        if (task.getStatus() == TaskStatus.PENDING && isExpired(task.getSubmittedAt(), now, queueTimeoutMinutes)) {
+        if (task.getStatus() == TaskStatus.PENDING
+                && isExpired(task.getSubmittedAt(), now, analysisQueueProperties.getQueueTimeoutMinutes())) {
             return new ExpirationDecision(
                     FailureReason.QUEUE_TIMEOUT,
                     "자소서 분석 작업이 대기열에서 시간 내 처리되지 않았습니다."
@@ -78,7 +73,8 @@ public class AnalysisAsyncSweepService {
         }
 
         LocalDateTime lastActivityAt = task.getLastAttemptAt() != null ? task.getLastAttemptAt() : task.getStartedAt();
-        if (task.getStatus() == TaskStatus.RUNNING && isExpired(lastActivityAt, now, processingTimeoutMinutes)) {
+        if (task.getStatus() == TaskStatus.RUNNING
+                && isExpired(lastActivityAt, now, analysisQueueProperties.getProcessingTimeoutMinutes())) {
             return new ExpirationDecision(
                     FailureReason.INTERNAL_ERROR,
                     "자소서 분석 작업이 처리 제한 시간을 초과했습니다."

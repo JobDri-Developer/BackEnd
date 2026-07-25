@@ -1,5 +1,7 @@
 package com.jobdri.jobdri_api.global.config;
 
+import com.jobdri.jobdri_api.domain.analysis.service.AnalysisQueueProperties;
+import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingQueueProperties;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
@@ -24,56 +26,54 @@ public class RabbitMqConfig {
 
     @Bean
     public Queue jobPostingIngestQueue(
-            @Value("${app.worker.job-posting.queue:jobdri.job-posting.ingest}") String queueName,
-            @Value("${app.worker.job-posting.dlq:jobdri.job-posting.ingest.dlq}") String deadLetterQueueName
+            JobPostingQueueProperties jobPostingQueueProperties
     ) {
-        return QueueBuilder.durable(queueName)
+        return QueueBuilder.durable(jobPostingQueueProperties.getQueue())
                 .withArgument("x-dead-letter-exchange", "")
-                .withArgument("x-dead-letter-routing-key", deadLetterQueueName)
+                .withArgument("x-dead-letter-routing-key", jobPostingQueueProperties.getDlq())
                 .build();
     }
 
     @Bean
     public Queue jobPostingIngestDeadLetterQueue(
-            @Value("${app.worker.job-posting.dlq:jobdri.job-posting.ingest.dlq}") String deadLetterQueueName
+            JobPostingQueueProperties jobPostingQueueProperties
     ) {
-        return QueueBuilder.durable(deadLetterQueueName).build();
+        return QueueBuilder.durable(jobPostingQueueProperties.getDlq()).build();
     }
 
     @Bean
     public Binding jobPostingIngestBinding(
             @Qualifier("jobPostingIngestQueue") Queue jobPostingIngestQueue,
             DirectExchange workerExchange,
-            @Value("${app.worker.job-posting.routing-key:job-posting.ingest}") String routingKey
+            JobPostingQueueProperties jobPostingQueueProperties
     ) {
-        return BindingBuilder.bind(jobPostingIngestQueue).to(workerExchange).with(routingKey);
+        return BindingBuilder.bind(jobPostingIngestQueue).to(workerExchange).with(jobPostingQueueProperties.getRoutingKey());
     }
 
     @Bean
     public Queue analysisQueue(
-            @Value("${app.worker.analysis.queue:jobdri.analysis.execute}") String queueName,
-            @Value("${app.worker.analysis.dlq:jobdri.analysis.execute.dlq}") String deadLetterQueueName
+            AnalysisQueueProperties analysisQueueProperties
     ) {
-        return QueueBuilder.durable(queueName)
+        return QueueBuilder.durable(analysisQueueProperties.getQueue())
                 .withArgument("x-dead-letter-exchange", "")
-                .withArgument("x-dead-letter-routing-key", deadLetterQueueName)
+                .withArgument("x-dead-letter-routing-key", analysisQueueProperties.getDlq())
                 .build();
     }
 
     @Bean
     public Queue analysisDeadLetterQueue(
-            @Value("${app.worker.analysis.dlq:jobdri.analysis.execute.dlq}") String deadLetterQueueName
+            AnalysisQueueProperties analysisQueueProperties
     ) {
-        return QueueBuilder.durable(deadLetterQueueName).build();
+        return QueueBuilder.durable(analysisQueueProperties.getDlq()).build();
     }
 
     @Bean
     public Binding analysisBinding(
             @Qualifier("analysisQueue") Queue analysisQueue,
             DirectExchange workerExchange,
-            @Value("${app.worker.analysis.routing-key:analysis.execute}") String routingKey
+            AnalysisQueueProperties analysisQueueProperties
     ) {
-        return BindingBuilder.bind(analysisQueue).to(workerExchange).with(routingKey);
+        return BindingBuilder.bind(analysisQueue).to(workerExchange).with(analysisQueueProperties.getRoutingKey());
     }
 
     @Bean
