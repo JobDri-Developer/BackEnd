@@ -15,7 +15,6 @@ import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -39,14 +38,12 @@ public class AnalysisAsyncTaskService {
     private final AnalysisAsyncSseService analysisAsyncSseService;
     private final NotificationService notificationService;
     private final AsyncMetricsRecorder asyncMetricsRecorder;
-    
-    @Value("${app.worker.analysis.max-retry-count:3}")
-    private int maxRetryCount;
+    private final AnalysisQueueProperties analysisQueueProperties;
 
     @Transactional
     public AnalysisAsyncTask createPendingTask(Long userId, Long mockApplyId) {
         return analysisAsyncTaskRepository.saveAndFlush(
-                AnalysisAsyncTask.pending(userId, mockApplyId, maxRetryCount)
+                AnalysisAsyncTask.pending(userId, mockApplyId, analysisQueueProperties.getMaxRetryCount())
         );
     }
 

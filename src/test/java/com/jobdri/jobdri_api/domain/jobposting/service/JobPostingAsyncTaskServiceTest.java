@@ -46,15 +46,18 @@ class JobPostingAsyncTaskServiceTest {
     private AsyncMetricsRecorder asyncMetricsRecorder;
 
     private JobPostingAsyncTaskService jobPostingAsyncTaskService;
+    private JobPostingQueueProperties jobPostingQueueProperties;
 
     @BeforeEach
     void setUp() {
+        jobPostingQueueProperties = new JobPostingQueueProperties();
         jobPostingAsyncTaskService = new JobPostingAsyncTaskService(
                 jobPostingAsyncTaskRepository,
                 new ObjectMapper(),
                 jobPostingAsyncSseService,
                 notificationService,
-                asyncMetricsRecorder
+                asyncMetricsRecorder,
+                jobPostingQueueProperties
         );
     }
 
@@ -104,7 +107,7 @@ class JobPostingAsyncTaskServiceTest {
     @Test
     @DisplayName("대기 시간이 임계치를 넘은 task는 QUEUE_TIMEOUT으로 실패 처리한다")
     void getTaskMarksPendingTimeout() {
-        ReflectionTestUtils.setField(jobPostingAsyncTaskService, "queueTimeoutMinutes", 1L);
+        jobPostingQueueProperties.setQueueTimeoutMinutes(1L);
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
         ReflectionTestUtils.setField(task, "submittedAt", java.time.LocalDateTime.now().minusMinutes(2));
 
@@ -119,7 +122,7 @@ class JobPostingAsyncTaskServiceTest {
     @Test
     @DisplayName("실행 중 시간이 임계치를 넘은 task는 WORKER_TIMEOUT으로 실패 처리한다")
     void getTaskMarksRunningTimeout() {
-        ReflectionTestUtils.setField(jobPostingAsyncTaskService, "processingTimeoutMinutes", 1L);
+        jobPostingQueueProperties.setProcessingTimeoutMinutes(1L);
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
         task.markRunning("worker-1", 1, java.time.Instant.now().minusSeconds(120));
         ReflectionTestUtils.setField(task, "lastAttemptAt", java.time.LocalDateTime.now().minusMinutes(2));
@@ -211,6 +214,25 @@ class JobPostingAsyncTaskServiceTest {
                 eq("123"),
                 any()
         );
+    }
+
+    @Test
+    @DisplayName("이미 성공한 task의 complete 재호출은 기존 결과를 반환한다")
+    void markSuccessReturnsExistingResultWhenTaskAlreadySucceeded() throws Exception {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+        JobPostingIngestResponse existing = new JobPostingIngestResponse(true, "done", null, null, null, null, null);
+        task.markSuccess(new ObjectMapper().writeValueAsString(existing));
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        JobPostingIngestResponse replayed = new JobPostingIngestResponse(false, "ignored", null, null, null, null, null);
+
+        JobPostingIngestResponse response = jobPostingAsyncTaskService.markSuccess(task.getTaskId(), replayed);
+
+        assertThat(response.isSavedToDatabase()).isTrue();
+        assertThat(response.getMessage()).isEqualTo("done");
+        verify(jobPostingAsyncSseService, never()).publish(any());
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test

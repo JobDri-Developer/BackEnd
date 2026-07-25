@@ -18,7 +18,6 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -41,19 +40,13 @@ public class JobPostingAsyncTaskService {
     private final JobPostingAsyncSseService jobPostingAsyncSseService;
     private final NotificationService notificationService;
     private final AsyncMetricsRecorder asyncMetricsRecorder;
-
-    @Value("${app.worker.job-posting.max-retry-count:3}")
-    private int maxRetryCount;
-
-    @Value("${app.worker.job-posting.queue-timeout-minutes:10}")
-    private long queueTimeoutMinutes;
-
-    @Value("${app.worker.job-posting.processing-timeout-minutes:20}")
-    private long processingTimeoutMinutes;
+    private final JobPostingQueueProperties jobPostingQueueProperties;
 
     @Transactional
     public JobPostingAsyncTask createPendingTask(Long userId) {
-        return jobPostingAsyncTaskRepository.save(JobPostingAsyncTask.pending(userId, maxRetryCount));
+        return jobPostingAsyncTaskRepository.save(
+                JobPostingAsyncTask.pending(userId, jobPostingQueueProperties.getMaxRetryCount())
+        );
     }
 
     @Transactional
@@ -193,7 +186,7 @@ public class JobPostingAsyncTaskService {
 
         LocalDateTime now = LocalDateTime.now();
         if (task.getStatus() == TaskStatus.PENDING
-                && isExpired(task.getSubmittedAt(), now, queueTimeoutMinutes)) {
+                && isExpired(task.getSubmittedAt(), now, jobPostingQueueProperties.getQueueTimeoutMinutes())) {
             markFailed(
                     task.getTaskId(),
                     FailureReason.QUEUE_TIMEOUT,
@@ -205,7 +198,7 @@ public class JobPostingAsyncTaskService {
 
         LocalDateTime lastActivityAt = task.getLastAttemptAt() != null ? task.getLastAttemptAt() : task.getStartedAt();
         if (task.getStatus() == TaskStatus.RUNNING
-                && isExpired(lastActivityAt, now, processingTimeoutMinutes)) {
+                && isExpired(lastActivityAt, now, jobPostingQueueProperties.getProcessingTimeoutMinutes())) {
             markFailed(
                     task.getTaskId(),
                     FailureReason.WORKER_TIMEOUT,

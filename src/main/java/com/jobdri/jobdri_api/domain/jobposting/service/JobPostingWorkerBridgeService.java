@@ -52,11 +52,12 @@ public class JobPostingWorkerBridgeService {
 
     @Transactional
     public JobPostingIngestResponse completeTask(String taskId, JobPostingIngestResponse result) {
+        // Legacy direct-complete path for older workers. New workers should prefer result -> finalize.
         workerTaskResultService.upsertGenerated(TaskType.JOB_POSTING_COMPLETE, taskId, result);
         JobPostingIngestResponse response = jobPostingAsyncTaskService.markSuccess(taskId, result);
         workerTaskResultService.markDeliveredIfPresent(TaskType.JOB_POSTING_COMPLETE, taskId);
         try (var ignored = LoggingContext.with("worker.task.completed", null, workerContext(taskId, "JOB_POSTING_INGEST", null, null, null))) {
-            log.info("Job posting worker completed task");
+            log.info("Job posting worker completed task via legacy complete callback");
         }
         return response;
     }

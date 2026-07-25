@@ -99,6 +99,8 @@ app:
       routing-key: ${APP_WORKER_ANALYSIS_ROUTING_KEY:analysis.execute}
       dlq: ${APP_WORKER_ANALYSIS_DLQ:jobdri.analysis.execute.dlq}
       max-retry-count: ${APP_WORKER_ANALYSIS_MAX_RETRY_COUNT:3}
+      queue-timeout-minutes: ${APP_WORKER_ANALYSIS_QUEUE_TIMEOUT_MINUTES:10}
+      processing-timeout-minutes: ${APP_WORKER_ANALYSIS_PROCESSING_TIMEOUT_MINUTES:20}
   admin:
     bootstrap-emails: ${APP_ADMIN_BOOTSTRAP_EMAILS:}
   corpus:

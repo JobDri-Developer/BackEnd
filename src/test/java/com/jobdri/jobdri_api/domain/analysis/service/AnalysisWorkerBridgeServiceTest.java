@@ -189,6 +189,24 @@ class AnalysisWorkerBridgeServiceTest {
     }
 
     @Test
+    @DisplayName("이미 종료된 task에도 분석 결과 선저장은 no-op 성격으로 허용한다")
+    void storeGeneratedResultAllowsTerminalTask() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        task.markSuccess();
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        AnalysisWorkerResultStoreRequest request = new AnalysisWorkerResultStoreRequest(
+                1L,
+                10L,
+                mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class)
+        );
+
+        analysisWorkerBridgeService.storeGeneratedResult(task.getTaskId(), request);
+
+        verify(workerTaskResultService).upsertGenerated(TaskType.ANALYSIS_COMPLETE, task.getTaskId(), request);
+    }
+
+    @Test
     @DisplayName("이미 성공한 complete 재호출도 결과 전달 완료 상태로 마킹한다")
     void completeTaskMarksDeliveredForSucceededTask() {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
