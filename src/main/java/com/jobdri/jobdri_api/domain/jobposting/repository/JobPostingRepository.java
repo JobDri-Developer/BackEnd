@@ -25,7 +25,7 @@ public interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
             "detailClassification.middleClassification",
             "detailClassification.middleClassification.classification"
     })
-    List<JobPosting> findAllByUserId(Long userId);
+    List<JobPosting> findAllByUserIdOrderByCreatedAtDescIdDesc(Long userId);
 
     @EntityGraph(attributePaths = {
             "company",

@@ -37,6 +37,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -106,6 +107,8 @@ class JobPostingServiceTest {
         assertThat(found.getProfileColor()).isEqualTo(JobPostingProfileColor.LIGHTBLUE);
         assertThat(found.getPostingName()).isEqualTo("여름 인턴 채용");
         assertThat(found.getJobTitle()).isEqualTo("백엔드 엔지니어");
+        assertThat(found.getCreatedAt()).isNotNull();
+        assertThat(found.getUpdatedAt()).isNotNull();
     }
 
     @Test
@@ -180,6 +183,52 @@ class JobPostingServiceTest {
                 .isEqualTo(GeneralErrorCode.FORBIDDEN);
 
         assertThat(jobPostingRepository.findById(jobPosting.getId())).isPresent();
+    }
+
+    @Test
+    @DisplayName("내 채용 공고 목록은 최신순으로 조회된다")
+    void getAllJobPostingsReturnsNewestFirst() {
+        User user = saveUser("job-posting-list@example.com");
+        DetailClassification detailClassification = saveDetailClassification();
+
+        JobPostingResponse first = jobPostingService.createJobPosting(
+                user,
+                new JobPostingCreateRequest(
+                        JobPostingProfileColor.DEFAULT,
+                        "첫 번째 공고",
+                        "목록 테스트 기업 A",
+                        CompanySize.SMALL,
+                        "백엔드 엔지니어",
+                        detailClassification.getId(),
+                        "주요 업무 A",
+                        "자격 요건 A",
+                        "우대 사항 A"
+                )
+        );
+
+        JobPostingResponse second = jobPostingService.createJobPosting(
+                user,
+                new JobPostingCreateRequest(
+                        JobPostingProfileColor.BLUE,
+                        "두 번째 공고",
+                        "목록 테스트 기업 B",
+                        CompanySize.MEDIUM,
+                        "프론트엔드 엔지니어",
+                        detailClassification.getId(),
+                        "주요 업무 B",
+                        "자격 요건 B",
+                        "우대 사항 B"
+                )
+        );
+
+        List<JobPostingResponse> responses = jobPostingService.getAllJobPostings(user);
+
+        assertThat(responses).extracting(JobPostingResponse::getJobPostingId)
+                .containsSequence(second.getJobPostingId(), first.getJobPostingId());
+        assertThat(responses).allSatisfy(response -> {
+            assertThat(response.getCreatedAt()).isNotNull();
+            assertThat(response.getUpdatedAt()).isNotNull();
+        });
     }
 
     private User saveUser(String email) {

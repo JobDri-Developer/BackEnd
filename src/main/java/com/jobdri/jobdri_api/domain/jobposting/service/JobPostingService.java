@@ -93,7 +93,7 @@ public class JobPostingService {
 
     public List<JobPostingResponse> getAllJobPostings(User user) {
         User validatedUser = userService.validateUser(user);
-        return jobPostingRepository.findAllByUserId(validatedUser.getId()).stream()
+        return jobPostingRepository.findAllByUserIdOrderByCreatedAtDescIdDesc(validatedUser.getId()).stream()
                 .map(JobPostingResponse::from)
                 .toList();
     }
