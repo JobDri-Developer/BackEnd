@@ -167,6 +167,24 @@ final class EvaluationCsvSupport {
         }
     }
 
+    static void writeRows(Path path, List<String> headers, List<Map<String, String>> rows) throws IOException {
+        Path parent = path.toAbsolutePath().getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
+        }
+
+        try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
+            writeRow(writer, headers == null ? List.of() : headers);
+            for (Map<String, String> row : rows == null ? List.<Map<String, String>>of() : rows) {
+                List<String> values = new ArrayList<>();
+                for (String header : headers == null ? List.<String>of() : headers) {
+                    values.add(value(row.get(header)));
+                }
+                writeRow(writer, values);
+            }
+        }
+    }
+
     private static List<List<String>> parseRows(String content) {
         List<List<String>> rows = new ArrayList<>();
         List<String> row = new ArrayList<>();
