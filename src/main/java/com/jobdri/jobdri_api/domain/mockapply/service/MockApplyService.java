@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateReque
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
 import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationService;
@@ -150,8 +151,11 @@ public class MockApplyService {
                 mockJobPostingGenerationService.generate(request.toJobPostingMockGenerateRequest());
 
         JobPostingCreateRequest createRequest = new JobPostingCreateRequest(
+                JobPostingProfileColor.DEFAULT,
+                generated.jobTitle(),
                 company.getName(),
                 company.getSize(),
+                generated.jobTitle(),
                 request.detailClassificationId(),
                 generated.task(),
                 generated.requirement(),

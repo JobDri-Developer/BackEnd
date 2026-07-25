@@ -75,7 +75,7 @@ public class JobPostingWorkerInternalController {
         return ApiResponse.onSuccess("채용 공고 worker 작업 재시도 상태를 반영했습니다.");
     }
 
-    @Operation(summary = "채용 공고 worker 작업 완료 반영", description = "worker가 생성한 채용 공고 결과를 저장하고 taskId 기준 작업 완료 상태를 반영합니다.")
+    @Operation(summary = "채용 공고 worker 작업 완료 반영", description = "legacy worker가 조립한 최종 응답으로 taskId 기준 작업 완료 상태를 반영합니다.")
     @PostMapping("/tasks/{taskId}/complete")
     public ApiResponse<JobPostingIngestResponse> completeTask(
             @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,
@@ -164,7 +164,7 @@ public class JobPostingWorkerInternalController {
         );
     }
 
-    @Operation(summary = "채용 공고 적재 후처리 및 완료", description = "추출, 분류, 생성 결과를 바탕으로 채용 공고 저장과 비동기 완료 처리를 한 번에 수행합니다.")
+    @Operation(summary = "채용 공고 적재 후처리 및 완료", description = "추출, 분류, 생성 결과를 바탕으로 채용 공고 저장과 비동기 완료 처리를 한 번에 수행하는 주 성공 callback입니다.")
     @PostMapping("/ingest/finalize")
     public ApiResponse<JobPostingIngestResponse> finalizeTask(
             @RequestHeader(INTERNAL_API_KEY_HEADER) String internalApiKey,

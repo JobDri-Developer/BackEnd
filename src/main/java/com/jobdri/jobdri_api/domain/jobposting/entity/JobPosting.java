@@ -35,6 +35,17 @@ public class JobPosting extends BaseEntity {
     @JoinColumn(name = "detail_classification_id", nullable = false)
     private DetailClassification detailClassification;
 
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, columnDefinition = "VARCHAR(20) DEFAULT 'DEFAULT'")
+    private JobPostingProfileColor profileColor = JobPostingProfileColor.DEFAULT;
+
+    @Column(nullable = false, columnDefinition = "VARCHAR(255) DEFAULT '미입력'")
+    private String postingName;
+
+    @Column(nullable = false, columnDefinition = "VARCHAR(255) DEFAULT '미입력'")
+    private String jobTitle;
+
     @Column(nullable = false, columnDefinition = "TEXT")
     private String task;
 
@@ -52,6 +63,9 @@ public class JobPosting extends BaseEntity {
             User user,
             Company company,
             DetailClassification detailClassification,
+            JobPostingProfileColor profileColor,
+            String postingName,
+            String jobTitle,
             String task,
             String requirement,
             String preferred
@@ -60,13 +74,16 @@ public class JobPosting extends BaseEntity {
                 .user(user)
                 .company(company)
                 .detailClassification(detailClassification)
+                .profileColor(profileColor)
+                .postingName(postingName)
+                .jobTitle(jobTitle)
                 .task(task)
                 .requirement(requirement)
                 .preferred(preferred)
                 .build();
     }
 
-    public void update(
+    public static JobPosting create(
             User user,
             Company company,
             DetailClassification detailClassification,
@@ -74,9 +91,37 @@ public class JobPosting extends BaseEntity {
             String requirement,
             String preferred
     ) {
+        String defaultJobTitle = detailClassification.getDetailName();
+        return create(
+                user,
+                company,
+                detailClassification,
+                JobPostingProfileColor.DEFAULT,
+                defaultJobTitle,
+                defaultJobTitle,
+                task,
+                requirement,
+                preferred
+        );
+    }
+
+    public void update(
+            User user,
+            Company company,
+            DetailClassification detailClassification,
+            JobPostingProfileColor profileColor,
+            String postingName,
+            String jobTitle,
+            String task,
+            String requirement,
+            String preferred
+    ) {
         this.user = user;
         this.company = company;
         this.detailClassification = detailClassification;
+        this.profileColor = profileColor;
+        this.postingName = postingName;
+        this.jobTitle = jobTitle;
         this.task = task;
         this.requirement = requirement;
         this.preferred = preferred;

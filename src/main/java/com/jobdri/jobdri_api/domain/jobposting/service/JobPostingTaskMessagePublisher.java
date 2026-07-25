@@ -34,7 +34,7 @@ public class JobPostingTaskMessagePublisher {
         try {
             rabbitPublishSupport.publish(
                     workerExchange.getName(),
-                    jobPostingQueueProperties.routingKey(),
+                    jobPostingQueueProperties.getRoutingKey(),
                     message,
                     message.messageId(),
                     "채용 공고 작업 메시지 발행에 실패했습니다.",

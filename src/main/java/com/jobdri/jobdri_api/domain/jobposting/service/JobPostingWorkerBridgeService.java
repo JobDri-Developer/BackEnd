@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassifica
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerFinalizeRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
@@ -51,11 +52,12 @@ public class JobPostingWorkerBridgeService {
 
     @Transactional
     public JobPostingIngestResponse completeTask(String taskId, JobPostingIngestResponse result) {
+        // Legacy direct-complete path for older workers. New workers should prefer result -> finalize.
         workerTaskResultService.upsertGenerated(TaskType.JOB_POSTING_COMPLETE, taskId, result);
         JobPostingIngestResponse response = jobPostingAsyncTaskService.markSuccess(taskId, result);
         workerTaskResultService.markDeliveredIfPresent(TaskType.JOB_POSTING_COMPLETE, taskId);
         try (var ignored = LoggingContext.with("worker.task.completed", null, workerContext(taskId, "JOB_POSTING_INGEST", null, null, null))) {
-            log.info("Job posting worker completed task");
+            log.info("Job posting worker completed task via legacy complete callback");
         }
         return response;
     }
@@ -150,8 +152,11 @@ public class JobPostingWorkerBridgeService {
         var saved = jobPostingService.createJobPosting(
                 userService.getUser(userId),
                 new JobPostingCreateRequest(
+                        JobPostingProfileColor.DEFAULT,
+                        generated.jobTitle(),
                         fallbackCompanyName(extracted.companyName()),
                         null,
+                        generated.jobTitle(),
                         classification.detailClassificationId(),
                         generated.task(),
                         generated.requirements(),
