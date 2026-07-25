@@ -243,6 +243,44 @@ class EvaluationAnalysisRunnerSafetyTest {
     }
 
     @Test
+    @DisplayName("NLG judge 비교 모드는 output 절대 경로에 파일을 생성한 뒤 정상 종료한다")
+    void nlgJudgeComparisonRunCreatesResolvedOutputCsv() throws Exception {
+        NlgEvaluationBatchService batchService = mock(NlgEvaluationBatchService.class);
+        EvaluationExitCoordinator exitCoordinator = mock(EvaluationExitCoordinator.class);
+        Environment environment = mock(Environment.class);
+        when(environment.getActiveProfiles()).thenReturn(new String[]{"analysis-eval"});
+        Path first = tempDir.resolve("judge-a.csv");
+        Path second = tempDir.resolve("judge-b.csv");
+        Files.writeString(first, "caseId,failureStage\nEV-01,\n");
+        Files.writeString(second, "caseId,failureStage\nEV-02,\n");
+        Path output = tempDir.resolve("nested").resolve("comparison.csv");
+        when(batchService.compare(any(), any())).thenAnswer(invocation -> {
+            Path resolvedOutput = invocation.getArgument(1);
+            Files.createDirectories(resolvedOutput.getParent());
+            Files.writeString(resolvedOutput, "sourceResultFile,caseCount\njudge-a.csv,1\n");
+            return new NlgEvaluationBatchService.NlgEvaluationComparisonSummary(
+                    2,
+                    resolvedOutput,
+                    2,
+                    Files.size(resolvedOutput)
+            );
+        });
+        NlgEvaluationRunner runner = new NlgEvaluationRunner(batchService, exitCoordinator, environment);
+        ReflectionTestUtils.setField(runner, "compareInputPaths", first + "," + second);
+        ReflectionTestUtils.setField(runner, "outputPath", output.toString());
+        ReflectionTestUtils.setField(runner, "analysisEvaluationEnabled", false);
+
+        runner.run(new DefaultApplicationArguments());
+
+        assertThat(output).isRegularFile();
+        assertThat(Files.size(output)).isGreaterThan(0);
+        var outputCaptor = org.mockito.ArgumentCaptor.forClass(Path.class);
+        verify(batchService).compare(any(), outputCaptor.capture());
+        assertThat(outputCaptor.getValue()).isEqualTo(output.toAbsolutePath().normalize());
+        verify(exitCoordinator).exit("nlg-judge", 0);
+    }
+
+    @Test
     @DisplayName("분석 평가 Runner는 analysis-evaluation source로 정상 종료를 요청한다")
     void analysisEvaluationRunRequestsExitWithSource() throws Exception {
         EvaluationAnalysisBatchService batchService = mock(EvaluationAnalysisBatchService.class);

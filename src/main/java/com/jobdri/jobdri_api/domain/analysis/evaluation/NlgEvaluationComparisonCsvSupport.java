@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 
 final class NlgEvaluationComparisonCsvSupport {
@@ -16,7 +17,13 @@ final class NlgEvaluationComparisonCsvSupport {
         if (parent != null) {
             Files.createDirectories(parent);
         }
-        try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
+        try (BufferedWriter writer = Files.newBufferedWriter(
+                path,
+                StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING,
+                StandardOpenOption.WRITE
+        )) {
             writeRow(writer, List.of(
                     "sourceResultFile",
                     "caseCount",
@@ -79,6 +86,7 @@ final class NlgEvaluationComparisonCsvSupport {
                         value(result.errorCodeCounts())
                 ));
             }
+            writer.flush();
         }
     }
 

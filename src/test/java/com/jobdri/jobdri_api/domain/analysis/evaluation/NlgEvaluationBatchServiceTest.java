@@ -642,11 +642,18 @@ class NlgEvaluationBatchServiceTest {
                         ""
                 )
         ));
-        Path output = tempDir.resolve("compare.csv");
+        Path output = tempDir.resolve("nested").resolve("compare.csv");
 
-        new NlgEvaluationBatchService(mock(NlgEvaluationAiClient.class), objectMapper)
+        NlgEvaluationBatchService.NlgEvaluationComparisonSummary summary =
+                new NlgEvaluationBatchService(mock(NlgEvaluationAiClient.class), objectMapper)
                 .compare(List.of(judgeResult), output);
 
+        assertThat(output).isRegularFile();
+        assertThat(Files.size(output)).isGreaterThan(0);
+        assertThat(summary.outputPath()).isEqualTo(output.toAbsolutePath().normalize());
+        assertThat(summary.fileCount()).isEqualTo(1);
+        assertThat(summary.summaryRowCount()).isEqualTo(1);
+        assertThat(summary.sizeBytes()).isEqualTo(Files.size(output));
         Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
         assertThat(row.get("averageProblemValidity")).isEqualTo("3.0");
         assertThat(row.get("metaImprovementRate")).isEqualTo("100.0");
