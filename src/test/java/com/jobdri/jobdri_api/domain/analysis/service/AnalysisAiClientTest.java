@@ -18,11 +18,13 @@ import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.openai.client.OpenAIClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -36,6 +38,127 @@ class AnalysisAiClientTest {
             mock(AsyncMetricsRecorder.class),
             new ObjectMapper()
     );
+
+    @Test
+    @DisplayName("analysis.mode가 없으면 기존 two-pass boolean으로 분석 모드를 해석한다")
+    void resolveAnalysisModeFallsBackToTwoPassBoolean() {
+        ReflectionTestUtils.setField(analysisAiClient, "analysisMode", "");
+        ReflectionTestUtils.setField(analysisAiClient, "twoPassEnabled", false);
+        assertThat(analysisAiClient.resolveAnalysisMode()).isEqualTo(AnalysisAiClient.AnalysisMode.SINGLE_PASS);
+
+        ReflectionTestUtils.setField(analysisAiClient, "twoPassEnabled", true);
+        assertThat(analysisAiClient.resolveAnalysisMode()).isEqualTo(AnalysisAiClient.AnalysisMode.TWO_PASS);
+    }
+
+    @Test
+    @DisplayName("analysis.mode가 기존 two-pass boolean보다 우선한다")
+    void analysisModePropertyTakesPrecedenceOverTwoPassBoolean() {
+        ReflectionTestUtils.setField(analysisAiClient, "twoPassEnabled", true);
+        ReflectionTestUtils.setField(analysisAiClient, "analysisMode", "single-pass");
+        assertThat(analysisAiClient.resolveAnalysisMode()).isEqualTo(AnalysisAiClient.AnalysisMode.SINGLE_PASS);
+
+        ReflectionTestUtils.setField(analysisAiClient, "analysisMode", "hybrid-exact");
+        assertThat(analysisAiClient.resolveAnalysisMode()).isEqualTo(AnalysisAiClient.AnalysisMode.HYBRID_EXACT);
+    }
+
+    @Test
+    @DisplayName("지원하지 않는 analysis.mode는 명확한 예외를 던진다")
+    void unsupportedAnalysisModeFailsFast() {
+        ReflectionTestUtils.setField(analysisAiClient, "analysisMode", "unknown");
+
+        assertThatThrownBy(analysisAiClient::resolveAnalysisMode)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("Unsupported analysis mode: unknown")
+                .cause()
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("Hybrid Exact merge는 questionAnalyses와 점수는 single-pass, missingKeywords는 two-pass 전체 결과를 사용한다")
+    void mergeHybridExactUsesExplicitSources() {
+        AnalysisLlmResponse.QuestionAnalysisItem singleQuestionAnalysis =
+                new AnalysisLlmResponse.QuestionAnalysisItem(1L, "Spring Boot API를 개발했습니다.", "MENTIONED", "결과가 부족합니다.", null);
+        AnalysisLlmResponse.QuestionAnalysisItem twoPassQuestionAnalysis =
+                new AnalysisLlmResponse.QuestionAnalysisItem(1L, "장애 대응 경험이 있습니다.", "MENTIONED", "역할이 부족합니다.", null);
+        AnalysisLlmResponse.MissingKeywordItem singleMissingKeyword =
+                new AnalysisLlmResponse.MissingKeywordItem("single 누락", "mainTask");
+        AnalysisLlmResponse.MissingKeywordItem twoPassMissingKeyword =
+                new AnalysisLlmResponse.MissingKeywordItem("장애 대응 경험", "qualification");
+        AnalysisLlmResponse singlePassResponse = new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "single feedback",
+                List.of(new AnalysisLlmResponse.HighlightItem("강점", "Spring Boot API")),
+                List.of(new AnalysisLlmResponse.HighlightItem("약점", "결과")),
+                List.of(singleMissingKeyword),
+                List.of(singleQuestionAnalysis)
+        );
+        AnalysisLlmResponse twoPassResponse = new AnalysisLlmResponse(
+                10,
+                20,
+                30,
+                "two-pass feedback",
+                List.of(new AnalysisLlmResponse.HighlightItem("two-pass 강점", "장애 대응")),
+                List.of(),
+                List.of(twoPassMissingKeyword),
+                List.of(twoPassQuestionAnalysis)
+        );
+
+        AnalysisLlmResponse merged = analysisAiClient.mergeHybridExact(
+                singlePassResponse,
+                twoPassResponse
+        );
+
+        assertThat(merged.jobFit()).isEqualTo(80);
+        assertThat(merged.impact()).isEqualTo(70);
+        assertThat(merged.completeness()).isEqualTo(60);
+        assertThat(merged.feedback()).isEqualTo("single feedback");
+        assertThat(merged.keyStrengths()).isEqualTo(singlePassResponse.keyStrengths());
+        assertThat(merged.questionAnalyses()).containsExactly(singleQuestionAnalysis);
+        assertThat(merged.missingKeywords()).containsExactly(twoPassMissingKeyword);
+        assertThat(merged.missingKeywords()).doesNotContain(singleMissingKeyword);
+        assertThat(merged.questionAnalyses()).doesNotContain(twoPassQuestionAnalysis);
+    }
+
+    @Test
+    @DisplayName("Hybrid Exact merge는 source 응답 리스트를 방어적으로 복사한다")
+    void mergeHybridExactCopiesLists() {
+        AnalysisLlmResponse.QuestionAnalysisItem singleQuestionAnalysis =
+                new AnalysisLlmResponse.QuestionAnalysisItem(1L, "Spring Boot API를 개발했습니다.", "MENTIONED", "결과가 부족합니다.", null);
+        AnalysisLlmResponse.MissingKeywordItem twoPassMissingKeyword =
+                new AnalysisLlmResponse.MissingKeywordItem("장애 대응 경험", "qualification");
+        AnalysisLlmResponse singlePassResponse = new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "single feedback",
+                new java.util.ArrayList<>(List.of(new AnalysisLlmResponse.HighlightItem("강점", "Spring Boot API"))),
+                new java.util.ArrayList<>(),
+                new java.util.ArrayList<>(),
+                new java.util.ArrayList<>(List.of(singleQuestionAnalysis))
+        );
+        AnalysisLlmResponse twoPassResponse = new AnalysisLlmResponse(
+                10,
+                20,
+                30,
+                "two-pass feedback",
+                new java.util.ArrayList<>(),
+                new java.util.ArrayList<>(),
+                new java.util.ArrayList<>(List.of(twoPassMissingKeyword)),
+                new java.util.ArrayList<>()
+        );
+
+        AnalysisLlmResponse merged = analysisAiClient.mergeHybridExact(singlePassResponse, twoPassResponse);
+
+        assertThat(merged.keyStrengths()).containsExactlyElementsOf(singlePassResponse.keyStrengths());
+        assertThat(merged.questionAnalyses()).containsExactly(singleQuestionAnalysis);
+        assertThat(merged.missingKeywords()).containsExactly(twoPassMissingKeyword);
+        assertThatThrownBy(() -> merged.questionAnalyses().add(singleQuestionAnalysis))
+                .isInstanceOf(UnsupportedOperationException.class);
+        assertThatThrownBy(() -> merged.missingKeywords().add(twoPassMissingKeyword))
+                .isInstanceOf(UnsupportedOperationException.class);
+    }
 
     @Test
     @DisplayName("직무 중분류 기준이 있으면 프롬프트에 보조 평가 기준 섹션을 포함한다")

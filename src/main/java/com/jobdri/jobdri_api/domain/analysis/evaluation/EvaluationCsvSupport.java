@@ -63,60 +63,53 @@ final class EvaluationCsvSupport {
     }
 
     static void write(Path path, List<EvaluationAnalysisResult> results) throws IOException {
-        Path parent = path.toAbsolutePath().getParent();
-        if (parent != null) {
-            Files.createDirectories(parent);
-        }
-
-        try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
-            writeRow(writer, List.of(
-                    "caseId",
-                    "jobCategoryMiddle",
-                    "jobCategorySmall",
-                    "mainTasks",
-                    "qualifications",
-                    "preferences",
-                    "question",
-                    "answer",
-                    "aiScore",
-                    "aiJobFit",
-                    "aiImpact",
-                    "aiCompleteness",
-                    "aiFeedback",
-                    "aiMissingKeywordsJson",
-                    "aiQuestionAnalysesJson",
-                    "rawLlmResponseJson",
-                    "rawCandidateResponseJson",
-                    "sanitizedCandidateResponseJson",
-                    "candidateReviewResponseJson",
-                    "candidateCount",
-                    "candidateAnalysisCount",
-                    "candidateStrengthCount",
-                    "candidateMissingKeywordCount",
-                    "acceptedCandidateCount",
-                    "rejectedCandidateCount",
-                    "rejectionCodeCounts",
-                    "finalAnalysisCount",
-                    "strengthCandidateCount",
-                    "finalStrengthCount",
-                    "missingKeywordCandidateCount",
-                    "finalMissingKeywordCount",
-                    "candidateCallLatencyMs",
-                    "finalCallLatencyMs",
-                    "candidateLatencyMs",
-                    "finalLatencyMs",
-                    "candidateInputTokens",
-                    "candidateOutputTokens",
-                    "finalInputTokens",
-                    "finalOutputTokens",
-                    "totalInputTokens",
-                    "totalOutputTokens",
-                    "failureStage",
-                    "errorMessage",
-                    "createdAt"
-            ));
-
-            for (EvaluationAnalysisResult result : results) {
+        writeCsv(path, List.of(
+                "caseId",
+                "jobCategoryMiddle",
+                "jobCategorySmall",
+                "mainTasks",
+                "qualifications",
+                "preferences",
+                "question",
+                "answer",
+                "aiScore",
+                "aiJobFit",
+                "aiImpact",
+                "aiCompleteness",
+                "aiFeedback",
+                "aiMissingKeywordsJson",
+                "aiQuestionAnalysesJson",
+                "rawLlmResponseJson",
+                "rawCandidateResponseJson",
+                "sanitizedCandidateResponseJson",
+                "candidateReviewResponseJson",
+                "candidateCount",
+                "candidateAnalysisCount",
+                "candidateStrengthCount",
+                "candidateMissingKeywordCount",
+                "acceptedCandidateCount",
+                "rejectedCandidateCount",
+                "rejectionCodeCounts",
+                "finalAnalysisCount",
+                "strengthCandidateCount",
+                "finalStrengthCount",
+                "missingKeywordCandidateCount",
+                "finalMissingKeywordCount",
+                "candidateCallLatencyMs",
+                "finalCallLatencyMs",
+                "candidateLatencyMs",
+                "finalLatencyMs",
+                "candidateInputTokens",
+                "candidateOutputTokens",
+                "finalInputTokens",
+                "finalOutputTokens",
+                "totalInputTokens",
+                "totalOutputTokens",
+                "failureStage",
+                "errorMessage",
+                "createdAt"
+        ), writer -> {
+            for (EvaluationAnalysisResult result : results == null ? List.<EvaluationAnalysisResult>of() : results) {
                 writeRow(writer, List.of(
                         value(result.caseId()),
                         value(result.jobCategoryMiddle()),
@@ -164,7 +157,37 @@ final class EvaluationCsvSupport {
                         value(result.createdAt())
                 ));
             }
+        });
+    }
+
+    static void writeRows(Path path, List<String> headers, List<Map<String, String>> rows) throws IOException {
+        List<String> safeHeaders = headers == null ? List.of() : headers;
+        writeCsv(path, safeHeaders, writer -> {
+            for (Map<String, String> row : rows == null ? List.<Map<String, String>>of() : rows) {
+                List<String> values = new ArrayList<>();
+                for (String header : safeHeaders) {
+                    values.add(value(row.get(header)));
+                }
+                writeRow(writer, values);
+            }
+        });
+    }
+
+    private static void writeCsv(Path path, List<String> headers, CsvRowsWriter rowsWriter) throws IOException {
+        Path parent = path.toAbsolutePath().getParent();
+        if (parent != null) {
+            Files.createDirectories(parent);
         }
+
+        try (BufferedWriter writer = Files.newBufferedWriter(path, StandardCharsets.UTF_8)) {
+            writeRow(writer, headers == null ? List.of() : headers);
+            rowsWriter.write(writer);
+        }
+    }
+
+    @FunctionalInterface
+    private interface CsvRowsWriter {
+        void write(BufferedWriter writer) throws IOException;
     }
 
     private static List<List<String>> parseRows(String content) {
