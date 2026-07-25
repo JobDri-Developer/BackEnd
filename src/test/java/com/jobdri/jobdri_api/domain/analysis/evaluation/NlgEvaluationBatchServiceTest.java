@@ -119,6 +119,52 @@ class NlgEvaluationBatchServiceTest {
     }
 
     @Test
+    @DisplayName("빈 questionAnalyses에 대해 judge가 문장 평가를 생성하면 검증 실패로 기록한다")
+    void rejectsHallucinatedQuestionEvaluationForEmptyQuestionAnalyses() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
+                new NlgEvaluationResponse(
+                        "EV-02",
+                        List.of(new NlgEvaluationResponse.QuestionAnalysisEvaluation(
+                                0,
+                                "없는 분석 문장입니다.",
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                5,
+                                List.of(NlgEvaluationErrorCode.NONE)
+                        )),
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        List.of(NlgEvaluationErrorCode.NONE),
+                        "빈 분석인데 문장 평가를 생성했습니다."
+                ),
+                90L,
+                null,
+                null
+        ));
+
+        Path input = writeJudgeInput("EV-02", "[]");
+        Path output = tempDir.resolve("judge_empty_hallucination.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("analysisCount")).isBlank();
+        assertThat(row.get("failureStage")).isEqualTo("judge_validation_failed");
+    }
+
+    @Test
     @DisplayName("메타 improvement, 새 사실 생성, 시제 변경 오류 코드를 검증 후 CSV에 기록한다")
     void writesValidatedErrorCodesForNlgFailures() throws Exception {
         NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
@@ -596,12 +642,53 @@ class NlgEvaluationBatchServiceTest {
                         ""
                 )
         ));
-        Path output = tempDir.resolve("compare.csv");
+        Path judgeResultSecond = tempDir.resolve("judge_result_second.csv");
+        NlgEvaluationCsvSupport.write(judgeResultSecond, List.of(
+                new NlgEvaluationResult(
+                        "EV-02",
+                        "source-second.csv",
+                        0,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        5,
+                        4,
+                        4,
+                        5,
+                        5,
+                        5,
+                        objectMapper.writeValueAsString(List.of("NONE")),
+                        "요약",
+                        80,
+                        20,
+                        200L,
+                        ""
+                )
+        ));
+        Path output = tempDir.resolve("nested").resolve("compare.csv");
 
-        new NlgEvaluationBatchService(mock(NlgEvaluationAiClient.class), objectMapper)
-                .compare(List.of(judgeResult), output);
+        NlgEvaluationBatchService.NlgEvaluationComparisonSummary summary =
+                new NlgEvaluationBatchService(mock(NlgEvaluationAiClient.class), objectMapper)
+                .compare(List.of(judgeResult, judgeResultSecond), output);
 
-        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(EvaluationCsvSupport.read(judgeResult)).hasSize(1);
+        assertThat(EvaluationCsvSupport.read(judgeResultSecond)).hasSize(1);
+        assertThat(output).isRegularFile();
+        assertThat(Files.size(output)).isGreaterThan(0);
+        assertThat(summary.outputPath()).isEqualTo(output.toAbsolutePath().normalize());
+        assertThat(summary.fileCount()).isEqualTo(2);
+        assertThat(summary.summaryRowCount()).isEqualTo(2);
+        assertThat(summary.sizeBytes()).isEqualTo(Files.size(output));
+        List<Map<String, String>> outputRows = EvaluationCsvSupport.read(output);
+        assertThat(outputRows).hasSize(2);
+        Map<String, String> row = outputRows.getFirst();
         assertThat(row.get("averageProblemValidity")).isEqualTo("3.0");
         assertThat(row.get("metaImprovementRate")).isEqualTo("100.0");
         assertThat(row.get("fatalErrorRate")).isEqualTo("100.0");

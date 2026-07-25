@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.analysis.evaluation;
 import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
 import com.openai.client.OpenAIClient;
 import com.openai.models.responses.ResponseCreateParams;
+import com.openai.models.responses.ResponseUsage;
 import com.openai.models.responses.StructuredResponse;
 import com.openai.models.responses.StructuredResponseOutputMessage;
 import lombok.RequiredArgsConstructor;
@@ -32,7 +33,13 @@ class NlgEvaluationAiClient {
                 "analysis-nlg-judge",
                 () -> openAIClient.responses().create(params)
         );
-        return new JudgeCallResult(extractStructuredContent(response), elapsedMillis(startedAt), null, null);
+        ResponseUsage usage = response.usage().orElse(null);
+        return new JudgeCallResult(
+                extractStructuredContent(response),
+                elapsedMillis(startedAt),
+                toIntegerTokenCount(usage == null ? null : usage.inputTokens()),
+                toIntegerTokenCount(usage == null ? null : usage.outputTokens())
+        );
     }
 
     String buildPrompt(NlgJudgeInput input) {
@@ -132,6 +139,13 @@ class NlgEvaluationAiClient {
 
     private long elapsedMillis(long startedAt) {
         return (System.nanoTime() - startedAt) / 1_000_000;
+    }
+
+    private Integer toIntegerTokenCount(Long tokens) {
+        if (tokens == null) {
+            return null;
+        }
+        return tokens > Integer.MAX_VALUE ? Integer.MAX_VALUE : tokens.intValue();
     }
 
     record JudgeCallResult(

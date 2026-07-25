@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -93,7 +94,8 @@ class NlgEvaluationBatchService {
 
     NlgEvaluationComparisonSummary compare(List<Path> inputPaths, Path outputPath) throws IOException {
         validateComparisonInputs(inputPaths);
-        validateComparisonOutput(inputPaths, outputPath);
+        Path resolvedOutputPath = outputPath.toAbsolutePath().normalize();
+        validateComparisonOutput(inputPaths, resolvedOutputPath);
 
         List<NlgEvaluationComparisonResult> results = new ArrayList<>();
         for (Path inputPath : inputPaths) {
@@ -101,8 +103,15 @@ class NlgEvaluationBatchService {
             results.add(buildComparisonResult(inputPath, rows));
         }
 
-        NlgEvaluationComparisonCsvSupport.write(outputPath, results);
-        return new NlgEvaluationComparisonSummary(inputPaths.size(), outputPath);
+        NlgEvaluationComparisonCsvSupport.write(resolvedOutputPath, results);
+        int actualSummaryRows = EvaluationCsvSupport.read(resolvedOutputPath).size();
+        long sizeBytes = validateCreatedOutputFile(
+                resolvedOutputPath,
+                "NLG judge comparison output",
+                actualSummaryRows,
+                inputPaths.size()
+        );
+        return new NlgEvaluationComparisonSummary(inputPaths.size(), resolvedOutputPath, actualSummaryRows, sizeBytes);
     }
 
     private NlgEvaluationAiClient.NlgJudgeInput buildJudgeInput(
@@ -140,12 +149,14 @@ class NlgEvaluationBatchService {
             return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
         }
 
-        List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations =
-                validQuestionEvaluations(input.questionAnalyses(), response.questionAnalysisEvaluations());
-        if (input.questionAnalyses().isEmpty() && !evaluations.isEmpty()) {
+        if (input.questionAnalyses().isEmpty()
+                && response.questionAnalysisEvaluations() != null
+                && !response.questionAnalysisEvaluations().isEmpty()) {
             return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
         }
 
+        List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations =
+                validQuestionEvaluations(input.questionAnalyses(), response.questionAnalysisEvaluations());
         List<NlgEvaluationErrorCode> errorCodes = mergeErrorCodes(response, evaluations);
         boolean hasFatalError = hasFatalError(errorCodes);
         return new NlgEvaluationResult(
@@ -492,6 +503,36 @@ class NlgEvaluationBatchService {
         }
     }
 
+    private long validateCreatedOutputFile(
+            Path outputPath,
+            String description,
+            int actualSummaryRows,
+            int expectedSummaryRows
+    ) throws IOException {
+        if (!Files.exists(outputPath)) {
+            throw new IllegalStateException(description + " was not created: " + outputPath);
+        }
+        if (!Files.isRegularFile(outputPath)) {
+            throw new IllegalStateException(description + " is not a regular file: " + outputPath);
+        }
+        long sizeBytes = Files.size(outputPath);
+        if (sizeBytes <= 0) {
+            throw new IllegalStateException(description + " is empty: " + outputPath);
+        }
+        if (expectedSummaryRows <= 0 || actualSummaryRows <= 0 || actualSummaryRows != expectedSummaryRows) {
+            throw new IllegalStateException(
+                    description
+                            + " row count mismatch: expected="
+                            + expectedSummaryRows
+                            + ", actual="
+                            + actualSummaryRows
+                            + ", path="
+                            + outputPath
+            );
+        }
+        return sizeBytes;
+    }
+
     private NlgEvaluationComparisonResult buildComparisonResult(Path inputPath, List<Map<String, String>> rows) {
         List<Map<String, String>> successfulRows = rows.stream()
                 .filter(row -> !StringUtils.hasText(value(row, "failureStage")))
@@ -706,7 +747,9 @@ class NlgEvaluationBatchService {
 
     record NlgEvaluationComparisonSummary(
             int fileCount,
-            Path outputPath
+            Path outputPath,
+            int summaryRowCount,
+            long sizeBytes
     ) {
     }
 

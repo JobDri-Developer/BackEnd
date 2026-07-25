@@ -27,6 +27,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Properties;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -240,6 +243,44 @@ class EvaluationAnalysisRunnerSafetyTest {
     }
 
     @Test
+    @DisplayName("NLG judge 비교 모드는 output 절대 경로에 파일을 생성한 뒤 정상 종료한다")
+    void nlgJudgeComparisonRunCreatesResolvedOutputCsv() throws Exception {
+        NlgEvaluationBatchService batchService = mock(NlgEvaluationBatchService.class);
+        EvaluationExitCoordinator exitCoordinator = mock(EvaluationExitCoordinator.class);
+        Environment environment = mock(Environment.class);
+        when(environment.getActiveProfiles()).thenReturn(new String[]{"analysis-eval"});
+        Path first = tempDir.resolve("judge-a.csv");
+        Path second = tempDir.resolve("judge-b.csv");
+        Files.writeString(first, "caseId,failureStage\nEV-01,\n");
+        Files.writeString(second, "caseId,failureStage\nEV-02,\n");
+        Path output = tempDir.resolve("nested").resolve("comparison.csv");
+        when(batchService.compare(any(), any())).thenAnswer(invocation -> {
+            Path resolvedOutput = invocation.getArgument(1);
+            Files.createDirectories(resolvedOutput.getParent());
+            Files.writeString(resolvedOutput, "sourceResultFile,caseCount\njudge-a.csv,1\n");
+            return new NlgEvaluationBatchService.NlgEvaluationComparisonSummary(
+                    2,
+                    resolvedOutput,
+                    2,
+                    Files.size(resolvedOutput)
+            );
+        });
+        NlgEvaluationRunner runner = new NlgEvaluationRunner(batchService, exitCoordinator, environment);
+        ReflectionTestUtils.setField(runner, "compareInputPaths", first + "," + second);
+        ReflectionTestUtils.setField(runner, "outputPath", output.toString());
+        ReflectionTestUtils.setField(runner, "analysisEvaluationEnabled", false);
+
+        runner.run(new DefaultApplicationArguments());
+
+        assertThat(output).isRegularFile();
+        assertThat(Files.size(output)).isGreaterThan(0);
+        var outputCaptor = org.mockito.ArgumentCaptor.forClass(Path.class);
+        verify(batchService).compare(any(), outputCaptor.capture());
+        assertThat(outputCaptor.getValue()).isEqualTo(output.toAbsolutePath().normalize());
+        verify(exitCoordinator).exit("nlg-judge", 0);
+    }
+
+    @Test
     @DisplayName("분석 평가 Runner는 analysis-evaluation source로 정상 종료를 요청한다")
     void analysisEvaluationRunRequestsExitWithSource() throws Exception {
         EvaluationAnalysisBatchService batchService = mock(EvaluationAnalysisBatchService.class);
@@ -345,6 +386,59 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("output CSV");
         verify(exitCoordinator).exit("nlg-judge", 1);
+    }
+
+    @Test
+    @DisplayName("EvaluationExitCoordinator는 동일한 종료 요청을 한 번만 전달한다")
+    void evaluationExitCoordinatorIgnoresDuplicateExitRequests() throws Exception {
+        var applicationContext = mock(org.springframework.context.ConfigurableApplicationContext.class);
+        AtomicInteger springExitCount = new AtomicInteger();
+        AtomicInteger systemExitCount = new AtomicInteger();
+        AtomicInteger systemExitCode = new AtomicInteger(-1);
+        CountDownLatch exited = new CountDownLatch(1);
+        EvaluationExitCoordinator coordinator = new EvaluationExitCoordinator(
+                applicationContext,
+                (context, exitCode) -> {
+                    springExitCount.incrementAndGet();
+                    return 17;
+                },
+                exitCode -> {
+                    systemExitCount.incrementAndGet();
+                    systemExitCode.set(exitCode);
+                    exited.countDown();
+                }
+        );
+
+        coordinator.exit("nlg-judge", 0);
+        coordinator.exit("nlg-judge", 0);
+
+        assertThat(exited.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(springExitCount).hasValue(1);
+        assertThat(systemExitCount).hasValue(1);
+        assertThat(systemExitCode).hasValue(17);
+    }
+
+    @Test
+    @DisplayName("EvaluationExitCoordinator는 Spring 종료 실패 시에도 System.exit를 호출한다")
+    void evaluationExitCoordinatorCallsSystemExitWhenSpringExitFails() throws Exception {
+        var applicationContext = mock(org.springframework.context.ConfigurableApplicationContext.class);
+        AtomicInteger systemExitCode = new AtomicInteger(-1);
+        CountDownLatch exited = new CountDownLatch(1);
+        EvaluationExitCoordinator coordinator = new EvaluationExitCoordinator(
+                applicationContext,
+                (context, exitCode) -> {
+                    throw new IllegalStateException("shutdown failed");
+                },
+                exitCode -> {
+                    systemExitCode.set(exitCode);
+                    exited.countDown();
+                }
+        );
+
+        coordinator.exit("nlg-judge", 1);
+
+        assertThat(exited.await(1, TimeUnit.SECONDS)).isTrue();
+        assertThat(systemExitCode).hasValue(1);
     }
 
     @Test

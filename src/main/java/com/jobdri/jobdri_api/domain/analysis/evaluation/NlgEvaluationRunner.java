@@ -70,15 +70,30 @@ public class NlgEvaluationRunner implements ApplicationRunner {
             );
             if (StringUtils.hasText(compareInputPaths)) {
                 validateComparisonProperties();
+                Path configuredOutputPath = Path.of(outputPath);
+                Path resolvedOutputPath = configuredOutputPath.toAbsolutePath().normalize();
+                Path workingDirectory = Path.of("").toAbsolutePath().normalize();
+                log.info(
+                        "NLG judge comparison output resolved. configuredPath={}, absolutePath={}, workingDirectory={}",
+                        outputPath,
+                        resolvedOutputPath,
+                        workingDirectory
+                );
                 List<Path> inputs = Arrays.stream(compareInputPaths.split(","))
                         .map(String::trim)
                         .filter(StringUtils::hasText)
                         .map(Path::of)
                         .toList();
                 NlgEvaluationBatchService.NlgEvaluationComparisonSummary summary =
-                        nlgEvaluationBatchService.compare(inputs, Path.of(outputPath));
-                validateOutputFile(Path.of(outputPath));
-                log.info("NLG judge 비교 리포트 생성 완료. files={}, output={}", summary.fileCount(), summary.outputPath());
+                        nlgEvaluationBatchService.compare(inputs, resolvedOutputPath);
+                validateOutputFile(summary.outputPath());
+                log.info(
+                        "NLG judge comparison report created. files={}, output={}, sizeBytes={}, summaryRows={}",
+                        summary.fileCount(),
+                        summary.outputPath(),
+                        summary.sizeBytes(),
+                        summary.summaryRowCount()
+                );
             } else {
                 validateJudgeProperties();
                 log.info("NLG judge 평가를 시작합니다. input={}, output={}, model={}", inputPath, outputPath, judgeModel);

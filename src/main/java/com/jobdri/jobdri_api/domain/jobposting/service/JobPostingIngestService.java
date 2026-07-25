@@ -10,6 +10,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractRes
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -49,6 +50,7 @@ public class JobPostingIngestService {
                 command.getRawText(),
                 command.getImageObjectKey()
         );
+        JobPostingIngestQualityValidator.validateExtracted(extracted);
 
         List<JobPostingClassificationCandidateResponse> candidates =
                 jobPostingClassificationService.findCandidates(extracted, FIXED_CANDIDATE_LIMIT);
@@ -89,12 +91,16 @@ public class JobPostingIngestService {
                         extracted.jobTitle()
                 )
         );
+        JobPostingIngestQualityValidator.validateGenerated(generated);
 
         JobPostingResponse saved = jobPostingService.createJobPosting(
                 resolveUser(command),
                 new JobPostingCreateRequest(
+                        JobPostingProfileColor.DEFAULT,
+                        generated.jobTitle(),
                         fallbackCompanyName(extracted.companyName()),
                         null,
+                        generated.jobTitle(),
                         classification.detailClassificationId(),
                         generated.task(),
                         generated.requirements(),

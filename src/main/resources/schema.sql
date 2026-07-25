@@ -48,3 +48,17 @@ ALTER TABLE IF EXISTS analyses
 
 ALTER TABLE IF EXISTS analyses
     ADD COLUMN IF NOT EXISTS key_weaknesses TEXT NOT NULL DEFAULT '[]';
+
+UPDATE job_postings
+SET profile_color = 'DEFAULT'
+WHERE profile_color IS NULL;
+
+UPDATE job_postings jp
+SET job_title = dc.detail_name
+FROM detail_classifications dc
+WHERE jp.detail_classification_id = dc.id
+  AND (jp.job_title IS NULL OR jp.job_title = '미입력');
+
+UPDATE job_postings
+SET posting_name = job_title
+WHERE posting_name IS NULL OR posting_name = '미입력';
