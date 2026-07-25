@@ -1,6 +1,10 @@
 package com.jobdri.jobdri_api.domain.mockapply.repository;
 
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
+import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -14,6 +18,22 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
     List<MockApply> findAllByJobPostingId(Long jobPostingId);
     List<MockApply> findAllByUserIdAndJobPostingIdOrderByIdAsc(Long userId, Long jobPostingId);
     long countByUserIdAndJobPostingId(Long userId, Long jobPostingId);
+
+    @EntityGraph(attributePaths = {
+            "jobPosting",
+            "jobPosting.company",
+            "jobPosting.detailClassification",
+            "analysis"
+    })
+    List<MockApply> findAllByUserIdAndStatusNotOrderByCreatedAtDescIdDesc(Long userId, MockApplyStatus status);
+
+    @EntityGraph(attributePaths = {
+            "jobPosting",
+            "jobPosting.company",
+            "jobPosting.detailClassification",
+            "analysis"
+    })
+    Page<MockApply> findAllByUserIdAndStatus(Long userId, MockApplyStatus status, Pageable pageable);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
@@ -75,18 +95,6 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
                 mockApply.getId()
         ));
     }
-
-    @Query("""
-            select ma
-            from MockApply ma
-            join fetch ma.jobPosting jp
-            join fetch jp.company
-            join fetch jp.detailClassification
-            left join fetch ma.analysis
-            where ma.user.id = :userId
-            order by ma.createdAt desc, ma.id desc
-            """)
-    List<MockApply> findHomeItemsByUserId(@Param("userId") Long userId);
 
     @Query("""
             select count(ma)
