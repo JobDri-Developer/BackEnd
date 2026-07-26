@@ -41,6 +41,6 @@ public class AnalysisAsyncSseService {
 
     private boolean isTerminal(AnalysisAsyncStatusResponse statusResponse) {
         TaskStatus status = TaskStatus.valueOf(statusResponse.status());
-        return status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED;
+        return status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED || status == TaskStatus.CANCELLED;
     }
 }

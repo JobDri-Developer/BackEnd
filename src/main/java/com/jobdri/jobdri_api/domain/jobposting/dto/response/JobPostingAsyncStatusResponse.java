@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Getter;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Getter
 @Builder
@@ -25,5 +26,11 @@ public class JobPostingAsyncStatusResponse {
     private LocalDateTime lastAttemptAt;
     private LocalDateTime startedAt;
     private LocalDateTime completedAt;
+    private Boolean cancelRequested;
+    private LocalDateTime cancelledAt;
+    private String currentStep;
+    private Integer progressPercent;
+    private Integer estimatedRemainingSeconds;
+    private List<JobPostingProgressStepResponse> steps;
     private JobPostingIngestResponse result;
 }

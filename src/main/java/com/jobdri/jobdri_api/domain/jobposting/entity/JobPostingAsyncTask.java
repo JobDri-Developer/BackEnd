@@ -72,6 +72,21 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
     @Column(name = "result_payload")
     private String resultPayload;
 
+    @Column(name = "cancel_requested", nullable = false)
+    private boolean cancelRequested;
+
+    @Column(name = "cancelled_at")
+    private LocalDateTime cancelledAt;
+
+    @Column(name = "current_step", length = 60)
+    private String currentStep;
+
+    @Column(name = "progress_percent")
+    private Integer progressPercent;
+
+    @Column(name = "estimated_remaining_seconds")
+    private Integer estimatedRemainingSeconds;
+
     public static JobPostingAsyncTask pending(Long userId, int maxRetryCount) {
         JobPostingAsyncTask task = new JobPostingAsyncTask();
         task.taskId = UUID.randomUUID().toString();
@@ -81,12 +96,20 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
         task.retryCount = 0;
         task.maxRetryCount = Math.max(0, maxRetryCount);
         task.submittedAt = LocalDateTime.now();
+        task.cancelRequested = false;
+        task.currentStep = "VALIDATING_INPUT";
+        task.progressPercent = 0;
         return task;
     }
 
     public void markRunning(String workerId, int retryCount, Instant messageSubmittedAt) {
+        if (isTerminal()) {
+            return;
+        }
         this.status = TaskStatus.RUNNING;
         this.message = "채용 공고 비동기 처리를 진행 중입니다.";
+        this.currentStep = "EXTRACTING_CONTENT";
+        this.progressPercent = Math.max(resolveProgressPercent(), 20);
         this.failureReason = null;
         this.error = null;
         this.workerId = workerId;
@@ -99,12 +122,18 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
     }
 
     public void markSuccess(String resultPayload) {
+        if (isTerminal()) {
+            return;
+        }
         this.status = TaskStatus.SUCCEEDED;
         this.message = "채용 공고 비동기 처리에 성공했습니다.";
         this.error = null;
         this.failureReason = null;
         this.resultPayload = resultPayload;
         this.completedAt = LocalDateTime.now();
+        this.currentStep = "COMPLETED";
+        this.progressPercent = 100;
+        this.estimatedRemainingSeconds = 0;
     }
 
     public void markRetryScheduled(FailureReason failureReason, String errorMessage, int retryCount) {
@@ -117,6 +146,8 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
         }
         this.status = TaskStatus.PENDING;
         this.message = "채용 공고 비동기 재시도를 대기 중입니다.";
+        this.currentStep = "VALIDATING_INPUT";
+        this.progressPercent = 0;
         this.failureReason = failureReason;
         this.error = errorMessage;
         this.retryCount = Math.max(0, retryCount);
@@ -133,6 +164,30 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
         this.error = errorMessage;
         this.retryCount = Math.max(0, retryCount);
         this.completedAt = LocalDateTime.now();
+        this.progressPercent = 0;
+        this.estimatedRemainingSeconds = 0;
+    }
+
+    public void requestCancel() {
+        if (status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED) {
+            return;
+        }
+        this.cancelRequested = true;
+        if (status == TaskStatus.CANCELLED) {
+            if (status == TaskStatus.CANCELLED && cancelledAt == null) {
+                this.cancelledAt = LocalDateTime.now();
+            }
+            return;
+        }
+        this.status = TaskStatus.CANCELLED;
+        this.message = "채용 공고 비동기 작업이 취소되었습니다.";
+        this.error = null;
+        this.failureReason = null;
+        this.completedAt = LocalDateTime.now();
+        this.cancelledAt = this.completedAt;
+        this.currentStep = "CANCELLED";
+        this.progressPercent = 0;
+        this.estimatedRemainingSeconds = 0;
     }
 
     public void updateWorkerMetadata(String workerId, Long queueLatencyMillis) {
@@ -145,7 +200,11 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
     }
 
     private boolean isTerminal() {
-        return status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED;
+        return status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED || status == TaskStatus.CANCELLED;
+    }
+
+    private int resolveProgressPercent() {
+        return progressPercent == null ? 0 : progressPercent;
     }
 
     public enum FailureReason {
@@ -161,6 +220,7 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
         PENDING,
         RUNNING,
         SUCCEEDED,
-        FAILED
+        FAILED,
+        CANCELLED
     }
 }

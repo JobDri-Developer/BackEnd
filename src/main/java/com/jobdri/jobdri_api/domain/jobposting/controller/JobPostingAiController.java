@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.jobposting.controller;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncCancelResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
@@ -108,6 +109,22 @@ public class JobPostingAiController {
         return ApiResponse.onSuccess(
                 "채용 공고 비동기 작업 상태 조회에 성공했습니다.",
                 jobPostingAsyncFacadeService.getTask(user, taskId)
+        );
+    }
+
+    @Operation(
+            summary = "채용 공고 비동기 작업 취소",
+            description = "taskId로 접수된 채용 공고 비동기 작업을 취소합니다."
+    )
+    @PostMapping("/ingest/async/{taskId}/cancel")
+    public ApiResponse<JobPostingAsyncCancelResponse> cancelIngestJobPostingAsyncStatus(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable String taskId
+    ) {
+        var user = validateAuthenticatedUser(userDetails);
+        return ApiResponse.onSuccess(
+                "채용 공고 비동기 작업 취소에 성공했습니다.",
+                jobPostingAsyncFacadeService.cancel(user, taskId)
         );
     }
 

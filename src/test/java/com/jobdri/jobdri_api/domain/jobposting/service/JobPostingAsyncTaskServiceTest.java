@@ -261,6 +261,24 @@ class JobPostingAsyncTaskServiceTest {
     }
 
     @Test
+    @DisplayName("본인 소유 task 취소 시 CANCELLED 상태와 진행 정보를 발행한다")
+    void cancelTaskMarksCancelledAndPublishesStatus() {
+        User user = User.signup("테스트 사용자", "job-posting-cancel@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+
+        when(jobPostingAsyncTaskRepository.findByTaskIdAndUserId(task.getTaskId(), 7L)).thenReturn(Optional.of(task));
+
+        var response = jobPostingAsyncTaskService.cancelTask(user, task.getTaskId());
+
+        assertThat(response.status()).isEqualTo("CANCELLED");
+        assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.TaskStatus.CANCELLED);
+        assertThat(task.isCancelRequested()).isTrue();
+        verify(jobPostingAsyncSseService).publish(any());
+        verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
     @DisplayName("재시도 예약 중에는 알림을 생성하지 않는다")
     void markRetryScheduledDoesNotCreateNotification() {
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);

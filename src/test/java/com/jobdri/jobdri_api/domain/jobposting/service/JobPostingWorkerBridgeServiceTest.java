@@ -86,7 +86,9 @@ class JobPostingWorkerBridgeServiceTest {
     @Test
     @DisplayName("채용 공고 complete 성공 시 저장 결과를 DELIVERED로 마킹한다")
     void completeTaskMarksDelivered() {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(1L, 3);
         JobPostingIngestResponse result = mock(JobPostingIngestResponse.class);
+        when(jobPostingAsyncTaskRepository.findById("task-1")).thenReturn(Optional.of(task));
         when(jobPostingAsyncTaskService.markSuccess("task-1", result)).thenReturn(result);
 
         jobPostingWorkerBridgeService.completeTask("task-1", result);

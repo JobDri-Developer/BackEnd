@@ -1,7 +1,9 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncCancelResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingProgressStepResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.TaskStatus;
@@ -28,12 +30,22 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class JobPostingAsyncTaskService {
+    private static final int DEFAULT_ESTIMATED_REMAINING_SECONDS = 20;
+    private static final List<ProgressStepDefinition> PROGRESS_STEPS = List.of(
+            new ProgressStepDefinition("VALIDATING_INPUT", "공고 입력값을 확인하고 있어요"),
+            new ProgressStepDefinition("DOWNLOADING_IMAGES", "이미지를 준비하고 있어요"),
+            new ProgressStepDefinition("EXTRACTING_CONTENT", "공고 내용을 추출하고 있어요"),
+            new ProgressStepDefinition("STRUCTURING_JOB_POSTING", "공고 정보를 정리하고 있어요"),
+            new ProgressStepDefinition("SAVING_RESULT", "공고 분석 결과를 저장하고 있어요"),
+            new ProgressStepDefinition("COMPLETED", "공고 분석이 완료되었습니다")
+    );
 
     private final JobPostingAsyncTaskRepository jobPostingAsyncTaskRepository;
     private final ObjectMapper objectMapper;
@@ -110,6 +122,21 @@ public class JobPostingAsyncTaskService {
     }
 
     @Transactional
+    public JobPostingAsyncCancelResponse cancelTask(User user, String taskId) {
+        JobPostingAsyncTask task = getOwnedTaskState(user, taskId);
+        task.requestCancel();
+        if (task.getStatus() == TaskStatus.CANCELLED) {
+            recordProcessingMetric(task, "cancelled");
+        }
+        publishAfterCommit(toStatusResponse(task));
+        return new JobPostingAsyncCancelResponse(
+                task.getTaskId(),
+                task.getStatus().name(),
+                task.getMessage()
+        );
+    }
+
+    @Transactional
     public void updateWorkerMetadata(String taskId, String workerId, Long queueLatencyMillis) {
         getTaskState(taskId).updateWorkerMetadata(workerId, queueLatencyMillis);
     }
@@ -163,8 +190,25 @@ public class JobPostingAsyncTaskService {
                 .lastAttemptAt(taskState.getLastAttemptAt())
                 .startedAt(taskState.getStartedAt())
                 .completedAt(taskState.getCompletedAt())
+                .cancelRequested(taskState.isCancelRequested())
+                .cancelledAt(taskState.getCancelledAt())
+                .currentStep(resolveCurrentStep(taskState))
+                .progressPercent(resolveProgressPercent(taskState))
+                .estimatedRemainingSeconds(resolveEstimatedRemainingSeconds(taskState))
+                .steps(buildSteps(taskState))
                 .result(deserializeResult(taskState.getResultPayload()))
                 .build();
+    }
+
+    private JobPostingAsyncTask getOwnedTaskState(User user, String taskId) {
+        if (user.getRole() == UserRole.ADMIN) {
+            return getTaskState(taskId);
+        }
+        return jobPostingAsyncTaskRepository.findByTaskIdAndUserId(taskId, user.getId())
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.JOB_POSTING_ASYNC_TASK_NOT_FOUND,
+                        "해당 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
+                ));
     }
 
     private JobPostingAsyncTask getTaskState(String taskId) {
@@ -176,7 +220,9 @@ public class JobPostingAsyncTaskService {
     }
 
     private boolean isTerminal(JobPostingAsyncTask task) {
-        return task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED;
+        return task.getStatus() == TaskStatus.SUCCEEDED
+                || task.getStatus() == TaskStatus.FAILED
+                || task.getStatus() == TaskStatus.CANCELLED;
     }
 
     private boolean expireTimedOutTaskIfNeeded(JobPostingAsyncTask task) {
@@ -223,6 +269,80 @@ public class JobPostingAsyncTaskService {
         }
         long durationMillis = Math.max(0L, Duration.between(task.getStartedAt(), LocalDateTime.now()).toMillis());
         asyncMetricsRecorder.recordProcessing("jobposting", outcome, durationMillis);
+    }
+
+    private String resolveCurrentStep(JobPostingAsyncTask task) {
+        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+            return "COMPLETED";
+        }
+        if (task.getStatus() == TaskStatus.CANCELLED) {
+            return "CANCELLED";
+        }
+        if (task.getStatus() == TaskStatus.FAILED) {
+            return task.getCurrentStep();
+        }
+        return task.getCurrentStep() == null ? "VALIDATING_INPUT" : task.getCurrentStep();
+    }
+
+    private Integer resolveProgressPercent(JobPostingAsyncTask task) {
+        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+            return 100;
+        }
+        if (task.getStatus() == TaskStatus.FAILED || task.getStatus() == TaskStatus.CANCELLED) {
+            return 0;
+        }
+        return task.getProgressPercent() == null ? 0 : Math.max(0, Math.min(100, task.getProgressPercent()));
+    }
+
+    private Integer resolveEstimatedRemainingSeconds(JobPostingAsyncTask task) {
+        if (task.getStatus() == TaskStatus.SUCCEEDED
+                || task.getStatus() == TaskStatus.FAILED
+                || task.getStatus() == TaskStatus.CANCELLED) {
+            return 0;
+        }
+        if (task.getEstimatedRemainingSeconds() != null) {
+            return Math.max(0, task.getEstimatedRemainingSeconds());
+        }
+        if (task.getStartedAt() == null) {
+            return DEFAULT_ESTIMATED_REMAINING_SECONDS;
+        }
+        long elapsedSeconds = Math.max(0L, Duration.between(task.getStartedAt(), LocalDateTime.now()).toSeconds());
+        return (int) Math.max(0L, DEFAULT_ESTIMATED_REMAINING_SECONDS - elapsedSeconds);
+    }
+
+    private List<JobPostingProgressStepResponse> buildSteps(JobPostingAsyncTask task) {
+        String currentStep = resolveCurrentStep(task);
+        TaskStatus status = task.getStatus();
+        int currentIndex = indexOfStep(currentStep);
+        return PROGRESS_STEPS.stream()
+                .map(step -> new JobPostingProgressStepResponse(
+                        step.code(),
+                        step.label(),
+                        resolveStepStatus(status, currentIndex, indexOfStep(step.code()))
+                ))
+                .toList();
+    }
+
+    private int indexOfStep(String code) {
+        for (int i = 0; i < PROGRESS_STEPS.size(); i++) {
+            if (PROGRESS_STEPS.get(i).code().equals(code)) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private String resolveStepStatus(TaskStatus taskStatus, int currentIndex, int stepIndex) {
+        if (taskStatus == TaskStatus.SUCCEEDED) {
+            return "COMPLETED";
+        }
+        if (taskStatus == TaskStatus.CANCELLED) {
+            return stepIndex <= currentIndex ? "CANCELLED" : "PENDING";
+        }
+        if (taskStatus == TaskStatus.FAILED) {
+            return stepIndex < currentIndex ? "COMPLETED" : stepIndex == currentIndex ? "FAILED" : "PENDING";
+        }
+        return stepIndex < currentIndex ? "COMPLETED" : stepIndex == currentIndex ? "IN_PROGRESS" : "PENDING";
     }
 
     private String serializeResult(JobPostingIngestResponse result) {
@@ -325,5 +445,8 @@ public class JobPostingAsyncTaskService {
                 task.getTaskId(),
                 payload
         );
+    }
+
+    private record ProgressStepDefinition(String code, String label) {
     }
 }

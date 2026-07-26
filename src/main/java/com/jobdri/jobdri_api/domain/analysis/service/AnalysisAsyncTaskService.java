@@ -1,6 +1,8 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncCancelResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisProgressStepResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
@@ -10,6 +12,8 @@ import com.jobdri.jobdri_api.domain.notification.entity.NotificationTargetType;
 import com.jobdri.jobdri_api.domain.notification.entity.NotificationType;
 import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
+import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
@@ -24,6 +28,7 @@ import java.time.Instant;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -33,12 +38,23 @@ import java.util.Map;
 @Slf4j
 // 분석 비동기 task 엔티티의 생성, 상태 전이, 조회를 전담하는 서비스다.
 public class AnalysisAsyncTaskService {
+    private static final int DEFAULT_ESTIMATED_REMAINING_SECONDS = 180;
+    private static final List<ProgressStepDefinition> PROGRESS_STEPS = List.of(
+            new ProgressStepDefinition("VALIDATING_INPUT", "분석할 내용을 확인하고 있어요"),
+            new ProgressStepDefinition("PREPARING_CONTEXT", "공고와 자소서를 준비하고 있어요"),
+            new ProgressStepDefinition("CALLING_LLM", "자기소개서를 평가하고 있어요"),
+            new ProgressStepDefinition("VALIDATING_RESULT", "분석 결과를 검증하고 있어요"),
+            new ProgressStepDefinition("SAVING_RESULT", "분석 결과를 저장하고 있어요"),
+            new ProgressStepDefinition("COMPLETED", "분석이 완료되었습니다")
+    );
 
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
     private final AnalysisAsyncSseService analysisAsyncSseService;
     private final NotificationService notificationService;
     private final AsyncMetricsRecorder asyncMetricsRecorder;
     private final AnalysisQueueProperties analysisQueueProperties;
+    private final AnalysisService analysisService;
+    private final UserService userService;
 
     @Transactional
     public AnalysisAsyncTask createPendingTask(Long userId, Long mockApplyId) {
@@ -95,6 +111,30 @@ public class AnalysisAsyncTaskService {
         task.markFailed(failureReason, errorMessage, retryCount);
         publishAfterCommit(toStatusResponse(task));
         createFailureNotificationSafely(task);
+    }
+
+    @Transactional
+    public AnalysisAsyncCancelResponse cancelTask(Long userId, Long mockApplyId, String taskId) {
+        AnalysisAsyncTask task = analysisAsyncTaskRepository.findByTaskIdAndUserId(taskId, userId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.ANALYSIS_ASYNC_TASK_NOT_FOUND,
+                        "해당 자소서 분석 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
+                ));
+        if (!task.getMockApplyId().equals(mockApplyId)) {
+            throw new GeneralException(GeneralErrorCode.FORBIDDEN, "요청한 mockApplyId와 작업 정보가 일치하지 않습니다.");
+        }
+
+        releaseCreditIfNeeded(task);
+        task.requestCancel();
+        if (task.getStatus() == TaskStatus.CANCELLED) {
+            recordProcessingMetric(task, "cancelled");
+        }
+        publishAfterCommit(toStatusResponse(task));
+        return new AnalysisAsyncCancelResponse(
+                task.getTaskId(),
+                task.getStatus().name(),
+                task.getMessage()
+        );
     }
 
     @Transactional
@@ -174,8 +214,97 @@ public class AnalysisAsyncTaskService {
                 .lastAttemptAt(task.getLastAttemptAt())
                 .startedAt(task.getStartedAt())
                 .completedAt(task.getCompletedAt())
+                .cancelRequested(task.isCancelRequested())
+                .cancelledAt(task.getCancelledAt())
+                .currentStep(resolveCurrentStep(task))
+                .progressPercent(resolveProgressPercent(task))
+                .estimatedRemainingSeconds(resolveEstimatedRemainingSeconds(task))
+                .steps(buildSteps(task))
                 .result(task.getStatus() == TaskStatus.SUCCEEDED ? result : null)
                 .build();
+    }
+
+    private void releaseCreditIfNeeded(AnalysisAsyncTask task) {
+        if (task.getCreditStatus() != CreditStatus.RESERVED || task.getCreditReferenceId() == null) {
+            return;
+        }
+        User user = userService.getUser(task.getUserId());
+        analysisService.refundAnalysisCredit(user, task.getCreditReferenceId());
+        task.markCreditReleased();
+    }
+
+    private String resolveCurrentStep(AnalysisAsyncTask task) {
+        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+            return "COMPLETED";
+        }
+        if (task.getStatus() == TaskStatus.CANCELLED) {
+            return "CANCELLED";
+        }
+        if (task.getStatus() == TaskStatus.FAILED) {
+            return task.getCurrentStep();
+        }
+        return task.getCurrentStep() == null ? "VALIDATING_INPUT" : task.getCurrentStep();
+    }
+
+    private Integer resolveProgressPercent(AnalysisAsyncTask task) {
+        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+            return 100;
+        }
+        if (task.getStatus() == TaskStatus.FAILED || task.getStatus() == TaskStatus.CANCELLED) {
+            return 0;
+        }
+        return task.getProgressPercent() == null ? 0 : Math.max(0, Math.min(100, task.getProgressPercent()));
+    }
+
+    private Integer resolveEstimatedRemainingSeconds(AnalysisAsyncTask task) {
+        if (task.getStatus() == TaskStatus.SUCCEEDED
+                || task.getStatus() == TaskStatus.FAILED
+                || task.getStatus() == TaskStatus.CANCELLED) {
+            return 0;
+        }
+        if (task.getEstimatedRemainingSeconds() != null) {
+            return Math.max(0, task.getEstimatedRemainingSeconds());
+        }
+        if (task.getStartedAt() == null) {
+            return DEFAULT_ESTIMATED_REMAINING_SECONDS;
+        }
+        long elapsedSeconds = Math.max(0L, Duration.between(task.getStartedAt(), LocalDateTime.now()).toSeconds());
+        return (int) Math.max(0L, DEFAULT_ESTIMATED_REMAINING_SECONDS - elapsedSeconds);
+    }
+
+    private List<AnalysisProgressStepResponse> buildSteps(AnalysisAsyncTask task) {
+        String currentStep = resolveCurrentStep(task);
+        TaskStatus status = task.getStatus();
+        int currentIndex = indexOfStep(currentStep);
+        return PROGRESS_STEPS.stream()
+                .map(step -> new AnalysisProgressStepResponse(
+                        step.code(),
+                        step.label(),
+                        resolveStepStatus(status, currentIndex, indexOfStep(step.code()))
+                ))
+                .toList();
+    }
+
+    private int indexOfStep(String code) {
+        for (int i = 0; i < PROGRESS_STEPS.size(); i++) {
+            if (PROGRESS_STEPS.get(i).code().equals(code)) {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    private String resolveStepStatus(TaskStatus taskStatus, int currentIndex, int stepIndex) {
+        if (taskStatus == TaskStatus.SUCCEEDED) {
+            return "COMPLETED";
+        }
+        if (taskStatus == TaskStatus.CANCELLED) {
+            return stepIndex <= currentIndex ? "CANCELLED" : "PENDING";
+        }
+        if (taskStatus == TaskStatus.FAILED) {
+            return stepIndex < currentIndex ? "COMPLETED" : stepIndex == currentIndex ? "FAILED" : "PENDING";
+        }
+        return stepIndex < currentIndex ? "COMPLETED" : stepIndex == currentIndex ? "IN_PROGRESS" : "PENDING";
     }
 
     private void publishAfterCommit(AnalysisAsyncStatusResponse statusResponse) {
@@ -247,5 +376,8 @@ public class AnalysisAsyncTaskService {
                 task.getTaskId(),
                 payload
         );
+    }
+
+    private record ProgressStepDefinition(String code, String label) {
     }
 }
