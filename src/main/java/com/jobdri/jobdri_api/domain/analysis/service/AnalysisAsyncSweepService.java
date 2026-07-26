@@ -65,7 +65,7 @@ public class AnalysisAsyncSweepService {
     private ExpirationDecision resolveExpiration(AnalysisAsyncTask task) {
         LocalDateTime now = LocalDateTime.now();
         if (task.getStatus() == TaskStatus.PENDING
-                && isExpired(task.getSubmittedAt(), now, analysisQueueProperties.getQueueTimeoutMinutes())) {
+                && isExpired(task.getSubmittedAt(), now, analysisQueueProperties.getQueueTimeoutSeconds())) {
             return new ExpirationDecision(
                     FailureReason.QUEUE_TIMEOUT,
                     "자소서 분석 작업이 대기열에서 시간 내 처리되지 않았습니다."
@@ -74,7 +74,7 @@ public class AnalysisAsyncSweepService {
 
         LocalDateTime lastActivityAt = task.getLastAttemptAt() != null ? task.getLastAttemptAt() : task.getStartedAt();
         if (task.getStatus() == TaskStatus.RUNNING
-                && isExpired(lastActivityAt, now, analysisQueueProperties.getProcessingTimeoutMinutes())) {
+                && isExpired(lastActivityAt, now, analysisQueueProperties.getProcessingTimeoutSeconds())) {
             return new ExpirationDecision(
                     FailureReason.INTERNAL_ERROR,
                     "자소서 분석 작업이 처리 제한 시간을 초과했습니다."
@@ -84,11 +84,11 @@ public class AnalysisAsyncSweepService {
         return null;
     }
 
-    private boolean isExpired(LocalDateTime baseTime, LocalDateTime now, long timeoutMinutes) {
-        if (baseTime == null || timeoutMinutes <= 0) {
+    private boolean isExpired(LocalDateTime baseTime, LocalDateTime now, long timeoutSeconds) {
+        if (baseTime == null || timeoutSeconds <= 0) {
             return false;
         }
-        return Duration.between(baseTime, now).toMinutes() >= timeoutMinutes;
+        return Duration.between(baseTime, now).getSeconds() >= timeoutSeconds;
     }
 
     private void releaseCreditIfNeeded(AnalysisAsyncTask task) {
