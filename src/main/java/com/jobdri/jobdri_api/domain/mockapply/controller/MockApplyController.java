@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.mockapply.controller;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateActualRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockFromJobPostingRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
+import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCompletedFilter;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyUpdateNameRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeItemResponse;
@@ -65,6 +66,26 @@ public class MockApplyController {
         return ApiResponse.onSuccess(
                 "모의 서류 지원 목록 조회에 성공했습니다.",
                 mockApplyService.getMyMockApplies(userDetails.getUser(), page, size)
+        );
+    }
+
+    @Operation(
+            summary = "내 완료 모의 서류 지원 목록 조회",
+            description = "완료된 모의 서류 지원 결과 카드를 필터와 페이지 단위로 조회합니다. filter는 ALL, NEEDS_IMPROVEMENT, IMPROVABLE을 지원합니다."
+    )
+    @GetMapping("/me/completed")
+    public ApiResponse<Page<MockApplyHomeItemResponse>> getCompletedMockApplies(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @Parameter(description = "완료 결과 필터: ALL, NEEDS_IMPROVEMENT(80점 미만), IMPROVABLE(80점 이상)")
+            @RequestParam(defaultValue = "ALL") MockApplyCompletedFilter filter,
+            @Parameter(description = "0부터 시작하는 페이지 번호")
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @Parameter(description = "페이지 크기 (1-" + MockApplyService.MAX_PAGE_SIZE + ")")
+            @RequestParam(defaultValue = "9") @Min(1) @Max(MockApplyService.MAX_PAGE_SIZE) int size
+    ) {
+        return ApiResponse.onSuccess(
+                "완료된 모의 서류 지원 목록 조회에 성공했습니다.",
+                mockApplyService.getCompletedMockApplies(userDetails.getUser(), filter, page, size)
         );
     }
 
