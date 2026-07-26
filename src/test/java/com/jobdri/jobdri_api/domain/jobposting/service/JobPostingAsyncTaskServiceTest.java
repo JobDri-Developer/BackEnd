@@ -110,6 +110,7 @@ class JobPostingAsyncTaskServiceTest {
     @Test
     @DisplayName("대기 시간이 임계치를 넘은 task는 QUEUE_TIMEOUT으로 실패 처리한다")
     void getTaskMarksPendingTimeout() {
+        jobPostingQueueProperties.setQueueTimeoutSeconds(null);
         jobPostingQueueProperties.setQueueTimeoutMinutes(1L);
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
         ReflectionTestUtils.setField(task, "submittedAt", java.time.LocalDateTime.now().minusMinutes(2));
@@ -125,10 +126,44 @@ class JobPostingAsyncTaskServiceTest {
     @Test
     @DisplayName("실행 중 시간이 임계치를 넘은 task는 WORKER_TIMEOUT으로 실패 처리한다")
     void getTaskMarksRunningTimeout() {
+        jobPostingQueueProperties.setProcessingTimeoutSeconds(null);
         jobPostingQueueProperties.setProcessingTimeoutMinutes(1L);
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
         task.markRunning("worker-1", 1, java.time.Instant.now().minusSeconds(120));
         ReflectionTestUtils.setField(task, "lastAttemptAt", java.time.LocalDateTime.now().minusMinutes(2));
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        var response = jobPostingAsyncTaskService.getTask(task.getTaskId());
+
+        assertThat(response.getStatus()).isEqualTo("FAILED");
+        assertThat(response.getFailureReason()).isEqualTo(FailureReason.WORKER_TIMEOUT.name());
+    }
+
+    @Test
+    @DisplayName("대기 timeout은 초 단위 설정을 우선 적용한다")
+    void getTaskMarksPendingTimeoutUsingSeconds() {
+        jobPostingQueueProperties.setQueueTimeoutSeconds(30L);
+        jobPostingQueueProperties.setQueueTimeoutMinutes(10L);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+        ReflectionTestUtils.setField(task, "submittedAt", java.time.LocalDateTime.now().minusSeconds(31));
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        var response = jobPostingAsyncTaskService.getTask(task.getTaskId());
+
+        assertThat(response.getStatus()).isEqualTo("FAILED");
+        assertThat(response.getFailureReason()).isEqualTo(FailureReason.QUEUE_TIMEOUT.name());
+    }
+
+    @Test
+    @DisplayName("처리 timeout은 초 단위 설정을 우선 적용한다")
+    void getTaskMarksRunningTimeoutUsingSeconds() {
+        jobPostingQueueProperties.setProcessingTimeoutSeconds(60L);
+        jobPostingQueueProperties.setProcessingTimeoutMinutes(10L);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+        task.markRunning("worker-1", 1, java.time.Instant.now().minusSeconds(61));
+        ReflectionTestUtils.setField(task, "lastAttemptAt", java.time.LocalDateTime.now().minusSeconds(61));
 
         when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
 
