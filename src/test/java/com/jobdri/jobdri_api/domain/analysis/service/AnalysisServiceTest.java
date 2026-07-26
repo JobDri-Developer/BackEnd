@@ -630,6 +630,14 @@ class AnalysisServiceTest {
                                 "Spring Boot API를 개발했습니다."
                         ),
                         new AnalysisLlmResponse.HighlightItem(
+                                "표현 정리가 필요합니다.",
+                                " spring   boot api를 개발했습니다. "
+                        ),
+                        new AnalysisLlmResponse.HighlightItem(
+                                "대소문자만 다른 중복입니다.",
+                                "SPRING BOOT API를 개발했습니다."
+                        ),
+                        new AnalysisLlmResponse.HighlightItem(
                                 "테스트 자동화 경험 보강이 필요합니다.",
                                 "테스트 자동화 경험"
                         )
@@ -648,6 +656,42 @@ class AnalysisServiceTest {
         Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
         assertThat(analysis.getKeyWeaknessesJson())
                 .doesNotContain("성과 수치 보완이 필요합니다.")
+                .doesNotContain("표현 정리가 필요합니다.")
+                .doesNotContain("대소문자만 다른 중복입니다.")
+                .contains("테스트 자동화 경험 보강이 필요합니다.");
+    }
+
+    @Test
+    @DisplayName("저장된 분석 JSON에 강약점 quote 중복이 있으면 조회 시 DB와 응답에서 제거한다")
+    void getAnalysisRemovesPersistedWeaknessesOverlappingWithStrengths() {
+        User user = saveUser("analysis-persisted-highlight-overlap@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        mockApply.updateStatus(MockApplyStatus.COMPLETED);
+        Analysis analysis = analysisRepository.save(Analysis.create(
+                mockApply,
+                80,
+                80,
+                80,
+                80,
+                "저장된 강약점 중복 검증입니다.",
+                "[]",
+                "[{\"title\":\"구현 경험이 분명합니다.\",\"quote\":\"Spring Boot API를 개발했습니다.\"}]",
+                "[{\"title\":\"성과 수치 보완이 필요합니다.\",\"quote\":\" spring   boot api를 개발했습니다. \"},"
+                        + "{\"title\":\"테스트 자동화 경험 보강이 필요합니다.\",\"quote\":\"테스트 자동화 경험\"}]"
+        ));
+        mockApply.assignAnalysis(analysis);
+        mockApplyRepository.saveAndFlush(mockApply);
+        analysisRepository.flush();
+
+        AnalysisResponse response = analysisService.getAnalysis(user, mockApply.getId());
+
+        assertThat(response.keyWeaknesses()).extracting("quote")
+                .containsExactly("테스트 자동화 경험");
+        Analysis persisted = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
+        assertThat(persisted.getKeyWeaknessesJson())
+                .doesNotContain("성과 수치 보완이 필요합니다.")
+                .doesNotContain("spring   boot api")
                 .contains("테스트 자동화 경험 보강이 필요합니다.");
     }
 

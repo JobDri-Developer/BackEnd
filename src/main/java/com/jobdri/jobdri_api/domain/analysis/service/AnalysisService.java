@@ -178,10 +178,7 @@ public class AnalysisService {
         int impact = validateScore("impact", llmResponse.impact());
         int completeness = validateScore("completeness", llmResponse.completeness());
         List<AnalysisHighlightResponse> keyStrengths = buildHighlights(llmResponse.keyStrengths());
-        List<AnalysisHighlightResponse> keyWeaknesses = removeOverlappingHighlights(
-                buildHighlights(llmResponse.keyWeaknesses()),
-                keyStrengths
-        );
+        List<AnalysisHighlightResponse> keyWeaknesses = buildNonOverlappingHighlights(llmResponse.keyWeaknesses(), keyStrengths);
         List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(mockApply.getJobPosting(), llmResponse);
         replaceExistingAnalysis(mockApply);
 
@@ -209,6 +206,7 @@ public class AnalysisService {
         return toResponse(mockApply, analysis, questions, questionAnalyses, analysisResultPayload(analysis));
     }
 
+    @Transactional
     public AnalysisResponse getAnalysis(User user, Long mockApplyId) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId())
@@ -225,10 +223,11 @@ public class AnalysisService {
                 analysis,
                 questions,
                 questionAnalyses,
-                analysisResultPayload(analysis)
+                sanitizeAndPersistAnalysisPayload(analysis)
         );
     }
 
+    @Transactional
     public AnalysisResponse getAnalysisByJobPostingSequence(User user, Long jobPostingId, int sequence) {
         JobPosting jobPosting = jobPostingService.getOwnedJobPosting(user, jobPostingId);
         MockApply mockApply = resolveMockApplyBySequence(jobPosting, sequence);
@@ -246,7 +245,7 @@ public class AnalysisService {
                 analysis,
                 questions,
                 questionAnalyses,
-                analysisResultPayload(analysis)
+                sanitizeAndPersistAnalysisPayload(analysis)
         );
     }
 
@@ -434,8 +433,30 @@ public class AnalysisService {
         );
     }
 
+    private AnalysisResultPayload sanitizeAndPersistAnalysisPayload(Analysis analysis) {
+        AnalysisResultPayload payload = analysisResultPayload(analysis);
+        if (analysis != null) {
+            analysis.updateHighlightsJson(
+                    serializeHighlights(payload.keyStrengths(), "keyStrengths"),
+                    serializeHighlights(payload.keyWeaknesses(), "keyWeaknesses")
+            );
+        }
+        return payload;
+    }
+
     private List<AnalysisHighlightResponse> buildHighlights(List<AnalysisLlmResponse.HighlightItem> items) {
         return sanitizeHighlights(items, AnalysisLlmResponse.HighlightItem::title, AnalysisLlmResponse.HighlightItem::quote);
+    }
+
+    private List<AnalysisHighlightResponse> buildNonOverlappingHighlights(
+            List<AnalysisLlmResponse.HighlightItem> items,
+            List<AnalysisHighlightResponse> existingHighlights
+    ) {
+        return sanitizeHighlights(
+                removeOverlappingRawHighlights(items, existingHighlights),
+                AnalysisLlmResponse.HighlightItem::title,
+                AnalysisLlmResponse.HighlightItem::quote
+        );
     }
 
     private List<MissingKeywordResponse> buildMissingKeywords(JobPosting jobPosting, AnalysisLlmResponse llmResponse) {
@@ -631,18 +652,40 @@ public class AnalysisService {
         if (highlights == null || highlights.isEmpty()) {
             return List.of();
         }
-        if (existingHighlights == null || existingHighlights.isEmpty()) {
+        Set<String> existingQuotes = normalizedHighlightQuotes(existingHighlights);
+        if (existingQuotes.isEmpty()) {
             return highlights;
         }
-
-        Set<String> existingQuotes = existingHighlights.stream()
-                .filter(highlight -> highlight != null && StringUtils.hasText(highlight.quote()))
-                .map(highlight -> normalizeKeyword(highlight.quote()))
-                .collect(Collectors.toSet());
 
         return highlights.stream()
                 .filter(highlight -> highlight != null && !existingQuotes.contains(normalizeKeyword(highlight.quote())))
                 .toList();
+    }
+
+    private List<AnalysisLlmResponse.HighlightItem> removeOverlappingRawHighlights(
+            List<AnalysisLlmResponse.HighlightItem> highlights,
+            List<AnalysisHighlightResponse> existingHighlights
+    ) {
+        if (highlights == null || highlights.isEmpty()) {
+            return List.of();
+        }
+        Set<String> existingQuotes = normalizedHighlightQuotes(existingHighlights);
+        if (existingQuotes.isEmpty()) {
+            return highlights;
+        }
+        return highlights.stream()
+                .filter(highlight -> highlight != null && !existingQuotes.contains(normalizeKeyword(highlight.quote())))
+                .toList();
+    }
+
+    private Set<String> normalizedHighlightQuotes(List<AnalysisHighlightResponse> highlights) {
+        if (highlights == null || highlights.isEmpty()) {
+            return Set.of();
+        }
+        return highlights.stream()
+                .filter(highlight -> highlight != null && StringUtils.hasText(highlight.quote()))
+                .map(highlight -> normalizeKeyword(highlight.quote()))
+                .collect(Collectors.toSet());
     }
 
     private record AnalysisResultPayload(
