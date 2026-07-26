@@ -34,6 +34,9 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class PaymentService {
 
+    private static final String EXPECTED_PAYMENT_METHOD = "간편결제";
+    private static final String EXPECTED_EASY_PAY_PROVIDER = "토스페이";
+
     private final UserService userService;
     private final PaymentRepository paymentRepository;
     private final CreditTransactionRepository creditTransactionRepository;
@@ -112,7 +115,7 @@ public class PaymentService {
         try {
             TossPaymentConfirmResponse tossResponse =
                     tossPaymentClient.confirm(request.paymentKey(), request.orderId(), request.amount());
-            validateTossResponse(request, tossResponse);
+            validateTossResponse(validatedUser.getId(), request, tossResponse);
         } catch (RuntimeException e) {
             if (e instanceof GeneralException generalException
                     && generalException.getCode() == GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT) {
@@ -161,12 +164,45 @@ public class PaymentService {
                 .toList();
     }
 
-    private void validateTossResponse(PaymentConfirmRequest request, TossPaymentConfirmResponse response) {
+    private void validateTossResponse(Long userId, PaymentConfirmRequest request, TossPaymentConfirmResponse response) {
         if (response == null
                 || !request.orderId().equals(response.orderId())
                 || !request.paymentKey().equals(response.paymentKey())
                 || response.totalAmount() != request.amount()) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "결제 승인 응답 검증에 실패했습니다.");
+        }
+
+        String easyPayProvider = response.easyPay() == null ? null : response.easyPay().provider();
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(
+                request.orderId(),
+                request.paymentKey(),
+                userId,
+                null,
+                request.amount()
+        );
+        if (!EXPECTED_PAYMENT_METHOD.equals(response.method())
+                || response.easyPay() == null
+                || !EXPECTED_EASY_PAY_PROVIDER.equals(easyPayProvider)) {
+            try (var ignored = LoggingContext.with(
+                    "payment.confirm.unsupported_method",
+                    GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
+                    paymentContext
+            )) {
+                log.warn(
+                        "Unsupported Toss payment method. method={}, easyPayProvider={}",
+                        response.method(),
+                        easyPayProvider
+                );
+            }
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "지원하지 않는 결제수단입니다.");
+        }
+
+        try (var ignored = LoggingContext.with("payment.confirm.method_validated", null, paymentContext)) {
+            log.info(
+                    "Toss payment method validated. method={}, easyPayProvider={}",
+                    response.method(),
+                    easyPayProvider
+            );
         }
     }
 }
