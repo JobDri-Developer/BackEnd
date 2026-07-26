@@ -62,3 +62,33 @@ WHERE jp.detail_classification_id = dc.id
 UPDATE job_postings
 SET posting_name = job_title
 WHERE posting_name IS NULL OR posting_name = '미입력';
+
+ALTER TABLE IF EXISTS analysis_async_tasks
+    ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE IF EXISTS analysis_async_tasks
+    ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP;
+
+ALTER TABLE IF EXISTS analysis_async_tasks
+    ADD COLUMN IF NOT EXISTS current_step VARCHAR(60);
+
+ALTER TABLE IF EXISTS analysis_async_tasks
+    ADD COLUMN IF NOT EXISTS progress_percent INTEGER;
+
+ALTER TABLE IF EXISTS analysis_async_tasks
+    ADD COLUMN IF NOT EXISTS estimated_remaining_seconds INTEGER;
+
+ALTER TABLE IF EXISTS job_posting_async_tasks
+    ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN NOT NULL DEFAULT FALSE;
+
+ALTER TABLE IF EXISTS job_posting_async_tasks
+    ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP;
+
+ALTER TABLE IF EXISTS job_posting_async_tasks
+    ADD COLUMN IF NOT EXISTS current_step VARCHAR(60);
+
+ALTER TABLE IF EXISTS job_posting_async_tasks
+    ADD COLUMN IF NOT EXISTS progress_percent INTEGER;
+
+ALTER TABLE IF EXISTS job_posting_async_tasks
+    ADD COLUMN IF NOT EXISTS estimated_remaining_seconds INTEGER;

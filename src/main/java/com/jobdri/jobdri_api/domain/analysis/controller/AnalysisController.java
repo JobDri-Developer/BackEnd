@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.controller;
 
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncCancelResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
@@ -54,6 +55,19 @@ public class AnalysisController {
         return ApiResponse.onSuccess(
                 "자소서 분석 비동기 작업 상태 조회에 성공했습니다.",
                 analysisAsyncFacadeService.getTask(getAuthenticatedUser(userDetails), mockApplyId, taskId)
+        );
+    }
+
+    @Operation(summary = "자소서 분석 비동기 작업 취소", description = "taskId로 접수된 자소서 분석 비동기 작업을 취소합니다.")
+    @PostMapping("/async/{taskId}/cancel")
+    public ApiResponse<AnalysisAsyncCancelResponse> cancelAnalysisTask(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId,
+            @PathVariable String taskId
+    ) {
+        return ApiResponse.onSuccess(
+                "자소서 분석 비동기 작업 취소에 성공했습니다.",
+                analysisAsyncFacadeService.cancel(getAuthenticatedUser(userDetails), mockApplyId, taskId)
         );
     }
 

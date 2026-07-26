@@ -1,6 +1,8 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncCancelResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisProgressStepResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
@@ -10,9 +12,14 @@ import com.jobdri.jobdri_api.domain.notification.entity.NotificationTargetType;
 import com.jobdri.jobdri_api.domain.notification.entity.NotificationType;
 import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
+import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator.AsyncTaskProgressStatus;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator.ProgressStepDefinition;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -24,6 +31,7 @@ import java.time.Instant;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
+import java.util.List;
 import java.util.Optional;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -33,12 +41,24 @@ import java.util.Map;
 @Slf4j
 // 분석 비동기 task 엔티티의 생성, 상태 전이, 조회를 전담하는 서비스다.
 public class AnalysisAsyncTaskService {
+    private static final int DEFAULT_ESTIMATED_REMAINING_SECONDS = 180;
+    private static final List<ProgressStepDefinition> PROGRESS_STEPS = List.of(
+            new ProgressStepDefinition("VALIDATING_INPUT", "분석할 내용을 확인하고 있어요"),
+            new ProgressStepDefinition("PREPARING_CONTEXT", "공고와 자소서를 준비하고 있어요"),
+            new ProgressStepDefinition("CALLING_LLM", "자기소개서를 평가하고 있어요"),
+            new ProgressStepDefinition("VALIDATING_RESULT", "분석 결과를 검증하고 있어요"),
+            new ProgressStepDefinition("SAVING_RESULT", "분석 결과를 저장하고 있어요"),
+            new ProgressStepDefinition("COMPLETED", "분석이 완료되었습니다")
+    );
 
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
     private final AnalysisAsyncSseService analysisAsyncSseService;
     private final NotificationService notificationService;
     private final AsyncMetricsRecorder asyncMetricsRecorder;
     private final AnalysisQueueProperties analysisQueueProperties;
+    private final AnalysisService analysisService;
+    private final UserService userService;
+    private final AsyncProgressCalculator asyncProgressCalculator;
 
     @Transactional
     public AnalysisAsyncTask createPendingTask(Long userId, Long mockApplyId) {
@@ -74,6 +94,21 @@ public class AnalysisAsyncTaskService {
     @Transactional
     public void markSuccess(String taskId, AnalysisResponse result) {
         AnalysisAsyncTask task = getTask(taskId);
+        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+            return;
+        }
+        if (task.getStatus() == TaskStatus.CANCELLED) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "취소된 자소서 분석 비동기 작업입니다. taskId=" + taskId
+            );
+        }
+        if (task.getStatus() == TaskStatus.FAILED) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "이미 실패 처리된 자소서 분석 비동기 작업입니다. taskId=" + taskId
+            );
+        }
         task.markSuccess();
         recordProcessingMetric(task, "succeeded");
         publishAfterCommit(toStatusResponse(task, result));
@@ -95,6 +130,36 @@ public class AnalysisAsyncTaskService {
         task.markFailed(failureReason, errorMessage, retryCount);
         publishAfterCommit(toStatusResponse(task));
         createFailureNotificationSafely(task);
+    }
+
+    @Transactional
+    public AnalysisAsyncCancelResponse cancelTask(Long userId, Long mockApplyId, String taskId) {
+        AnalysisAsyncTask task = analysisAsyncTaskRepository.findByTaskIdAndUserId(taskId, userId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.ANALYSIS_ASYNC_TASK_NOT_FOUND,
+                        "해당 자소서 분석 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
+                ));
+        if (!task.getMockApplyId().equals(mockApplyId)) {
+            throw new GeneralException(GeneralErrorCode.FORBIDDEN, "요청한 mockApplyId와 작업 정보가 일치하지 않습니다.");
+        }
+
+        TaskStatus previousStatus = task.getStatus();
+        LocalDateTime previousCancelledAt = task.getCancelledAt();
+        task.requestCancel();
+        boolean cancelled = task.getStatus() == TaskStatus.CANCELLED;
+        boolean newlyCancelled = previousStatus != TaskStatus.CANCELLED && cancelled;
+        if (newlyCancelled) {
+            releaseCreditIfNeeded(task);
+            recordProcessingMetric(task, "cancelled");
+        }
+        if (newlyCancelled || previousCancelledAt == null && cancelled) {
+            publishAfterCommit(toStatusResponse(task));
+        }
+        return new AnalysisAsyncCancelResponse(
+                task.getTaskId(),
+                task.getStatus().name(),
+                task.getMessage()
+        );
     }
 
     @Transactional
@@ -174,8 +239,49 @@ public class AnalysisAsyncTaskService {
                 .lastAttemptAt(task.getLastAttemptAt())
                 .startedAt(task.getStartedAt())
                 .completedAt(task.getCompletedAt())
+                .cancelRequested(task.isCancelRequested())
+                .cancelledAt(task.getCancelledAt())
+                .currentStep(resolveCurrentStep(task))
+                .progressPercent(asyncProgressCalculator.resolveProgressPercent(toProgressStatus(task.getStatus()), task.getProgressPercent()))
+                .estimatedRemainingSeconds(asyncProgressCalculator.resolveEstimatedRemainingSeconds(
+                        toProgressStatus(task.getStatus()),
+                        task.getEstimatedRemainingSeconds(),
+                        task.getStartedAt(),
+                        DEFAULT_ESTIMATED_REMAINING_SECONDS
+                ))
+                .steps(buildSteps(task))
                 .result(task.getStatus() == TaskStatus.SUCCEEDED ? result : null)
                 .build();
+    }
+
+    private void releaseCreditIfNeeded(AnalysisAsyncTask task) {
+        if (task.getCreditStatus() != CreditStatus.RESERVED || task.getCreditReferenceId() == null) {
+            return;
+        }
+        User user = userService.getUser(task.getUserId());
+        analysisService.refundAnalysisCredit(user, task.getCreditReferenceId());
+        task.markCreditReleased();
+    }
+
+    private String resolveCurrentStep(AnalysisAsyncTask task) {
+        return asyncProgressCalculator.resolveCurrentStep(
+                toProgressStatus(task.getStatus()),
+                task.getCurrentStep(),
+                "VALIDATING_INPUT"
+        );
+    }
+
+    private List<AnalysisProgressStepResponse> buildSteps(AnalysisAsyncTask task) {
+        return asyncProgressCalculator.buildSteps(
+                toProgressStatus(task.getStatus()),
+                resolveCurrentStep(task),
+                PROGRESS_STEPS,
+                step -> new AnalysisProgressStepResponse(step.code(), step.label(), step.status())
+        );
+    }
+
+    private AsyncTaskProgressStatus toProgressStatus(TaskStatus status) {
+        return AsyncTaskProgressStatus.valueOf(status.name());
     }
 
     private void publishAfterCommit(AnalysisAsyncStatusResponse statusResponse) {
@@ -248,4 +354,5 @@ public class AnalysisAsyncTaskService {
                 payload
         );
     }
+
 }

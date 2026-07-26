@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestCommand;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncCancelResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
@@ -49,6 +50,11 @@ public class JobPostingAsyncFacadeService {
 
     public JobPostingAsyncStatusResponse getTaskInternal(String taskId) {
         return jobPostingAsyncTaskService.getTask(taskId);
+    }
+
+    public JobPostingAsyncCancelResponse cancel(User user, String taskId) {
+        User validatedUser = userService.validateUser(user);
+        return jobPostingAsyncTaskService.cancelTask(validatedUser, taskId);
     }
 
     private JobPostingIngestCommand snapshot(User user, JobPostingIngestRequest request) {

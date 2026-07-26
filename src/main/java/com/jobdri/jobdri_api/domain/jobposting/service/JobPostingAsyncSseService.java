@@ -41,6 +41,6 @@ public class JobPostingAsyncSseService {
 
     private boolean isTerminal(JobPostingAsyncStatusResponse statusResponse) {
         TaskStatus status = TaskStatus.valueOf(statusResponse.getStatus());
-        return status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED;
+        return status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED || status == TaskStatus.CANCELLED;
     }
 }

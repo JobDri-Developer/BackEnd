@@ -57,6 +57,63 @@ class AnalysisWorkerBridgeServiceTest {
     private AnalysisWorkerBridgeService analysisWorkerBridgeService;
 
     @Test
+    @DisplayName("취소된 task의 complete 요청은 결과 저장과 성공 처리를 하지 않는다")
+    void completeTaskRejectsCancelledTaskWithoutSideEffects() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        task.requestCancel();
+        AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
+                1L,
+                10L,
+                mock(AnalysisLlmResponse.class),
+                "worker-1",
+                10L
+        );
+
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        assertThatThrownBy(() -> analysisWorkerBridgeService.completeTask(task.getTaskId(), request))
+                .isInstanceOf(GeneralException.class);
+
+        verify(workerTaskResultService, never()).upsertGenerated(eq(TaskType.ANALYSIS_COMPLETE), eq(task.getTaskId()), any());
+        verify(analysisService, never()).finalizeAnalysis(any(), eq(10L), any(), any());
+        verify(analysisAsyncTaskService, never()).markSuccess(eq(task.getTaskId()), any());
+    }
+
+    @Test
+    @DisplayName("취소된 task의 결과 선저장은 결과 저장을 하지 않는다")
+    void storeGeneratedResultRejectsCancelledTaskWithoutUpsert() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        task.requestCancel();
+        AnalysisWorkerResultStoreRequest request = new AnalysisWorkerResultStoreRequest(
+                1L,
+                10L,
+                mock(AnalysisLlmResponse.class)
+        );
+
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        assertThatThrownBy(() -> analysisWorkerBridgeService.storeGeneratedResult(task.getTaskId(), request))
+                .isInstanceOf(GeneralException.class);
+
+        verify(workerTaskResultService, never()).upsertGenerated(eq(TaskType.ANALYSIS_COMPLETE), eq(task.getTaskId()), any());
+    }
+
+    @Test
+    @DisplayName("취소된 task는 worker 컨텍스트 조회 시 크레딧을 예약하지 않는다")
+    void getContextRejectsCancelledTaskWithoutCreditReservation() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        task.requestCancel();
+
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        assertThatThrownBy(() -> analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L))
+                .isInstanceOf(GeneralException.class);
+
+        verify(analysisService, never()).deductAnalysisCredit(any(), anyString());
+        verify(analysisAsyncTaskService, never()).markCreditReserved(anyString(), anyString());
+    }
+
+    @Test
     @DisplayName("worker가 컨텍스트를 조회할 때 처음 한 번만 크레딧을 예약한다")
     void getContextReservesCreditBeforePreparingExecution() {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);

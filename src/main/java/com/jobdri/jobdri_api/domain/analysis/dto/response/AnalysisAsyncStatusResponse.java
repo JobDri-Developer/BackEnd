@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.analysis.dto.response;
 import lombok.Builder;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Builder
 public record AnalysisAsyncStatusResponse(
@@ -21,6 +22,12 @@ public record AnalysisAsyncStatusResponse(
         LocalDateTime lastAttemptAt,
         LocalDateTime startedAt,
         LocalDateTime completedAt,
+        Boolean cancelRequested,
+        LocalDateTime cancelledAt,
+        String currentStep,
+        Integer progressPercent,
+        Integer estimatedRemainingSeconds,
+        List<AnalysisProgressStepResponse> steps,
         AnalysisResponse result
 ) {
 }
