@@ -174,7 +174,7 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
         }
         this.cancelRequested = true;
         if (status == TaskStatus.CANCELLED) {
-            if (status == TaskStatus.CANCELLED && cancelledAt == null) {
+            if (cancelledAt == null) {
                 this.cancelledAt = LocalDateTime.now();
             }
             return;
@@ -185,7 +185,6 @@ public class JobPostingAsyncTask extends CreatedAtEntity {
         this.failureReason = null;
         this.completedAt = LocalDateTime.now();
         this.cancelledAt = this.completedAt;
-        this.currentStep = "CANCELLED";
         this.progressPercent = 0;
         this.estimatedRemainingSeconds = 0;
     }

@@ -117,7 +117,7 @@ public class JobPostingAiController {
             description = "taskId로 접수된 채용 공고 비동기 작업을 취소합니다."
     )
     @PostMapping("/ingest/async/{taskId}/cancel")
-    public ApiResponse<JobPostingAsyncCancelResponse> cancelIngestJobPostingAsyncStatus(
+    public ApiResponse<JobPostingAsyncCancelResponse> cancelIngestJobPostingAsyncTask(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @PathVariable String taskId
     ) {

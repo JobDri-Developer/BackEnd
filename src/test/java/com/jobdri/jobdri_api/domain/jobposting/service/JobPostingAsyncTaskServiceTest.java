@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRep
 import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator;
 import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -26,6 +27,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -57,7 +59,8 @@ class JobPostingAsyncTaskServiceTest {
                 jobPostingAsyncSseService,
                 notificationService,
                 asyncMetricsRecorder,
-                jobPostingQueueProperties
+                jobPostingQueueProperties,
+                new AsyncProgressCalculator()
         );
     }
 
@@ -276,6 +279,91 @@ class JobPostingAsyncTaskServiceTest {
         assertThat(task.isCancelRequested()).isTrue();
         verify(jobPostingAsyncSseService).publish(any());
         verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("본인 소유가 아닌 task 취소는 거부한다")
+    void cancelTaskRejectsNonOwner() {
+        User user = User.signup("테스트 사용자", "job-posting-cancel-forbidden@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 7L);
+
+        when(jobPostingAsyncTaskRepository.findByTaskIdAndUserId("task-1", 7L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> jobPostingAsyncTaskService.cancelTask(user, "task-1"))
+                .isInstanceOf(GeneralException.class);
+    }
+
+    @Test
+    @DisplayName("이미 성공한 task 취소는 상태와 메시지를 유지하고 SSE를 발행하지 않는다")
+    void cancelTaskKeepsSucceededTaskWithoutPublish() throws Exception {
+        User user = User.signup("테스트 사용자", "job-posting-cancel-succeeded@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+        task.markSuccess(new ObjectMapper().writeValueAsString(new JobPostingIngestResponse(true, "done", null, null, null, null, null)));
+
+        when(jobPostingAsyncTaskRepository.findByTaskIdAndUserId(task.getTaskId(), 7L)).thenReturn(Optional.of(task));
+
+        var response = jobPostingAsyncTaskService.cancelTask(user, task.getTaskId());
+
+        assertThat(response.status()).isEqualTo("SUCCEEDED");
+        assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.TaskStatus.SUCCEEDED);
+        assertThat(task.getMessage()).isEqualTo("채용 공고 비동기 처리에 성공했습니다.");
+        verify(jobPostingAsyncSseService, never()).publish(any());
+    }
+
+    @Test
+    @DisplayName("이미 실패한 task 취소는 상태와 메시지를 유지하고 SSE를 발행하지 않는다")
+    void cancelTaskKeepsFailedTaskWithoutPublish() {
+        User user = User.signup("테스트 사용자", "job-posting-cancel-failed@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+        task.markFailed(FailureReason.INTERNAL_ERROR, "failed", 1);
+
+        when(jobPostingAsyncTaskRepository.findByTaskIdAndUserId(task.getTaskId(), 7L)).thenReturn(Optional.of(task));
+
+        var response = jobPostingAsyncTaskService.cancelTask(user, task.getTaskId());
+
+        assertThat(response.status()).isEqualTo("FAILED");
+        assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.TaskStatus.FAILED);
+        assertThat(task.getMessage()).isEqualTo("채용 공고 비동기 처리에 실패했습니다.");
+        verify(jobPostingAsyncSseService, never()).publish(any());
+    }
+
+    @Test
+    @DisplayName("반복 취소는 기존 cancelledAt을 유지한다")
+    void cancelTaskKeepsOriginalCancelledAtOnRepeat() {
+        User user = User.signup("테스트 사용자", "job-posting-cancel-repeat@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+
+        when(jobPostingAsyncTaskRepository.findByTaskIdAndUserId(task.getTaskId(), 7L)).thenReturn(Optional.of(task));
+
+        jobPostingAsyncTaskService.cancelTask(user, task.getTaskId());
+        var firstCancelledAt = task.getCancelledAt();
+        clearInvocations(jobPostingAsyncSseService);
+
+        jobPostingAsyncTaskService.cancelTask(user, task.getTaskId());
+
+        assertThat(task.getCancelledAt()).isEqualTo(firstCancelledAt);
+        verify(jobPostingAsyncSseService, never()).publish(any());
+    }
+
+    @Test
+    @DisplayName("RUNNING task 취소는 진행률을 0으로 초기화하고 종료 시각을 기록한다")
+    void cancelTaskResetsRunningProgressAndSetsTerminalTimestamps() {
+        User user = User.signup("테스트 사용자", "job-posting-cancel-running@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+        task.markRunning("worker-1", 0, java.time.Instant.now());
+
+        when(jobPostingAsyncTaskRepository.findByTaskIdAndUserId(task.getTaskId(), 7L)).thenReturn(Optional.of(task));
+
+        var response = jobPostingAsyncTaskService.cancelTask(user, task.getTaskId());
+
+        assertThat(response.status()).isEqualTo("CANCELLED");
+        assertThat(task.getProgressPercent()).isZero();
+        assertThat(task.getCompletedAt()).isNotNull();
+        assertThat(task.getCancelledAt()).isNotNull();
     }
 
     @Test

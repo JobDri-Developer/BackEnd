@@ -174,7 +174,7 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     }
 
     public void markFailed(FailureReason failureReason, String errorMessage, int retryCount) {
-        if (status == TaskStatus.SUCCEEDED || status == TaskStatus.CANCELLED) {
+        if (isTerminal()) {
             return;
         }
         this.status = TaskStatus.FAILED;
@@ -193,7 +193,7 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         }
         this.cancelRequested = true;
         if (status == TaskStatus.CANCELLED) {
-            if (status == TaskStatus.CANCELLED && cancelledAt == null) {
+            if (cancelledAt == null) {
                 this.cancelledAt = LocalDateTime.now();
             }
             return;
@@ -204,7 +204,6 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         this.failureReason = null;
         this.completedAt = LocalDateTime.now();
         this.cancelledAt = this.completedAt;
-        this.currentStep = "CANCELLED";
         this.progressPercent = 0;
         this.estimatedRemainingSeconds = 0;
     }

@@ -17,6 +17,9 @@ import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator.AsyncTaskProgressStatus;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator.ProgressStepDefinition;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -55,6 +58,7 @@ public class AnalysisAsyncTaskService {
     private final AnalysisQueueProperties analysisQueueProperties;
     private final AnalysisService analysisService;
     private final UserService userService;
+    private final AsyncProgressCalculator asyncProgressCalculator;
 
     @Transactional
     public AnalysisAsyncTask createPendingTask(Long userId, Long mockApplyId) {
@@ -90,6 +94,21 @@ public class AnalysisAsyncTaskService {
     @Transactional
     public void markSuccess(String taskId, AnalysisResponse result) {
         AnalysisAsyncTask task = getTask(taskId);
+        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+            return;
+        }
+        if (task.getStatus() == TaskStatus.CANCELLED) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "취소된 자소서 분석 비동기 작업입니다. taskId=" + taskId
+            );
+        }
+        if (task.getStatus() == TaskStatus.FAILED) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "이미 실패 처리된 자소서 분석 비동기 작업입니다. taskId=" + taskId
+            );
+        }
         task.markSuccess();
         recordProcessingMetric(task, "succeeded");
         publishAfterCommit(toStatusResponse(task, result));
@@ -124,12 +143,18 @@ public class AnalysisAsyncTaskService {
             throw new GeneralException(GeneralErrorCode.FORBIDDEN, "요청한 mockApplyId와 작업 정보가 일치하지 않습니다.");
         }
 
-        releaseCreditIfNeeded(task);
+        TaskStatus previousStatus = task.getStatus();
+        LocalDateTime previousCancelledAt = task.getCancelledAt();
         task.requestCancel();
-        if (task.getStatus() == TaskStatus.CANCELLED) {
+        boolean cancelled = task.getStatus() == TaskStatus.CANCELLED;
+        boolean newlyCancelled = previousStatus != TaskStatus.CANCELLED && cancelled;
+        if (newlyCancelled) {
+            releaseCreditIfNeeded(task);
             recordProcessingMetric(task, "cancelled");
         }
-        publishAfterCommit(toStatusResponse(task));
+        if (newlyCancelled || previousCancelledAt == null && cancelled) {
+            publishAfterCommit(toStatusResponse(task));
+        }
         return new AnalysisAsyncCancelResponse(
                 task.getTaskId(),
                 task.getStatus().name(),
@@ -217,8 +242,13 @@ public class AnalysisAsyncTaskService {
                 .cancelRequested(task.isCancelRequested())
                 .cancelledAt(task.getCancelledAt())
                 .currentStep(resolveCurrentStep(task))
-                .progressPercent(resolveProgressPercent(task))
-                .estimatedRemainingSeconds(resolveEstimatedRemainingSeconds(task))
+                .progressPercent(asyncProgressCalculator.resolveProgressPercent(toProgressStatus(task.getStatus()), task.getProgressPercent()))
+                .estimatedRemainingSeconds(asyncProgressCalculator.resolveEstimatedRemainingSeconds(
+                        toProgressStatus(task.getStatus()),
+                        task.getEstimatedRemainingSeconds(),
+                        task.getStartedAt(),
+                        DEFAULT_ESTIMATED_REMAINING_SECONDS
+                ))
                 .steps(buildSteps(task))
                 .result(task.getStatus() == TaskStatus.SUCCEEDED ? result : null)
                 .build();
@@ -234,77 +264,24 @@ public class AnalysisAsyncTaskService {
     }
 
     private String resolveCurrentStep(AnalysisAsyncTask task) {
-        if (task.getStatus() == TaskStatus.SUCCEEDED) {
-            return "COMPLETED";
-        }
-        if (task.getStatus() == TaskStatus.CANCELLED) {
-            return "CANCELLED";
-        }
-        if (task.getStatus() == TaskStatus.FAILED) {
-            return task.getCurrentStep();
-        }
-        return task.getCurrentStep() == null ? "VALIDATING_INPUT" : task.getCurrentStep();
-    }
-
-    private Integer resolveProgressPercent(AnalysisAsyncTask task) {
-        if (task.getStatus() == TaskStatus.SUCCEEDED) {
-            return 100;
-        }
-        if (task.getStatus() == TaskStatus.FAILED || task.getStatus() == TaskStatus.CANCELLED) {
-            return 0;
-        }
-        return task.getProgressPercent() == null ? 0 : Math.max(0, Math.min(100, task.getProgressPercent()));
-    }
-
-    private Integer resolveEstimatedRemainingSeconds(AnalysisAsyncTask task) {
-        if (task.getStatus() == TaskStatus.SUCCEEDED
-                || task.getStatus() == TaskStatus.FAILED
-                || task.getStatus() == TaskStatus.CANCELLED) {
-            return 0;
-        }
-        if (task.getEstimatedRemainingSeconds() != null) {
-            return Math.max(0, task.getEstimatedRemainingSeconds());
-        }
-        if (task.getStartedAt() == null) {
-            return DEFAULT_ESTIMATED_REMAINING_SECONDS;
-        }
-        long elapsedSeconds = Math.max(0L, Duration.between(task.getStartedAt(), LocalDateTime.now()).toSeconds());
-        return (int) Math.max(0L, DEFAULT_ESTIMATED_REMAINING_SECONDS - elapsedSeconds);
+        return asyncProgressCalculator.resolveCurrentStep(
+                toProgressStatus(task.getStatus()),
+                task.getCurrentStep(),
+                "VALIDATING_INPUT"
+        );
     }
 
     private List<AnalysisProgressStepResponse> buildSteps(AnalysisAsyncTask task) {
-        String currentStep = resolveCurrentStep(task);
-        TaskStatus status = task.getStatus();
-        int currentIndex = indexOfStep(currentStep);
-        return PROGRESS_STEPS.stream()
-                .map(step -> new AnalysisProgressStepResponse(
-                        step.code(),
-                        step.label(),
-                        resolveStepStatus(status, currentIndex, indexOfStep(step.code()))
-                ))
-                .toList();
+        return asyncProgressCalculator.buildSteps(
+                toProgressStatus(task.getStatus()),
+                resolveCurrentStep(task),
+                PROGRESS_STEPS,
+                step -> new AnalysisProgressStepResponse(step.code(), step.label(), step.status())
+        );
     }
 
-    private int indexOfStep(String code) {
-        for (int i = 0; i < PROGRESS_STEPS.size(); i++) {
-            if (PROGRESS_STEPS.get(i).code().equals(code)) {
-                return i;
-            }
-        }
-        return 0;
-    }
-
-    private String resolveStepStatus(TaskStatus taskStatus, int currentIndex, int stepIndex) {
-        if (taskStatus == TaskStatus.SUCCEEDED) {
-            return "COMPLETED";
-        }
-        if (taskStatus == TaskStatus.CANCELLED) {
-            return stepIndex <= currentIndex ? "CANCELLED" : "PENDING";
-        }
-        if (taskStatus == TaskStatus.FAILED) {
-            return stepIndex < currentIndex ? "COMPLETED" : stepIndex == currentIndex ? "FAILED" : "PENDING";
-        }
-        return stepIndex < currentIndex ? "COMPLETED" : stepIndex == currentIndex ? "IN_PROGRESS" : "PENDING";
+    private AsyncTaskProgressStatus toProgressStatus(TaskStatus status) {
+        return AsyncTaskProgressStatus.valueOf(status.name());
     }
 
     private void publishAfterCommit(AnalysisAsyncStatusResponse statusResponse) {
@@ -378,6 +355,4 @@ public class AnalysisAsyncTaskService {
         );
     }
 
-    private record ProgressStepDefinition(String code, String label) {
-    }
 }

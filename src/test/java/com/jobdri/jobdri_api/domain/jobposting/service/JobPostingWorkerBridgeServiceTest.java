@@ -61,6 +61,74 @@ class JobPostingWorkerBridgeServiceTest {
     private JobPostingWorkerBridgeService jobPostingWorkerBridgeService;
 
     @Test
+    @DisplayName("취소된 task의 legacy complete는 결과 저장과 성공 처리를 하지 않는다")
+    void completeTaskRejectsCancelledTaskWithoutSideEffects() {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(1L, 3);
+        task.requestCancel();
+        JobPostingIngestResponse result = mock(JobPostingIngestResponse.class);
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        assertThatThrownBy(() -> jobPostingWorkerBridgeService.completeTask(task.getTaskId(), result))
+                .isInstanceOf(GeneralException.class);
+
+        verify(workerTaskResultService, never()).upsertGenerated(eq(TaskType.JOB_POSTING_COMPLETE), eq(task.getTaskId()), any());
+        verify(jobPostingAsyncTaskService, never()).markSuccess(eq(task.getTaskId()), any(JobPostingIngestResponse.class));
+    }
+
+    @Test
+    @DisplayName("취소된 task의 finalize는 결과 저장과 공고 생성과 성공 처리를 하지 않는다")
+    void finalizeAndCompleteRejectsCancelledTaskWithoutSideEffects() {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(1L, 3);
+        task.requestCancel();
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        assertThatThrownBy(() -> jobPostingWorkerBridgeService.finalizeAndComplete(
+                task.getTaskId(),
+                1L,
+                mock(JobPostingExtractResponse.class),
+                List.of(mock(JobPostingClassificationCandidateResponse.class)),
+                mock(JobPostingClassificationResultResponse.class),
+                mock(JobPostingGenerateResponse.class)
+        ))
+                .isInstanceOf(GeneralException.class);
+
+        verify(workerTaskResultService, never()).upsertGenerated(
+                eq(TaskType.JOB_POSTING_FINALIZE),
+                eq(task.getTaskId()),
+                any(JobPostingWorkerFinalizeRequest.class)
+        );
+        verify(jobPostingService, never()).createJobPosting(any(), any());
+        verify(jobPostingAsyncTaskService, never()).markSuccess(eq(task.getTaskId()), any(JobPostingIngestResponse.class));
+    }
+
+    @Test
+    @DisplayName("취소된 task의 finalize 결과 선저장은 결과 저장을 하지 않는다")
+    void storeFinalizeResultRejectsCancelledTaskWithoutUpsert() {
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(1L, 3);
+        task.requestCancel();
+        JobPostingWorkerFinalizeRequest result = new JobPostingWorkerFinalizeRequest(
+                task.getTaskId(),
+                1L,
+                mock(JobPostingExtractResponse.class),
+                List.of(mock(JobPostingClassificationCandidateResponse.class)),
+                mock(JobPostingClassificationResultResponse.class),
+                mock(JobPostingGenerateResponse.class)
+        );
+
+        when(jobPostingAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+
+        assertThatThrownBy(() -> jobPostingWorkerBridgeService.storeFinalizeResult(
+                task.getTaskId(),
+                new JobPostingWorkerResultStoreRequest(1L, result)
+        ))
+                .isInstanceOf(GeneralException.class);
+
+        verify(workerTaskResultService, never()).upsertGenerated(eq(TaskType.JOB_POSTING_FINALIZE), eq(task.getTaskId()), any());
+    }
+
+    @Test
     @DisplayName("채용 공고 finalize 결과를 durable storage에 선저장할 수 있다")
     void storeFinalizeResultPersistsPayload() {
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(1L, 3);

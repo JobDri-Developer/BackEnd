@@ -16,6 +16,9 @@ import com.jobdri.jobdri_api.domain.user.entity.UserRole;
 import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator.AsyncTaskProgressStatus;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator.ProgressStepDefinition;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -53,6 +56,7 @@ public class JobPostingAsyncTaskService {
     private final NotificationService notificationService;
     private final AsyncMetricsRecorder asyncMetricsRecorder;
     private final JobPostingQueueProperties jobPostingQueueProperties;
+    private final AsyncProgressCalculator asyncProgressCalculator;
 
     @Transactional
     public JobPostingAsyncTask createPendingTask(Long userId) {
@@ -91,6 +95,12 @@ public class JobPostingAsyncTaskService {
                     "이미 실패 처리된 채용 공고 비동기 작업입니다. taskId=" + taskId
             );
         }
+        if (task.getStatus() == TaskStatus.CANCELLED) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "취소된 채용 공고 비동기 작업입니다. taskId=" + taskId
+            );
+        }
         task.markSuccess(serializeResult(result));
         recordProcessingMetric(task, "succeeded");
         publishAfterCommit(toStatusResponse(task));
@@ -124,11 +134,17 @@ public class JobPostingAsyncTaskService {
     @Transactional
     public JobPostingAsyncCancelResponse cancelTask(User user, String taskId) {
         JobPostingAsyncTask task = getOwnedTaskState(user, taskId);
+        TaskStatus previousStatus = task.getStatus();
+        LocalDateTime previousCancelledAt = task.getCancelledAt();
         task.requestCancel();
-        if (task.getStatus() == TaskStatus.CANCELLED) {
+        boolean cancelled = task.getStatus() == TaskStatus.CANCELLED;
+        boolean newlyCancelled = previousStatus != TaskStatus.CANCELLED && cancelled;
+        if (newlyCancelled) {
             recordProcessingMetric(task, "cancelled");
         }
-        publishAfterCommit(toStatusResponse(task));
+        if (newlyCancelled || previousCancelledAt == null && cancelled) {
+            publishAfterCommit(toStatusResponse(task));
+        }
         return new JobPostingAsyncCancelResponse(
                 task.getTaskId(),
                 task.getStatus().name(),
@@ -193,8 +209,16 @@ public class JobPostingAsyncTaskService {
                 .cancelRequested(taskState.isCancelRequested())
                 .cancelledAt(taskState.getCancelledAt())
                 .currentStep(resolveCurrentStep(taskState))
-                .progressPercent(resolveProgressPercent(taskState))
-                .estimatedRemainingSeconds(resolveEstimatedRemainingSeconds(taskState))
+                .progressPercent(asyncProgressCalculator.resolveProgressPercent(
+                        toProgressStatus(taskState.getStatus()),
+                        taskState.getProgressPercent()
+                ))
+                .estimatedRemainingSeconds(asyncProgressCalculator.resolveEstimatedRemainingSeconds(
+                        toProgressStatus(taskState.getStatus()),
+                        taskState.getEstimatedRemainingSeconds(),
+                        taskState.getStartedAt(),
+                        DEFAULT_ESTIMATED_REMAINING_SECONDS
+                ))
                 .steps(buildSteps(taskState))
                 .result(deserializeResult(taskState.getResultPayload()))
                 .build();
@@ -272,77 +296,24 @@ public class JobPostingAsyncTaskService {
     }
 
     private String resolveCurrentStep(JobPostingAsyncTask task) {
-        if (task.getStatus() == TaskStatus.SUCCEEDED) {
-            return "COMPLETED";
-        }
-        if (task.getStatus() == TaskStatus.CANCELLED) {
-            return "CANCELLED";
-        }
-        if (task.getStatus() == TaskStatus.FAILED) {
-            return task.getCurrentStep();
-        }
-        return task.getCurrentStep() == null ? "VALIDATING_INPUT" : task.getCurrentStep();
-    }
-
-    private Integer resolveProgressPercent(JobPostingAsyncTask task) {
-        if (task.getStatus() == TaskStatus.SUCCEEDED) {
-            return 100;
-        }
-        if (task.getStatus() == TaskStatus.FAILED || task.getStatus() == TaskStatus.CANCELLED) {
-            return 0;
-        }
-        return task.getProgressPercent() == null ? 0 : Math.max(0, Math.min(100, task.getProgressPercent()));
-    }
-
-    private Integer resolveEstimatedRemainingSeconds(JobPostingAsyncTask task) {
-        if (task.getStatus() == TaskStatus.SUCCEEDED
-                || task.getStatus() == TaskStatus.FAILED
-                || task.getStatus() == TaskStatus.CANCELLED) {
-            return 0;
-        }
-        if (task.getEstimatedRemainingSeconds() != null) {
-            return Math.max(0, task.getEstimatedRemainingSeconds());
-        }
-        if (task.getStartedAt() == null) {
-            return DEFAULT_ESTIMATED_REMAINING_SECONDS;
-        }
-        long elapsedSeconds = Math.max(0L, Duration.between(task.getStartedAt(), LocalDateTime.now()).toSeconds());
-        return (int) Math.max(0L, DEFAULT_ESTIMATED_REMAINING_SECONDS - elapsedSeconds);
+        return asyncProgressCalculator.resolveCurrentStep(
+                toProgressStatus(task.getStatus()),
+                task.getCurrentStep(),
+                "VALIDATING_INPUT"
+        );
     }
 
     private List<JobPostingProgressStepResponse> buildSteps(JobPostingAsyncTask task) {
-        String currentStep = resolveCurrentStep(task);
-        TaskStatus status = task.getStatus();
-        int currentIndex = indexOfStep(currentStep);
-        return PROGRESS_STEPS.stream()
-                .map(step -> new JobPostingProgressStepResponse(
-                        step.code(),
-                        step.label(),
-                        resolveStepStatus(status, currentIndex, indexOfStep(step.code()))
-                ))
-                .toList();
+        return asyncProgressCalculator.buildSteps(
+                toProgressStatus(task.getStatus()),
+                resolveCurrentStep(task),
+                PROGRESS_STEPS,
+                step -> new JobPostingProgressStepResponse(step.code(), step.label(), step.status())
+        );
     }
 
-    private int indexOfStep(String code) {
-        for (int i = 0; i < PROGRESS_STEPS.size(); i++) {
-            if (PROGRESS_STEPS.get(i).code().equals(code)) {
-                return i;
-            }
-        }
-        return 0;
-    }
-
-    private String resolveStepStatus(TaskStatus taskStatus, int currentIndex, int stepIndex) {
-        if (taskStatus == TaskStatus.SUCCEEDED) {
-            return "COMPLETED";
-        }
-        if (taskStatus == TaskStatus.CANCELLED) {
-            return stepIndex <= currentIndex ? "CANCELLED" : "PENDING";
-        }
-        if (taskStatus == TaskStatus.FAILED) {
-            return stepIndex < currentIndex ? "COMPLETED" : stepIndex == currentIndex ? "FAILED" : "PENDING";
-        }
-        return stepIndex < currentIndex ? "COMPLETED" : stepIndex == currentIndex ? "IN_PROGRESS" : "PENDING";
+    private AsyncTaskProgressStatus toProgressStatus(TaskStatus status) {
+        return AsyncTaskProgressStatus.valueOf(status.name());
     }
 
     private String serializeResult(JobPostingIngestResponse result) {
@@ -447,6 +418,4 @@ public class JobPostingAsyncTaskService {
         );
     }
 
-    private record ProgressStepDefinition(String code, String label) {
-    }
 }
