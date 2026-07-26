@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResp
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -199,6 +200,19 @@ class JobPostingIngestServiceTest {
         assertThat(createRequestCaptor.getValue().postingName()).isEqualTo("클라우드 엔지니어 채용");
         assertThat(createRequestCaptor.getValue().jobTitle()).isEqualTo("클라우드 엔지니어");
         assertThat(response.isSavedToDatabase()).isTrue();
+    }
+
+    @Test
+    @DisplayName("동기 ingest는 이미지 없는 10자 미만 입력이면 AI 추출을 시작하지 않는다")
+    void ingestAndCreateRejectsShortRawTextBeforeExtract() {
+        JobPostingIngestRequest request = new JobPostingIngestRequest("짧음", null);
+
+        assertThatThrownBy(() -> jobPostingIngestService.ingestAndCreate(user, request))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
+
+        verifyNoInteractions(jobPostingAiService, jobPostingClassificationService, jobPostingService, userService);
     }
 
     @Test

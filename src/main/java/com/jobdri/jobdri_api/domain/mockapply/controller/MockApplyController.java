@@ -3,10 +3,12 @@ package com.jobdri.jobdri_api.domain.mockapply.controller;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateActualRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockFromJobPostingRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
+import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyUpdateNameRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyRetryResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyUpdateNameResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.mockapply.service.MockApplyService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
@@ -27,6 +29,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -110,6 +113,22 @@ public class MockApplyController {
     ) {
         mockApplyService.deleteMockApply(userDetails.getUser(), mockApplyId);
         return ApiResponse.onSuccess("모의 서류 지원이 삭제되었습니다.", null);
+    }
+
+    @Operation(
+            summary = "모의 서류 지원 이름 변경",
+            description = "대시보드 카드에서 표시할 모의 서류 지원 이름을 변경합니다."
+    )
+    @PatchMapping("/{mockApplyId}/name")
+    public ApiResponse<MockApplyUpdateNameResponse> updateMockApplyName(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId,
+            @Valid @RequestBody MockApplyUpdateNameRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "모의 서류 지원 이름이 변경되었습니다.",
+                mockApplyService.updateMockApplyName(userDetails.getUser(), mockApplyId, request.name())
+        );
     }
 
     @Operation(

@@ -1,0 +1,2 @@
+ALTER TABLE mock_applies
+ADD COLUMN IF NOT EXISTS display_name VARCHAR(100);
