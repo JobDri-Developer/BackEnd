@@ -34,6 +34,11 @@ public class CreditService {
         return apply(user, CreditTransactionType.REFUND, amount, description, referenceId);
     }
 
+    @Transactional
+    public int coupon(User user, int amount, String description, String referenceId) {
+        return apply(user, CreditTransactionType.COUPON, amount, description, referenceId);
+    }
+
     private int apply(User user, CreditTransactionType type, int amount, String description, String referenceId) {
         validatePositiveAmount(amount);
         validateReferenceId(referenceId);
