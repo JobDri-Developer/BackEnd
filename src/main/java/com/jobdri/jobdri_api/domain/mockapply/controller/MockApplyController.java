@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockFro
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyUpdateNameRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeItemResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyRetryResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
@@ -25,6 +26,7 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.data.domain.Page;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -35,6 +37,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 @RestController
 @Validated
@@ -61,6 +65,43 @@ public class MockApplyController {
         return ApiResponse.onSuccess(
                 "모의 서류 지원 목록 조회에 성공했습니다.",
                 mockApplyService.getMyMockApplies(userDetails.getUser(), page, size)
+        );
+    }
+
+    @Operation(
+            summary = "내 최근 모의 서류 지원 조회",
+            description = "공통 사이드바 등에서 사용할 최근 모의 서류 지원을 updatedAt 최신순으로 조회합니다. limit 기본값은 "
+                    + MockApplyService.DEFAULT_RECENT_LIMIT + "개, 최대값은 " + MockApplyService.MAX_RECENT_LIMIT + "개입니다."
+    )
+    @GetMapping("/me/recent")
+    public ApiResponse<List<MockApplyHomeItemResponse>> getRecentMockApplies(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @Parameter(description = "조회 개수 (1-" + MockApplyService.MAX_RECENT_LIMIT + ")")
+            @RequestParam(defaultValue = "" + MockApplyService.DEFAULT_RECENT_LIMIT) int limit
+    ) {
+        return ApiResponse.onSuccess(
+                "최근 모의 서류 지원 조회에 성공했습니다.",
+                mockApplyService.getRecentMockApplies(userDetails.getUser(), limit)
+        );
+    }
+
+    @Operation(
+            summary = "내 모의 서류 지원 검색",
+            description = "displayName, 회사명, 직무명, 공고명, 소분류명을 대상으로 로그인 사용자의 모의 서류 지원을 검색합니다."
+    )
+    @GetMapping("/me/search")
+    public ApiResponse<Page<MockApplyHomeItemResponse>> searchMyMockApplies(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @Parameter(description = "검색어")
+            @RequestParam String query,
+            @Parameter(description = "0부터 시작하는 페이지 번호")
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @Parameter(description = "페이지 크기 (1-" + MockApplyService.MAX_PAGE_SIZE + ")")
+            @RequestParam(defaultValue = "10") @Min(1) @Max(MockApplyService.MAX_PAGE_SIZE) int size
+    ) {
+        return ApiResponse.onSuccess(
+                "모의 서류 지원 검색에 성공했습니다.",
+                mockApplyService.searchMyMockApplies(userDetails.getUser(), query, page, size)
         );
     }
 
