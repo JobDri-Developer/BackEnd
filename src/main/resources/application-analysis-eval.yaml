@@ -74,6 +74,11 @@ evaluation:
     input: ""
     output: ""
     model: ${OPENAI_NLG_JUDGE_MODEL:gpt-4o-mini}
+  hybrid-merge:
+    enabled: false
+    single-pass-input: ""
+    two-pass-input: ""
+    output: ""
 
 jwt:
   secret:

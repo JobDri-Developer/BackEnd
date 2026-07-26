@@ -139,6 +139,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).hasSingleBean(NlgEvaluationRunner.class);
+                    assertThat(context).doesNotHaveBean(HybridExactMergeRunner.class);
                     assertThat(context.getBeanNamesForType(ApplicationRunner.class))
                             .containsExactly("nlgEvaluationRunner");
                 });
@@ -156,6 +157,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                    assertThat(context).doesNotHaveBean(HybridExactMergeRunner.class);
                     assertThat(context.getBeanNamesForType(ApplicationRunner.class)).isEmpty();
                 });
     }
@@ -172,6 +174,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .run(context -> {
                     assertThat(context).hasSingleBean(EvaluationAnalysisRunner.class);
                     assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                    assertThat(context).doesNotHaveBean(HybridExactMergeRunner.class);
                     assertThat(context.getBeanNamesForType(ApplicationRunner.class))
                             .containsExactly("evaluationAnalysisRunner");
                 });
@@ -189,6 +192,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).hasSingleBean(NlgEvaluationRunner.class);
+                    assertThat(context).doesNotHaveBean(HybridExactMergeRunner.class);
                     assertThat(context.getBeanNamesForType(ApplicationRunner.class))
                             .containsExactly("nlgEvaluationRunner");
                     verifyNoInteractions(context.getBean(EvaluationExitCoordinator.class));
@@ -207,7 +211,27 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                    assertThat(context).doesNotHaveBean(HybridExactMergeRunner.class);
                     assertThat(context.getBeanNamesForType(ApplicationRunner.class)).isEmpty();
+                });
+    }
+
+    @Test
+    @DisplayName("analysis-eval + hybrid-merge.enabled=true이면 Hybrid merge Runner만 생성된다")
+    void hybridMergeRunnerIsCreatedWhenHybridMergeFlagIsTrue() {
+        scannedRunnerContext()
+                .withPropertyValues(
+                        "spring.profiles.active=analysis-eval",
+                        "evaluation.analysis.enabled=false",
+                        "evaluation.nlg-judge.enabled=false",
+                        "evaluation.hybrid-merge.enabled=true"
+                )
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
+                    assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                    assertThat(context).hasSingleBean(HybridExactMergeRunner.class);
+                    assertThat(context.getBeanNamesForType(ApplicationRunner.class))
+                            .containsExactly("hybridExactMergeRunner");
                 });
     }
 
@@ -218,11 +242,54 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .withPropertyValues(
                         "spring.profiles.active=analysis-eval",
                         "evaluation.analysis.enabled=true",
-                        "evaluation.nlg-judge.enabled=true"
+                        "evaluation.nlg-judge.enabled=true",
+                        "evaluation.hybrid-merge.enabled=false"
                 )
                 .run(context -> assertThat(context.getStartupFailure())
                         .isInstanceOf(IllegalStateException.class)
-                        .hasMessageContaining("동시에 true"));
+                        .hasMessageContaining("mutually exclusive"));
+    }
+
+    @Test
+    @DisplayName("hybrid-merge와 다른 평가 Runner가 동시에 true이면 설정 오류로 fail-fast 한다")
+    void hybridMergeAndOtherRunnerFlagsTrueFailsFast() {
+        runnerContext()
+                .withPropertyValues(
+                        "spring.profiles.active=analysis-eval",
+                        "evaluation.analysis.enabled=false",
+                        "evaluation.nlg-judge.enabled=true",
+                        "evaluation.hybrid-merge.enabled=true"
+                )
+                .run(context -> assertThat(context.getStartupFailure())
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("mutually exclusive"));
+    }
+
+    @Test
+    @DisplayName("Hybrid merge Runner는 실행 실패 시 실패 종료를 요청하고 원래 예외를 전파한다")
+    void hybridMergeRunRequestsFailureExitAndRethrowsOriginalException() throws Exception {
+        HybridExactMergeService mergeService = mock(HybridExactMergeService.class);
+        EvaluationExitCoordinator exitCoordinator = mock(EvaluationExitCoordinator.class);
+        Environment environment = mock(Environment.class);
+        when(environment.getActiveProfiles()).thenReturn(new String[]{"analysis-eval"});
+        Path single = tempDir.resolve("single.csv");
+        Path twoPass = tempDir.resolve("two-pass.csv");
+        Path output = tempDir.resolve("hybrid.csv");
+        Files.writeString(single, "caseId\nEV-01\n");
+        Files.writeString(twoPass, "caseId\nEV-01\n");
+        RuntimeException failure = new RuntimeException("merge failed");
+        when(mergeService.merge(single, twoPass, output)).thenThrow(failure);
+        HybridExactMergeRunner runner = new HybridExactMergeRunner(mergeService, exitCoordinator, environment);
+        ReflectionTestUtils.setField(runner, "singlePassInputPath", single.toString());
+        ReflectionTestUtils.setField(runner, "twoPassInputPath", twoPass.toString());
+        ReflectionTestUtils.setField(runner, "outputPath", output.toString());
+        ReflectionTestUtils.setField(runner, "analysisEvaluationEnabled", false);
+        ReflectionTestUtils.setField(runner, "nlgJudgeEnabled", false);
+
+        assertThatThrownBy(() -> runner.run(new DefaultApplicationArguments()))
+                .isSameAs(failure);
+
+        verify(exitCoordinator).exit("hybrid-exact-merge", 1);
     }
 
     @Test
@@ -453,6 +520,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                 .run(context -> {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                    assertThat(context).doesNotHaveBean(HybridExactMergeRunner.class);
                     assertThat(context.getBeanNamesForType(ApplicationRunner.class)).isEmpty();
                 });
     }
@@ -486,6 +554,7 @@ class EvaluationAnalysisRunnerSafetyTest {
         assertThat(properties.getProperty("app.corpus.embedding.sync-on-startup")).isEqualTo("false");
         assertThat(properties.getProperty("evaluation.analysis.enabled")).isEqualTo("false");
         assertThat(properties.getProperty("evaluation.nlg-judge.enabled")).isEqualTo("false");
+        assertThat(properties.getProperty("evaluation.hybrid-merge.enabled")).isEqualTo("false");
         assertThat(properties.getProperty("payment.toss.client-key")).contains("dummy-evaluation-client-key");
     }
 
@@ -581,7 +650,12 @@ class EvaluationAnalysisRunnerSafetyTest {
     }
 
     @Configuration
-    @Import({EvaluationAnalysisRunner.class, NlgEvaluationRunner.class, EvaluationRunnerFlagValidator.class})
+    @Import({
+            EvaluationAnalysisRunner.class,
+            NlgEvaluationRunner.class,
+            HybridExactMergeRunner.class,
+            EvaluationRunnerFlagValidator.class
+    })
     static class RunnerConditionTestConfig {
         @Bean
         EvaluationAnalysisBatchService evaluationAnalysisBatchService() {
@@ -591,6 +665,11 @@ class EvaluationAnalysisRunnerSafetyTest {
         @Bean
         NlgEvaluationBatchService nlgEvaluationBatchService() {
             return mock(NlgEvaluationBatchService.class);
+        }
+
+        @Bean
+        HybridExactMergeService hybridExactMergeService() {
+            return mock(HybridExactMergeService.class);
         }
 
         @Bean
@@ -608,6 +687,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                     classes = {
                             EvaluationAnalysisRunner.class,
                             NlgEvaluationRunner.class,
+                            HybridExactMergeRunner.class,
                             EvaluationRunnerFlagValidator.class
                     }
             )
@@ -621,6 +701,11 @@ class EvaluationAnalysisRunnerSafetyTest {
         @Bean
         NlgEvaluationBatchService nlgEvaluationBatchService() {
             return mock(NlgEvaluationBatchService.class);
+        }
+
+        @Bean
+        HybridExactMergeService hybridExactMergeService() {
+            return mock(HybridExactMergeService.class);
         }
 
         @Bean

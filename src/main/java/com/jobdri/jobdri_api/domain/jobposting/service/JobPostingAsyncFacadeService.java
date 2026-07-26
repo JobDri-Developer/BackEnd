@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestCommand;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncCancelResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
@@ -19,12 +20,13 @@ public class JobPostingAsyncFacadeService {
     private final JobPostingAsyncTaskService jobPostingAsyncTaskService;
     private final JobPostingAsyncProcessor jobPostingAsyncProcessor;
     private final UserService userService;
+    private final JobPostingImageStorageService jobPostingImageStorageService;
 
     public JobPostingAsyncSubmitResponse submit(User user, JobPostingIngestRequest request) {
         User validatedUser = userService.validateUser(user);
+        JobPostingIngestCommand command = snapshot(validatedUser, request);
         JobPostingAsyncTask task = jobPostingAsyncTaskService.createPendingTask(validatedUser.getId());
         String taskId = task.getTaskId();
-        JobPostingIngestCommand command = snapshot(validatedUser, request);
 
         try {
             jobPostingAsyncProcessor.process(taskId, command, task.getMaxRetryCount());
@@ -51,11 +53,22 @@ public class JobPostingAsyncFacadeService {
         return jobPostingAsyncTaskService.getTask(taskId);
     }
 
+    public JobPostingAsyncCancelResponse cancel(User user, String taskId) {
+        User validatedUser = userService.validateUser(user);
+        return jobPostingAsyncTaskService.cancelTask(validatedUser, taskId);
+    }
+
     private JobPostingIngestCommand snapshot(User user, JobPostingIngestRequest request) {
+        var imageObjectKeys = jobPostingImageStorageService.normalizeImageObjectKeys(
+                request.imageObjectKey(),
+                request.imageObjectKeys()
+        );
+        JobPostingIngestInputValidator.validate(request.rawText(), imageObjectKeys);
         return JobPostingIngestCommand.builder()
                 .userId(user.getId())
                 .rawText(request.rawText())
-                .imageObjectKey(request.imageObjectKey())
+                .imageObjectKey(imageObjectKeys.isEmpty() ? null : imageObjectKeys.get(0))
+                .imageObjectKeys(imageObjectKeys)
                 .build();
     }
 }

@@ -25,6 +25,7 @@ import com.openai.client.OpenAIClient;
 import com.openai.models.responses.ResponseCreateParams;
 import com.openai.models.responses.StructuredResponse;
 import com.openai.models.responses.StructuredResponseOutputMessage;
+import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -288,6 +289,14 @@ public class AnalysisAiClient {
     @Value("${analysis.two-pass.enabled:false}")
     private boolean twoPassEnabled;
 
+    @Value("${analysis.mode:}")
+    private String analysisMode;
+
+    @PostConstruct
+    void validateAnalysisModeProperty() {
+        resolveAnalysisMode();
+    }
+
     public AnalysisLlmResponse analyze(AnalysisExecutionPayload payload) {
         return analyze(payload.jobPosting(), payload.answeredQuestions(), payload.jobCategoryEvaluationCriteria());
     }
@@ -309,20 +318,27 @@ public class AnalysisAiClient {
             log.debug("analysis retrieval exception", e);
         }
         try {
-            if (twoPassEnabled) {
-                return analyzeTwoPass(
-                        AnalysisPromptInput.from(jobPosting, questions),
+            AnalysisPromptInput promptInput = AnalysisPromptInput.from(jobPosting, questions);
+            return switch (resolveAnalysisMode()) {
+                case TWO_PASS -> analyzeTwoPass(
+                        promptInput,
                         referenceContext,
                         jobCategoryEvaluationCriteria,
                         "cover-letter-analysis"
                 ).response();
-            }
-            return analyzeSinglePass(
-                    AnalysisPromptInput.from(jobPosting, questions),
-                    referenceContext,
-                    jobCategoryEvaluationCriteria,
-                    "cover-letter-analysis"
-            ).response();
+                case HYBRID_EXACT -> analyzeHybridExact(
+                        promptInput,
+                        referenceContext,
+                        jobCategoryEvaluationCriteria,
+                        "cover-letter-analysis"
+                ).response();
+                case SINGLE_PASS -> analyzeSinglePass(
+                        promptInput,
+                        referenceContext,
+                        jobCategoryEvaluationCriteria,
+                        "cover-letter-analysis"
+                ).response();
+            };
         } catch (GeneralException e) {
             throw e;
         } catch (Exception e) {
@@ -346,20 +362,26 @@ public class AnalysisAiClient {
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
     ) {
         try {
-            if (twoPassEnabled) {
-                return analyzeTwoPass(
+            return switch (resolveAnalysisMode()) {
+                case TWO_PASS -> analyzeTwoPass(
                         promptInput,
                         emptyContext(),
                         jobCategoryEvaluationCriteria,
                         "cover-letter-analysis-evaluation"
                 );
-            }
-            return analyzeSinglePass(
-                    promptInput,
-                    emptyContext(),
-                    jobCategoryEvaluationCriteria,
-                    "cover-letter-analysis-evaluation"
-            );
+                case HYBRID_EXACT -> analyzeHybridExact(
+                        promptInput,
+                        emptyContext(),
+                        jobCategoryEvaluationCriteria,
+                        "cover-letter-analysis-evaluation"
+                );
+                case SINGLE_PASS -> analyzeSinglePass(
+                        promptInput,
+                        emptyContext(),
+                        jobCategoryEvaluationCriteria,
+                        "cover-letter-analysis-evaluation"
+                );
+            };
         } catch (GeneralException e) {
             throw e;
         } catch (Exception e) {
@@ -461,6 +483,47 @@ public class AnalysisAiClient {
                 recheckedReviewResponse,
                 candidateLatencyMs,
                 finalLatencyMs
+        );
+    }
+
+    private AnalysisAiCallResult analyzeHybridExact(
+            AnalysisPromptInput promptInput,
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
+            String operationName
+    ) {
+        AnalysisAiCallResult singlePassResult = analyzeSinglePass(
+                promptInput,
+                referenceContext,
+                jobCategoryEvaluationCriteria,
+                operationName + "-single-pass"
+        );
+        AnalysisAiCallResult twoPassResult = analyzeTwoPass(
+                promptInput,
+                referenceContext,
+                jobCategoryEvaluationCriteria,
+                operationName + "-two-pass"
+        );
+        AnalysisLlmResponse merged = mergeHybridExact(
+                singlePassResult.response(),
+                twoPassResult.response()
+        );
+        log.debug(
+                "Hybrid exact response merged. questionAnalysesSource=single-pass, missingKeywordsSource=two-pass, scoreSource=single-pass, singlePassQuestionAnalyses={}, twoPassQuestionAnalyses={}, mergedQuestionAnalyses={}, singlePassMissingKeywords={}, twoPassMissingKeywords={}, mergedMissingKeywords={}",
+                size(singlePassResult.response() == null ? null : singlePassResult.response().questionAnalyses()),
+                size(twoPassResult.response() == null ? null : twoPassResult.response().questionAnalyses()),
+                size(merged == null ? null : merged.questionAnalyses()),
+                size(singlePassResult.response() == null ? null : singlePassResult.response().missingKeywords()),
+                size(twoPassResult.response() == null ? null : twoPassResult.response().missingKeywords()),
+                size(merged == null ? null : merged.missingKeywords())
+        );
+        return AnalysisAiCallResult.hybridExact(
+                merged,
+                twoPassResult.rawCandidateResponse(),
+                twoPassResult.sanitizedCandidateResponse(),
+                twoPassResult.candidateReviewResponse(),
+                twoPassResult.candidateCallLatencyMs(),
+                singlePassResult.finalCallLatencyMs() + twoPassResult.finalCallLatencyMs()
         );
     }
 
@@ -1782,6 +1845,29 @@ public class AnalysisAiClient {
         return result;
     }
 
+    AnalysisLlmResponse mergeHybridExact(
+            AnalysisLlmResponse singlePassResponse,
+            AnalysisLlmResponse twoPassResponse
+    ) {
+        if (singlePassResponse == null) {
+            return null;
+        }
+        return new AnalysisLlmResponse(
+                singlePassResponse.jobFit(),
+                singlePassResponse.impact(),
+                singlePassResponse.completeness(),
+                singlePassResponse.feedback(),
+                singlePassResponse.keyStrengths() == null ? List.of() : List.copyOf(singlePassResponse.keyStrengths()),
+                singlePassResponse.keyWeaknesses() == null ? List.of() : List.copyOf(singlePassResponse.keyWeaknesses()),
+                twoPassResponse == null || twoPassResponse.missingKeywords() == null
+                        ? List.of()
+                        : List.copyOf(twoPassResponse.missingKeywords()),
+                singlePassResponse.questionAnalyses() == null
+                        ? List.of()
+                        : List.copyOf(singlePassResponse.questionAnalyses())
+        );
+    }
+
     private int acceptedDecisionCount(CandidateReviewResponse reviewResponse) {
         if (reviewResponse == null || reviewResponse.decisions() == null) {
             return 0;
@@ -2078,6 +2164,24 @@ public class AnalysisAiClient {
         return new RetrievalContext(List.of(), List.of());
     }
 
+    AnalysisMode resolveAnalysisMode() {
+        if (StringUtils.hasText(analysisMode)) {
+            String normalized = analysisMode.trim().replace('-', '_').toUpperCase(java.util.Locale.ROOT);
+            try {
+                return AnalysisMode.valueOf(normalized);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalStateException("Unsupported analysis mode: " + analysisMode, e);
+            }
+        }
+        return twoPassEnabled ? AnalysisMode.TWO_PASS : AnalysisMode.SINGLE_PASS;
+    }
+
+    enum AnalysisMode {
+        SINGLE_PASS,
+        TWO_PASS,
+        HYBRID_EXACT
+    }
+
     private enum RecheckValidationFailureReason {
         UNKNOWN_CANDIDATE,
         LOW_PROBLEM_CLARITY,
@@ -2107,6 +2211,25 @@ public class AnalysisAiClient {
         }
 
         static AnalysisAiCallResult twoPass(
+                AnalysisLlmResponse response,
+                AnalysisCandidateResponse rawCandidateResponse,
+                AnalysisCandidateResponse sanitizedCandidateResponse,
+                CandidateReviewResponse candidateReviewResponse,
+                long candidateCallLatencyMs,
+                long finalCallLatencyMs
+        ) {
+            return new AnalysisAiCallResult(
+                    response,
+                    rawCandidateResponse,
+                    sanitizedCandidateResponse,
+                    candidateReviewResponse,
+                    true,
+                    candidateCallLatencyMs,
+                    finalCallLatencyMs
+            );
+        }
+
+        static AnalysisAiCallResult hybridExact(
                 AnalysisLlmResponse response,
                 AnalysisCandidateResponse rawCandidateResponse,
                 AnalysisCandidateResponse sanitizedCandidateResponse,

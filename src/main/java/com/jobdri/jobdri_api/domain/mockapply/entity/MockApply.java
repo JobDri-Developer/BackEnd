@@ -47,6 +47,9 @@ public class MockApply extends BaseEntity {
 
     private Integer sequence;
 
+    @Column(name = "display_name", length = 100)
+    private String displayName;
+
     @OneToOne(mappedBy = "mockApply", cascade = CascadeType.ALL, orphanRemoval = true)
     private Analysis analysis;
 
@@ -70,6 +73,10 @@ public class MockApply extends BaseEntity {
 
     public void updateStatus(MockApplyStatus status) {
         this.status = status;
+    }
+
+    public void updateDisplayName(String displayName) {
+        this.displayName = displayName;
     }
 
     public Question addQuestion(String content, int limit, String answer) {

@@ -44,6 +44,10 @@ public class JobPostingWorkerBridgeService {
     private final WorkerTaskResultService workerTaskResultService;
 
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
+        JobPostingAsyncTask task = getTask(taskId);
+        if (isTerminal(task)) {
+            return;
+        }
         jobPostingAsyncTaskService.markRunning(taskId, workerId, retryCount, submittedAt);
         try (var ignored = LoggingContext.with("worker.task.running", null, workerContext(taskId, "JOB_POSTING_INGEST", workerId, retryCount, null))) {
             log.info("Job posting worker marked task as running");
@@ -53,6 +57,8 @@ public class JobPostingWorkerBridgeService {
     @Transactional
     public JobPostingIngestResponse completeTask(String taskId, JobPostingIngestResponse result) {
         // Legacy direct-complete path for older workers. New workers should prefer result -> finalize.
+        JobPostingAsyncTask task = getTask(taskId);
+        rejectIfCancelled(task, "취소된 채용 공고 비동기 작업입니다. taskId=" + taskId);
         workerTaskResultService.upsertGenerated(TaskType.JOB_POSTING_COMPLETE, taskId, result);
         JobPostingIngestResponse response = jobPostingAsyncTaskService.markSuccess(taskId, result);
         workerTaskResultService.markDeliveredIfPresent(TaskType.JOB_POSTING_COMPLETE, taskId);
@@ -72,7 +78,7 @@ public class JobPostingWorkerBridgeService {
             Long queueLatencyMillis
     ) {
         JobPostingAsyncTask task = getTask(taskId);
-        if (task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED) {
+        if (isTerminal(task)) {
             return;
         }
         jobPostingAsyncTaskService.updateWorkerMetadata(taskId, workerId, queueLatencyMillis);
@@ -92,7 +98,7 @@ public class JobPostingWorkerBridgeService {
             Long queueLatencyMillis
     ) {
         JobPostingAsyncTask task = getTask(taskId);
-        if (task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED) {
+        if (isTerminal(task)) {
             return;
         }
         jobPostingAsyncTaskService.updateWorkerMetadata(taskId, workerId, queueLatencyMillis);
@@ -104,6 +110,14 @@ public class JobPostingWorkerBridgeService {
 
     public String createReadableImageUrl(Long userId, String imageObjectKey) {
         return jobPostingImageStorageService.createReadableImageUrl(userId, imageObjectKey);
+    }
+
+    public List<String> createReadableImageUrls(Long userId, String imageObjectKey, List<String> imageObjectKeys) {
+        List<String> normalizedImageObjectKeys = jobPostingImageStorageService.normalizeImageObjectKeys(
+                imageObjectKey,
+                imageObjectKeys
+        );
+        return jobPostingImageStorageService.createReadableImageUrls(userId, normalizedImageObjectKeys);
     }
 
     public List<JobPostingClassificationCandidateResponse> findCandidates(JobPostingExtractResponse extracted) {
@@ -129,15 +143,19 @@ public class JobPostingWorkerBridgeService {
             workerTaskResultService.markDeliveredIfPresent(TaskType.JOB_POSTING_FINALIZE, taskId);
             return jobPostingAsyncTaskService.getTask(taskId).getResult();
         }
-        if (task.getStatus() == TaskStatus.FAILED) {
+        if (task.getStatus() == TaskStatus.FAILED || task.getStatus() == TaskStatus.CANCELLED) {
             workerTaskResultService.markDeliveryFailedIfPresent(
                     TaskType.JOB_POSTING_FINALIZE,
                     taskId,
-                    "이미 실패 처리된 채용 공고 비동기 작업입니다."
+                    task.getStatus() == TaskStatus.CANCELLED
+                            ? "취소된 채용 공고 비동기 작업입니다."
+                            : "이미 실패 처리된 채용 공고 비동기 작업입니다."
             );
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
-                    "이미 실패 처리된 채용 공고 비동기 작업입니다. taskId=" + taskId
+                    task.getStatus() == TaskStatus.CANCELLED
+                            ? "취소된 채용 공고 비동기 작업입니다. taskId=" + taskId
+                            : "이미 실패 처리된 채용 공고 비동기 작업입니다. taskId=" + taskId
             );
         }
         JobPostingIngestQualityValidator.validateExtracted(extracted);
@@ -153,7 +171,7 @@ public class JobPostingWorkerBridgeService {
                 userService.getUser(userId),
                 new JobPostingCreateRequest(
                         JobPostingProfileColor.DEFAULT,
-                        generated.jobTitle(),
+                        generated.postingName(),
                         fallbackCompanyName(extracted.companyName()),
                         null,
                         generated.jobTitle(),
@@ -184,6 +202,7 @@ public class JobPostingWorkerBridgeService {
     @Transactional
     public void storeFinalizeResult(String taskId, JobPostingWorkerResultStoreRequest request) {
         JobPostingAsyncTask task = getTask(taskId);
+        rejectIfCancelled(task, "취소된 채용 공고 비동기 작업입니다. taskId=" + taskId);
         if (!task.getUserId().equals(request.userId())) {
             throw new GeneralException(
                     GeneralErrorCode.FORBIDDEN,
@@ -214,6 +233,18 @@ public class JobPostingWorkerBridgeService {
                         GeneralErrorCode.JOB_POSTING_ASYNC_TASK_NOT_FOUND,
                         "해당 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
                 ));
+    }
+
+    private boolean isTerminal(JobPostingAsyncTask task) {
+        return task.getStatus() == TaskStatus.SUCCEEDED
+                || task.getStatus() == TaskStatus.FAILED
+                || task.getStatus() == TaskStatus.CANCELLED;
+    }
+
+    private void rejectIfCancelled(JobPostingAsyncTask task, String message) {
+        if (task.getStatus() == TaskStatus.CANCELLED || task.isCancelRequested()) {
+            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, message);
+        }
     }
 
     private String fallbackCompanyName(String companyName) {

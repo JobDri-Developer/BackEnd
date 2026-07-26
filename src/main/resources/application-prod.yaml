@@ -162,6 +162,8 @@ cohere:
     key: ${COHERE_API_KEY:}
 
 payment:
+  coupon:
+    code: ${PAYMENT_COUPON_CODE}
   toss:
     client-key: ${TOSS_CLIENT_KEY}
     secret-key: ${TOSS_SECRET_KEY}

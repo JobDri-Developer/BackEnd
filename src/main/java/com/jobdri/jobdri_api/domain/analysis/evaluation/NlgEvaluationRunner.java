@@ -51,6 +51,9 @@ public class NlgEvaluationRunner implements ApplicationRunner {
     @Value("${evaluation.analysis.enabled:false}")
     private boolean analysisEvaluationEnabled;
 
+    @Value("${evaluation.hybrid-merge.enabled:false}")
+    private boolean hybridMergeEnabled;
+
     private final NlgEvaluationBatchService nlgEvaluationBatchService;
     private final EvaluationExitCoordinator evaluationExitCoordinator;
     private final Environment environment;
@@ -170,9 +173,9 @@ public class NlgEvaluationRunner implements ApplicationRunner {
     }
 
     private void validateMutuallyExclusiveRunner() {
-        if (analysisEvaluationEnabled) {
+        if (analysisEvaluationEnabled || hybridMergeEnabled) {
             throw new IllegalArgumentException(
-                    "evaluation.analysis.enabled와 evaluation.nlg-judge.enabled를 동시에 true로 설정할 수 없습니다."
+                    "evaluation.nlg-judge.enabled는 evaluation.analysis.enabled 또는 evaluation.hybrid-merge.enabled와 동시에 true로 설정할 수 없습니다."
             );
         }
     }

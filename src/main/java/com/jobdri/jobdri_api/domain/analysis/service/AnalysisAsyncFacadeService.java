@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.service;
 
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncCancelResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
@@ -59,8 +60,19 @@ public class AnalysisAsyncFacadeService {
                 .lastAttemptAt(status.lastAttemptAt())
                 .startedAt(status.startedAt())
                 .completedAt(status.completedAt())
+                .cancelRequested(status.cancelRequested())
+                .cancelledAt(status.cancelledAt())
+                .currentStep(status.currentStep())
+                .progressPercent(status.progressPercent())
+                .estimatedRemainingSeconds(status.estimatedRemainingSeconds())
+                .steps(status.steps())
                 .result(analysisService.getAnalysis(validatedUser, status.mockApplyId()))
                 .build();
+    }
+
+    public AnalysisAsyncCancelResponse cancel(User user, Long mockApplyId, String taskId) {
+        User validatedUser = userService.validateUser(user);
+        return analysisAsyncTaskService.cancelTask(validatedUser.getId(), mockApplyId, taskId);
     }
 
     private AnalysisAsyncSubmitResponse createAndProcessTask(User user, Long mockApplyId) {

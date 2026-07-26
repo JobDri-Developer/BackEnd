@@ -54,7 +54,7 @@ public class JobPostingAiService {
     }
 
     public JobPostingExtractResponse extractJobPosting(Long userId, JobPostingExtractRequest request) {
-        return extractJobPosting(userId, request.rawText(), request.imageObjectKey());
+        return extractJobPosting(userId, request.rawText(), request.imageObjectKey(), request.imageObjectKeys());
     }
 
     public JobPostingGenerateResponse generateJobPosting(JobPostingGenerateRequest request) {
@@ -185,19 +185,32 @@ public class JobPostingAiService {
     }
 
     public JobPostingExtractResponse extractJobPosting(Long userId, String rawText, String imageObjectKey) {
-        validateInput(rawText, imageObjectKey);
-        String imageUrl = hasText(imageObjectKey)
-                ? jobPostingImageStorageService.createReadableImageUrl(userId, imageObjectKey)
-                : null;
+        return extractJobPosting(userId, rawText, imageObjectKey, null);
+    }
+
+    public JobPostingExtractResponse extractJobPosting(
+            Long userId,
+            String rawText,
+            String imageObjectKey,
+            List<String> imageObjectKeys
+    ) {
+        List<String> normalizedImageObjectKeys = jobPostingImageStorageService.normalizeImageObjectKeys(
+                imageObjectKey,
+                imageObjectKeys
+        );
+        JobPostingIngestInputValidator.validate(rawText, normalizedImageObjectKeys);
+        List<String> imageUrls = userId != null
+                ? jobPostingImageStorageService.createReadableImageUrls(userId, normalizedImageObjectKeys)
+                : List.of();
 
         List<ResponseInputContent> contents = new ArrayList<>();
         contents.add(ResponseInputContent.ofInputText(
                 com.openai.models.responses.ResponseInputText.builder()
-                        .text(buildPrompt(rawText, imageUrl != null))
+                        .text(buildPrompt(rawText, !imageUrls.isEmpty()))
                         .build()
         ));
 
-        if (imageUrl != null) {
+        for (String imageUrl : imageUrls) {
             contents.add(ResponseInputContent.ofInputImage(buildImageContent(imageUrl)));
         }
 
@@ -365,18 +378,6 @@ public class JobPostingAiService {
                 ));
     }
 
-    private void validateInput(String rawText, String imageObjectKey) {
-        boolean hasRawText = hasText(rawText);
-        boolean hasImage = hasText(imageObjectKey);
-
-        if (!hasRawText && !hasImage) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "rawText 또는 imageObjectKey 중 하나는 반드시 포함되어야 합니다."
-            );
-        }
-    }
-
     private JobPostingExtractResponse normalizeResponse(JobPostingExtractResponse response, String rawText) {
         if (response == null) {
             throw new GeneralException(
@@ -424,6 +425,7 @@ public class JobPostingAiService {
                 설명 문장, 마크다운, 코드블럭은 포함하지 마세요.
 
                 {
+                  "postingName": "string",
                   "companyName": "string",
                   "jobTitle": "string",
                   "task": "string",
@@ -433,11 +435,13 @@ public class JobPostingAiService {
                 }
 
                 작성 규칙:
-                1. task는 문장형 또는 불릿을 줄바꿈으로 구분한 자연스러운 본문으로 작성하세요.
-                2. requirements는 필수 자격 요건만 정리하세요.
-                3. preferredQualifications는 우대 사항만 정리하세요.
-                4. summary는 2~3문장으로 포지션 소개를 작성하세요.
-                5. 과장되거나 허위인 내용을 만들지 말고, 입력 정보 범위 안에서 실무적인 표현으로 작성하세요.
+                1. postingName은 공고 제목으로 사용할 수 있게 회사명과 직무명을 반영해 간결하게 작성하세요.
+                2. jobTitle은 직무명만 작성하세요.
+                3. task는 문장형 또는 불릿을 줄바꿈으로 구분한 자연스러운 본문으로 작성하세요.
+                4. requirements는 필수 자격 요건만 정리하세요.
+                5. preferredQualifications는 우대 사항만 정리하세요.
+                6. summary는 2~3문장으로 포지션 소개를 작성하세요.
+                7. 과장되거나 허위인 내용을 만들지 말고, 입력 정보 범위 안에서 실무적인 표현으로 작성하세요.
 
                 [회사명]
                 %s
@@ -678,6 +682,7 @@ public class JobPostingAiService {
         }
 
         return new JobPostingGenerateResponse(
+                defaultIfBlank(response.postingName(), request.jobTitleHint()),
                 companyName,
                 defaultString(response.jobTitle()),
                 defaultString(response.task()),
@@ -804,6 +809,7 @@ public class JobPostingAiService {
 
     private JobPostingGenerateResponse createFallbackGeneratedResponse(JobPostingGenerateRequest request) {
         return new JobPostingGenerateResponse(
+                defaultString(request.jobTitleHint()),
                 request.companyName(),
                 defaultString(request.jobTitleHint()),
                 defaultString(request.mainResponsibilities()),
@@ -870,6 +876,10 @@ public class JobPostingAiService {
 
     private String defaultString(String value) {
         return value == null ? "" : value;
+    }
+
+    private String defaultIfBlank(String value, String fallback) {
+        return value == null || value.isBlank() ? defaultString(fallback) : value;
     }
 
     private RetrievalContext emptyRetrievalContext() {

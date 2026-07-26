@@ -1,7 +1,9 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncCancelResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingProgressStepResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.TaskStatus;
@@ -14,6 +16,9 @@ import com.jobdri.jobdri_api.domain.user.entity.UserRole;
 import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator.AsyncTaskProgressStatus;
+import com.jobdri.jobdri_api.global.async.AsyncProgressCalculator.ProgressStepDefinition;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -28,12 +33,22 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class JobPostingAsyncTaskService {
+    private static final int DEFAULT_ESTIMATED_REMAINING_SECONDS = 20;
+    private static final List<ProgressStepDefinition> PROGRESS_STEPS = List.of(
+            new ProgressStepDefinition("VALIDATING_INPUT", "공고 입력값을 확인하고 있어요"),
+            new ProgressStepDefinition("DOWNLOADING_IMAGES", "이미지를 준비하고 있어요"),
+            new ProgressStepDefinition("EXTRACTING_CONTENT", "공고 내용을 추출하고 있어요"),
+            new ProgressStepDefinition("STRUCTURING_JOB_POSTING", "공고 정보를 정리하고 있어요"),
+            new ProgressStepDefinition("SAVING_RESULT", "공고 분석 결과를 저장하고 있어요"),
+            new ProgressStepDefinition("COMPLETED", "공고 분석이 완료되었습니다")
+    );
 
     private final JobPostingAsyncTaskRepository jobPostingAsyncTaskRepository;
     private final ObjectMapper objectMapper;
@@ -41,6 +56,7 @@ public class JobPostingAsyncTaskService {
     private final NotificationService notificationService;
     private final AsyncMetricsRecorder asyncMetricsRecorder;
     private final JobPostingQueueProperties jobPostingQueueProperties;
+    private final AsyncProgressCalculator asyncProgressCalculator;
 
     @Transactional
     public JobPostingAsyncTask createPendingTask(Long userId) {
@@ -79,6 +95,12 @@ public class JobPostingAsyncTaskService {
                     "이미 실패 처리된 채용 공고 비동기 작업입니다. taskId=" + taskId
             );
         }
+        if (task.getStatus() == TaskStatus.CANCELLED) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "취소된 채용 공고 비동기 작업입니다. taskId=" + taskId
+            );
+        }
         task.markSuccess(serializeResult(result));
         recordProcessingMetric(task, "succeeded");
         publishAfterCommit(toStatusResponse(task));
@@ -107,6 +129,27 @@ public class JobPostingAsyncTaskService {
         task.markFailed(failureReason, errorMessage, retryCount);
         publishAfterCommit(toStatusResponse(task));
         createFailureNotificationSafely(task);
+    }
+
+    @Transactional
+    public JobPostingAsyncCancelResponse cancelTask(User user, String taskId) {
+        JobPostingAsyncTask task = getOwnedTaskState(user, taskId);
+        TaskStatus previousStatus = task.getStatus();
+        LocalDateTime previousCancelledAt = task.getCancelledAt();
+        task.requestCancel();
+        boolean cancelled = task.getStatus() == TaskStatus.CANCELLED;
+        boolean newlyCancelled = previousStatus != TaskStatus.CANCELLED && cancelled;
+        if (newlyCancelled) {
+            recordProcessingMetric(task, "cancelled");
+        }
+        if (newlyCancelled || previousCancelledAt == null && cancelled) {
+            publishAfterCommit(toStatusResponse(task));
+        }
+        return new JobPostingAsyncCancelResponse(
+                task.getTaskId(),
+                task.getStatus().name(),
+                task.getMessage()
+        );
     }
 
     @Transactional
@@ -163,8 +206,33 @@ public class JobPostingAsyncTaskService {
                 .lastAttemptAt(taskState.getLastAttemptAt())
                 .startedAt(taskState.getStartedAt())
                 .completedAt(taskState.getCompletedAt())
+                .cancelRequested(taskState.isCancelRequested())
+                .cancelledAt(taskState.getCancelledAt())
+                .currentStep(resolveCurrentStep(taskState))
+                .progressPercent(asyncProgressCalculator.resolveProgressPercent(
+                        toProgressStatus(taskState.getStatus()),
+                        taskState.getProgressPercent()
+                ))
+                .estimatedRemainingSeconds(asyncProgressCalculator.resolveEstimatedRemainingSeconds(
+                        toProgressStatus(taskState.getStatus()),
+                        taskState.getEstimatedRemainingSeconds(),
+                        taskState.getStartedAt(),
+                        DEFAULT_ESTIMATED_REMAINING_SECONDS
+                ))
+                .steps(buildSteps(taskState))
                 .result(deserializeResult(taskState.getResultPayload()))
                 .build();
+    }
+
+    private JobPostingAsyncTask getOwnedTaskState(User user, String taskId) {
+        if (user.getRole() == UserRole.ADMIN) {
+            return getTaskState(taskId);
+        }
+        return jobPostingAsyncTaskRepository.findByTaskIdAndUserId(taskId, user.getId())
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.JOB_POSTING_ASYNC_TASK_NOT_FOUND,
+                        "해당 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
+                ));
     }
 
     private JobPostingAsyncTask getTaskState(String taskId) {
@@ -176,7 +244,9 @@ public class JobPostingAsyncTaskService {
     }
 
     private boolean isTerminal(JobPostingAsyncTask task) {
-        return task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED;
+        return task.getStatus() == TaskStatus.SUCCEEDED
+                || task.getStatus() == TaskStatus.FAILED
+                || task.getStatus() == TaskStatus.CANCELLED;
     }
 
     private boolean expireTimedOutTaskIfNeeded(JobPostingAsyncTask task) {
@@ -223,6 +293,27 @@ public class JobPostingAsyncTaskService {
         }
         long durationMillis = Math.max(0L, Duration.between(task.getStartedAt(), LocalDateTime.now()).toMillis());
         asyncMetricsRecorder.recordProcessing("jobposting", outcome, durationMillis);
+    }
+
+    private String resolveCurrentStep(JobPostingAsyncTask task) {
+        return asyncProgressCalculator.resolveCurrentStep(
+                toProgressStatus(task.getStatus()),
+                task.getCurrentStep(),
+                "VALIDATING_INPUT"
+        );
+    }
+
+    private List<JobPostingProgressStepResponse> buildSteps(JobPostingAsyncTask task) {
+        return asyncProgressCalculator.buildSteps(
+                toProgressStatus(task.getStatus()),
+                resolveCurrentStep(task),
+                PROGRESS_STEPS,
+                step -> new JobPostingProgressStepResponse(step.code(), step.label(), step.status())
+        );
+    }
+
+    private AsyncTaskProgressStatus toProgressStatus(TaskStatus status) {
+        return AsyncTaskProgressStatus.valueOf(status.name());
     }
 
     private String serializeResult(JobPostingIngestResponse result) {
@@ -326,4 +417,5 @@ public class JobPostingAsyncTaskService {
                 payload
         );
     }
+
 }

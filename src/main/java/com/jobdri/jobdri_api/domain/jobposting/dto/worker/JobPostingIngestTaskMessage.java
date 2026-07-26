@@ -6,6 +6,7 @@ import lombok.Builder;
 import org.slf4j.MDC;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Builder
@@ -17,6 +18,7 @@ public record JobPostingIngestTaskMessage(
         Long userId,
         String rawText,
         String imageObjectKey,
+        List<String> imageObjectKeys,
         int retryCount,
         int maxRetryCount,
         Instant submittedAt
@@ -31,6 +33,7 @@ public record JobPostingIngestTaskMessage(
                 .userId(command.getUserId())
                 .rawText(command.getRawText())
                 .imageObjectKey(command.getImageObjectKey())
+                .imageObjectKeys(command.getImageObjectKeys())
                 .retryCount(0)
                 .maxRetryCount(Math.max(0, maxRetryCount))
                 .submittedAt(Instant.now())

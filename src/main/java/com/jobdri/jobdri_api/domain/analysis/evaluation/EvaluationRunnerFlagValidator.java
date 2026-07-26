@@ -14,11 +14,18 @@ class EvaluationRunnerFlagValidator implements SmartInitializingSingleton {
     @Value("${evaluation.nlg-judge.enabled:false}")
     private boolean nlgJudgeEnabled;
 
+    @Value("${evaluation.hybrid-merge.enabled:false}")
+    private boolean hybridMergeEnabled;
+
     @Override
     public void afterSingletonsInstantiated() {
-        if (analysisEvaluationEnabled && nlgJudgeEnabled) {
+        int enabledRunnerCount = 0;
+        enabledRunnerCount += analysisEvaluationEnabled ? 1 : 0;
+        enabledRunnerCount += nlgJudgeEnabled ? 1 : 0;
+        enabledRunnerCount += hybridMergeEnabled ? 1 : 0;
+        if (enabledRunnerCount > 1) {
             throw new IllegalStateException(
-                    "evaluation.analysis.enabled와 evaluation.nlg-judge.enabled를 동시에 true로 설정할 수 없습니다."
+                    "analysis-eval runner flags are mutually exclusive: evaluation.analysis.enabled, evaluation.nlg-judge.enabled, evaluation.hybrid-merge.enabled"
             );
         }
     }
