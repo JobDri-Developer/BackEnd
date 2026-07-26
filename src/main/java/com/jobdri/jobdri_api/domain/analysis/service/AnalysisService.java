@@ -395,7 +395,13 @@ public class AnalysisService {
             List<QuestionAnalysis> questionAnalyses,
             AnalysisResultPayload resultPayload
     ) {
+        Map<Long, Question> questionById = questions.stream()
+                .collect(Collectors.toMap(Question::getId, Function.identity()));
         Map<Long, List<QuestionAnalysisResponse>> analysesByQuestionId = questionAnalyses.stream()
+                .filter(questionAnalysis -> isValidQuestionAnalysisForResponse(
+                        questionAnalysis,
+                        questionById.get(questionAnalysis.getQuestion().getId())
+                ))
                 .collect(Collectors.groupingBy(
                         questionAnalysis -> questionAnalysis.getQuestion().getId(),
                         Collectors.mapping(QuestionAnalysisResponse::from, Collectors.toList())
@@ -418,6 +424,26 @@ public class AnalysisService {
                 resultPayload.missingKeywords(),
                 questionResponses
         );
+    }
+
+    private boolean isValidQuestionAnalysisForResponse(QuestionAnalysis questionAnalysis, Question question) {
+        if (questionAnalysis == null || question == null) {
+            return false;
+        }
+        if (questionAnalysis.getStatus() == QuestionAnalysisStatus.MISSING) {
+            return false;
+        }
+        String answer = question.getAnswer();
+        String sentence = questionAnalysis.getSentence();
+        int start = questionAnalysis.getStart();
+        int end = questionAnalysis.getEnd();
+        if (!StringUtils.hasText(answer) || !StringUtils.hasText(sentence)) {
+            return false;
+        }
+        if (start < 0 || end <= start || end > answer.length()) {
+            return false;
+        }
+        return answer.substring(start, end).equals(sentence);
     }
 
     private AnalysisResultPayload analysisResultPayload(Analysis analysis) {
