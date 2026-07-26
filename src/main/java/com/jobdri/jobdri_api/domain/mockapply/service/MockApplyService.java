@@ -51,6 +51,9 @@ import java.util.Locale;
 @Transactional(readOnly = true)
 public class MockApplyService {
     public static final int MAX_PAGE_SIZE = PaginationPolicy.MAX_PAGE_SIZE;
+    public static final int MAX_RECENT_LIMIT = 20;
+    public static final int DEFAULT_RECENT_LIMIT = 5;
+    public static final int MAX_SEARCH_QUERY_LENGTH = 100;
     private static final int SEQUENCE_SAVE_MAX_RETRY = 5;
     private static final int SEQUENCE_ALLOCATE_MAX_RETRY = 5;
     private static final int MAX_DISPLAY_NAME_LENGTH = 100;
@@ -241,6 +244,38 @@ public class MockApplyService {
         );
     }
 
+    public List<MockApplyHomeItemResponse> getRecentMockApplies(User user, int limit) {
+        User validatedUser = userService.validateUser(user);
+        Pageable pageable = PageRequest.of(
+                0,
+                clampRecentLimit(limit),
+                Sort.by(
+                        Sort.Order.desc("updatedAt"),
+                        Sort.Order.desc("id")
+                )
+        );
+
+        return mockApplyRepository.findAllByUserId(validatedUser.getId(), pageable)
+                .map(MockApplyHomeItemResponse::from)
+                .getContent();
+    }
+
+    public Page<MockApplyHomeItemResponse> searchMyMockApplies(User user, String query, int page, int size) {
+        User validatedUser = userService.validateUser(user);
+        String normalizedQuery = validateAndNormalizeSearchQuery(query);
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                Sort.by(
+                        Sort.Order.desc("updatedAt"),
+                        Sort.Order.desc("id")
+                )
+        );
+
+        return mockApplyRepository.searchByUserId(validatedUser.getId(), normalizedQuery, pageable)
+                .map(MockApplyHomeItemResponse::from);
+    }
+
     @Transactional
     @AuditLogEvent(action = "MOCK_APPLY_NAME_UPDATE", targetType = "MOCK_APPLY", targetId = "#arg1")
     public MockApplyUpdateNameResponse updateMockApplyName(User user, Long mockApplyId, String name) {
@@ -307,6 +342,31 @@ public class MockApplyService {
             );
         }
         return trimmedName;
+    }
+
+    private int clampRecentLimit(int limit) {
+        if (limit < 1) {
+            return DEFAULT_RECENT_LIMIT;
+        }
+        return Math.min(limit, MAX_RECENT_LIMIT);
+    }
+
+    private String validateAndNormalizeSearchQuery(String query) {
+        if (query == null || query.isBlank()) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "검색어는 필수입니다."
+            );
+        }
+
+        String trimmedQuery = query.trim();
+        if (trimmedQuery.length() > MAX_SEARCH_QUERY_LENGTH) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "검색어는 최대 100자까지 입력할 수 있습니다."
+            );
+        }
+        return trimmedQuery.toLowerCase(Locale.ROOT);
     }
 
     private int resolveSequence(User user, JobPosting jobPosting, Integer requestedSequence) {
