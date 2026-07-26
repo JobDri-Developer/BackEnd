@@ -63,6 +63,7 @@ public class JobPostingAsyncFacadeService {
                 request.imageObjectKey(),
                 request.imageObjectKeys()
         );
+        JobPostingIngestInputValidator.validate(request.rawText(), imageObjectKeys);
         return JobPostingIngestCommand.builder()
                 .userId(user.getId())
                 .rawText(request.rawText())

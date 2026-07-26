@@ -198,7 +198,7 @@ public class JobPostingAiService {
                 imageObjectKey,
                 imageObjectKeys
         );
-        validateInput(rawText, normalizedImageObjectKeys);
+        JobPostingIngestInputValidator.validate(rawText, normalizedImageObjectKeys);
         List<String> imageUrls = userId != null
                 ? jobPostingImageStorageService.createReadableImageUrls(userId, normalizedImageObjectKeys)
                 : List.of();
@@ -376,18 +376,6 @@ public class JobPostingAiService {
                         GeneralErrorCode.INTERNAL_SERVER_ERROR,
                         "AI 응답에서 " + responseType.getSimpleName() + " 결과를 찾을 수 없습니다."
                 ));
-    }
-
-    private void validateInput(String rawText, List<String> imageObjectKeys) {
-        boolean hasRawText = hasText(rawText);
-        boolean hasImage = imageObjectKeys != null && !imageObjectKeys.isEmpty();
-
-        if (!hasRawText && !hasImage) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "rawText 또는 imageObjectKey 중 하나는 반드시 포함되어야 합니다."
-            );
-        }
     }
 
     private JobPostingExtractResponse normalizeResponse(JobPostingExtractResponse response, String rawText) {

@@ -246,7 +246,7 @@ class JobPostingIngestServiceTest {
     @DisplayName("공고로 인식할 수 없는 추출 결과는 저장하지 않고 오류 처리한다")
     void ingestAndCreateRejectsInvalidExtractedResult() {
         JobPostingIngestRequest request = new JobPostingIngestRequest(
-                "양식에 맞지 않는 입력",
+                "양식에 맞지 않는 입력입니다",
                 null
         );
         JobPostingExtractResponse extracted = new JobPostingExtractResponse(
@@ -255,7 +255,7 @@ class JobPostingIngestServiceTest {
                 "string",
                 "string",
                 "",
-                "양식에 맞지 않는 입력",
+                "양식에 맞지 않는 입력입니다",
                 0.9
         );
 
@@ -273,7 +273,7 @@ class JobPostingIngestServiceTest {
     @MethodSource("invalidConfidenceValues")
     @DisplayName("추출 confidence가 0~1 범위를 벗어나거나 숫자가 아니면 저장하지 않는다")
     void ingestAndCreateRejectsInvalidExtractedConfidence(double confidence) {
-        JobPostingIngestRequest request = new JobPostingIngestRequest("공고 입력", null);
+        JobPostingIngestRequest request = new JobPostingIngestRequest("백엔드 개발자 채용 공고 입력입니다.", null);
         JobPostingExtractResponse extracted = validExtracted(confidence);
 
         when(jobPostingAiService.extractJobPosting(any(), any(), any(), any()))
@@ -293,7 +293,7 @@ class JobPostingIngestServiceTest {
             String companyName,
             String jobTitle
     ) {
-        JobPostingIngestRequest request = new JobPostingIngestRequest("공고 입력", null);
+        JobPostingIngestRequest request = new JobPostingIngestRequest("백엔드 개발자 채용 공고 입력입니다.", null);
         JobPostingExtractResponse extracted = new JobPostingExtractResponse(
                 companyName,
                 jobTitle,
@@ -479,7 +479,7 @@ class JobPostingIngestServiceTest {
     @Test
     @DisplayName("공고 추출 결과가 유효하지 않으면 invalid field 목록을 내려준다")
     void ingestAndCreateReturnsInvalidExtractedFieldNames() {
-        JobPostingIngestRequest request = new JobPostingIngestRequest("양식에 맞지 않는 입력", null);
+        JobPostingIngestRequest request = new JobPostingIngestRequest("양식에 맞지 않는 입력입니다", null);
         JobPostingExtractResponse extracted = new JobPostingExtractResponse(
                 "미분류 회사",
                 "string",
