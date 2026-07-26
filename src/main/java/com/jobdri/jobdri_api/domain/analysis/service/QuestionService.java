@@ -10,6 +10,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionSelectionRespo
 import com.jobdri.jobdri_api.domain.analysis.entity.CustomQuestionCandidate;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.CustomQuestionCandidateRepository;
+import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
@@ -52,6 +53,7 @@ public class QuestionService {
 
     private final MockApplyRepository mockApplyRepository;
     private final QuestionRepository questionRepository;
+    private final QuestionAnalysisRepository questionAnalysisRepository;
     private final CustomQuestionCandidateRepository customQuestionCandidateRepository;
 
     public List<QuestionCandidateResponse> getQuestionCandidates(User user, Long mockApplyId) {
@@ -238,6 +240,33 @@ public class QuestionService {
                 mockApplyRepository.calculateSequence(mockApply),
                 savedQuestions.stream().map(this::toQuestionResponse).toList()
         );
+    }
+
+    @Transactional
+    @AuditLogEvent(action = "QUESTION_DELETE", targetType = "MOCK_APPLY", targetId = "#arg1")
+    public QuestionSelectionResponse deleteQuestion(User user, Long mockApplyId, Long questionId) {
+        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
+        List<Question> existingQuestions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        if (existingQuestions.size() <= MIN_SELECTION_COUNT) {
+            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "선택 문항은 1개 이상이어야 합니다.");
+        }
+
+        Question question = existingQuestions.stream()
+                .filter(existingQuestion -> existingQuestion.getId().equals(questionId))
+                .findFirst()
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.QUESTION_NOT_FOUND,
+                        "해당 지원서의 문항을 찾을 수 없습니다. questionId=" + questionId
+                ));
+
+        questionAnalysisRepository.deleteAllByQuestionId(question.getId());
+        questionRepository.delete(question);
+        List<QuestionResponse> remainingQuestions = existingQuestions.stream()
+                .filter(existingQuestion -> !existingQuestion.getId().equals(question.getId()))
+                .map(this::toQuestionResponse)
+                .toList();
+
+        return new QuestionSelectionResponse(mockApply.getId(), mockApply.getStatus(), remainingQuestions);
     }
 
     private QuestionResponse toQuestionResponse(Question question) {
