@@ -25,6 +25,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
@@ -75,7 +76,7 @@ class JobPostingAsyncFacadeServiceTest {
     void submitCreatesTaskWithUserId() {
         User user = User.signup("테스트 사용자", "job-posting-submit@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 7L);
-        JobPostingIngestRequest request = new JobPostingIngestRequest("공고 원문", null);
+        JobPostingIngestRequest request = new JobPostingIngestRequest("백엔드 개발자 채용 공고 원문입니다.", null);
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
 
         when(userService.validateUser(user)).thenReturn(user);
@@ -96,7 +97,7 @@ class JobPostingAsyncFacadeServiceTest {
         User user = User.signup("테스트 사용자", "job-posting-submit-images@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 7L);
         JobPostingIngestRequest request = new JobPostingIngestRequest(
-                "공고 원문",
+                "백엔드 개발자 채용 공고 원문입니다.",
                 null,
                 List.of("job-postings/tmp/7/first.png", "job-postings/tmp/7/second.jpg")
         );
@@ -156,7 +157,7 @@ class JobPostingAsyncFacadeServiceTest {
     void submitDeletesTaskWhenPublishFails() {
         User user = User.signup("테스트 사용자", "job-posting-submit-fail@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 7L);
-        JobPostingIngestRequest request = new JobPostingIngestRequest("공고 원문", null);
+        JobPostingIngestRequest request = new JobPostingIngestRequest("백엔드 개발자 채용 공고 원문입니다.", null);
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
 
         when(userService.validateUser(user)).thenReturn(user);
@@ -171,5 +172,23 @@ class JobPostingAsyncFacadeServiceTest {
                 .isEqualTo(GeneralErrorCode.SERVICE_UNAVAILABLE);
 
         verify(jobPostingAsyncTaskService, times(1)).deleteTask(task.getTaskId());
+    }
+
+    @Test
+    @DisplayName("입력 검증 실패 시 비동기 task를 생성하지 않는다")
+    void submitDoesNotCreateTaskWhenInputInvalid() {
+        User user = User.signup("테스트 사용자", "job-posting-submit-invalid@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        JobPostingIngestRequest request = new JobPostingIngestRequest("짧음", null);
+
+        when(userService.validateUser(user)).thenReturn(user);
+
+        assertThatThrownBy(() -> jobPostingAsyncFacadeService.submit(user, request))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
+
+        verify(jobPostingAsyncTaskService, times(0)).createPendingTask(7L);
+        verify(jobPostingAsyncProcessor, times(0)).process(any(), any(), anyInt());
     }
 }

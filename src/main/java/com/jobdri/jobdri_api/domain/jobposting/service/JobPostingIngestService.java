@@ -40,6 +40,7 @@ public class JobPostingIngestService {
                 request.imageObjectKey(),
                 request.imageObjectKeys()
         );
+        JobPostingIngestInputValidator.validate(request.rawText(), imageObjectKeys);
         JobPostingIngestCommand command = JobPostingIngestCommand.builder()
                 .userId(user.getId())
                 .rawText(request.rawText())
