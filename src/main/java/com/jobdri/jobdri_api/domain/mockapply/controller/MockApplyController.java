@@ -14,14 +14,18 @@ import com.jobdri.jobdri_api.domain.mockapply.service.MockApplyService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -29,9 +33,11 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@Validated
 @RequiredArgsConstructor
 @RequestMapping("/api/mock-applies")
 @Tag(name = "MockApply", description = "모의 서류 지원 생성 API")
@@ -41,15 +47,20 @@ public class MockApplyController {
 
     @Operation(
             summary = "내 모의 서류 지원 홈 목록 조회",
-            description = "홈 화면에서 이어서 작성할 지원과 완료된 분석 결과 카드를 조회합니다."
+            description = "홈 화면에서 이어서 작성할 지원과 완료된 분석 결과 카드를 조회합니다. 완료된 분석 결과 카드는 페이지 단위로 조회하며 최대 "
+                    + MockApplyService.MAX_PAGE_SIZE + "개까지 요청할 수 있습니다."
     )
     @GetMapping("/me")
     public ApiResponse<MockApplyHomeResponse> getMyMockApplies(
-            @AuthenticationPrincipal UserDetailsImpl userDetails
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @Parameter(description = "0부터 시작하는 페이지 번호")
+            @RequestParam(defaultValue = "0") @Min(0) int page,
+            @Parameter(description = "페이지 크기 (1-" + MockApplyService.MAX_PAGE_SIZE + ")")
+            @RequestParam(defaultValue = "9") @Min(1) @Max(MockApplyService.MAX_PAGE_SIZE) int size
     ) {
         return ApiResponse.onSuccess(
                 "모의 서류 지원 목록 조회에 성공했습니다.",
-                mockApplyService.getMyMockApplies(userDetails.getUser())
+                mockApplyService.getMyMockApplies(userDetails.getUser(), page, size)
         );
     }
 

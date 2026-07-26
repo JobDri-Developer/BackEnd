@@ -1,6 +1,8 @@
 package com.jobdri.jobdri_api.domain.jobposting.repository;
 
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -25,7 +27,7 @@ public interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
             "detailClassification.middleClassification",
             "detailClassification.middleClassification.classification"
     })
-    List<JobPosting> findAllByUserId(Long userId);
+    Page<JobPosting> findAllByUserId(Long userId, Pageable pageable);
 
     @EntityGraph(attributePaths = {
             "company",

@@ -7,6 +7,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Getter
 @Builder
 @NoArgsConstructor
@@ -26,6 +28,8 @@ public class JobPostingResponse {
     private String task;
     private String requirement;
     private String preferred;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 
     public static JobPostingResponse from(JobPosting jobPosting) {
         return JobPostingResponse.builder()
@@ -42,6 +46,8 @@ public class JobPostingResponse {
                 .task(jobPosting.getTask())
                 .requirement(jobPosting.getRequirement())
                 .preferred(jobPosting.getPreferred())
+                .createdAt(jobPosting.getCreatedAt())
+                .updatedAt(jobPosting.getUpdatedAt())
                 .build();
     }
 }

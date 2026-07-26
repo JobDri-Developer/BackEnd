@@ -17,10 +17,12 @@ import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationService;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeItemResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyRetryResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
@@ -38,6 +40,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.data.domain.Page;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -319,27 +322,43 @@ class MockApplyServiceTest {
     }
 
     @Test
-    @DisplayName("홈 화면에서 이어쓰기와 완료 결과 카드 목록을 조회한다")
+    @DisplayName("홈 화면에서 이어쓰기와 완료 결과 카드 목록을 최신순 페이지로 조회한다")
     void getMyMockApplies() {
         User user = saveUser("home-list@example.com");
         User otherUser = saveUser("home-list-other@example.com");
         JobPosting backendPosting = saveJobPosting(user, "백엔드 개발");
         JobPosting dataPosting = saveJobPosting(user, "데이터 분석");
         JobPosting otherPosting = saveJobPosting(otherUser, "프론트엔드 개발");
+        ReflectionTestUtils.setField(backendPosting, "profileColor", JobPostingProfileColor.BLUE);
+        ReflectionTestUtils.setField(dataPosting, "profileColor", JobPostingProfileColor.GREEN);
+        jobPostingRepository.saveAndFlush(backendPosting);
+        jobPostingRepository.saveAndFlush(dataPosting);
 
         MockApply inProgress = mockApplyRepository.save(MockApply.create(user, backendPosting, ApplyType.ACTUAL));
         inProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
         inProgress.updateDisplayName("카카오 백엔드 지원 연습");
-        MockApply completed = mockApplyRepository.save(MockApply.create(user, dataPosting, ApplyType.MOCK));
-        completed.updateStatus(MockApplyStatus.COMPLETED);
+        MockApply completedFirst = mockApplyRepository.save(MockApply.create(user, dataPosting, ApplyType.MOCK));
+        completedFirst.updateStatus(MockApplyStatus.COMPLETED);
+        MockApply completedSecond = mockApplyRepository.save(MockApply.create(user, dataPosting, ApplyType.ACTUAL));
+        completedSecond.updateStatus(MockApplyStatus.COMPLETED);
         mockApplyRepository.save(MockApply.create(otherUser, otherPosting, ApplyType.MOCK));
-        Analysis analysis = analysisRepository.save(Analysis.create(completed, 71, 72, 73, 74, "완료 분석입니다."));
-        completed.assignAnalysis(analysis);
+        Analysis firstAnalysis = analysisRepository.save(Analysis.create(completedFirst, 71, 72, 73, 74, "첫 완료 분석입니다."));
+        completedFirst.assignAnalysis(firstAnalysis);
+        Analysis secondAnalysis = analysisRepository.save(Analysis.create(completedSecond, 81, 82, 83, 84, "둘째 완료 분석입니다."));
+        completedSecond.assignAnalysis(secondAnalysis);
 
-        MockApplyHomeResponse response = mockApplyService.getMyMockApplies(user);
+        LocalDateTime baseTime = LocalDateTime.of(2026, 1, 1, 12, 0);
+        ReflectionTestUtils.setField(inProgress, "createdAt", baseTime);
+        ReflectionTestUtils.setField(completedFirst, "createdAt", baseTime.plusMinutes(1));
+        ReflectionTestUtils.setField(completedSecond, "createdAt", baseTime.plusMinutes(2));
+        mockApplyRepository.saveAndFlush(inProgress);
+        mockApplyRepository.saveAndFlush(completedFirst);
+        mockApplyRepository.saveAndFlush(completedSecond);
+
+        MockApplyHomeResponse response = mockApplyService.getMyMockApplies(user, 0, 9);
 
         assertThat(response.inProgress()).hasSize(1);
-        assertThat(response.completed()).hasSize(1);
+        assertThat(response.completed().getContent()).hasSize(2);
         assertThat(response.inProgress().get(0).mockApplyId()).isEqualTo(inProgress.getId());
         assertThat(response.inProgress().get(0).jobPostingId()).isEqualTo(backendPosting.getId());
         assertThat(response.inProgress().get(0).displayName()).isEqualTo("카카오 백엔드 지원 연습");
@@ -348,15 +367,67 @@ class MockApplyServiceTest {
         assertThat(response.inProgress().get(0).companyName()).isEqualTo("테스트 기업");
         assertThat(response.inProgress().get(0).detailClassificationName()).isEqualTo("백엔드 개발");
         assertThat(response.inProgress().get(0).jobTitle()).isEqualTo("백엔드 개발");
+        assertThat(response.inProgress().get(0).profileColor()).isEqualTo(JobPostingProfileColor.BLUE);
+        assertThat(response.inProgress().get(0).createdAt()).isEqualTo(baseTime);
         assertThat(response.inProgress().get(0).applyType()).isEqualTo(ApplyType.ACTUAL);
         assertThat(response.inProgress().get(0).score()).isNull();
         assertThat(response.inProgress().get(0).resumePath()).isEqualTo("/mock-applies/" + inProgress.getId() + "/answers");
-        assertThat(response.completed().get(0).mockApplyId()).isEqualTo(completed.getId());
-        assertThat(response.completed().get(0).displayName()).isNull();
-        assertThat(response.completed().get(0).sequence()).isEqualTo(1);
-        assertThat(response.completed().get(0).score()).isEqualTo(71);
-        assertThat(response.completed().get(0).applyType()).isEqualTo(ApplyType.MOCK);
-        assertThat(response.completed().get(0).resumePath()).isEqualTo("/mock-applies/" + completed.getId() + "/analysis");
+        assertThat(response.completed().getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(completedSecond.getId(), completedFirst.getId());
+        assertThat(response.completed().getTotalElements()).isEqualTo(2);
+        assertThat(response.completed().getTotalPages()).isEqualTo(1);
+        assertThat(response.completed().getSize()).isEqualTo(9);
+        assertThat(response.completed().getNumber()).isEqualTo(0);
+        assertThat(response.completed().getContent().get(0).createdAt()).isEqualTo(baseTime.plusMinutes(2));
+        assertThat(response.completed().getContent().get(0).profileColor()).isEqualTo(JobPostingProfileColor.GREEN);
+        assertThat(response.completed().getContent().get(0).displayName()).isNull();
+        assertThat(response.completed().getContent().get(0).score()).isEqualTo(81);
+        assertThat(response.completed().getContent().get(0).applyType()).isEqualTo(ApplyType.ACTUAL);
+        assertThat(response.completed().getContent().get(0).resumePath()).isEqualTo("/mock-applies/" + completedSecond.getId() + "/analysis");
+    }
+
+    @Test
+    @DisplayName("완료된 분석 결과 카드는 9개 기준으로 페이지 조회한다")
+    void getMyMockAppliesCompletedResultsPaged() {
+        User user = saveUser("home-page@example.com");
+        JobPosting posting = saveJobPosting(user, "백엔드 개발");
+        LocalDateTime baseTime = LocalDateTime.of(2026, 1, 1, 12, 0);
+        List<Long> createdIds = new java.util.ArrayList<>();
+
+        for (int i = 0; i < 10; i++) {
+            MockApply completed = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK, i + 1));
+            completed.updateStatus(MockApplyStatus.COMPLETED);
+            Analysis analysis = analysisRepository.save(Analysis.create(completed, 70 + i, 70, 70, 70, "완료 분석 " + i));
+            completed.assignAnalysis(analysis);
+            ReflectionTestUtils.setField(completed, "createdAt", baseTime.plusMinutes(i));
+            mockApplyRepository.saveAndFlush(completed);
+            createdIds.add(completed.getId());
+        }
+
+        MockApplyHomeResponse firstPage = mockApplyService.getMyMockApplies(user, 0, 9);
+        MockApplyHomeResponse secondPage = mockApplyService.getMyMockApplies(user, 1, 9);
+
+        assertThat(firstPage.completed().getContent()).hasSize(9);
+        assertThat(firstPage.completed().getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(
+                        createdIds.get(9),
+                        createdIds.get(8),
+                        createdIds.get(7),
+                        createdIds.get(6),
+                        createdIds.get(5),
+                        createdIds.get(4),
+                        createdIds.get(3),
+                        createdIds.get(2),
+                        createdIds.get(1)
+                );
+        assertThat(firstPage.completed().getTotalElements()).isEqualTo(10);
+        assertThat(firstPage.completed().getTotalPages()).isEqualTo(2);
+        assertThat(firstPage.completed().hasNext()).isTrue();
+        assertThat(secondPage.completed().getContent()).hasSize(1);
+        assertThat(secondPage.completed().getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(createdIds.get(0));
+        assertThat(secondPage.completed().getNumber()).isEqualTo(1);
+        assertThat(secondPage.completed().hasNext()).isFalse();
     }
 
     @Test
