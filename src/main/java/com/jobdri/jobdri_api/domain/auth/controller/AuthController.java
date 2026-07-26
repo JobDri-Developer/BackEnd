@@ -4,6 +4,8 @@ import com.jobdri.jobdri_api.domain.auth.dto.request.EmailSendRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.EmailVerificationRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.LoginRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.LogoutRequest;
+import com.jobdri.jobdri_api.domain.auth.dto.request.PasswordResetConfirmationRequest;
+import com.jobdri.jobdri_api.domain.auth.dto.request.PasswordResetEmailRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.ReissueTokenRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.SignupRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.response.LoginResponse;
@@ -162,5 +164,35 @@ public class AuthController {
     public ApiResponse<Void> logout(@Valid @RequestBody LogoutRequest request) {
         authService.logout(request);
         return ApiResponse.onSuccess("로그아웃이 완료되었습니다.");
+    }
+
+    @Operation(summary = "비밀번호 재설정 이메일 요청", description = "가입 이메일로 비밀번호 재설정 토큰을 발송합니다. 계정 존재 여부와 무관하게 동일한 성공 응답을 반환합니다.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "비밀번호 재설정 이메일 요청 접수",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":\"비밀번호 재설정 안내가 발송되었습니다.\",\"result\":null,\"error\":null}")
+                    )
+            )
+    })
+    @PostMapping("/password-reset/emails")
+    public ApiResponse<Void> sendPasswordResetEmail(@Valid @RequestBody PasswordResetEmailRequest request) {
+        authService.sendPasswordResetEmail(request);
+        return ApiResponse.onSuccess("비밀번호 재설정 안내가 발송되었습니다.");
+    }
+
+    @Operation(summary = "비밀번호 재설정 확인", description = "이메일로 받은 재설정 토큰으로 새 비밀번호를 설정하고 기존 refresh token을 무효화합니다.")
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "비밀번호 재설정 성공",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":\"비밀번호가 재설정되었습니다.\",\"result\":null,\"error\":null}")
+                    )
+            )
+    })
+    @PostMapping("/password-reset/confirmations")
+    public ApiResponse<Void> resetPassword(@Valid @RequestBody PasswordResetConfirmationRequest request) {
+        authService.resetPassword(request);
+        return ApiResponse.onSuccess("비밀번호가 재설정되었습니다.");
     }
 }

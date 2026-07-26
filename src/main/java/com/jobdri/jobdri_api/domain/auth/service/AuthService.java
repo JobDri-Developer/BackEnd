@@ -2,6 +2,8 @@ package com.jobdri.jobdri_api.domain.auth.service;
 
 import com.jobdri.jobdri_api.domain.auth.dto.request.LoginRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.LogoutRequest;
+import com.jobdri.jobdri_api.domain.auth.dto.request.PasswordResetConfirmationRequest;
+import com.jobdri.jobdri_api.domain.auth.dto.request.PasswordResetEmailRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.ReissueTokenRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.SignupRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.response.LoginResponse;
@@ -20,6 +22,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.util.Base64;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -29,12 +36,16 @@ public class AuthService {
     private static final String REFRESH_TOKEN_PREFIX = "RefreshToken:";
     private static final String BLACKLIST_PREFIX = "Blacklist:";
     private static final String REISSUE_LOCK_PREFIX = "ReissueLock:";
+    private static final String PASSWORD_RESET_TOKEN_PREFIX = "PasswordResetToken:";
     private static final long REISSUE_LOCK_TIMEOUT_SECONDS = 3L;
+    private static final long PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES = 30L;
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final EmailService emailService;
+    private final AsyncEmailSender asyncEmailSender;
     private final StringRedisTemplate redisTemplate;
 
     @Transactional
@@ -162,6 +173,45 @@ public class AuthService {
         }
     }
 
+    public void sendPasswordResetEmail(PasswordResetEmailRequest request) {
+        userRepository.findByEmail(request.email())
+                .filter(user -> user.getSocialType() == SocialType.LOCAL)
+                .ifPresent(user -> {
+                    String token = createPasswordResetToken();
+                    redisTemplate.opsForValue().set(
+                            getPasswordResetTokenKey(token),
+                            String.valueOf(user.getId()),
+                            PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES,
+                            TimeUnit.MINUTES
+                    );
+                    asyncEmailSender.sendPasswordResetMail(user.getEmail(), token);
+                });
+    }
+
+    @Transactional
+    public void resetPassword(PasswordResetConfirmationRequest request) {
+        String tokenKey = getPasswordResetTokenKey(request.token());
+        String userIdValue = redisTemplate.opsForValue().get(tokenKey);
+        if (userIdValue == null) {
+            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "비밀번호 재설정 토큰이 유효하지 않습니다.");
+        }
+
+        Long userId = parsePasswordResetUserId(userIdValue);
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new GeneralException(GeneralErrorCode.USER_NOT_FOUND));
+
+        if (user.getSocialType() != SocialType.LOCAL) {
+            throw new GeneralException(
+                    GeneralErrorCode.SOCIAL_LOGIN_REQUIRED,
+                    "Google 계정은 비밀번호를 재설정할 수 없습니다. 소셜 로그인을 이용해주세요."
+            );
+        }
+
+        user.updatePassword(passwordEncoder.encode(request.newPassword()));
+        redisTemplate.delete(tokenKey);
+        redisTemplate.delete(getRefreshTokenKey(user.getId()));
+    }
+
     private Claims extractLogoutClaims(String accessToken) {
         try {
             return jwtUtil.getClaimsFromToken(accessToken);
@@ -189,6 +239,34 @@ public class AuthService {
 
     private String getReissueLockKey(Long userId) {
         return REISSUE_LOCK_PREFIX + userId;
+    }
+
+    private String getPasswordResetTokenKey(String token) {
+        return PASSWORD_RESET_TOKEN_PREFIX + sha256(token);
+    }
+
+    private String createPasswordResetToken() {
+        byte[] bytes = new byte[32];
+        SECURE_RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private String sha256(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hashed = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(hashed);
+        } catch (NoSuchAlgorithmException exception) {
+            throw new GeneralException(GeneralErrorCode.INTERNAL_SERVER_ERROR, "비밀번호 재설정 토큰 처리에 실패했습니다.");
+        }
+    }
+
+    private Long parsePasswordResetUserId(String userIdValue) {
+        try {
+            return Long.parseLong(userIdValue);
+        } catch (NumberFormatException exception) {
+            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "비밀번호 재설정 토큰이 유효하지 않습니다.");
+        }
     }
 
 }

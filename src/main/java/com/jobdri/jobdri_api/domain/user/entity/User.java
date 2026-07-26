@@ -111,4 +111,8 @@ public class User extends BaseEntity {
     public void promoteToAdmin() {
         this.role = UserRole.ADMIN;
     }
+
+    public void updatePassword(String encodedPassword) {
+        this.password = encodedPassword;
+    }
 }
