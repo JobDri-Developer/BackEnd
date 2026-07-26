@@ -11,4 +11,9 @@ public record CouponRedeemRequest(
         )
         String couponCode
 ) {
+    public CouponRedeemRequest {
+        if (couponCode != null) {
+            couponCode = couponCode.trim();
+        }
+    }
 }

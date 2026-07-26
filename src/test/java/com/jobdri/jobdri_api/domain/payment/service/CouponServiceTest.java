@@ -19,13 +19,18 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.fail;
 
 @SpringBootTest
 @ActiveProfiles("test")
 class CouponServiceTest {
+
+    private static final long CONCURRENCY_TIMEOUT_SECONDS = 5L;
 
     @Autowired
     private CouponService couponService;
@@ -44,7 +49,7 @@ class CouponServiceTest {
     void redeem() {
         User user = saveUser("coupon-redeem@example.com");
 
-        CouponRedeemResponse response = couponService.redeem(user, new CouponRedeemRequest("test-coup-2026"));
+        CouponRedeemResponse response = couponService.redeem(user, new CouponRedeemRequest("  test-coup-2026  "));
 
         assertThat(response.couponCode()).isEqualTo("TEST-COUP-2026");
         assertThat(response.creditAmount()).isEqualTo(1);
@@ -136,12 +141,18 @@ class CouponServiceTest {
             var futures = tasks.stream()
                     .map(executor::submit)
                     .toList();
-            ready.await();
+            if (!ready.await(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                fail("Concurrent test setup timed out while waiting for worker threads to be ready.");
+            }
             start.countDown();
 
             List<Result> results = new java.util.ArrayList<>();
             for (var future : futures) {
-                results.add(future.get());
+                try {
+                    results.add(future.get(CONCURRENCY_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+                } catch (TimeoutException e) {
+                    fail("Concurrent test timed out while waiting for worker result.", e);
+                }
             }
             return results;
         } finally {
