@@ -140,13 +140,16 @@ public class JobPostingWorkerInternalController {
             @Valid @RequestBody JobPostingWorkerContextRequest request
     ) {
         internalApiKeyValidator.validate(internalApiKey);
+        List<String> imageUrls = jobPostingWorkerBridgeService.createReadableImageUrls(
+                request.userId(),
+                request.imageObjectKey(),
+                request.imageObjectKeys()
+        );
         return ApiResponse.onSuccess(
                 "채용 공고 worker 컨텍스트 조회에 성공했습니다.",
                 new JobPostingWorkerContextResponse(
-                        jobPostingWorkerBridgeService.createReadableImageUrl(
-                                request.userId(),
-                                request.imageObjectKey()
-                        )
+                        imageUrls.isEmpty() ? null : imageUrls.get(0),
+                        imageUrls
                 )
         );
     }

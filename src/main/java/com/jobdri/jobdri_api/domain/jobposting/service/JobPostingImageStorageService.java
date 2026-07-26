@@ -12,20 +12,23 @@ import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 public class JobPostingImageStorageService {
 
     private static final String BASE_DIR = "job-postings/tmp";
+    private static final int MAX_IMAGE_COUNT = 2;
     private static final Map<String, String> CONTENT_TYPE_TO_EXTENSION = Map.of(
             "image/png", "png",
             "image/jpeg", "jpg",
-            "image/jpg", "jpg",
-            "image/webp", "webp",
-            "image/gif", "gif"
+            "image/jpg", "jpg"
     );
 
     private final S3ObjectUrlService s3ObjectUrlService;
@@ -55,7 +58,7 @@ public class JobPostingImageStorageService {
         if (extension == null) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
-                    "지원하는 이미지 형식은 png, jpg, jpeg, webp, gif 입니다."
+                    "지원하는 이미지 형식은 png, jpg, jpeg 입니다."
             );
         }
 
@@ -80,6 +83,43 @@ public class JobPostingImageStorageService {
         validateOwnership(userId, objectKey);
         validateUploadedObject(objectKey);
         return s3ObjectUrlService.createPresignedGetUrl(objectKey);
+    }
+
+    public List<String> createReadableImageUrls(Long userId, List<String> objectKeys) {
+        List<String> normalizedObjectKeys = normalizeImageObjectKeys(null, objectKeys);
+        List<String> imageUrls = new ArrayList<>();
+        for (String objectKey : normalizedObjectKeys) {
+            imageUrls.add(createReadableImageUrl(userId, objectKey));
+        }
+        return imageUrls;
+    }
+
+    public List<String> normalizeImageObjectKeys(String imageObjectKey, List<String> imageObjectKeys) {
+        Set<String> normalized = new LinkedHashSet<>();
+        if (imageObjectKey != null && !imageObjectKey.isBlank()) {
+            normalized.add(imageObjectKey.trim());
+        }
+        if (imageObjectKeys != null) {
+            for (String objectKey : imageObjectKeys) {
+                if (objectKey == null || objectKey.isBlank()) {
+                    continue;
+                }
+                String trimmed = objectKey.trim();
+                if (!normalized.add(trimmed)) {
+                    throw new GeneralException(
+                            GeneralErrorCode.INVALID_PARAMETER,
+                            "동일한 이미지 objectKey를 중복으로 전달할 수 없습니다."
+                    );
+                }
+            }
+        }
+        if (normalized.size() > MAX_IMAGE_COUNT) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "이미지는 최대 2개까지 첨부할 수 있습니다."
+            );
+        }
+        return List.copyOf(normalized);
     }
 
     public void validateOwnership(Long userId, String objectKey) {
@@ -144,11 +184,27 @@ public class JobPostingImageStorageService {
         if (!CONTENT_TYPE_TO_EXTENSION.containsKey(normalizedContentType)) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
-                    "지원하는 이미지 형식은 png, jpg, jpeg, webp, gif 입니다."
+                    "지원하는 이미지 형식은 png, jpg, jpeg 입니다."
+            );
+        }
+
+        String lowerObjectKey = objectKey.toLowerCase(Locale.ROOT);
+        if (!lowerObjectKey.endsWith(".png")
+                && !lowerObjectKey.endsWith(".jpg")
+                && !lowerObjectKey.endsWith(".jpeg")) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "지원하는 이미지 확장자는 png, jpg, jpeg 입니다."
             );
         }
 
         Long contentLength = headObject.contentLength();
+        if (contentLength != null && contentLength <= 0) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "빈 이미지 파일은 사용할 수 없습니다."
+            );
+        }
         if (contentLength != null && contentLength > maxImageSizeBytes) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,

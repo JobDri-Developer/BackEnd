@@ -33,12 +33,18 @@ public class JobPostingIngestService {
     private final JobPostingClassificationService jobPostingClassificationService;
     private final JobPostingService jobPostingService;
     private final UserService userService;
+    private final JobPostingImageStorageService jobPostingImageStorageService;
 
     public JobPostingIngestResponse ingestAndCreate(User user, JobPostingIngestRequest request) {
+        List<String> imageObjectKeys = jobPostingImageStorageService.normalizeImageObjectKeys(
+                request.imageObjectKey(),
+                request.imageObjectKeys()
+        );
         JobPostingIngestCommand command = JobPostingIngestCommand.builder()
                 .userId(user.getId())
                 .rawText(request.rawText())
-                .imageObjectKey(request.imageObjectKey())
+                .imageObjectKey(imageObjectKeys.isEmpty() ? null : imageObjectKeys.get(0))
+                .imageObjectKeys(imageObjectKeys)
                 .build();
         return ingestAndCreate(command);
     }
@@ -48,7 +54,8 @@ public class JobPostingIngestService {
         JobPostingExtractResponse extracted = jobPostingAiService.extractJobPosting(
                 command.getUserId(),
                 command.getRawText(),
-                command.getImageObjectKey()
+                command.getImageObjectKey(),
+                command.getImageObjectKeys()
         );
         JobPostingIngestQualityValidator.validateExtracted(extracted);
 

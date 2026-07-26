@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestCommand;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncSubmitResponse;
@@ -9,18 +10,24 @@ import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+
+import java.util.ArrayList;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,8 +44,31 @@ class JobPostingAsyncFacadeServiceTest {
     @Mock
     private UserService userService;
 
+    @Mock
+    private JobPostingImageStorageService jobPostingImageStorageService;
+
     @InjectMocks
     private JobPostingAsyncFacadeService jobPostingAsyncFacadeService;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(jobPostingImageStorageService.normalizeImageObjectKeys(any(), any()))
+                .thenAnswer(invocation -> {
+                    String imageObjectKey = invocation.getArgument(0);
+                    List<String> imageObjectKeys = invocation.getArgument(1);
+                    List<String> normalized = new ArrayList<>();
+                    if (imageObjectKey != null && !imageObjectKey.isBlank()) {
+                        normalized.add(imageObjectKey.trim());
+                    }
+                    if (imageObjectKeys != null) {
+                        imageObjectKeys.stream()
+                                .filter(key -> key != null && !key.isBlank())
+                                .map(String::trim)
+                                .forEach(normalized::add);
+                    }
+                    return normalized;
+                });
+    }
 
     @Test
     @DisplayName("채용공고 비동기 작업 생성 시 작업 소유자 userId를 함께 저장한다")
@@ -55,7 +85,33 @@ class JobPostingAsyncFacadeServiceTest {
 
         assertThat(response.getTaskId()).isEqualTo(task.getTaskId());
         verify(jobPostingAsyncTaskService).createPendingTask(7L);
-        verify(jobPostingAsyncProcessor).process(eq(task.getTaskId()), any(), eq(3));
+        ArgumentCaptor<JobPostingIngestCommand> commandCaptor = ArgumentCaptor.forClass(JobPostingIngestCommand.class);
+        verify(jobPostingAsyncProcessor).process(eq(task.getTaskId()), commandCaptor.capture(), eq(3));
+        assertThat(commandCaptor.getValue().getImageObjectKeys()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("비동기 작업 메시지에 최대 2개의 이미지 object key를 포함한다")
+    void submitPassesMultipleImageObjectKeys() {
+        User user = User.signup("테스트 사용자", "job-posting-submit-images@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 7L);
+        JobPostingIngestRequest request = new JobPostingIngestRequest(
+                "공고 원문",
+                null,
+                List.of("job-postings/tmp/7/first.png", "job-postings/tmp/7/second.jpg")
+        );
+        JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(jobPostingAsyncTaskService.createPendingTask(7L)).thenReturn(task);
+
+        jobPostingAsyncFacadeService.submit(user, request);
+
+        ArgumentCaptor<JobPostingIngestCommand> commandCaptor = ArgumentCaptor.forClass(JobPostingIngestCommand.class);
+        verify(jobPostingAsyncProcessor).process(eq(task.getTaskId()), commandCaptor.capture(), eq(3));
+        assertThat(commandCaptor.getValue().getImageObjectKey()).isEqualTo("job-postings/tmp/7/first.png");
+        assertThat(commandCaptor.getValue().getImageObjectKeys())
+                .containsExactly("job-postings/tmp/7/first.png", "job-postings/tmp/7/second.jpg");
     }
 
     @Test

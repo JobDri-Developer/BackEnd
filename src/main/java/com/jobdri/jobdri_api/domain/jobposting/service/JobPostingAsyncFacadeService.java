@@ -20,12 +20,13 @@ public class JobPostingAsyncFacadeService {
     private final JobPostingAsyncTaskService jobPostingAsyncTaskService;
     private final JobPostingAsyncProcessor jobPostingAsyncProcessor;
     private final UserService userService;
+    private final JobPostingImageStorageService jobPostingImageStorageService;
 
     public JobPostingAsyncSubmitResponse submit(User user, JobPostingIngestRequest request) {
         User validatedUser = userService.validateUser(user);
+        JobPostingIngestCommand command = snapshot(validatedUser, request);
         JobPostingAsyncTask task = jobPostingAsyncTaskService.createPendingTask(validatedUser.getId());
         String taskId = task.getTaskId();
-        JobPostingIngestCommand command = snapshot(validatedUser, request);
 
         try {
             jobPostingAsyncProcessor.process(taskId, command, task.getMaxRetryCount());
@@ -58,10 +59,15 @@ public class JobPostingAsyncFacadeService {
     }
 
     private JobPostingIngestCommand snapshot(User user, JobPostingIngestRequest request) {
+        var imageObjectKeys = jobPostingImageStorageService.normalizeImageObjectKeys(
+                request.imageObjectKey(),
+                request.imageObjectKeys()
+        );
         return JobPostingIngestCommand.builder()
                 .userId(user.getId())
                 .rawText(request.rawText())
-                .imageObjectKey(request.imageObjectKey())
+                .imageObjectKey(imageObjectKeys.isEmpty() ? null : imageObjectKeys.get(0))
+                .imageObjectKeys(imageObjectKeys)
                 .build();
     }
 }

@@ -54,7 +54,7 @@ public class JobPostingAiService {
     }
 
     public JobPostingExtractResponse extractJobPosting(Long userId, JobPostingExtractRequest request) {
-        return extractJobPosting(userId, request.rawText(), request.imageObjectKey());
+        return extractJobPosting(userId, request.rawText(), request.imageObjectKey(), request.imageObjectKeys());
     }
 
     public JobPostingGenerateResponse generateJobPosting(JobPostingGenerateRequest request) {
@@ -185,19 +185,32 @@ public class JobPostingAiService {
     }
 
     public JobPostingExtractResponse extractJobPosting(Long userId, String rawText, String imageObjectKey) {
-        validateInput(rawText, imageObjectKey);
-        String imageUrl = hasText(imageObjectKey)
-                ? jobPostingImageStorageService.createReadableImageUrl(userId, imageObjectKey)
-                : null;
+        return extractJobPosting(userId, rawText, imageObjectKey, null);
+    }
+
+    public JobPostingExtractResponse extractJobPosting(
+            Long userId,
+            String rawText,
+            String imageObjectKey,
+            List<String> imageObjectKeys
+    ) {
+        List<String> normalizedImageObjectKeys = jobPostingImageStorageService.normalizeImageObjectKeys(
+                imageObjectKey,
+                imageObjectKeys
+        );
+        validateInput(rawText, normalizedImageObjectKeys);
+        List<String> imageUrls = userId != null
+                ? jobPostingImageStorageService.createReadableImageUrls(userId, normalizedImageObjectKeys)
+                : List.of();
 
         List<ResponseInputContent> contents = new ArrayList<>();
         contents.add(ResponseInputContent.ofInputText(
                 com.openai.models.responses.ResponseInputText.builder()
-                        .text(buildPrompt(rawText, imageUrl != null))
+                        .text(buildPrompt(rawText, !imageUrls.isEmpty()))
                         .build()
         ));
 
-        if (imageUrl != null) {
+        for (String imageUrl : imageUrls) {
             contents.add(ResponseInputContent.ofInputImage(buildImageContent(imageUrl)));
         }
 
@@ -365,9 +378,9 @@ public class JobPostingAiService {
                 ));
     }
 
-    private void validateInput(String rawText, String imageObjectKey) {
+    private void validateInput(String rawText, List<String> imageObjectKeys) {
         boolean hasRawText = hasText(rawText);
-        boolean hasImage = hasText(imageObjectKey);
+        boolean hasImage = imageObjectKeys != null && !imageObjectKeys.isEmpty();
 
         if (!hasRawText && !hasImage) {
             throw new GeneralException(

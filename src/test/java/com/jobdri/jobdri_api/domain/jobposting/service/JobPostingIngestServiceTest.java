@@ -25,6 +25,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Stream;
 
@@ -33,6 +34,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -51,6 +53,9 @@ class JobPostingIngestServiceTest {
 
     @Mock
     private UserService userService;
+
+    @Mock
+    private JobPostingImageStorageService jobPostingImageStorageService;
 
     @InjectMocks
     private JobPostingIngestService jobPostingIngestService;
@@ -94,6 +99,22 @@ class JobPostingIngestServiceTest {
         user = User.signup("테스트 사용자", "ingest@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 1L);
         ReflectionTestUtils.setField(jobPostingIngestService, "classificationConfidenceThreshold", 0.65);
+        lenient().when(jobPostingImageStorageService.normalizeImageObjectKeys(any(), any()))
+                .thenAnswer(invocation -> {
+                    String imageObjectKey = invocation.getArgument(0);
+                    List<String> imageObjectKeys = invocation.getArgument(1);
+                    List<String> normalized = new ArrayList<>();
+                    if (imageObjectKey != null && !imageObjectKey.isBlank()) {
+                        normalized.add(imageObjectKey.trim());
+                    }
+                    if (imageObjectKeys != null) {
+                        imageObjectKeys.stream()
+                                .filter(key -> key != null && !key.isBlank())
+                                .map(String::trim)
+                                .forEach(normalized::add);
+                    }
+                    return normalized;
+                });
     }
 
     @Test
@@ -149,7 +170,7 @@ class JobPostingIngestServiceTest {
                 .preferred("정제된 우대 사항")
                 .build();
 
-        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
+        when(jobPostingAiService.extractJobPosting(any(), any(), any(), any()))
                 .thenReturn(extracted);
         when(jobPostingClassificationService.findCandidates(extracted, 5))
                 .thenReturn(List.of(candidate));
@@ -167,7 +188,8 @@ class JobPostingIngestServiceTest {
         verify(jobPostingAiService).extractJobPosting(
                 eq(1L),
                 eq("채용 공고 원문"),
-                imageObjectKeyCaptor.capture()
+                imageObjectKeyCaptor.capture(),
+                eq(List.of("job-postings/1/posting.png"))
         );
         ArgumentCaptor<JobPostingCreateRequest> createRequestCaptor =
                 ArgumentCaptor.forClass(JobPostingCreateRequest.class);
@@ -237,7 +259,7 @@ class JobPostingIngestServiceTest {
                 0.9
         );
 
-        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
+        when(jobPostingAiService.extractJobPosting(any(), any(), any(), any()))
                 .thenReturn(extracted);
 
         assertThatThrownBy(() -> jobPostingIngestService.ingestAndCreate(user, request))
@@ -254,7 +276,7 @@ class JobPostingIngestServiceTest {
         JobPostingIngestRequest request = new JobPostingIngestRequest("공고 입력", null);
         JobPostingExtractResponse extracted = validExtracted(confidence);
 
-        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
+        when(jobPostingAiService.extractJobPosting(any(), any(), any(), any()))
                 .thenReturn(extracted);
 
         assertThatThrownBy(() -> jobPostingIngestService.ingestAndCreate(user, request))
@@ -282,7 +304,7 @@ class JobPostingIngestServiceTest {
                 0.9
         );
 
-        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
+        when(jobPostingAiService.extractJobPosting(any(), any(), any(), any()))
                 .thenReturn(extracted);
 
         assertThatThrownBy(() -> jobPostingIngestService.ingestAndCreate(user, request))
@@ -374,7 +396,7 @@ class JobPostingIngestServiceTest {
                 ""
         );
 
-        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
+        when(jobPostingAiService.extractJobPosting(any(), any(), any(), any()))
                 .thenReturn(extracted);
         when(jobPostingClassificationService.findCandidates(extracted, 5))
                 .thenReturn(List.of(candidate));
@@ -468,7 +490,7 @@ class JobPostingIngestServiceTest {
                 0.9
         );
 
-        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
+        when(jobPostingAiService.extractJobPosting(any(), any(), any(), any()))
                 .thenReturn(extracted);
 
         Throwable thrown = catchThrowable(() -> jobPostingIngestService.ingestAndCreate(user, request));
@@ -509,7 +531,7 @@ class JobPostingIngestServiceTest {
                 0.9
         );
 
-        when(jobPostingAiService.extractJobPosting(any(), any(), any()))
+        when(jobPostingAiService.extractJobPosting(any(), any(), any(), any()))
                 .thenReturn(extracted);
         when(jobPostingClassificationService.findCandidates(extracted, 5))
                 .thenReturn(List.of(candidate));

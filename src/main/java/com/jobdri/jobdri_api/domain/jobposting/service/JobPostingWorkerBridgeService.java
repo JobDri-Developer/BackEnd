@@ -112,6 +112,14 @@ public class JobPostingWorkerBridgeService {
         return jobPostingImageStorageService.createReadableImageUrl(userId, imageObjectKey);
     }
 
+    public List<String> createReadableImageUrls(Long userId, String imageObjectKey, List<String> imageObjectKeys) {
+        List<String> normalizedImageObjectKeys = jobPostingImageStorageService.normalizeImageObjectKeys(
+                imageObjectKey,
+                imageObjectKeys
+        );
+        return jobPostingImageStorageService.createReadableImageUrls(userId, normalizedImageObjectKeys);
+    }
+
     public List<JobPostingClassificationCandidateResponse> findCandidates(JobPostingExtractResponse extracted) {
         return jobPostingClassificationService.findCandidates(extracted, 5);
     }
