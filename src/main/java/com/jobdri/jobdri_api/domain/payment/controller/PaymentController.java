@@ -1,9 +1,11 @@
 package com.jobdri.jobdri_api.domain.payment.controller;
 
+import com.jobdri.jobdri_api.domain.payment.dto.request.CouponRedeemRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.*;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
+import com.jobdri.jobdri_api.domain.payment.service.CouponService;
 import com.jobdri.jobdri_api.domain.payment.service.PaymentService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
@@ -23,6 +25,7 @@ import java.util.List;
 public class PaymentController {
 
     private final PaymentService paymentService;
+    private final CouponService couponService;
 
     @Operation(summary = "크레딧 가격 플랜 조회", description = "구매 가능한 크레딧 플랜 목록을 조회합니다.")
     @GetMapping("/plans")
@@ -51,6 +54,18 @@ public class PaymentController {
         return ApiResponse.onSuccess(
                 "결제가 완료되었습니다.",
                 paymentService.confirm(userDetails.getUser(), request)
+        );
+    }
+
+    @Operation(summary = "쿠폰으로 크레딧 충전", description = "쿠폰 번호를 검증하고 중복 사용을 방지한 뒤 크레딧 1회를 충전합니다.")
+    @PostMapping("/coupons/redeem")
+    public ApiResponse<CouponRedeemResponse> redeemCoupon(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @Valid @RequestBody CouponRedeemRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "쿠폰이 등록되었습니다.",
+                couponService.redeem(userDetails.getUser(), request)
         );
     }
 
