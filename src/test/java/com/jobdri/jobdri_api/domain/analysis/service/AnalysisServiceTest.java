@@ -610,6 +610,48 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("keyStrengths와 같은 quote를 가진 keyWeaknesses는 제외한다")
+    void analyzeRemovesWeaknessesOverlappingWithStrengths() {
+        User user = saveUser("analysis-highlight-overlap@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "강약점 중복 검증입니다.",
+                List.of(new AnalysisLlmResponse.HighlightItem(
+                        "구현 경험이 분명합니다.",
+                        "Spring Boot API를 개발했습니다."
+                )),
+                List.of(
+                        new AnalysisLlmResponse.HighlightItem(
+                                "성과 수치 보완이 필요합니다.",
+                                "Spring Boot API를 개발했습니다."
+                        ),
+                        new AnalysisLlmResponse.HighlightItem(
+                                "테스트 자동화 경험 보강이 필요합니다.",
+                                "테스트 자동화 경험"
+                        )
+                ),
+                List.of(),
+                List.of()
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.keyStrengths()).extracting("quote")
+                .containsExactly("Spring Boot API를 개발했습니다.");
+        assertThat(response.keyWeaknesses()).extracting("quote")
+                .containsExactly("테스트 자동화 경험");
+
+        Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
+        assertThat(analysis.getKeyWeaknessesJson())
+                .doesNotContain("성과 수치 보완이 필요합니다.")
+                .contains("테스트 자동화 경험 보강이 필요합니다.");
+    }
+
+    @Test
     @DisplayName("분석 응답은 같은 공고 기준 현재 지원 순번을 반환한다")
     void analyzeReturnsSequence() {
         User user = saveUser("analysis-sequence@example.com");
