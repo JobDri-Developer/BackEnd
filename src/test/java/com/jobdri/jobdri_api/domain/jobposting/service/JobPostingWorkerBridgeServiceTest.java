@@ -148,6 +148,7 @@ class JobPostingWorkerBridgeServiceTest {
                 0.9
         );
         JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                "백엔드 개발자 채용",
                 "잡드리",
                 "백엔드 개발자",
                 "정제된 주요 업무",

@@ -129,6 +129,7 @@ class JobPostingIngestServiceTest {
                 0.9
         );
         JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                "클라우드 엔지니어 채용",
                 "해커스 교육그룹",
                 "클라우드 엔지니어",
                 "정제된 주요 업무",
@@ -168,8 +169,13 @@ class JobPostingIngestServiceTest {
                 eq("채용 공고 원문"),
                 imageObjectKeyCaptor.capture()
         );
+        ArgumentCaptor<JobPostingCreateRequest> createRequestCaptor =
+                ArgumentCaptor.forClass(JobPostingCreateRequest.class);
+        verify(jobPostingService).createJobPosting(eq(user), createRequestCaptor.capture());
 
         assertThat(imageObjectKeyCaptor.getValue()).isEqualTo("job-postings/1/posting.png");
+        assertThat(createRequestCaptor.getValue().postingName()).isEqualTo("클라우드 엔지니어 채용");
+        assertThat(createRequestCaptor.getValue().jobTitle()).isEqualTo("클라우드 엔지니어");
         assertThat(response.isSavedToDatabase()).isTrue();
     }
 
@@ -190,6 +196,7 @@ class JobPostingIngestServiceTest {
                 0.3
         );
         JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                "백엔 채용",
                 "잡드",
                 "백엔",
                 "업무내용1",
@@ -302,6 +309,7 @@ class JobPostingIngestServiceTest {
                 0.9
         );
         JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                "백엔드 개발자 채용",
                 "잡드리",
                 "백엔드 개발자",
                 "string",
@@ -326,7 +334,7 @@ class JobPostingIngestServiceTest {
     }
 
     @Test
-    @DisplayName("공고 생성 결과의 공고명과 직무가 placeholder이면 invalid field 목록을 내려준다")
+    @DisplayName("공고 생성 결과의 직무가 placeholder여도 공고명 invalid로 함께 보고하지 않는다")
     void ingestAndCreateRejectsInvalidGeneratedResult() {
         JobPostingIngestRequest request = new JobPostingIngestRequest(
                 "백엔드 개발자 채용 공고 원문입니다. 주요 업무는 API 개발이고 자격 요건은 Spring 경험입니다.",
@@ -357,6 +365,7 @@ class JobPostingIngestServiceTest {
                 0.9
         );
         JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                "백엔드 개발자 채용",
                 "잡드리",
                 "string",
                 "string",
@@ -379,7 +388,7 @@ class JobPostingIngestServiceTest {
         assertThat(thrown)
                 .isInstanceOf(GeneralException.class)
                 .hasMessageContaining("채용 공고 필수 정보를 인식하지 못했습니다.");
-        assertInvalidFields((GeneralException) thrown, "postingName", "jobTitle");
+        assertInvalidFields((GeneralException) thrown, "jobTitle");
 
         verifyNoInteractions(jobPostingService, userService);
     }
@@ -397,6 +406,7 @@ class JobPostingIngestServiceTest {
         );
         JobPostingExtractResponse extracted = validExtracted(0.9);
         JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                "백엔드 개발자 채용",
                 companyName,
                 jobTitle,
                 "T",
@@ -410,6 +420,36 @@ class JobPostingIngestServiceTest {
         assertThatThrownBy(() -> jobPostingIngestService.ingestAndCreate(user, request))
                 .isInstanceOf(GeneralException.class)
                 .hasMessageContaining("채용 공고 필수 정보를 인식하지 못했습니다.");
+
+        verifyNoInteractions(jobPostingService, userService);
+    }
+
+    @Test
+    @DisplayName("공고 생성 결과의 공고명이 유효하지 않으면 postingName만 invalid field로 내려준다")
+    void ingestAndCreateRejectsInvalidGeneratedPostingNameOnly() {
+        JobPostingIngestRequest request = new JobPostingIngestRequest(
+                "백엔드 개발자 채용 공고 원문입니다. 주요 업무는 API 개발이고 자격 요건은 Spring 경험입니다.",
+                null
+        );
+        JobPostingExtractResponse extracted = validExtracted(0.9);
+        JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                "string",
+                "잡드리",
+                "백엔드 개발자",
+                "T",
+                "R",
+                "",
+                ""
+        );
+
+        stubUntilGenerated(extracted, generated);
+
+        Throwable thrown = catchThrowable(() -> jobPostingIngestService.ingestAndCreate(user, request));
+
+        assertThat(thrown)
+                .isInstanceOf(GeneralException.class)
+                .hasMessageContaining("채용 공고 필수 정보를 인식하지 못했습니다.");
+        assertInvalidFields((GeneralException) thrown, "postingName");
 
         verifyNoInteractions(jobPostingService, userService);
     }

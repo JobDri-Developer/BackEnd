@@ -62,7 +62,7 @@ final class JobPostingIngestQualityValidator {
             ));
         }
         validateRequiredFields(List.of(
-                field("postingName", "공고명", generated.jobTitle()),
+                field("postingName", "공고명", generated.postingName()),
                 field("companyName", "회사명", generated.companyName()),
                 field("jobTitle", "직무", generated.jobTitle())
         ));
