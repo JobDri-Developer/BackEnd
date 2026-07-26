@@ -21,6 +21,7 @@ import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationService;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
+import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCompletedFilter;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeItemResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
@@ -480,6 +481,68 @@ class MockApplyServiceTest {
     }
 
     @Test
+    @DisplayName("완료된 모의 서류 지원은 점수 기준으로 필터링하고 updatedAt 최신순으로 페이지 조회한다")
+    void getCompletedMockAppliesWithScoreFilter() {
+        User user = saveUser("completed-filter@example.com");
+        User otherUser = saveUser("completed-filter-other@example.com");
+        JobPosting posting = saveJobPosting(user, "백엔드 개발");
+        JobPosting otherPosting = saveJobPosting(otherUser, "백엔드 개발");
+        LocalDateTime baseTime = LocalDateTime.of(2026, 1, 1, 12, 0);
+
+        MockApply lowScore = saveCompletedMockApply(user, posting, ApplyType.MOCK, 1, 79, baseTime.plusMinutes(1));
+        MockApply borderScore = saveCompletedMockApply(user, posting, ApplyType.MOCK, 2, 80, baseTime.plusMinutes(2));
+        MockApply highScore = saveCompletedMockApply(user, posting, ApplyType.MOCK, 3, 95, baseTime.plusMinutes(3));
+        MockApply inProgress = saveMockApply(user, posting, ApplyType.MOCK, 4);
+        inProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        mockApplyRepository.saveAndFlush(inProgress);
+        saveCompletedMockApply(otherUser, otherPosting, ApplyType.MOCK, 1, 60, baseTime.plusHours(1));
+
+        Page<MockApplyHomeItemResponse> all = mockApplyService.getCompletedMockApplies(
+                user,
+                MockApplyCompletedFilter.ALL,
+                0,
+                9
+        );
+        Page<MockApplyHomeItemResponse> needsImprovement = mockApplyService.getCompletedMockApplies(
+                user,
+                MockApplyCompletedFilter.NEEDS_IMPROVEMENT,
+                0,
+                9
+        );
+        Page<MockApplyHomeItemResponse> improvable = mockApplyService.getCompletedMockApplies(
+                user,
+                MockApplyCompletedFilter.IMPROVABLE,
+                0,
+                9
+        );
+
+        assertThat(all.getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(highScore.getId(), borderScore.getId(), lowScore.getId());
+        assertThat(all.getTotalElements()).isEqualTo(3);
+        assertThat(all.getSize()).isEqualTo(9);
+        assertThat(needsImprovement.getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(lowScore.getId());
+        assertThat(needsImprovement.getContent()).extracting(MockApplyHomeItemResponse::score)
+                .containsExactly(79);
+        assertThat(improvable.getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(highScore.getId(), borderScore.getId());
+        assertThat(improvable.getContent()).extracting(MockApplyHomeItemResponse::score)
+                .containsExactly(95, 80);
+    }
+
+    @Test
+    @DisplayName("완료된 모의 서류 지원 필터가 null이면 전체 목록으로 조회한다")
+    void getCompletedMockAppliesDefaultsNullFilterToAll() {
+        User user = saveUser("completed-filter-null@example.com");
+        JobPosting posting = saveJobPosting(user, "백엔드 개발");
+        saveCompletedMockApply(user, posting, ApplyType.MOCK, 1, 70, LocalDateTime.of(2026, 1, 1, 12, 0));
+
+        Page<MockApplyHomeItemResponse> response = mockApplyService.getCompletedMockApplies(user, null, 0, 9);
+
+        assertThat(response.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("모의 서류 지원은 displayName, 회사명, 직무명, 공고명으로 검색한다")
     void searchMyMockApplies() {
         User user = saveUser("search@example.com");
@@ -797,6 +860,29 @@ class MockApplyServiceTest {
         return inNewTransaction(() -> mockApplyRepository.saveAndFlush(
                 MockApply.create(user, jobPosting, applyType, sequence)
         ));
+    }
+
+    private MockApply saveCompletedMockApply(
+            User user,
+            JobPosting jobPosting,
+            ApplyType applyType,
+            Integer sequence,
+            int score,
+            LocalDateTime updatedAt
+    ) {
+        return inNewTransaction(() -> {
+            MockApply mockApply = mockApplyRepository.save(MockApply.create(
+                    userRepository.findById(user.getId()).orElseThrow(),
+                    jobPostingRepository.findById(jobPosting.getId()).orElseThrow(),
+                    applyType,
+                    sequence
+            ));
+            mockApply.updateStatus(MockApplyStatus.COMPLETED);
+            Analysis analysis = analysisRepository.save(Analysis.create(mockApply, score, score, score, score, "완료 분석입니다."));
+            mockApply.assignAnalysis(analysis);
+            ReflectionTestUtils.setField(mockApply, "updatedAt", updatedAt);
+            return mockApplyRepository.saveAndFlush(mockApply);
+        });
     }
 
     private Question saveQuestion(MockApply mockApply, String content, int limit, String answer) {

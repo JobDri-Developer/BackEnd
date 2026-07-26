@@ -41,6 +41,29 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
             "jobPosting.detailClassification",
             "analysis"
     })
+    @Query("""
+            select ma
+            from MockApply ma
+            left join ma.analysis a
+            where ma.user.id = :userId
+              and ma.status = :status
+              and (:minScore is null or a.score >= :minScore)
+              and (:maxScoreExclusive is null or a.score < :maxScoreExclusive)
+            """)
+    Page<MockApply> findCompletedByUserIdAndScoreFilter(
+            @Param("userId") Long userId,
+            @Param("status") MockApplyStatus status,
+            @Param("minScore") Integer minScore,
+            @Param("maxScoreExclusive") Integer maxScoreExclusive,
+            Pageable pageable
+    );
+
+    @EntityGraph(attributePaths = {
+            "jobPosting",
+            "jobPosting.company",
+            "jobPosting.detailClassification",
+            "analysis"
+    })
     Page<MockApply> findAllByUserId(Long userId, Pageable pageable);
 
     @EntityGraph(attributePaths = {

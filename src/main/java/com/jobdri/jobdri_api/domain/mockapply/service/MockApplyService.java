@@ -17,6 +17,7 @@ import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
 import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationService;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockFromJobPostingRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
+import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCompletedFilter;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeItemResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
@@ -260,6 +261,33 @@ public class MockApplyService {
                 .getContent();
     }
 
+    public Page<MockApplyHomeItemResponse> getCompletedMockApplies(
+            User user,
+            MockApplyCompletedFilter filter,
+            int page,
+            int size
+    ) {
+        User validatedUser = userService.validateUser(user);
+        MockApplyCompletedFilter resolvedFilter = filter == null ? MockApplyCompletedFilter.ALL : filter;
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                Sort.by(
+                        Sort.Order.desc("updatedAt"),
+                        Sort.Order.desc("id")
+                )
+        );
+
+        return mockApplyRepository.findCompletedByUserIdAndScoreFilter(
+                        validatedUser.getId(),
+                        MockApplyStatus.COMPLETED,
+                        minScore(resolvedFilter),
+                        maxScoreExclusive(resolvedFilter),
+                        pageable
+                )
+                .map(MockApplyHomeItemResponse::from);
+    }
+
     public Page<MockApplyHomeItemResponse> searchMyMockApplies(User user, String query, int page, int size) {
         User validatedUser = userService.validateUser(user);
         String normalizedQuery = validateAndNormalizeSearchQuery(query);
@@ -342,6 +370,14 @@ public class MockApplyService {
             );
         }
         return trimmedName;
+    }
+
+    private Integer minScore(MockApplyCompletedFilter filter) {
+        return filter == MockApplyCompletedFilter.IMPROVABLE ? 80 : null;
+    }
+
+    private Integer maxScoreExclusive(MockApplyCompletedFilter filter) {
+        return filter == MockApplyCompletedFilter.NEEDS_IMPROVEMENT ? 80 : null;
     }
 
     private int clampRecentLimit(int limit) {
