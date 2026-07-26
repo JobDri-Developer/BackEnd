@@ -148,6 +148,7 @@ class JobPostingWorkerBridgeServiceTest {
                 0.9
         );
         JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                "백엔드 개발자 채용",
                 "잡드리",
                 "백엔드 개발자",
                 "정제된 주요 업무",
@@ -165,7 +166,7 @@ class JobPostingWorkerBridgeServiceTest {
                 generated
         ))
                 .isInstanceOf(GeneralException.class)
-                .hasMessageContaining("채용 공고로 인식할 수 없는 입력입니다.");
+                .hasMessageContaining("채용 공고 필수 정보를 인식하지 못했습니다.");
 
         verify(workerTaskResultService, never()).upsertGenerated(
                 eq(TaskType.JOB_POSTING_FINALIZE),

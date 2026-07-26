@@ -266,6 +266,7 @@ class JobPostingAiServiceTest {
         JobPostingGenerateResponse response = jobPostingAiService.generateJobPosting(request);
 
         assertThat(response.companyName()).isEqualTo("테스트 기업");
+        assertThat(response.postingName()).isEqualTo("백엔드 개발자");
         assertThat(response.jobTitle()).isEqualTo("백엔드 개발자");
         verify(llmConcurrencyLimiter).execute(eq("job-posting-generate"), any());
     }

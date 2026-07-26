@@ -97,7 +97,7 @@ public class JobPostingIngestService {
                 resolveUser(command),
                 new JobPostingCreateRequest(
                         JobPostingProfileColor.DEFAULT,
-                        generated.jobTitle(),
+                        generated.postingName(),
                         fallbackCompanyName(extracted.companyName()),
                         null,
                         generated.jobTitle(),

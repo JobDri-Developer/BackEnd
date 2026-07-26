@@ -153,7 +153,7 @@ public class JobPostingWorkerBridgeService {
                 userService.getUser(userId),
                 new JobPostingCreateRequest(
                         JobPostingProfileColor.DEFAULT,
-                        generated.jobTitle(),
+                        generated.postingName(),
                         fallbackCompanyName(extracted.companyName()),
                         null,
                         generated.jobTitle(),

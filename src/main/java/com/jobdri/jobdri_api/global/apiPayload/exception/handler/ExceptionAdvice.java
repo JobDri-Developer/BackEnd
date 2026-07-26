@@ -45,7 +45,7 @@ public class ExceptionAdvice {
         }
         return ResponseEntity
                 .status(code.getHttpStatus())
-                .body(ApiResponse.onFailure(code, e.getMessage()));
+                .body(ApiResponse.onFailure(code, e.getError() != null ? e.getError() : e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
