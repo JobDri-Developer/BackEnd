@@ -178,7 +178,10 @@ public class AnalysisService {
         int impact = validateScore("impact", llmResponse.impact());
         int completeness = validateScore("completeness", llmResponse.completeness());
         List<AnalysisHighlightResponse> keyStrengths = buildHighlights(llmResponse.keyStrengths());
-        List<AnalysisHighlightResponse> keyWeaknesses = buildHighlights(llmResponse.keyWeaknesses());
+        List<AnalysisHighlightResponse> keyWeaknesses = removeOverlappingHighlights(
+                buildHighlights(llmResponse.keyWeaknesses()),
+                keyStrengths
+        );
         List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(mockApply.getJobPosting(), llmResponse);
         replaceExistingAnalysis(mockApply);
 
@@ -419,9 +422,14 @@ public class AnalysisService {
     }
 
     private AnalysisResultPayload analysisResultPayload(Analysis analysis) {
+        List<AnalysisHighlightResponse> keyStrengths =
+                readHighlights(analysis, analysis == null ? null : analysis.getKeyStrengthsJson(), "keyStrengths");
         return new AnalysisResultPayload(
-                readHighlights(analysis, analysis == null ? null : analysis.getKeyStrengthsJson(), "keyStrengths"),
-                readHighlights(analysis, analysis == null ? null : analysis.getKeyWeaknessesJson(), "keyWeaknesses"),
+                keyStrengths,
+                removeOverlappingHighlights(
+                        readHighlights(analysis, analysis == null ? null : analysis.getKeyWeaknessesJson(), "keyWeaknesses"),
+                        keyStrengths
+                ),
                 readMissingKeywords(analysis)
         );
     }
@@ -614,6 +622,27 @@ public class AnalysisService {
         }
 
         return result;
+    }
+
+    private List<AnalysisHighlightResponse> removeOverlappingHighlights(
+            List<AnalysisHighlightResponse> highlights,
+            List<AnalysisHighlightResponse> existingHighlights
+    ) {
+        if (highlights == null || highlights.isEmpty()) {
+            return List.of();
+        }
+        if (existingHighlights == null || existingHighlights.isEmpty()) {
+            return highlights;
+        }
+
+        Set<String> existingQuotes = existingHighlights.stream()
+                .filter(highlight -> highlight != null && StringUtils.hasText(highlight.quote()))
+                .map(highlight -> normalizeKeyword(highlight.quote()))
+                .collect(Collectors.toSet());
+
+        return highlights.stream()
+                .filter(highlight -> highlight != null && !existingQuotes.contains(normalizeKeyword(highlight.quote())))
+                .toList();
     }
 
     private record AnalysisResultPayload(
