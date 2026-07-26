@@ -78,6 +78,8 @@ job-posting:
     max-size-bytes: 5242880
 
 payment:
+  coupon:
+    code: TEST-COUP-2026
   toss:
     client-key: test-toss-client-key
     secret-key: test-toss-secret-key
