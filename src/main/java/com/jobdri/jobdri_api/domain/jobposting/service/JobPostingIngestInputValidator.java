@@ -23,7 +23,7 @@ public final class JobPostingIngestInputValidator {
                     "공고 텍스트를 입력하거나 채용 공고 이미지를 첨부해주세요."
             );
         }
-        if (hasRawText && rawText.length() > MAX_RAW_TEXT_LENGTH) {
+        if (rawText != null && rawText.length() > MAX_RAW_TEXT_LENGTH) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
                     "공고 내용은 최대 10,000자까지 입력할 수 있습니다."

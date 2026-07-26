@@ -55,6 +55,15 @@ class JobPostingIngestInputValidatorTest {
     }
 
     @Test
+    @DisplayName("이미지가 있어도 rawText가 10000자를 초과하면 실패한다")
+    void validateRejectsBlankRawTextOverMaxLengthWithImage() {
+        assertInvalidParameter(() -> JobPostingIngestInputValidator.validate(
+                " ".repeat(10_001),
+                List.of("job-postings/tmp/1/posting.png")
+        ));
+    }
+
+    @Test
     @DisplayName("rawText와 이미지가 모두 없으면 실패한다")
     void validateRejectsMissingRawTextAndImage() {
         assertInvalidParameter(() -> JobPostingIngestInputValidator.validate(null, null));
