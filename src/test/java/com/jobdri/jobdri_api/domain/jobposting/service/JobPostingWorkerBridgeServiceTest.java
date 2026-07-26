@@ -165,7 +165,7 @@ class JobPostingWorkerBridgeServiceTest {
                 generated
         ))
                 .isInstanceOf(GeneralException.class)
-                .hasMessageContaining("채용 공고로 인식할 수 없는 입력입니다.");
+                .hasMessageContaining("채용 공고 필수 정보를 인식하지 못했습니다.");
 
         verify(workerTaskResultService, never()).upsertGenerated(
                 eq(TaskType.JOB_POSTING_FINALIZE),
