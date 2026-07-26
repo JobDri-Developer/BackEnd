@@ -36,8 +36,10 @@ import org.springframework.data.domain.Page;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -131,13 +133,79 @@ class JobPostingServiceTest {
                         detailClassification.getId(),
                         "수정된 주요 업무",
                         "수정된 자격 요건",
-                        "수정된 우대 사항"
+                        "수정된 우대 사항",
+                        null
                 )
         );
 
         assertThat(updated.getProfileColor()).isEqualTo(JobPostingProfileColor.PINK);
         assertThat(updated.getPostingName()).isEqualTo("수정된 공고명");
         assertThat(updated.getJobTitle()).isEqualTo("수정된 직무명");
+    }
+
+    @Test
+    @DisplayName("채용 공고 수정 기준 시각이 오래되면 최신 값을 덮어쓰지 않는다")
+    void updateJobPostingRejectsStaleLastKnownUpdatedAt() {
+        User user = saveUser("job-posting-update-stale@example.com");
+        JobPosting jobPosting = saveJobPosting(user);
+        DetailClassification detailClassification = jobPosting.getDetailClassification();
+        ReflectionTestUtils.setField(jobPosting, "updatedAt", LocalDateTime.of(2026, 1, 1, 12, 10));
+        jobPostingRepository.saveAndFlush(jobPosting);
+
+        assertThatThrownBy(() -> jobPostingService.updateJobPosting(
+                user,
+                jobPosting.getId(),
+                new JobPostingUpdateRequest(
+                        JobPostingProfileColor.PINK,
+                        "오래된 공고명",
+                        jobPosting.getCompany().getName(),
+                        jobPosting.getCompany().getSize(),
+                        "오래된 직무명",
+                        detailClassification.getId(),
+                        "오래된 주요 업무",
+                        "오래된 자격 요건",
+                        "오래된 우대 사항",
+                        LocalDateTime.of(2026, 1, 1, 12, 0)
+                )
+        ))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.JOB_POSTING_UPDATE_CONFLICT);
+
+        JobPosting found = jobPostingRepository.findById(jobPosting.getId()).orElseThrow();
+        assertThat(found.getPostingName()).isNotEqualTo("오래된 공고명");
+        assertThat(found.getJobTitle()).isNotEqualTo("오래된 직무명");
+    }
+
+    @Test
+    @DisplayName("채용 공고 수정 기준 시각이 최신이면 저장한다")
+    void updateJobPostingAcceptsCurrentLastKnownUpdatedAt() {
+        User user = saveUser("job-posting-update-current@example.com");
+        JobPosting jobPosting = saveJobPosting(user);
+        DetailClassification detailClassification = jobPosting.getDetailClassification();
+        jobPostingRepository.saveAndFlush(jobPosting);
+        LocalDateTime knownUpdatedAt = jobPostingRepository.findById(jobPosting.getId()).orElseThrow().getUpdatedAt();
+
+        JobPostingResponse response = jobPostingService.updateJobPosting(
+                user,
+                jobPosting.getId(),
+                new JobPostingUpdateRequest(
+                        JobPostingProfileColor.GREEN,
+                        "최신 공고명",
+                        jobPosting.getCompany().getName(),
+                        jobPosting.getCompany().getSize(),
+                        "최신 직무명",
+                        detailClassification.getId(),
+                        "최신 주요 업무",
+                        "최신 자격 요건",
+                        "최신 우대 사항",
+                        knownUpdatedAt
+                )
+        );
+
+        assertThat(response.getPostingName()).isEqualTo("최신 공고명");
+        assertThat(response.getJobTitle()).isEqualTo("최신 직무명");
+        assertThat(response.getUpdatedAt()).isNotNull();
     }
 
     @Test
