@@ -24,6 +24,7 @@ import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateRespon
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyRetryResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyUpdateNameResponse;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
@@ -328,6 +329,7 @@ class MockApplyServiceTest {
 
         MockApply inProgress = mockApplyRepository.save(MockApply.create(user, backendPosting, ApplyType.ACTUAL));
         inProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        inProgress.updateDisplayName("카카오 백엔드 지원 연습");
         MockApply completed = mockApplyRepository.save(MockApply.create(user, dataPosting, ApplyType.MOCK));
         completed.updateStatus(MockApplyStatus.COMPLETED);
         mockApplyRepository.save(MockApply.create(otherUser, otherPosting, ApplyType.MOCK));
@@ -340,6 +342,7 @@ class MockApplyServiceTest {
         assertThat(response.completed()).hasSize(1);
         assertThat(response.inProgress().get(0).mockApplyId()).isEqualTo(inProgress.getId());
         assertThat(response.inProgress().get(0).jobPostingId()).isEqualTo(backendPosting.getId());
+        assertThat(response.inProgress().get(0).displayName()).isEqualTo("카카오 백엔드 지원 연습");
         assertThat(response.inProgress().get(0).sequence()).isEqualTo(1);
         assertThat(response.inProgress().get(0).status()).isEqualTo(MockApplyStatus.ANSWER_WRITE);
         assertThat(response.inProgress().get(0).companyName()).isEqualTo("테스트 기업");
@@ -349,10 +352,98 @@ class MockApplyServiceTest {
         assertThat(response.inProgress().get(0).score()).isNull();
         assertThat(response.inProgress().get(0).resumePath()).isEqualTo("/mock-applies/" + inProgress.getId() + "/answers");
         assertThat(response.completed().get(0).mockApplyId()).isEqualTo(completed.getId());
+        assertThat(response.completed().get(0).displayName()).isNull();
         assertThat(response.completed().get(0).sequence()).isEqualTo(1);
         assertThat(response.completed().get(0).score()).isEqualTo(71);
         assertThat(response.completed().get(0).applyType()).isEqualTo(ApplyType.MOCK);
         assertThat(response.completed().get(0).resumePath()).isEqualTo("/mock-applies/" + completed.getId() + "/analysis");
+    }
+
+    @Test
+    @DisplayName("모의 서류 지원 이름을 변경한다")
+    void updateMockApplyName() {
+        User user = saveUser("mock-apply-name@example.com");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
+        MockApply mockApply = saveMockApply(user, jobPosting, ApplyType.MOCK, 1);
+
+        MockApplyUpdateNameResponse response = mockApplyService.updateMockApplyName(
+                user,
+                mockApply.getId(),
+                "  카카오 백엔드 지원 연습  "
+        );
+        mockApplyRepository.flush();
+
+        MockApply updated = mockApplyRepository.findById(mockApply.getId()).orElseThrow();
+        assertThat(response.mockApplyId()).isEqualTo(mockApply.getId());
+        assertThat(response.name()).isEqualTo("카카오 백엔드 지원 연습");
+        assertThat(response.updatedAt()).isNotNull();
+        assertThat(updated.getDisplayName()).isEqualTo("카카오 백엔드 지원 연습");
+    }
+
+    @Test
+    @DisplayName("모의 서류 지원 이름은 여러 번 변경할 수 있다")
+    void updateMockApplyNameAgain() {
+        User user = saveUser("mock-apply-name-again@example.com");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
+        MockApply mockApply = saveMockApply(user, jobPosting, ApplyType.MOCK, 1);
+
+        mockApplyService.updateMockApplyName(user, mockApply.getId(), "첫 번째 이름");
+        MockApplyUpdateNameResponse response = mockApplyService.updateMockApplyName(user, mockApply.getId(), "두 번째 이름");
+
+        assertThat(response.name()).isEqualTo("두 번째 이름");
+        assertThat(mockApplyRepository.findById(mockApply.getId()).orElseThrow().getDisplayName())
+                .isEqualTo("두 번째 이름");
+    }
+
+    @Test
+    @DisplayName("빈 이름으로 모의 서류 지원 이름을 변경할 수 없다")
+    void updateMockApplyNameRejectsBlankName() {
+        User user = saveUser("mock-apply-name-blank@example.com");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
+        MockApply mockApply = saveMockApply(user, jobPosting, ApplyType.MOCK, 1);
+
+        assertThatThrownBy(() -> mockApplyService.updateMockApplyName(user, mockApply.getId(), "   "))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
+    }
+
+    @Test
+    @DisplayName("100자를 초과한 이름으로 모의 서류 지원 이름을 변경할 수 없다")
+    void updateMockApplyNameRejectsTooLongName() {
+        User user = saveUser("mock-apply-name-too-long@example.com");
+        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
+        MockApply mockApply = saveMockApply(user, jobPosting, ApplyType.MOCK, 1);
+
+        assertThatThrownBy(() -> mockApplyService.updateMockApplyName(user, mockApply.getId(), "가".repeat(101)))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 모의 서류 지원 이름은 변경할 수 없다")
+    void updateMockApplyNameRejectsOtherUserMockApply() {
+        User user = saveUser("mock-apply-name-owner@example.com");
+        User otherUser = saveUser("mock-apply-name-other@example.com");
+        JobPosting jobPosting = saveJobPosting(otherUser, "백엔드 개발");
+        MockApply mockApply = saveMockApply(otherUser, jobPosting, ApplyType.MOCK, 1);
+
+        assertThatThrownBy(() -> mockApplyService.updateMockApplyName(user, mockApply.getId(), "변경 이름"))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.FORBIDDEN);
+    }
+
+    @Test
+    @DisplayName("없는 모의 서류 지원 이름은 변경할 수 없다")
+    void updateMockApplyNameRejectsMissingMockApply() {
+        User user = saveUser("mock-apply-name-missing@example.com");
+
+        assertThatThrownBy(() -> mockApplyService.updateMockApplyName(user, 999_999L, "변경 이름"))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.MOCK_APPLY_NOT_FOUND);
     }
 
     @Test

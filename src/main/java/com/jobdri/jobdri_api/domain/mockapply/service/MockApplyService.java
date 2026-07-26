@@ -22,6 +22,7 @@ import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeItemResp
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyRetryResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplySequenceResponse;
+import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyUpdateNameResponse;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
@@ -47,6 +48,7 @@ import java.util.stream.Collectors;
 public class MockApplyService {
     private static final int SEQUENCE_SAVE_MAX_RETRY = 5;
     private static final int SEQUENCE_ALLOCATE_MAX_RETRY = 5;
+    private static final int MAX_DISPLAY_NAME_LENGTH = 100;
     private static final String SEQUENCE_UNIQUE_CONSTRAINT = "uk_mock_apply_user_posting_sequence";
     private static final String UNIQUE_VIOLATION_SQL_STATE = "23505";
 
@@ -222,6 +224,17 @@ public class MockApplyService {
     }
 
     @Transactional
+    @AuditLogEvent(action = "MOCK_APPLY_NAME_UPDATE", targetType = "MOCK_APPLY", targetId = "#arg1")
+    public MockApplyUpdateNameResponse updateMockApplyName(User user, Long mockApplyId, String name) {
+        User validatedUser = userService.validateUser(user);
+        MockApply mockApply = getOwnedMockApply(validatedUser, mockApplyId);
+        String trimmedName = validateAndTrimDisplayName(name);
+        mockApply.updateDisplayName(trimmedName);
+        MockApply savedMockApply = mockApplyRepository.saveAndFlush(mockApply);
+        return MockApplyUpdateNameResponse.from(savedMockApply);
+    }
+
+    @Transactional
     @AuditLogEvent(action = "MOCK_APPLY_DELETE", targetType = "MOCK_APPLY", targetId = "#arg1")
     public void deleteMockApply(User user, Long mockApplyId) {
         User validatedUser = userService.validateUser(user);
@@ -268,6 +281,23 @@ public class MockApplyService {
         }
 
         return mockApply;
+    }
+
+    private String validateAndTrimDisplayName(String name) {
+        if (name == null || name.isBlank()) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "이름은 필수입니다."
+            );
+        }
+        String trimmedName = name.trim();
+        if (trimmedName.length() > MAX_DISPLAY_NAME_LENGTH) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "이름은 최대 100자까지 입력할 수 있습니다."
+            );
+        }
+        return trimmedName;
     }
 
     private int resolveSequence(User user, JobPosting jobPosting, Integer requestedSequence) {
