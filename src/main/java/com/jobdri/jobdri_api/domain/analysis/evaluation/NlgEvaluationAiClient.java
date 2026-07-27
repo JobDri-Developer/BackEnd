@@ -68,6 +68,10 @@ class NlgEvaluationAiClient {
                 - 빈 분석 평가: noAnalysisAppropriateness를 1~5로 평가한다. questionAnalyses가 비어 있고 명백한 문제 문장이 있으면 낮게 평가한다.
                 - keyStrengths: strengthsPrecision과 strengthsCoverage를 각각 1~5로 평가한다. 명백한 좋은 문장을 놓치면 MISSED_STRENGTH를 사용한다.
                 - missingKeywords: missingKeywordsPrecision과 missingKeywordsCoverage를 각각 1~5로 평가한다. JD 핵심 경험 요구사항 누락을 놓치면 MISSED_MISSING_KEYWORD를 사용한다.
+                - actual missingKeywords가 빈 배열이라고 해서 자동으로 정확한 것이 아니다.
+                - JD와 answer 기준상 필요한 누락 키워드가 존재하면 actual=[]라도 missingKeywordsCoverage를 낮게 평가하고 MISSED_MISSING_KEYWORD를 사용한다.
+                - actual=[]이고 실제로 누락 키워드가 없을 때만 정상 빈 배열로 평가한다.
+                - 빈 배열은 precision과 coverage를 분리해 판단한다.
                 - case 전체: overallUsefulness를 1~5로 독립 평가한다. 기본값을 4로 두지 말고 1,2,3,4,5 전체 범위를 실제 품질에 맞게 사용한다.
                 - 치명적 오류(UNSUPPORTED_FACT, TENSE_CHANGED, FALSE_POSITIVE_ANALYSIS, INVALID_MISSING_KEYWORD)가 있으면 overallUsefulness에 4~5점을 주지 않는다.
                 - questionAnalyses가 없으면 questionAnalysisEvaluations는 []로 둔다. 가짜 평가를 생성하지 않는다.
@@ -96,6 +100,8 @@ class NlgEvaluationAiClient {
                 - 메타 improvement: "구체적으로 작성했습니다"처럼 첨삭 행위를 설명하면 nonMeta=1~2, errorCodes=[META_IMPROVEMENT].
                 - 빈 결과의 false negative: questionAnalyses=[]이지만 답변에 명백한 첨삭 대상이 있으면 noAnalysisAppropriateness=1~2, errorCodes=[MISSED_ANALYSIS].
                 - 적절한 빈 결과: 답변에 명백한 문제 문장이 없고 강점/누락 키워드도 적절하면 noAnalysisAppropriateness=4~5, errorCodes=[NONE].
+                - 누락 키워드 실패: JD 핵심 경험 요구사항 후보가 있는데 missingKeywordsJson=[]이면 missingKeywordsCoverage=1~2, errorCodes=[MISSED_MISSING_KEYWORD].
+                - 누락 키워드 정상 빈 배열: JD 핵심 경험 요구사항이 답변에 충분히 반영되어 missingKeywordsJson=[]이면 MISSED_MISSING_KEYWORD를 사용하지 않는다.
                 - 점수 예시는 anchoring용이 아니다. 1,2,3,4,5를 실제 오류 심각도에 따라 분산해서 사용한다.
 
                 [입력]
@@ -110,7 +116,10 @@ class NlgEvaluationAiClient {
                 keyStrengthsJson: %s
                 missingKeywordsJson: %s
                 rawCandidateResponseJson: %s
+                sanitizedCandidateResponseJson: %s
                 candidateReviewResponseJson: %s
+                actualMissingKeywordCount: %s
+                validatedMissingKeywordCandidateCount: %s
                 """.formatted(
                 input.caseId(),
                 input.sourceResultFile(),
@@ -123,7 +132,10 @@ class NlgEvaluationAiClient {
                 input.keyStrengthsJson(),
                 input.missingKeywordsJson(),
                 input.rawCandidateResponseJson(),
-                input.candidateReviewResponseJson()
+                input.sanitizedCandidateResponseJson(),
+                input.candidateReviewResponseJson(),
+                input.actualMissingKeywordCount(),
+                input.validatedMissingKeywordCandidateCount()
         );
     }
 
@@ -168,7 +180,10 @@ class NlgEvaluationAiClient {
             String keyStrengthsJson,
             String missingKeywordsJson,
             String rawCandidateResponseJson,
+            String sanitizedCandidateResponseJson,
             String candidateReviewResponseJson,
+            int actualMissingKeywordCount,
+            int validatedMissingKeywordCandidateCount,
             List<EvaluationQuestionAnalysisResult> questionAnalyses
     ) {
     }

@@ -467,6 +467,14 @@ public class AnalysisAiClient {
         long finalLatencyMs = elapsedMillis(finalStartedAt);
         logQuestionFlowStats(sanitizedCandidates, recheckedReviewResponse, response);
         log.debug(
+                "Two-pass missing keyword flow. twoPassRawMissingKeywordCount={}, twoPassParsedMissingKeywordCount={}, twoPassSanitizedMissingKeywordCount={}, twoPassReviewMissingKeywordCount={}, twoPassFinalMissingKeywordCount={}",
+                size(rawCandidates == null ? null : rawCandidates.missingKeywordCandidates()),
+                size(rawCandidates == null ? null : rawCandidates.missingKeywordCandidates()),
+                size(sanitizedCandidates.missingKeywordCandidates()),
+                size(recheckedReviewResponse == null ? null : recheckedReviewResponse.missingKeywords()),
+                size(response == null ? null : response.missingKeywords())
+        );
+        log.debug(
                 "analysis two-pass final result. enabled={}, firstPassCandidates={}, secondPassAccepted={}, finalAnalysisCount={}, removedByRejected={}, model={}, latencyMs={}",
                 true,
                 size(sanitizedCandidates.analysisCandidates()),
@@ -509,7 +517,7 @@ public class AnalysisAiClient {
                 twoPassResult.response()
         );
         log.debug(
-                "Hybrid exact response merged. questionAnalysesSource=single-pass, missingKeywordsSource=two-pass, scoreSource=single-pass, singlePassQuestionAnalyses={}, twoPassQuestionAnalyses={}, mergedQuestionAnalyses={}, singlePassMissingKeywords={}, twoPassMissingKeywords={}, mergedMissingKeywords={}",
+                "Hybrid exact response merged. questionAnalysesSource=single-pass, missingKeywordsSource=two-pass, scoreSource=single-pass, singlePassQuestionAnalyses={}, twoPassQuestionAnalyses={}, mergedQuestionAnalyses={}, singlePassMissingKeywords={}, hybridInputMissingKeywordCount={}, hybridMergedMissingKeywordCount={}",
                 size(singlePassResult.response() == null ? null : singlePassResult.response().questionAnalyses()),
                 size(twoPassResult.response() == null ? null : twoPassResult.response().questionAnalyses()),
                 size(merged == null ? null : merged.questionAnalyses()),
@@ -1219,8 +1227,7 @@ public class AnalysisAiClient {
         );
         List<AnalysisLlmResponse.MissingKeywordItem> missingKeywords = buildFinalMissingKeywords(
                 promptInput,
-                sanitizedCandidates,
-                reviewResponse
+                sanitizedCandidates
         );
         return new AnalysisLlmResponse(
                 reviewResponse == null ? null : reviewResponse.jobFit(),
@@ -1802,20 +1809,14 @@ public class AnalysisAiClient {
 
     private List<AnalysisLlmResponse.MissingKeywordItem> buildFinalMissingKeywords(
             AnalysisPromptInput promptInput,
-            AnalysisCandidateResponse sanitizedCandidates,
-            CandidateReviewResponse reviewResponse
+            AnalysisCandidateResponse sanitizedCandidates
     ) {
-        if (reviewResponse == null || reviewResponse.missingKeywords() == null || sanitizedCandidates == null) {
+        if (sanitizedCandidates == null || sanitizedCandidates.missingKeywordCandidates() == null) {
             return List.of();
         }
-        Set<String> allowed = sanitizedCandidates.missingKeywordCandidates().stream()
-                .map(candidate -> normalize(candidate.keyword()) + ":" + parseCandidateSource(candidate.source())
-                        .map(MissingKeywordSource::value)
-                        .orElse(""))
-                .collect(Collectors.toSet());
         List<AnalysisLlmResponse.MissingKeywordItem> result = new ArrayList<>();
         Set<String> seen = new HashSet<>();
-        for (CandidateReviewResponse.FinalMissingKeywordCandidate keyword : reviewResponse.missingKeywords()) {
+        for (AnalysisCandidateResponse.MissingKeywordCandidate keyword : sanitizedCandidates.missingKeywordCandidates()) {
             if (keyword == null || !StringUtils.hasText(keyword.keyword())) {
                 continue;
             }
@@ -1823,9 +1824,7 @@ public class AnalysisAiClient {
             if (source.isEmpty()) {
                 continue;
             }
-            String allowedKey = normalize(keyword.keyword()) + ":" + source.get().value();
-            if (!allowed.contains(allowedKey)
-                    || !AnalysisSanitizationRules.isValidMissingKeyword(
+            if (!AnalysisSanitizationRules.isValidMissingKeyword(
                     keyword.keyword(),
                     source.get(),
                     promptInput.mainTasks(),

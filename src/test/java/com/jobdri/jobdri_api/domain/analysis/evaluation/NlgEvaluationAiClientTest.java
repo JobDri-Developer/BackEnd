@@ -33,6 +33,9 @@ class NlgEvaluationAiClientTest {
                 "[]",
                 "",
                 "",
+                "",
+                0,
+                0,
                 List.of()
         ));
 
@@ -51,6 +54,9 @@ class NlgEvaluationAiClientTest {
         assertThat(prompt).contains("strengthsCoverage");
         assertThat(prompt).contains("missingKeywordsCoverage");
         assertThat(prompt).contains("MISSED_MISSING_KEYWORD");
+        assertThat(prompt).contains("actual missingKeywords가 빈 배열이라고 해서 자동으로 정확한 것이 아니다");
+        assertThat(prompt).contains("actualMissingKeywordCount");
+        assertThat(prompt).contains("validatedMissingKeywordCandidateCount");
         assertThat(prompt).contains("기본값을 4로 두지 말고");
         assertThat(prompt).contains("1,2,3,4,5를 실제 오류 심각도에 따라 분산");
     }

@@ -132,6 +132,13 @@ public class EvaluationAnalysisBatchService {
         int completeness = validateScore("completeness", llmResponse == null ? null : llmResponse.completeness());
         List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(evaluationCase, llmResponse);
         List<EvaluationQuestionAnalysisResult> questionAnalyses = buildQuestionAnalyses(evaluationCase, llmResponse);
+        log.debug(
+                "Evaluation serialized missing keyword flow. caseId={}, candidateMissingKeywordCount={}, finalMissingKeywordCount={}, evaluationSerializedMissingKeywordCount={}",
+                evaluationCase.caseId(),
+                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().missingKeywordCandidates()),
+                size(llmResponse == null ? null : llmResponse.missingKeywords()),
+                missingKeywords.size()
+        );
 
         return new EvaluationAnalysisResult(
                 evaluationCase.caseId(),

@@ -84,6 +84,10 @@ class AnalysisAiClientTest {
                 new AnalysisLlmResponse.MissingKeywordItem("single 누락", "mainTask");
         AnalysisLlmResponse.MissingKeywordItem twoPassMissingKeyword =
                 new AnalysisLlmResponse.MissingKeywordItem("장애 대응 경험", "qualification");
+        AnalysisLlmResponse.MissingKeywordItem twoPassMissingKeyword2 =
+                new AnalysisLlmResponse.MissingKeywordItem("API 운영 경험", "mainTask");
+        AnalysisLlmResponse.MissingKeywordItem twoPassMissingKeyword3 =
+                new AnalysisLlmResponse.MissingKeywordItem("트러블슈팅 경험", "qualification");
         AnalysisLlmResponse singlePassResponse = new AnalysisLlmResponse(
                 80,
                 70,
@@ -101,7 +105,7 @@ class AnalysisAiClientTest {
                 "two-pass feedback",
                 List.of(new AnalysisLlmResponse.HighlightItem("two-pass 강점", "장애 대응")),
                 List.of(),
-                List.of(twoPassMissingKeyword),
+                List.of(twoPassMissingKeyword, twoPassMissingKeyword2, twoPassMissingKeyword3),
                 List.of(twoPassQuestionAnalysis)
         );
 
@@ -116,7 +120,8 @@ class AnalysisAiClientTest {
         assertThat(merged.feedback()).isEqualTo("single feedback");
         assertThat(merged.keyStrengths()).isEqualTo(singlePassResponse.keyStrengths());
         assertThat(merged.questionAnalyses()).containsExactly(singleQuestionAnalysis);
-        assertThat(merged.missingKeywords()).containsExactly(twoPassMissingKeyword);
+        assertThat(merged.missingKeywords())
+                .containsExactly(twoPassMissingKeyword, twoPassMissingKeyword2, twoPassMissingKeyword3);
         assertThat(merged.missingKeywords()).doesNotContain(singleMissingKeyword);
         assertThat(merged.questionAnalyses()).doesNotContain(twoPassQuestionAnalysis);
     }
@@ -653,6 +658,38 @@ class AnalysisAiClientTest {
                 .containsExactly("Spring Boot API를 개발했습니다.");
         assertThat(response.missingKeywords()).extracting("keyword")
                 .containsExactly("장애 대응 경험");
+    }
+
+    @Test
+    @DisplayName("2차 review가 missingKeywords를 비워도 1차 검증 누락 키워드는 최종 응답에 유지한다")
+    void buildFinalResponsePreservesSanitizedMissingKeywordsWhenReviewIsEmpty() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(),
+                List.of(
+                        new AnalysisCandidateResponse.MissingKeywordCandidate(
+                                "Spring Boot 경험",
+                                "QUALIFICATION",
+                                "Spring Boot 경험"
+                        ),
+                        new AnalysisCandidateResponse.MissingKeywordCandidate(
+                                "API 개발",
+                                "MAIN_TASK",
+                                "API 개발"
+                        )
+                )
+        );
+
+        AnalysisLlmResponse response = analysisAiClient.buildFinalResponse(
+                promptInput(),
+                candidates,
+                new CandidateReviewResponse(List.of(), List.of(), List.of(), 80, 70, 60, "피드백")
+        );
+
+        assertThat(response.questionAnalyses()).isEmpty();
+        assertThat(response.missingKeywords())
+                .extracting(AnalysisLlmResponse.MissingKeywordItem::keyword)
+                .containsExactly("Spring Boot 경험", "API 개발");
     }
 
     @Test
