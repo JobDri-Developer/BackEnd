@@ -79,6 +79,11 @@ evaluation:
     single-pass-input: ""
     two-pass-input: ""
     output: ""
+  missing-keyword-replay:
+    enabled: false
+    input: ""
+    output: ""
+    review-output: ""
 
 jwt:
   secret:

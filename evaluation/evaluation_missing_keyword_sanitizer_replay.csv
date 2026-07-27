@@ -1,0 +1,7 @@
+caseId,candidateIndex,rawCandidateCount,acceptedCandidateCount,rejectedCandidateCount,keyword,normalizedKeyword,relatedRequirement,accepted,rejectionReason,answerExactMatch,answerNormalizedMatch,jdRequirementMatched,duplicateOfCandidateIndex
+EV-02,0,2,0,2,브랜드 BI/CI 수립 경험,브랜드bi/ci수립경험,"포토샵, 일러스트를 활용한 실무 디자인 작업이 능숙한 분",false,INVALID_FORMAT,false,false,false,
+EV-02,1,2,0,2,UX/UI 인터페이스 설계,ux/ui인터페이스설계,"포토샵, 일러스트를 활용한 실무 디자인 작업이 능숙한 분",false,INVALID_FORMAT,false,false,false,
+EV-05,0,2,0,2,브랜드 BI/CI 수립 경험,브랜드bi/ci수립경험,"창의적 공간 상상력을 즐기며, 이를 바탕으로 새로운 컨셉을 제안할 수 있는 분",false,NOT_RELATED_TO_JD,false,false,false,
+EV-05,1,2,0,2,UX/UI 인터페이스 설계,ux/ui인터페이스설계,"패션, 건축, 패션 등 통찰을 바탕으로 트렌디한 디자인에 이해도가 높은 분",false,NOT_RELATED_TO_JD,false,false,false,
+EV-11,0,2,0,2,행정 지원,행정지원,사업 및 행정지원,false,NOT_RELATED_TO_JD,false,false,false,
+EV-11,1,2,0,2,복지 프로그램 기획,복지프로그램기획,사업 및 행정지원,false,NOT_RELATED_TO_JD,false,false,false,
