@@ -39,8 +39,25 @@ public class AsyncEmailSender {
         log.info("[AsyncEmailSender] 인증 메일 발송 성공: {}", email);
     }
 
+    @Async("mailAsyncExecutor")
+    @Retryable(
+            retryFor = MailException.class,
+            maxAttempts = 3,
+            backoff = @Backoff(delay = 1000, multiplier = 2)
+    )
+    public void sendPasswordResetMail(String email, String token) {
+        SimpleMailMessage message = new SimpleMailMessage();
+        message.setFrom(fromAddress);
+        message.setTo(email);
+        message.setSubject("[jobdri] 비밀번호 재설정 안내");
+        message.setText("비밀번호 재설정 토큰은 [" + token + "] 입니다.");
+        mailSender.send(message);
+
+        log.info("[AsyncEmailSender] 비밀번호 재설정 메일 발송 성공: {}", email);
+    }
+
     @Recover
-    public void recover(MailException exception, String email, String authCode) {
-        log.error("[AsyncEmailSender] 인증 메일 발송 최종 실패: email={}, authCode={}", email, authCode, exception);
+    public void recover(MailException exception, String email, String secret) {
+        log.error("[AsyncEmailSender] 메일 발송 최종 실패: email={}", email, exception);
     }
 }

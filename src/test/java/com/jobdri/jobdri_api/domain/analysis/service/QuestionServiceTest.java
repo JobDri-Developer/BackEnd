@@ -7,7 +7,12 @@ import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionSelectionSaveRe
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnswerResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionSelectionResponse;
+import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
+import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
+import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
+import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.classification.entity.Classification;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
@@ -50,6 +55,12 @@ class QuestionServiceTest {
 
     @Autowired
     private QuestionRepository questionRepository;
+
+    @Autowired
+    private QuestionAnalysisRepository questionAnalysisRepository;
+
+    @Autowired
+    private AnalysisRepository analysisRepository;
 
     @Autowired
     private MockApplyRepository mockApplyRepository;
@@ -483,6 +494,103 @@ class QuestionServiceTest {
         assertThatThrownBy(() -> questionService.saveAnswers(user, mockApply.getId(), new QuestionAnswerSaveRequest(List.of(
                 new QuestionAnswerSaveRequest.QuestionAnswerItem(otherQuestionId, "다른 지원서 문항", 700, "답변")
         ))))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.QUESTION_NOT_FOUND);
+    }
+
+    @Test
+    @DisplayName("선택 문항 1개를 삭제하고 남은 문항 목록을 반환한다")
+    void deleteQuestion() {
+        User user = saveUser("question-delete@example.com");
+        MockApply mockApply = saveMockApply(user);
+        QuestionSelectionResponse selected = questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("삭제할 문항", 700, false),
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("남길 문항", 800, false)
+        )));
+        Long deletedQuestionId = selected.questions().get(0).questionId();
+
+        QuestionSelectionResponse response = questionService.deleteQuestion(user, mockApply.getId(), deletedQuestionId);
+
+        assertThat(response.mockApplyId()).isEqualTo(mockApply.getId());
+        assertThat(response.questions()).hasSize(1);
+        assertThat(response.questions().get(0).content()).isEqualTo("남길 문항");
+        assertThat(questionRepository.findById(deletedQuestionId)).isEmpty();
+        assertThat(questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId()))
+                .extracting(Question::getContent)
+                .containsExactly("남길 문항");
+    }
+
+    @Test
+    @DisplayName("문항 삭제 시 해당 문항의 분석 상세도 함께 삭제한다")
+    void deleteQuestionDeletesQuestionAnalyses() {
+        User user = saveUser("question-delete-analysis@example.com");
+        MockApply mockApply = saveMockApply(user);
+        QuestionSelectionResponse selected = questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("삭제할 분석 문항", 700, false),
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("남길 분석 문항", 800, false)
+        )));
+        Question deletedQuestion = questionRepository.findById(selected.questions().get(0).questionId()).orElseThrow();
+        Question retainedQuestion = questionRepository.findById(selected.questions().get(1).questionId()).orElseThrow();
+        Analysis analysis = analysisRepository.save(Analysis.create(mockApply, 80, 80, 80, 80, "분석 피드백"));
+        QuestionAnalysis deletedQuestionAnalysis = questionAnalysisRepository.save(QuestionAnalysis.create(
+                deletedQuestion,
+                analysis,
+                "삭제할 문장",
+                "삭제할 이유",
+                "삭제할 개선안",
+                QuestionAnalysisStatus.MENTIONED,
+                0,
+                5
+        ));
+        QuestionAnalysis retainedQuestionAnalysis = questionAnalysisRepository.save(QuestionAnalysis.create(
+                retainedQuestion,
+                analysis,
+                "남길 문장",
+                "남길 이유",
+                "남길 개선안",
+                QuestionAnalysisStatus.PROVEN,
+                0,
+                4
+        ));
+
+        questionService.deleteQuestion(user, mockApply.getId(), deletedQuestion.getId());
+
+        assertThat(questionAnalysisRepository.findById(deletedQuestionAnalysis.getId())).isEmpty();
+        assertThat(questionAnalysisRepository.findById(retainedQuestionAnalysis.getId())).isPresent();
+    }
+
+    @Test
+    @DisplayName("마지막 남은 문항은 삭제할 수 없다")
+    void deleteQuestionThrowsWhenOnlyOneQuestionRemains() {
+        User user = saveUser("question-delete-last@example.com");
+        MockApply mockApply = saveMockApply(user);
+        QuestionSelectionResponse selected = questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("마지막 문항", 700, false)
+        )));
+
+        assertThatThrownBy(() -> questionService.deleteQuestion(user, mockApply.getId(), selected.questions().get(0).questionId()))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
+        assertThat(questionRepository.findAllByMockApplyId(mockApply.getId())).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("해당 지원서에 속하지 않은 문항은 삭제할 수 없다")
+    void deleteQuestionThrowsWhenQuestionDoesNotBelongToMockApply() {
+        User user = saveUser("question-delete-invalid@example.com");
+        MockApply mockApply = saveMockApply(user);
+        MockApply otherMockApply = saveMockApply(user);
+        questionService.saveSelectedQuestions(user, mockApply.getId(), new QuestionSelectionSaveRequest(List.of(
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("현재 지원서 문항 1", 700, false),
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("현재 지원서 문항 2", 700, false)
+        )));
+        QuestionSelectionResponse otherSelected = questionService.saveSelectedQuestions(user, otherMockApply.getId(), new QuestionSelectionSaveRequest(List.of(
+                new QuestionSelectionSaveRequest.QuestionSelectionItem("다른 지원서 문항", 700, false)
+        )));
+
+        assertThatThrownBy(() -> questionService.deleteQuestion(user, mockApply.getId(), otherSelected.questions().get(0).questionId()))
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")
                 .isEqualTo(GeneralErrorCode.QUESTION_NOT_FOUND);

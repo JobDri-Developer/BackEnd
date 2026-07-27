@@ -21,6 +21,7 @@ import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationService;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
+import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCompletedFilter;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeItemResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeResponse;
@@ -431,6 +432,162 @@ class MockApplyServiceTest {
     }
 
     @Test
+    @DisplayName("최근 모의 서류 지원은 updatedAt 최신순으로 최대 5개 조회한다")
+    void getRecentMockApplies() {
+        User user = saveUser("recent@example.com");
+        User otherUser = saveUser("recent-other@example.com");
+        JobPosting posting = saveJobPosting(user, "백엔드 개발");
+        JobPosting otherPosting = saveJobPosting(otherUser, "백엔드 개발");
+        LocalDateTime baseTime = LocalDateTime.of(2026, 1, 1, 12, 0);
+        List<Long> createdIds = new java.util.ArrayList<>();
+
+        for (int i = 0; i < 6; i++) {
+            MockApply mockApply = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK, i + 1));
+            ReflectionTestUtils.setField(mockApply, "updatedAt", baseTime.plusMinutes(i));
+            mockApplyRepository.saveAndFlush(mockApply);
+            createdIds.add(mockApply.getId());
+        }
+        MockApply otherMockApply = mockApplyRepository.save(MockApply.create(otherUser, otherPosting, ApplyType.MOCK));
+        ReflectionTestUtils.setField(otherMockApply, "updatedAt", baseTime.plusHours(1));
+        mockApplyRepository.saveAndFlush(otherMockApply);
+
+        List<MockApplyHomeItemResponse> responses = mockApplyService.getRecentMockApplies(user, 5);
+
+        assertThat(responses).hasSize(5);
+        assertThat(responses).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(
+                        createdIds.get(5),
+                        createdIds.get(4),
+                        createdIds.get(3),
+                        createdIds.get(2),
+                        createdIds.get(1)
+                );
+    }
+
+    @Test
+    @DisplayName("최근 모의 서류 지원 limit은 최대 20개로 제한한다")
+    void getRecentMockAppliesClampsLimit() {
+        User user = saveUser("recent-limit@example.com");
+        JobPosting posting = saveJobPosting(user, "백엔드 개발");
+
+        for (int i = 0; i < 21; i++) {
+            mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK, i + 1));
+        }
+        mockApplyRepository.flush();
+
+        List<MockApplyHomeItemResponse> responses = mockApplyService.getRecentMockApplies(user, 100);
+
+        assertThat(responses).hasSize(20);
+    }
+
+    @Test
+    @DisplayName("완료된 모의 서류 지원은 점수 기준으로 필터링하고 updatedAt 최신순으로 페이지 조회한다")
+    void getCompletedMockAppliesWithScoreFilter() {
+        User user = saveUser("completed-filter@example.com");
+        User otherUser = saveUser("completed-filter-other@example.com");
+        JobPosting posting = saveJobPosting(user, "백엔드 개발");
+        JobPosting otherPosting = saveJobPosting(otherUser, "백엔드 개발");
+        LocalDateTime baseTime = LocalDateTime.of(2026, 1, 1, 12, 0);
+
+        MockApply lowScore = saveCompletedMockApply(user, posting, ApplyType.MOCK, 1, 79, baseTime.plusMinutes(1));
+        MockApply borderScore = saveCompletedMockApply(user, posting, ApplyType.MOCK, 2, 80, baseTime.plusMinutes(2));
+        MockApply highScore = saveCompletedMockApply(user, posting, ApplyType.MOCK, 3, 95, baseTime.plusMinutes(3));
+        MockApply inProgress = saveMockApply(user, posting, ApplyType.MOCK, 4);
+        inProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        mockApplyRepository.saveAndFlush(inProgress);
+        saveCompletedMockApply(otherUser, otherPosting, ApplyType.MOCK, 1, 60, baseTime.plusHours(1));
+
+        Page<MockApplyHomeItemResponse> all = mockApplyService.getCompletedMockApplies(
+                user,
+                MockApplyCompletedFilter.ALL,
+                0,
+                9
+        );
+        Page<MockApplyHomeItemResponse> needsImprovement = mockApplyService.getCompletedMockApplies(
+                user,
+                MockApplyCompletedFilter.NEEDS_IMPROVEMENT,
+                0,
+                9
+        );
+        Page<MockApplyHomeItemResponse> improvable = mockApplyService.getCompletedMockApplies(
+                user,
+                MockApplyCompletedFilter.IMPROVABLE,
+                0,
+                9
+        );
+
+        assertThat(all.getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(highScore.getId(), borderScore.getId(), lowScore.getId());
+        assertThat(all.getTotalElements()).isEqualTo(3);
+        assertThat(all.getSize()).isEqualTo(9);
+        assertThat(needsImprovement.getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(lowScore.getId());
+        assertThat(needsImprovement.getContent()).extracting(MockApplyHomeItemResponse::score)
+                .containsExactly(79);
+        assertThat(improvable.getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(highScore.getId(), borderScore.getId());
+        assertThat(improvable.getContent()).extracting(MockApplyHomeItemResponse::score)
+                .containsExactly(95, 80);
+    }
+
+    @Test
+    @DisplayName("완료된 모의 서류 지원 필터가 null이면 전체 목록으로 조회한다")
+    void getCompletedMockAppliesDefaultsNullFilterToAll() {
+        User user = saveUser("completed-filter-null@example.com");
+        JobPosting posting = saveJobPosting(user, "백엔드 개발");
+        saveCompletedMockApply(user, posting, ApplyType.MOCK, 1, 70, LocalDateTime.of(2026, 1, 1, 12, 0));
+
+        Page<MockApplyHomeItemResponse> response = mockApplyService.getCompletedMockApplies(user, null, 0, 9);
+
+        assertThat(response.getTotalElements()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("모의 서류 지원은 displayName, 회사명, 직무명, 공고명으로 검색한다")
+    void searchMyMockApplies() {
+        User user = saveUser("search@example.com");
+        User otherUser = saveUser("search-other@example.com");
+        Company kakaopay = saveCompany("카카오페이", CompanySize.LARGE);
+        Company toss = saveCompany("토스", CompanySize.LARGE);
+        DetailClassification backend = saveDetailClassification("백엔드 개발");
+        DetailClassification frontend = saveDetailClassification("프론트엔드 개발");
+        JobPosting backendPosting = saveJobPosting(user, kakaopay, backend, "결제 API 개발");
+        JobPosting frontendPosting = saveJobPosting(user, toss, frontend, "프론트 화면 개발");
+        JobPosting otherPosting = saveJobPosting(otherUser, kakaopay, backend, "결제 API 개발");
+        ReflectionTestUtils.setField(backendPosting, "postingName", "카카오페이 백엔드 공채");
+        ReflectionTestUtils.setField(frontendPosting, "postingName", "토스 프론트 공채");
+        jobPostingRepository.saveAndFlush(backendPosting);
+        jobPostingRepository.saveAndFlush(frontendPosting);
+        MockApply backendApply = mockApplyRepository.save(MockApply.create(user, backendPosting, ApplyType.MOCK, 1));
+        backendApply.updateDisplayName("결제 서버 지원");
+        mockApplyRepository.save(MockApply.create(user, frontendPosting, ApplyType.MOCK, 1));
+        mockApplyRepository.save(MockApply.create(otherUser, otherPosting, ApplyType.MOCK, 1));
+        mockApplyRepository.flush();
+
+        Page<MockApplyHomeItemResponse> byDisplayName = mockApplyService.searchMyMockApplies(user, "  결제 서버  ", 0, 10);
+        Page<MockApplyHomeItemResponse> byCompany = mockApplyService.searchMyMockApplies(user, "카카오", 0, 10);
+        Page<MockApplyHomeItemResponse> byJobTitle = mockApplyService.searchMyMockApplies(user, "프론트엔드", 0, 10);
+
+        assertThat(byDisplayName.getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(backendApply.getId());
+        assertThat(byCompany.getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
+                .containsExactly(backendApply.getId());
+        assertThat(byJobTitle.getContent()).extracting(MockApplyHomeItemResponse::jobTitle)
+                .containsExactly("프론트엔드 개발");
+    }
+
+    @Test
+    @DisplayName("빈 검색어로 모의 서류 지원을 검색할 수 없다")
+    void searchMyMockAppliesRejectsBlankQuery() {
+        User user = saveUser("search-blank@example.com");
+
+        assertThatThrownBy(() -> mockApplyService.searchMyMockApplies(user, "   ", 0, 10))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
+    }
+
+    @Test
     @DisplayName("모의 서류 지원 이름을 변경한다")
     void updateMockApplyName() {
         User user = saveUser("mock-apply-name@example.com");
@@ -703,6 +860,29 @@ class MockApplyServiceTest {
         return inNewTransaction(() -> mockApplyRepository.saveAndFlush(
                 MockApply.create(user, jobPosting, applyType, sequence)
         ));
+    }
+
+    private MockApply saveCompletedMockApply(
+            User user,
+            JobPosting jobPosting,
+            ApplyType applyType,
+            Integer sequence,
+            int score,
+            LocalDateTime updatedAt
+    ) {
+        return inNewTransaction(() -> {
+            MockApply mockApply = mockApplyRepository.save(MockApply.create(
+                    userRepository.findById(user.getId()).orElseThrow(),
+                    jobPostingRepository.findById(jobPosting.getId()).orElseThrow(),
+                    applyType,
+                    sequence
+            ));
+            mockApply.updateStatus(MockApplyStatus.COMPLETED);
+            Analysis analysis = analysisRepository.save(Analysis.create(mockApply, score, score, score, score, "완료 분석입니다."));
+            mockApply.assignAnalysis(analysis);
+            ReflectionTestUtils.setField(mockApply, "updatedAt", updatedAt);
+            return mockApplyRepository.saveAndFlush(mockApply);
+        });
     }
 
     private Question saveQuestion(MockApply mockApply, String content, int limit, String answer) {

@@ -4,6 +4,7 @@ import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentPrepareResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.toss.TossEasyPayInfo;
 import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
@@ -89,14 +90,7 @@ class PaymentServiceTest {
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
         String paymentKey = "payment-key-" + prepared.orderId();
         when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
-                .thenReturn(new TossPaymentConfirmResponse(
-                        paymentKey,
-                        prepared.orderId(),
-                        prepared.orderName(),
-                        "DONE",
-                        2500,
-                        "CARD"
-                ));
+                .thenReturn(tossPayResponse(paymentKey, prepared, 2500));
 
         PaymentConfirmResponse response = paymentService.confirm(
                 user,
@@ -119,14 +113,7 @@ class PaymentServiceTest {
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
         String paymentKey = "payment-key-" + prepared.orderId();
         when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
-                .thenReturn(new TossPaymentConfirmResponse(
-                        paymentKey,
-                        prepared.orderId(),
-                        prepared.orderName(),
-                        "DONE",
-                        2500,
-                        "CARD"
-                ));
+                .thenReturn(tossPayResponse(paymentKey, prepared, 2500));
         PaymentConfirmRequest request = new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500);
 
         PaymentConfirmResponse first = paymentService.confirm(user, request);
@@ -193,14 +180,7 @@ class PaymentServiceTest {
 
         when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
                 .thenThrow(new GeneralException(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, "timeout"))
-                .thenReturn(new TossPaymentConfirmResponse(
-                        paymentKey,
-                        prepared.orderId(),
-                        prepared.orderName(),
-                        "DONE",
-                        2500,
-                        "CARD"
-                ));
+                .thenReturn(tossPayResponse(paymentKey, prepared, 2500));
 
         assertThatThrownBy(() -> paymentService.confirm(user, request))
                 .isInstanceOf(GeneralException.class)
@@ -227,14 +207,7 @@ class PaymentServiceTest {
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
         String paymentKey = "payment-key-" + prepared.orderId();
         when(tossPaymentClient.confirm(anyString(), anyString(), anyInt()))
-                .thenReturn(new TossPaymentConfirmResponse(
-                        paymentKey,
-                        prepared.orderId(),
-                        prepared.orderName(),
-                        "DONE",
-                        2500,
-                        "CARD"
-                ));
+                .thenReturn(tossPayResponse(paymentKey, prepared, 2500));
         PaymentConfirmRequest request = new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500);
 
         List<Result> results = runConcurrently(2, () -> {
@@ -260,8 +233,118 @@ class PaymentServiceTest {
         )).hasSize(1);
     }
 
+    @Test
+    @DisplayName("토스 승인 응답이 간편결제가 아니면 결제를 실패 처리하고 크레딧을 충전하지 않는다")
+    void confirmThrowsWhenPaymentMethodIsNotEasyPay() {
+        User user = saveUser("payment-method-card@example.com");
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        String paymentKey = "payment-key-" + prepared.orderId();
+        when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
+                .thenReturn(new TossPaymentConfirmResponse(
+                        paymentKey,
+                        prepared.orderId(),
+                        prepared.orderName(),
+                        "DONE",
+                        2500,
+                        "카드",
+                        null
+                ));
+
+        assertThatThrownBy(() -> paymentService.confirm(
+                user,
+                new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500)
+        ))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.PAYMENT_CONFIRM_FAILED);
+
+        assertPaymentFailedWithoutCreditCharge(user, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("토스 승인 응답의 easyPay가 없으면 결제를 실패 처리하고 크레딧을 충전하지 않는다")
+    void confirmThrowsWhenEasyPayIsMissing() {
+        User user = saveUser("payment-method-easypay-missing@example.com");
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        String paymentKey = "payment-key-" + prepared.orderId();
+        when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
+                .thenReturn(new TossPaymentConfirmResponse(
+                        paymentKey,
+                        prepared.orderId(),
+                        prepared.orderName(),
+                        "DONE",
+                        2500,
+                        "간편결제",
+                        null
+                ));
+
+        assertThatThrownBy(() -> paymentService.confirm(
+                user,
+                new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500)
+        ))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.PAYMENT_CONFIRM_FAILED);
+
+        assertPaymentFailedWithoutCreditCharge(user, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("토스 승인 응답의 간편결제 제공사가 토스페이가 아니면 결제를 실패 처리하고 크레딧을 충전하지 않는다")
+    void confirmThrowsWhenEasyPayProviderIsNotTossPay() {
+        User user = saveUser("payment-method-other-easypay@example.com");
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        String paymentKey = "payment-key-" + prepared.orderId();
+        when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
+                .thenReturn(new TossPaymentConfirmResponse(
+                        paymentKey,
+                        prepared.orderId(),
+                        prepared.orderName(),
+                        "DONE",
+                        2500,
+                        "간편결제",
+                        new TossEasyPayInfo("카카오페이")
+                ));
+
+        assertThatThrownBy(() -> paymentService.confirm(
+                user,
+                new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500)
+        ))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.PAYMENT_CONFIRM_FAILED);
+
+        assertPaymentFailedWithoutCreditCharge(user, prepared.orderId());
+    }
+
     private User saveUser(String email) {
         return userRepository.save(User.signup("테스트 사용자", email, "encoded-password"));
+    }
+
+    private TossPaymentConfirmResponse tossPayResponse(
+            String paymentKey,
+            PaymentPrepareResponse prepared,
+            int amount
+    ) {
+        return new TossPaymentConfirmResponse(
+                paymentKey,
+                prepared.orderId(),
+                prepared.orderName(),
+                "DONE",
+                amount,
+                "간편결제",
+                new TossEasyPayInfo("토스페이")
+        );
+    }
+
+    private void assertPaymentFailedWithoutCreditCharge(User user, String orderId) {
+        Payment payment = paymentRepository.findByOrderId(orderId).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).isEmpty();
     }
 
     private List<Result> runConcurrently(int threadCount, Callable<Result> task) throws Exception {

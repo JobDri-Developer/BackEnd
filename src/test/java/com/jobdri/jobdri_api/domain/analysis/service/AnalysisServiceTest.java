@@ -4,6 +4,8 @@ import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
+import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
@@ -610,6 +612,92 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("keyStrengths와 같은 quote를 가진 keyWeaknesses는 제외한다")
+    void analyzeRemovesWeaknessesOverlappingWithStrengths() {
+        User user = saveUser("analysis-highlight-overlap@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "강약점 중복 검증입니다.",
+                List.of(new AnalysisLlmResponse.HighlightItem(
+                        "구현 경험이 분명합니다.",
+                        "Spring Boot API를 개발했습니다."
+                )),
+                List.of(
+                        new AnalysisLlmResponse.HighlightItem(
+                                "성과 수치 보완이 필요합니다.",
+                                "Spring Boot API를 개발했습니다."
+                        ),
+                        new AnalysisLlmResponse.HighlightItem(
+                                "표현 정리가 필요합니다.",
+                                " spring   boot api를 개발했습니다. "
+                        ),
+                        new AnalysisLlmResponse.HighlightItem(
+                                "대소문자만 다른 중복입니다.",
+                                "SPRING BOOT API를 개발했습니다."
+                        ),
+                        new AnalysisLlmResponse.HighlightItem(
+                                "테스트 자동화 경험 보강이 필요합니다.",
+                                "테스트 자동화 경험"
+                        )
+                ),
+                List.of(),
+                List.of()
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.keyStrengths()).extracting("quote")
+                .containsExactly("Spring Boot API를 개발했습니다.");
+        assertThat(response.keyWeaknesses()).extracting("quote")
+                .containsExactly("테스트 자동화 경험");
+
+        Analysis analysis = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
+        assertThat(analysis.getKeyWeaknessesJson())
+                .doesNotContain("성과 수치 보완이 필요합니다.")
+                .doesNotContain("표현 정리가 필요합니다.")
+                .doesNotContain("대소문자만 다른 중복입니다.")
+                .contains("테스트 자동화 경험 보강이 필요합니다.");
+    }
+
+    @Test
+    @DisplayName("저장된 분석 JSON에 강약점 quote 중복이 있으면 조회 시 DB와 응답에서 제거한다")
+    void getAnalysisRemovesPersistedWeaknessesOverlappingWithStrengths() {
+        User user = saveUser("analysis-persisted-highlight-overlap@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        mockApply.updateStatus(MockApplyStatus.COMPLETED);
+        Analysis analysis = analysisRepository.save(Analysis.create(
+                mockApply,
+                80,
+                80,
+                80,
+                80,
+                "저장된 강약점 중복 검증입니다.",
+                "[]",
+                "[{\"title\":\"구현 경험이 분명합니다.\",\"quote\":\"Spring Boot API를 개발했습니다.\"}]",
+                "[{\"title\":\"성과 수치 보완이 필요합니다.\",\"quote\":\" spring   boot api를 개발했습니다. \"},"
+                        + "{\"title\":\"테스트 자동화 경험 보강이 필요합니다.\",\"quote\":\"테스트 자동화 경험\"}]"
+        ));
+        mockApply.assignAnalysis(analysis);
+        mockApplyRepository.saveAndFlush(mockApply);
+        analysisRepository.flush();
+
+        AnalysisResponse response = analysisService.getAnalysis(user, mockApply.getId());
+
+        assertThat(response.keyWeaknesses()).extracting("quote")
+                .containsExactly("테스트 자동화 경험");
+        Analysis persisted = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
+        assertThat(persisted.getKeyWeaknessesJson())
+                .doesNotContain("성과 수치 보완이 필요합니다.")
+                .doesNotContain("spring   boot api")
+                .contains("테스트 자동화 경험 보강이 필요합니다.");
+    }
+
+    @Test
     @DisplayName("분석 응답은 같은 공고 기준 현재 지원 순번을 반환한다")
     void analyzeReturnsSequence() {
         User user = saveUser("analysis-sequence@example.com");
@@ -1120,6 +1208,60 @@ class AnalysisServiceTest {
         assertThat(response.score()).isEqualTo(77);
         assertThat(response.questions()).hasSize(1);
         assertThat(response.questions().get(0).analyses()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("조회 응답은 답변 범위와 일치하지 않는 문장 분석 offset을 제외한다")
+    void getAnalysisFiltersInvalidQuestionAnalysisOffsets() {
+        User user = saveUser("analysis-get-invalid-offset@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다. Redis 캐시를 도입했습니다.");
+        Analysis analysis = analysisRepository.save(Analysis.create(
+                mockApply,
+                80,
+                80,
+                80,
+                80,
+                "저장된 분석입니다."
+        ));
+        questionAnalysisRepository.save(QuestionAnalysis.create(
+                question,
+                analysis,
+                "Spring Boot API를 개발했습니다.",
+                "구체적 성과가 부족합니다.",
+                "Spring Boot API를 개발해 응답 시간을 30% 개선했습니다.",
+                QuestionAnalysisStatus.MENTIONED,
+                0,
+                "Spring Boot API를 개발했습니다.".length()
+        ));
+        questionAnalysisRepository.save(QuestionAnalysis.create(
+                question,
+                analysis,
+                "Redis 캐시를 도입했습니다.",
+                "offset이 원문 범위와 일치하지 않습니다.",
+                "Redis 캐시를 도입해 조회 성능을 개선했습니다.",
+                QuestionAnalysisStatus.MENTIONED,
+                0,
+                "Redis 캐시를 도입했습니다.".length()
+        ));
+        questionAnalysisRepository.save(QuestionAnalysis.create(
+                question,
+                analysis,
+                "원문에 없는 누락 문장입니다.",
+                "MISSING은 문장 offset을 제공하지 않습니다.",
+                "",
+                QuestionAnalysisStatus.MISSING,
+                0,
+                10
+        ));
+        entityManager.clear();
+
+        AnalysisResponse response = analysisService.getAnalysis(user, mockApply.getId());
+
+        assertThat(response.questions()).hasSize(1);
+        assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).sentence())
+                .isEqualTo("Spring Boot API를 개발했습니다.");
     }
 
     @Test

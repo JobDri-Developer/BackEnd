@@ -9,6 +9,7 @@ public record TossPaymentConfirmResponse(
         String orderName,
         String status,
         int totalAmount,
-        String method
+        String method,
+        TossEasyPayInfo easyPay
 ) {
 }

@@ -14,6 +14,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -93,6 +94,19 @@ public class QuestionController {
         return ApiResponse.onSuccess(
                 "자소서 답변이 저장되었습니다.",
                 questionService.saveAnswers(userDetails.getUser(), mockApplyId, request)
+        );
+    }
+
+    @Operation(summary = "선택 문항 삭제", description = "자소서 작성 화면에서 문항 1개를 삭제하고 남은 선택 문항 목록을 반환합니다.")
+    @DeleteMapping("/{questionId}")
+    public ApiResponse<QuestionSelectionResponse> deleteQuestion(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long mockApplyId,
+            @PathVariable Long questionId
+    ) {
+        return ApiResponse.onSuccess(
+                "선택 문항이 삭제되었습니다.",
+                questionService.deleteQuestion(userDetails.getUser(), mockApplyId, questionId)
         );
     }
 }

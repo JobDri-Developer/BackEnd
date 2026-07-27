@@ -256,7 +256,7 @@ public class JobPostingAsyncTaskService {
 
         LocalDateTime now = LocalDateTime.now();
         if (task.getStatus() == TaskStatus.PENDING
-                && isExpired(task.getSubmittedAt(), now, jobPostingQueueProperties.getQueueTimeoutMinutes())) {
+                && isExpired(task.getSubmittedAt(), now, jobPostingQueueProperties.getQueueTimeoutSeconds())) {
             markFailed(
                     task.getTaskId(),
                     FailureReason.QUEUE_TIMEOUT,
@@ -268,7 +268,7 @@ public class JobPostingAsyncTaskService {
 
         LocalDateTime lastActivityAt = task.getLastAttemptAt() != null ? task.getLastAttemptAt() : task.getStartedAt();
         if (task.getStatus() == TaskStatus.RUNNING
-                && isExpired(lastActivityAt, now, jobPostingQueueProperties.getProcessingTimeoutMinutes())) {
+                && isExpired(lastActivityAt, now, jobPostingQueueProperties.getProcessingTimeoutSeconds())) {
             markFailed(
                     task.getTaskId(),
                     FailureReason.WORKER_TIMEOUT,
@@ -280,11 +280,11 @@ public class JobPostingAsyncTaskService {
         return false;
     }
 
-    private boolean isExpired(LocalDateTime baseTime, LocalDateTime now, long timeoutMinutes) {
-        if (baseTime == null || timeoutMinutes <= 0) {
+    private boolean isExpired(LocalDateTime baseTime, LocalDateTime now, long timeoutSeconds) {
+        if (baseTime == null || timeoutSeconds <= 0) {
             return false;
         }
-        return Duration.between(baseTime, now).toMinutes() >= timeoutMinutes;
+        return Duration.between(baseTime, now).getSeconds() >= timeoutSeconds;
     }
 
     private void recordProcessingMetric(JobPostingAsyncTask task, String outcome) {

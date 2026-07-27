@@ -35,6 +35,64 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
     })
     Page<MockApply> findAllByUserIdAndStatus(Long userId, MockApplyStatus status, Pageable pageable);
 
+    @EntityGraph(attributePaths = {
+            "jobPosting",
+            "jobPosting.company",
+            "jobPosting.detailClassification",
+            "analysis"
+    })
+    @Query("""
+            select ma
+            from MockApply ma
+            left join ma.analysis a
+            where ma.user.id = :userId
+              and ma.status = :status
+              and (:minScore is null or a.score >= :minScore)
+              and (:maxScoreExclusive is null or a.score < :maxScoreExclusive)
+            """)
+    Page<MockApply> findCompletedByUserIdAndScoreFilter(
+            @Param("userId") Long userId,
+            @Param("status") MockApplyStatus status,
+            @Param("minScore") Integer minScore,
+            @Param("maxScoreExclusive") Integer maxScoreExclusive,
+            Pageable pageable
+    );
+
+    @EntityGraph(attributePaths = {
+            "jobPosting",
+            "jobPosting.company",
+            "jobPosting.detailClassification",
+            "analysis"
+    })
+    Page<MockApply> findAllByUserId(Long userId, Pageable pageable);
+
+    @EntityGraph(attributePaths = {
+            "jobPosting",
+            "jobPosting.company",
+            "jobPosting.detailClassification",
+            "analysis"
+    })
+    @Query("""
+            select ma
+            from MockApply ma
+            join ma.jobPosting jp
+            join jp.company c
+            join jp.detailClassification dc
+            where ma.user.id = :userId
+              and (
+                    lower(coalesce(ma.displayName, '')) like lower(concat('%', :query, '%'))
+                 or lower(coalesce(c.name, '')) like lower(concat('%', :query, '%'))
+                 or lower(coalesce(jp.jobTitle, '')) like lower(concat('%', :query, '%'))
+                 or lower(coalesce(jp.postingName, '')) like lower(concat('%', :query, '%'))
+                 or lower(coalesce(dc.detailName, '')) like lower(concat('%', :query, '%'))
+              )
+            """)
+    Page<MockApply> searchByUserId(
+            @Param("userId") Long userId,
+            @Param("query") String query,
+            Pageable pageable
+    );
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""
             delete from MockApply ma

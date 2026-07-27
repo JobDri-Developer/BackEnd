@@ -38,6 +38,7 @@ public enum GeneralErrorCode implements BaseErrorCode {
     // 채용 공고 에러
     JOB_POSTING_NOT_FOUND(HttpStatus.NOT_FOUND, "JOB_POSTING_4041", "채용 공고를 찾을 수 없습니다."),
     JOB_POSTING_ASYNC_TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "JOB_POSTING_4042", "채용 공고 비동기 작업을 찾을 수 없습니다."),
+    JOB_POSTING_UPDATE_CONFLICT(HttpStatus.CONFLICT, "JOB_POSTING_4091", "채용 공고가 이미 수정되었습니다."),
     WORKER_TASK_RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "WORKER_RESULT_4041", "worker 결과를 찾을 수 없습니다."),
 
     // 모의 서류 지원 에러

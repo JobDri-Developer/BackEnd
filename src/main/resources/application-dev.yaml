@@ -3,16 +3,20 @@ spring:
     name: jobdri-api
   sql:
     init:
-      mode: always
+      mode: never
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/jobdri}
     username: ${DB_USERNAME:jobdri}
     password: ${DB_PASSWORD:jobdri}
     driver-class-name: ${DB_DRIVER:org.postgresql.Driver}
+  flyway:
+    enabled: ${SPRING_FLYWAY_ENABLED:true}
+    baseline-on-migrate: ${SPRING_FLYWAY_BASELINE_ON_MIGRATE:true}
+    locations: classpath:db/migration
   jpa:
     hibernate:
       ddl-auto: update
-    defer-datasource-initialization: true
+    defer-datasource-initialization: false
     properties:
       hibernate:
         format_sql: true
@@ -91,6 +95,8 @@ app:
       routing-key: ${APP_WORKER_JOB_POSTING_ROUTING_KEY:job-posting.ingest}
       dlq: ${APP_WORKER_JOB_POSTING_DLQ:jobdri.job-posting.ingest.dlq}
       max-retry-count: ${APP_WORKER_JOB_POSTING_MAX_RETRY_COUNT:3}
+      queue-timeout-seconds: ${APP_WORKER_JOB_POSTING_QUEUE_TIMEOUT_SECONDS:30}
+      processing-timeout-seconds: ${APP_WORKER_JOB_POSTING_PROCESSING_TIMEOUT_SECONDS:60}
       queue-timeout-minutes: ${APP_WORKER_JOB_POSTING_QUEUE_TIMEOUT_MINUTES:10}
       processing-timeout-minutes: ${APP_WORKER_JOB_POSTING_PROCESSING_TIMEOUT_MINUTES:20}
     analysis:
@@ -99,6 +105,8 @@ app:
       routing-key: ${APP_WORKER_ANALYSIS_ROUTING_KEY:analysis.execute}
       dlq: ${APP_WORKER_ANALYSIS_DLQ:jobdri.analysis.execute.dlq}
       max-retry-count: ${APP_WORKER_ANALYSIS_MAX_RETRY_COUNT:3}
+      queue-timeout-seconds: ${APP_WORKER_ANALYSIS_QUEUE_TIMEOUT_SECONDS:120}
+      processing-timeout-seconds: ${APP_WORKER_ANALYSIS_PROCESSING_TIMEOUT_SECONDS:600}
       queue-timeout-minutes: ${APP_WORKER_ANALYSIS_QUEUE_TIMEOUT_MINUTES:10}
       processing-timeout-minutes: ${APP_WORKER_ANALYSIS_PROCESSING_TIMEOUT_MINUTES:20}
   admin:

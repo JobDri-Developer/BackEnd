@@ -101,4 +101,9 @@ public class Analysis extends BaseEntity {
                 .keyWeaknessesJson(keyWeaknessesJson == null ? "[]" : keyWeaknessesJson)
                 .build();
     }
+
+    public void updateHighlightsJson(String keyStrengthsJson, String keyWeaknessesJson) {
+        this.keyStrengthsJson = keyStrengthsJson == null ? "[]" : keyStrengthsJson;
+        this.keyWeaknessesJson = keyWeaknessesJson == null ? "[]" : keyWeaknessesJson;
+    }
 }

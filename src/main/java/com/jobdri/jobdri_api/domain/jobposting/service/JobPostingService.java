@@ -28,6 +28,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 @Service
@@ -73,6 +74,7 @@ public class JobPostingService {
     public JobPostingResponse updateJobPosting(User user, Long jobPostingId, JobPostingUpdateRequest request) {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = getOwnedJobPosting(validatedUser, jobPostingId);
+        validateNotStale(jobPosting, request.lastKnownUpdatedAt());
 
         Company company = findOrCreateCompany(request.companyName(), request.companySize());
         DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
@@ -116,6 +118,18 @@ public class JobPostingService {
         return jobPostingRepository.findAllByUserIdAndCompanyId(validatedUser.getId(), companyId).stream()
                 .map(JobPostingResponse::from)
                 .toList();
+    }
+
+    private void validateNotStale(JobPosting jobPosting, LocalDateTime lastKnownUpdatedAt) {
+        if (lastKnownUpdatedAt == null || jobPosting.getUpdatedAt() == null) {
+            return;
+        }
+        if (jobPosting.getUpdatedAt().isAfter(lastKnownUpdatedAt)) {
+            throw new GeneralException(
+                    GeneralErrorCode.JOB_POSTING_UPDATE_CONFLICT,
+                    "채용 공고가 이미 수정되었습니다. 최신 공고를 다시 조회한 뒤 저장해주세요."
+            );
+        }
     }
 
     @Transactional
