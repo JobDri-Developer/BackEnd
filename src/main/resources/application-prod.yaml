@@ -3,20 +3,16 @@ spring:
     name: jobdri-api
   sql:
     init:
-      mode: never
+      mode: always
   datasource:
     url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: ${DB_DRIVER:org.postgresql.Driver}
-  flyway:
-    enabled: ${SPRING_FLYWAY_ENABLED:true}
-    baseline-on-migrate: ${SPRING_FLYWAY_BASELINE_ON_MIGRATE:true}
-    locations: classpath:db/migration
   jpa:
     hibernate:
       ddl-auto: ${JPA_DDL_AUTO:update}
-    defer-datasource-initialization: false
+    defer-datasource-initialization: true
     properties:
       hibernate:
         format_sql: true
