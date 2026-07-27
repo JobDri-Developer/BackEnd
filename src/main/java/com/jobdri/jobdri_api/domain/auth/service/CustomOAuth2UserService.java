@@ -4,7 +4,6 @@ import com.jobdri.jobdri_api.domain.auth.security.CustomOAuth2User;
 import com.jobdri.jobdri_api.domain.user.entity.SocialType;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
-import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
@@ -17,14 +16,17 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Service
-@RequiredArgsConstructor
 public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequest, OAuth2User> {
 
     private final UserRepository userRepository;
-    private final PasswordEncoder passwordEncoder;
+    private final String encodedDummyPassword;
+
+    public CustomOAuth2UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
+        this.userRepository = userRepository;
+        this.encodedDummyPassword = passwordEncoder.encode("SOCIAL_LOGIN_ONLY_ACCOUNT");
+    }
 
     @Override
     public OAuth2User loadUser(OAuth2UserRequest userRequest) throws OAuth2AuthenticationException {
@@ -47,7 +49,7 @@ public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
                         User.createSocialUser(
                                 name,
                                 email,
-                                createDummyPassword(),
+                                encodedDummyPassword,
                                 SocialType.GOOGLE,
                                 socialId
                         )
@@ -58,9 +60,5 @@ public class CustomOAuth2UserService implements OAuth2UserService<OAuth2UserRequ
                 attributes,
                 List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()))
         );
-    }
-
-    private String createDummyPassword() {
-        return passwordEncoder.encode(UUID.randomUUID().toString());
     }
 }
