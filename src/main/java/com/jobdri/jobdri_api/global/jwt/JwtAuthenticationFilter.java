@@ -1,5 +1,7 @@
 package com.jobdri.jobdri_api.global.jwt;
 
+import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.domain.user.entity.UserRole;
 import com.jobdri.jobdri_api.global.security.UserDetailsServiceImpl;
 import com.jobdri.jobdri_api.global.logging.LoggingMdcKeys;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
@@ -49,10 +51,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             if (jwtUtil.validateToken(token)) {
                 Claims claims = jwtUtil.getClaimsFromToken(token);
-
                 String email = jwtUtil.getEmailFromToken(claims);
 
-                UserDetails userDetails = userDetailsService.loadUserByUsername(email);
+                UserDetails userDetails = createUserDetails(claims);
 
                 Authentication authentication = new UsernamePasswordAuthenticationToken(
                         userDetails,
@@ -70,6 +71,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private UserDetails createUserDetails(Claims claims) {
+        String email = jwtUtil.getEmailFromToken(claims);
+        Long userId = jwtUtil.getUserIdFromToken(claims);
+        UserRole role = jwtUtil.getRoleFromToken(claims);
+
+        if (userId != null && role != null) {
+            return new UserDetailsImpl(User.authenticatedPrincipal(userId, email, role));
+        }
+
+        return userDetailsService.loadUserByUsername(email);
     }
 
     private void populateUserLoggingContext(UserDetails userDetails) {

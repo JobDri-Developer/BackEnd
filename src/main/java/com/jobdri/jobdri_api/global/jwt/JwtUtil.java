@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.global.jwt;
 
+import com.jobdri.jobdri_api.domain.user.entity.UserRole;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import io.jsonwebtoken.Claims;
@@ -43,12 +44,12 @@ public class JwtUtil {
         key = Keys.hmacShaKeyFor(bytes);
     }
 
-    public String createAccessToken(String email, Long userId) {
-        return createToken(email, userId, accessTokenTime);
+    public String createAccessToken(String email, Long userId, UserRole role) {
+        return createToken(email, userId, role, accessTokenTime);
     }
 
     public String createRefreshToken(String email) {
-        return createToken(email, null, refreshTokenTime);
+        return createToken(email, null, null, refreshTokenTime);
     }
 
     public long getRefreshTokenTime() {
@@ -60,7 +61,7 @@ public class JwtUtil {
         return claims.getExpiration().getTime() - System.currentTimeMillis();
     }
 
-    private String createToken(String email, Long userId, long expireTime) {
+    private String createToken(String email, Long userId, UserRole role, long expireTime) {
         Date now = new Date();
         Date expireDate = new Date(now.getTime() + expireTime);
 
@@ -72,6 +73,9 @@ public class JwtUtil {
 
         if (userId != null) {
             builder.claim("userId", userId);
+        }
+        if (role != null) {
+            builder.claim("role", role.name());
         }
 
         return builder.compact();
@@ -108,6 +112,22 @@ public class JwtUtil {
 
     public String getEmailFromToken(Claims claims) {
         return claims.getSubject();
+    }
+
+    public Long getUserIdFromToken(Claims claims) {
+        return claims.get("userId", Long.class);
+    }
+
+    public UserRole getRoleFromToken(Claims claims) {
+        String role = claims.get("role", String.class);
+        if (role == null || role.isBlank()) {
+            return null;
+        }
+        try {
+            return UserRole.valueOf(role);
+        } catch (IllegalArgumentException exception) {
+            throw new GeneralException(GeneralErrorCode.INVALID_TOKEN, "유효하지 않은 권한 정보입니다.");
+        }
     }
 
     public Claims getClaimsFromExpiredToken(String token) {

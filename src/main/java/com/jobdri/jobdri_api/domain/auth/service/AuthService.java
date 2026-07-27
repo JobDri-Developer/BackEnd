@@ -94,7 +94,7 @@ public class AuthService {
     }
 
     public LoginResponse issueTokens(User user) {
-        String accessToken = jwtUtil.createAccessToken(user.getEmail(), user.getId());
+        String accessToken = jwtUtil.createAccessToken(user.getEmail(), user.getId(), user.getRole());
         String refreshTokenValue = jwtUtil.createRefreshToken(user.getEmail());
 
         saveRefreshToken(user.getId(), refreshTokenValue);
@@ -137,7 +137,7 @@ public class AuthService {
             User user = userRepository.findById(accessUserId)
                     .orElseThrow(() -> new GeneralException(GeneralErrorCode.USER_NOT_FOUND));
 
-            String newAccessToken = jwtUtil.createAccessToken(user.getEmail(), user.getId());
+            String newAccessToken = jwtUtil.createAccessToken(user.getEmail(), user.getId(), user.getRole());
             String newRefreshToken = jwtUtil.createRefreshToken(user.getEmail());
 
             saveRefreshToken(user.getId(), newRefreshToken);
