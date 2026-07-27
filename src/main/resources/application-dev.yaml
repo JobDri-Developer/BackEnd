@@ -3,7 +3,7 @@ spring:
     name: jobdri-api
   sql:
     init:
-      mode: always
+      mode: never
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/jobdri}
     username: ${DB_USERNAME:jobdri}
@@ -16,7 +16,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: update
-    defer-datasource-initialization: true
+    defer-datasource-initialization: false
     properties:
       hibernate:
         format_sql: true
