@@ -97,6 +97,21 @@ public class User extends BaseEntity {
                 .build();
     }
 
+    public static User authenticatedPrincipal(
+            Long id,
+            String email,
+            UserRole role
+    ) {
+        return User.builder()
+                .id(id)
+                .email(email)
+                .password("")
+                .role(role)
+                .socialType(SocialType.LOCAL)
+                .credit(0)
+                .build();
+    }
+
     public void increaseCredit(int amount) {
         this.credit += amount;
     }
