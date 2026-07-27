@@ -4,6 +4,8 @@ import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
+import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
@@ -1206,6 +1208,60 @@ class AnalysisServiceTest {
         assertThat(response.score()).isEqualTo(77);
         assertThat(response.questions()).hasSize(1);
         assertThat(response.questions().get(0).analyses()).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("조회 응답은 답변 범위와 일치하지 않는 문장 분석 offset을 제외한다")
+    void getAnalysisFiltersInvalidQuestionAnalysisOffsets() {
+        User user = saveUser("analysis-get-invalid-offset@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다. Redis 캐시를 도입했습니다.");
+        Analysis analysis = analysisRepository.save(Analysis.create(
+                mockApply,
+                80,
+                80,
+                80,
+                80,
+                "저장된 분석입니다."
+        ));
+        questionAnalysisRepository.save(QuestionAnalysis.create(
+                question,
+                analysis,
+                "Spring Boot API를 개발했습니다.",
+                "구체적 성과가 부족합니다.",
+                "Spring Boot API를 개발해 응답 시간을 30% 개선했습니다.",
+                QuestionAnalysisStatus.MENTIONED,
+                0,
+                "Spring Boot API를 개발했습니다.".length()
+        ));
+        questionAnalysisRepository.save(QuestionAnalysis.create(
+                question,
+                analysis,
+                "Redis 캐시를 도입했습니다.",
+                "offset이 원문 범위와 일치하지 않습니다.",
+                "Redis 캐시를 도입해 조회 성능을 개선했습니다.",
+                QuestionAnalysisStatus.MENTIONED,
+                0,
+                "Redis 캐시를 도입했습니다.".length()
+        ));
+        questionAnalysisRepository.save(QuestionAnalysis.create(
+                question,
+                analysis,
+                "원문에 없는 누락 문장입니다.",
+                "MISSING은 문장 offset을 제공하지 않습니다.",
+                "",
+                QuestionAnalysisStatus.MISSING,
+                0,
+                10
+        ));
+        entityManager.clear();
+
+        AnalysisResponse response = analysisService.getAnalysis(user, mockApply.getId());
+
+        assertThat(response.questions()).hasSize(1);
+        assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).sentence())
+                .isEqualTo("Spring Boot API를 개발했습니다.");
     }
 
     @Test
