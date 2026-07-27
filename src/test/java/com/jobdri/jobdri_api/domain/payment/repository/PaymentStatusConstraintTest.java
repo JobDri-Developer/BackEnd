@@ -31,6 +31,7 @@ class PaymentStatusConstraintTest {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
+                .baselineOnMigrate(true)
                 .load()
                 .migrate();
 
@@ -54,6 +55,7 @@ class PaymentStatusConstraintTest {
         Flyway.configure()
                 .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
                 .locations("classpath:db/migration")
+                .baselineOnMigrate(true)
                 .load()
                 .migrate();
 
