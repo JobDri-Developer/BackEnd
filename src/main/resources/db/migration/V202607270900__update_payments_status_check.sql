@@ -11,4 +11,4 @@ CHECK (
         'FAILED',
         'COMPLETED'
     )
-);
+) NOT VALID;
