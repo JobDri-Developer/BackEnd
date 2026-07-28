@@ -109,6 +109,24 @@ class MissingKeywordSanitizerReplayServiceTest {
     }
 
     @Test
+    @DisplayName("필수 헤더가 누락되면 누락된 헤더명을 포함해 fail-fast 한다")
+    void missingRequiredHeaderFailsFast() throws Exception {
+        Path input = tempDir.resolve("input.csv");
+        List<String> headersWithoutSanitizedResponse = headers().stream()
+                .filter(header -> !header.equals("sanitizedCandidateResponseJson"))
+                .toList();
+        EvaluationCsvSupport.writeRows(
+                input,
+                headersWithoutSanitizedResponse,
+                List.of(row("EV-01", response(List.of()), response(List.of())))
+        );
+
+        assertThatThrownBy(() -> service.replay(input, tempDir.resolve("replay.csv"), tempDir.resolve("review.csv")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("sanitizedCandidateResponseJson");
+    }
+
+    @Test
     @DisplayName("UTF-8 BOM과 쉼표, 줄바꿈, 큰따옴표가 포함된 후보를 처리한다")
     void replayHandlesBomAndEscapedCsvValues() throws Exception {
         Path input = tempDir.resolve("input.csv");
