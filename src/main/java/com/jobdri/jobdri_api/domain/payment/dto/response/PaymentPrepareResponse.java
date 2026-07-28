@@ -9,7 +9,6 @@ public record PaymentPrepareResponse(
         int amount,
         int creditAmount,
         String checkoutPage,
-        String payToken,
         String customerEmail
 ) {
     public static PaymentPrepareResponse of(Payment payment) {
@@ -24,7 +23,6 @@ public record PaymentPrepareResponse(
                 payment.getPrice(),
                 payment.getCreditAmount(),
                 payment.getCheckoutPage(),
-                payment.getPayToken(),
                 customerEmail
         );
     }

@@ -86,10 +86,9 @@ class PaymentServiceTest {
         assertThat(response.amount()).isEqualTo(11500);
         assertThat(response.creditAmount()).isEqualTo(5);
         assertThat(response.checkoutPage()).startsWith("https://pay.toss.im/checkout/");
-        assertThat(response.payToken()).startsWith("pay-token-");
         Payment payment = paymentRepository.findByOrderId(response.orderId()).orElseThrow();
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
-        assertThat(payment.getPayToken()).isEqualTo(response.payToken());
+        assertThat(payment.getPayToken()).startsWith("pay-token-");
         assertThat(payment.getCheckoutPage()).isEqualTo(response.checkoutPage());
     }
 
@@ -449,7 +448,7 @@ class PaymentServiceTest {
 
         assertThatThrownBy(() -> paymentService.handleTossPayCallback(new TossPayCallbackRequest(
                 "PAY_COMPLETE",
-                prepared.payToken(),
+                savedPayToken(prepared),
                 prepared.orderId(),
                 "CARD",
                 1000,
@@ -474,7 +473,7 @@ class PaymentServiceTest {
 
         paymentService.handleTossPayCallback(new TossPayCallbackRequest(
                 "PAY_CANCEL",
-                prepared.payToken(),
+                savedPayToken(prepared),
                 prepared.orderId(),
                 "CARD",
                 prepared.amount(),
@@ -496,7 +495,7 @@ class PaymentServiceTest {
 
         paymentService.handleTossPayCallback(new TossPayCallbackRequest(
                 "PAY_APPROVED",
-                prepared.payToken(),
+                savedPayToken(prepared),
                 prepared.orderId(),
                 "CARD",
                 prepared.amount(),
@@ -566,7 +565,7 @@ class PaymentServiceTest {
     private TossPayCallbackRequest tossPayCompleteCallback(PaymentPrepareResponse prepared) {
         return new TossPayCallbackRequest(
                 "PAY_COMPLETE",
-                prepared.payToken(),
+                savedPayToken(prepared),
                 prepared.orderId(),
                 "CARD",
                 prepared.amount(),
@@ -575,6 +574,10 @@ class PaymentServiceTest {
                 "2026-07-28 10:00:00",
                 "transaction-id"
         );
+    }
+
+    private String savedPayToken(PaymentPrepareResponse prepared) {
+        return paymentRepository.findByOrderId(prepared.orderId()).orElseThrow().getPayToken();
     }
 
     private TossPaymentConfirmResponse tossPayResponse(
