@@ -2,7 +2,10 @@ package com.jobdri.jobdri_api.domain.payment.service;
 
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.*;
+import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayCreateResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
@@ -36,22 +39,14 @@ public class PaymentService {
 
     private static final String EXPECTED_PAYMENT_METHOD = "간편결제";
     private static final String EXPECTED_EASY_PAY_PROVIDER = "토스페이";
+    private static final String TOSS_PAY_COMPLETE = "PAY_COMPLETE";
 
     private final UserService userService;
     private final PaymentRepository paymentRepository;
     private final CreditTransactionRepository creditTransactionRepository;
     private final PaymentTransactionService paymentTransactionService;
     private final TossPaymentClient tossPaymentClient;
-
-    @Value("${payment.toss.client-key:}")
-    private String tossClientKey;
-
-    @PostConstruct
-    void validateConfig() {
-        if (tossClientKey == null || tossClientKey.isBlank()) {
-            throw new IllegalStateException("payment.toss.client-key must be configured");
-        }
-    }
+    private final TossPayClient tossPayClient;
 
     public List<CreditPlanResponse> getPlans() {
         return Arrays.stream(CreditPlan.values())
@@ -59,7 +54,7 @@ public class PaymentService {
                 .toList();
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PaymentPrepareResponse prepare(User user, PaymentPrepareRequest request) {
         User validatedUser = userService.validateUser(user);
         CreditPlan plan = CreditPlan.from(request.planCode());
@@ -71,23 +66,37 @@ public class PaymentService {
             log.info("Starting payment preparation");
         }
         String orderId = "jobdri-" + UUID.randomUUID();
-        Payment payment = paymentRepository.save(Payment.createPending(
-                validatedUser,
-                "JobDri 크레딧 " + plan.getName(),
-                orderId,
-                plan.getCode(),
-                plan.getCreditAmount(),
-                plan.getPrice()
-        ));
+        Payment payment = paymentTransactionService.createPendingPayment(validatedUser.getId(), plan, orderId);
+        try {
+            TossPayCreateResponse tossPayResponse = tossPayClient.createPayment(
+                    payment.getOrderId(),
+                    payment.getPrice(),
+                    payment.getContent()
+            );
+            payment = paymentTransactionService.completeTossPayCreation(
+                    validatedUser.getId(),
+                    payment.getOrderId(),
+                    tossPayResponse.payToken(),
+                    tossPayResponse.checkoutPage()
+            );
+        } catch (RuntimeException e) {
+            if (e instanceof GeneralException generalException
+                    && generalException.getCode() == GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT) {
+                paymentTransactionService.markTossPayCreationUnknown(validatedUser.getId(), payment.getOrderId());
+                throw e;
+            }
+            paymentTransactionService.failTossPayCreation(validatedUser.getId(), payment.getOrderId());
+            throw e;
+        }
         try (var ignored = LoggingContext.with(
-                "payment.prepare.completed",
+                "payment.create.completed",
                 null,
                 PaymentLogMasking.paymentContext(payment.getOrderId(), null, validatedUser.getId(), plan.getCode(), plan.getPrice())
         )) {
             log.info("Payment preparation completed");
         }
 
-        return PaymentPrepareResponse.of(payment, tossClientKey);
+        return PaymentPrepareResponse.of(payment, validatedUser.getEmail());
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -148,6 +157,53 @@ public class PaymentService {
     public CreditBalanceResponse getBalance(User user) {
         User validatedUser = userService.validateUser(user);
         return new CreditBalanceResponse(validatedUser.getCredit());
+    }
+
+    public PaymentOrderStatusResponse getOrderStatus(User user, String orderId) {
+        User validatedUser = userService.validateUser(user);
+        return paymentTransactionService.getOwnedOrderStatus(validatedUser.getId(), orderId);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void handleTossPayCallback(TossPayCallbackRequest request) {
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(
+                request == null ? null : request.orderNo(),
+                request == null ? null : request.payToken(),
+                request == null ? null : request.amount()
+        );
+        try (var ignored = LoggingContext.with("payment.callback.received", null, paymentContext)) {
+            log.info("Toss Pay callback received");
+        }
+        try {
+            paymentTransactionService.handleTossPayCallback(request);
+            try (var ignored = LoggingContext.with("payment.callback.completed", null, paymentContext)) {
+                log.info("Toss Pay callback processed");
+            }
+        } catch (GeneralException e) {
+            try (var ignored = LoggingContext.with("payment.callback.invalid", e.getCode(), paymentContext)) {
+                log.warn("Toss Pay callback validation failed: {}", e.getMessage());
+            }
+            throw e;
+        } catch (RuntimeException e) {
+            try (var ignored = LoggingContext.with("payment.callback.failed", GeneralErrorCode.PAYMENT_CONFIRM_FAILED, paymentContext)) {
+                log.warn("Toss Pay callback processing failed: {}", e.getMessage());
+            }
+            throw e;
+        }
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public PaymentConfirmResponse reconcileTossPayStatus(String payToken, String orderId) {
+        TossPayStatusResponse statusResponse = tossPayClient.getPaymentStatus(payToken, orderId);
+        if (statusResponse == null || !TOSS_PAY_COMPLETE.equals(statusResponse.payStatus())) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스페이 결제가 완료되지 않았습니다.");
+        }
+        return paymentTransactionService.applyTossPayStatus(
+                statusResponse.orderNo(),
+                statusResponse.payToken(),
+                statusResponse.payStatus(),
+                statusResponse.amount()
+        );
     }
 
     public List<CreditTransactionResponse> getTransactions(User user, CreditTransactionType type) {

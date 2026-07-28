@@ -84,6 +84,12 @@ payment:
     client-key: test-toss-client-key
     secret-key: test-toss-secret-key
     base-url: https://api.tosspayments.com
+  toss-pay:
+    api-base-url: https://pay.toss.im
+    api-key: test-toss-pay-api-key
+    return-url: http://localhost:3000/credit/payment-result
+    cancel-url: http://localhost:3000/credit/payment-cancel
+    result-callback-url: http://localhost:8080/api/payments/toss/callback
 
 async:
   llm:

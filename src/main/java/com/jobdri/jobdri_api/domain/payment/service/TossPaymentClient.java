@@ -44,10 +44,6 @@ public class TossPaymentClient {
 
     @PostConstruct
     void init() {
-        if (secretKey == null || secretKey.isBlank()) {
-            throw new IllegalStateException("payment.toss.secret-key must be configured");
-        }
-
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(5));
         requestFactory.setReadTimeout(Duration.ofSeconds(10));
@@ -59,6 +55,9 @@ public class TossPaymentClient {
     }
 
     public TossPaymentConfirmResponse confirm(String paymentKey, String orderId, int amount) {
+        if (secretKey == null || secretKey.isBlank()) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스페이먼츠 시크릿 키가 설정되지 않았습니다.");
+        }
         Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderId, paymentKey, amount);
         try (var ignored = LoggingContext.with("payment.confirm.external_called", null, paymentContext)) {
             log.info("Calling Toss payment confirm API");
