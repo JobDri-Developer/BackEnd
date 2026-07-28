@@ -126,6 +126,18 @@ class EvaluationAnalysisRunnerSafetyTest {
     }
 
     @Test
+    @DisplayName("missing keyword replay Runner는 명시적으로 활성화한 경우에만 실행된다")
+    void missingKeywordReplayRunnerRequiresEnabledFlag() {
+        ConditionalOnProperty condition = MissingKeywordSanitizerReplayRunner.class.getAnnotation(ConditionalOnProperty.class);
+
+        assertThat(condition).isNotNull();
+        assertThat(condition.prefix()).isEqualTo("evaluation.missing-keyword-replay");
+        assertThat(condition.name()).containsExactly("enabled");
+        assertThat(condition.havingValue()).isEqualTo("true");
+        assertThat(condition.matchIfMissing()).isFalse();
+    }
+
+    @Test
     @DisplayName("NLG judge Runner는 component scan에서 발견 가능한 public 컴포넌트다")
     void nlgJudgeRunnerIsPublicScannableComponent() {
         assertThat(Modifier.isPublic(NlgEvaluationRunner.class.getModifiers())).isTrue();
@@ -140,6 +152,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).hasSingleBean(NlgEvaluationRunner.class);
                     assertThat(context).doesNotHaveBean(HybridExactMergeRunner.class);
+                    assertThat(context).doesNotHaveBean(MissingKeywordSanitizerReplayRunner.class);
                     assertThat(context.getBeanNamesForType(ApplicationRunner.class))
                             .containsExactly("nlgEvaluationRunner");
                 });
@@ -158,6 +171,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
                     assertThat(context).doesNotHaveBean(HybridExactMergeRunner.class);
+                    assertThat(context).doesNotHaveBean(MissingKeywordSanitizerReplayRunner.class);
                     assertThat(context.getBeanNamesForType(ApplicationRunner.class)).isEmpty();
                 });
     }
@@ -175,6 +189,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                     assertThat(context).hasSingleBean(EvaluationAnalysisRunner.class);
                     assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
                     assertThat(context).doesNotHaveBean(HybridExactMergeRunner.class);
+                    assertThat(context).doesNotHaveBean(MissingKeywordSanitizerReplayRunner.class);
                     assertThat(context.getBeanNamesForType(ApplicationRunner.class))
                             .containsExactly("evaluationAnalysisRunner");
                 });
@@ -193,6 +208,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).hasSingleBean(NlgEvaluationRunner.class);
                     assertThat(context).doesNotHaveBean(HybridExactMergeRunner.class);
+                    assertThat(context).doesNotHaveBean(MissingKeywordSanitizerReplayRunner.class);
                     assertThat(context.getBeanNamesForType(ApplicationRunner.class))
                             .containsExactly("nlgEvaluationRunner");
                     verifyNoInteractions(context.getBean(EvaluationExitCoordinator.class));
@@ -212,6 +228,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
                     assertThat(context).doesNotHaveBean(HybridExactMergeRunner.class);
+                    assertThat(context).doesNotHaveBean(MissingKeywordSanitizerReplayRunner.class);
                     assertThat(context.getBeanNamesForType(ApplicationRunner.class)).isEmpty();
                 });
     }
@@ -230,8 +247,30 @@ class EvaluationAnalysisRunnerSafetyTest {
                     assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
                     assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
                     assertThat(context).hasSingleBean(HybridExactMergeRunner.class);
+                    assertThat(context).doesNotHaveBean(MissingKeywordSanitizerReplayRunner.class);
                     assertThat(context.getBeanNamesForType(ApplicationRunner.class))
                             .containsExactly("hybridExactMergeRunner");
+                });
+    }
+
+    @Test
+    @DisplayName("analysis-eval + missing-keyword-replay.enabled=true이면 replay Runner만 생성된다")
+    void missingKeywordReplayRunnerIsCreatedWhenReplayFlagIsTrue() {
+        scannedRunnerContext()
+                .withPropertyValues(
+                        "spring.profiles.active=analysis-eval",
+                        "evaluation.analysis.enabled=false",
+                        "evaluation.nlg-judge.enabled=false",
+                        "evaluation.hybrid-merge.enabled=false",
+                        "evaluation.missing-keyword-replay.enabled=true"
+                )
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(EvaluationAnalysisRunner.class);
+                    assertThat(context).doesNotHaveBean(NlgEvaluationRunner.class);
+                    assertThat(context).doesNotHaveBean(HybridExactMergeRunner.class);
+                    assertThat(context).hasSingleBean(MissingKeywordSanitizerReplayRunner.class);
+                    assertThat(context.getBeanNamesForType(ApplicationRunner.class))
+                            .containsExactly("missingKeywordSanitizerReplayRunner");
                 });
     }
 
@@ -258,11 +297,29 @@ class EvaluationAnalysisRunnerSafetyTest {
                         "spring.profiles.active=analysis-eval",
                         "evaluation.analysis.enabled=false",
                         "evaluation.nlg-judge.enabled=true",
-                        "evaluation.hybrid-merge.enabled=true"
+                        "evaluation.hybrid-merge.enabled=true",
+                        "evaluation.missing-keyword-replay.enabled=false"
                 )
                 .run(context -> assertThat(context.getStartupFailure())
                         .isInstanceOf(IllegalStateException.class)
                         .hasMessageContaining("mutually exclusive"));
+    }
+
+    @Test
+    @DisplayName("missing keyword replay와 다른 평가 Runner가 동시에 true이면 설정 오류로 fail-fast 한다")
+    void missingKeywordReplayAndOtherRunnerFlagsTrueFailsFast() {
+        runnerContext()
+                .withPropertyValues(
+                        "spring.profiles.active=analysis-eval",
+                        "evaluation.analysis.enabled=true",
+                        "evaluation.nlg-judge.enabled=false",
+                        "evaluation.hybrid-merge.enabled=false",
+                        "evaluation.missing-keyword-replay.enabled=true"
+                )
+                .run(context -> assertThat(context.getStartupFailure())
+                        .isInstanceOf(IllegalStateException.class)
+                        .hasMessageContaining("mutually exclusive")
+                        .hasMessageContaining("evaluation.missing-keyword-replay.enabled"));
     }
 
     @Test
@@ -555,6 +612,7 @@ class EvaluationAnalysisRunnerSafetyTest {
         assertThat(properties.getProperty("evaluation.analysis.enabled")).isEqualTo("false");
         assertThat(properties.getProperty("evaluation.nlg-judge.enabled")).isEqualTo("false");
         assertThat(properties.getProperty("evaluation.hybrid-merge.enabled")).isEqualTo("false");
+        assertThat(properties.getProperty("evaluation.missing-keyword-replay.enabled")).isEqualTo("false");
         assertThat(properties.getProperty("payment.toss.client-key")).contains("dummy-evaluation-client-key");
     }
 
@@ -654,6 +712,7 @@ class EvaluationAnalysisRunnerSafetyTest {
             EvaluationAnalysisRunner.class,
             NlgEvaluationRunner.class,
             HybridExactMergeRunner.class,
+            MissingKeywordSanitizerReplayRunner.class,
             EvaluationRunnerFlagValidator.class
     })
     static class RunnerConditionTestConfig {
@@ -673,6 +732,11 @@ class EvaluationAnalysisRunnerSafetyTest {
         }
 
         @Bean
+        MissingKeywordSanitizerReplayService missingKeywordSanitizerReplayService() {
+            return mock(MissingKeywordSanitizerReplayService.class);
+        }
+
+        @Bean
         EvaluationExitCoordinator evaluationExitCoordinator() {
             return mock(EvaluationExitCoordinator.class);
         }
@@ -688,6 +752,7 @@ class EvaluationAnalysisRunnerSafetyTest {
                             EvaluationAnalysisRunner.class,
                             NlgEvaluationRunner.class,
                             HybridExactMergeRunner.class,
+                            MissingKeywordSanitizerReplayRunner.class,
                             EvaluationRunnerFlagValidator.class
                     }
             )
@@ -706,6 +771,11 @@ class EvaluationAnalysisRunnerSafetyTest {
         @Bean
         HybridExactMergeService hybridExactMergeService() {
             return mock(HybridExactMergeService.class);
+        }
+
+        @Bean
+        MissingKeywordSanitizerReplayService missingKeywordSanitizerReplayService() {
+            return mock(MissingKeywordSanitizerReplayService.class);
         }
 
         @Bean

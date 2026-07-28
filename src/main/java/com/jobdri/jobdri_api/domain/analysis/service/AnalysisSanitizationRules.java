@@ -72,6 +72,29 @@ public final class AnalysisSanitizationRules {
         return false;
     }
 
+    public static boolean isGroundedMissingKeyword(
+            String keyword,
+            MissingKeywordSource source,
+            String mainTasks,
+            String qualifications
+    ) {
+        if (source == MissingKeywordSource.MAIN_TASK) {
+            return isGroundedInSource(keyword, mainTasks);
+        }
+        if (source == MissingKeywordSource.QUALIFICATION) {
+            return isGroundedInSource(keyword, qualifications);
+        }
+        return false;
+    }
+
+    public static boolean hasMissingKeywordCoreTokens(String keyword) {
+        return !coreTokens(keyword).isEmpty();
+    }
+
+    public static String normalizeText(String value) {
+        return normalize(value);
+    }
+
     public static String normalizeImprovement(
             String sentence,
             String answer,

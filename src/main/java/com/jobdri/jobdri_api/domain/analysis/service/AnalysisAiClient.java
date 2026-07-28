@@ -1166,35 +1166,7 @@ public class AnalysisAiClient {
             AnalysisPromptInput promptInput,
             AnalysisCandidateResponse candidates
     ) {
-        if (candidates == null || candidates.missingKeywordCandidates() == null) {
-            return List.of();
-        }
-        List<AnalysisCandidateResponse.MissingKeywordCandidate> result = new ArrayList<>();
-        Set<String> seen = new HashSet<>();
-        for (AnalysisCandidateResponse.MissingKeywordCandidate candidate : candidates.missingKeywordCandidates()) {
-            if (candidate == null || !StringUtils.hasText(candidate.keyword())) {
-                continue;
-            }
-            Optional<MissingKeywordSource> source = parseCandidateSource(candidate.source());
-            if (source.isEmpty()
-                    || !AnalysisSanitizationRules.isValidMissingKeyword(
-                    candidate.keyword(),
-                    source.get(),
-                    promptInput.mainTasks(),
-                    promptInput.qualifications()
-            )) {
-                continue;
-            }
-            String dedupeKey = normalize(candidate.keyword());
-            if (!seen.add(dedupeKey)) {
-                continue;
-            }
-            result.add(candidate);
-            if (result.size() >= 3) {
-                break;
-            }
-        }
-        return result;
+        return MissingKeywordSanitizer.sanitize(promptInput, candidates).acceptedCandidates();
     }
 
     private Optional<MissingKeywordSource> parseCandidateSource(String source) {
