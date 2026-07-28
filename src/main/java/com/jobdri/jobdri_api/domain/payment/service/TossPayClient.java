@@ -47,19 +47,6 @@ public class TossPayClient {
 
     @PostConstruct
     void init() {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("payment.toss-pay.api-key must be configured");
-        }
-        if (returnUrl == null || returnUrl.isBlank()) {
-            throw new IllegalStateException("payment.toss-pay.return-url must be configured");
-        }
-        if (cancelUrl == null || cancelUrl.isBlank()) {
-            throw new IllegalStateException("payment.toss-pay.cancel-url must be configured");
-        }
-        if (resultCallbackUrl == null || resultCallbackUrl.isBlank()) {
-            throw new IllegalStateException("payment.toss-pay.result-callback-url must be configured");
-        }
-
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         requestFactory.setConnectTimeout(Duration.ofSeconds(5));
         requestFactory.setReadTimeout(Duration.ofSeconds(10));
@@ -71,6 +58,7 @@ public class TossPayClient {
     }
 
     public TossPayCreateResponse createPayment(String orderNo, int amount, String productDesc) {
+        ensureConfigured();
         Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderNo, null, amount);
         try (var ignored = LoggingContext.with("payment.create.external_called", null, paymentContext)) {
             log.info("Calling Toss Pay create payment API");
@@ -125,6 +113,7 @@ public class TossPayClient {
     }
 
     public TossPayStatusResponse getPaymentStatus(String payToken, String orderNo) {
+        ensureConfigured();
         try {
             return restClient
                     .post()
@@ -146,6 +135,29 @@ public class TossPayClient {
         } catch (RestClientException e) {
             throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "토스페이 결제 상태 조회 중 오류가 발생했습니다.", e);
         }
+    }
+
+    private void ensureConfigured() {
+        if (apiKey == null || apiKey.isBlank()) {
+            throw missingConfiguration("payment.toss-pay.api-key");
+        }
+        if (returnUrl == null || returnUrl.isBlank()) {
+            throw missingConfiguration("payment.toss-pay.return-url");
+        }
+        if (cancelUrl == null || cancelUrl.isBlank()) {
+            throw missingConfiguration("payment.toss-pay.cancel-url");
+        }
+        if (resultCallbackUrl == null || resultCallbackUrl.isBlank()) {
+            throw missingConfiguration("payment.toss-pay.result-callback-url");
+        }
+    }
+
+    private GeneralException missingConfiguration(String propertyName) {
+        log.warn("Toss Pay integration is unavailable because {} is not configured", propertyName);
+        return new GeneralException(
+                GeneralErrorCode.SERVICE_UNAVAILABLE,
+                "토스페이 설정이 누락되어 결제를 진행할 수 없습니다. (" + propertyName + ")"
+        );
     }
 
     private void throwPaymentCreateFailure(RestClientException e, Map<String, String> paymentContext) {

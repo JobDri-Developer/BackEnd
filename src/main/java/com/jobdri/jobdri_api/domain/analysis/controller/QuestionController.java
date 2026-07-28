@@ -6,7 +6,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionSelectionSaveRe
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnswerResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionSelectionResponse;
-import com.jobdri.jobdri_api.domain.analysis.service.QuestionService;
+import com.jobdri.jobdri_api.domain.analysis.service.question.QuestionService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import io.swagger.v3.oas.annotations.Operation;
