@@ -2,7 +2,7 @@ package com.jobdri.jobdri_api.domain.analysis.controller;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.request.AnalysisRetrievalPreviewRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisRetrievalPreviewResponse;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAdminDebugService;
+import com.jobdri.jobdri_api.domain.analysis.service.debug.AnalysisAdminDebugService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

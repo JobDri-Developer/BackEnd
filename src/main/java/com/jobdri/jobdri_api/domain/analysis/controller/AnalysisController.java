@@ -4,9 +4,9 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncCancelRes
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAsyncFacadeService;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAsyncSseService;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisService;
+import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncFacadeService;
+import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncSseService;
+import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
