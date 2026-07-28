@@ -122,7 +122,10 @@ class NlgEvaluationBatchService {
     ) {
         String caseId = resolvedValue(row, sourceCaseRows, resolvedHeaders, "caseId");
         String questionAnalysesJson = resolvedValue(row, sourceCaseRows, resolvedHeaders, "aiQuestionAnalysesJson");
+        String missingKeywordsJson = resolvedValue(row, sourceCaseRows, resolvedHeaders, "aiMissingKeywordsJson");
         List<EvaluationQuestionAnalysisResult> questionAnalyses = readQuestionAnalyses(questionAnalysesJson);
+        int actualMissingKeywordCount = readJsonArraySize(missingKeywordsJson, "aiMissingKeywordsJson", caseId);
+        int validatedMissingKeywordCandidateCount = readMissingKeywordCandidateCount(value(row, "sanitizedCandidateResponseJson"));
         return new NlgEvaluationAiClient.NlgJudgeInput(
                 caseId,
                 inputPath.toString(),
@@ -133,9 +136,12 @@ class NlgEvaluationBatchService {
                 requiredResolvedValue(row, sourceCaseRows, resolvedHeaders, "answer", caseId),
                 questionAnalysesJson,
                 readKeyStrengthsJson(resolvedValue(row, sourceCaseRows, resolvedHeaders, "rawLlmResponseJson")),
-                resolvedValue(row, sourceCaseRows, resolvedHeaders, "aiMissingKeywordsJson"),
+                missingKeywordsJson,
                 value(row, "rawCandidateResponseJson"),
+                value(row, "sanitizedCandidateResponseJson"),
                 value(row, "candidateReviewResponseJson"),
+                actualMissingKeywordCount,
+                validatedMissingKeywordCandidateCount,
                 questionAnalyses
         );
     }
@@ -157,8 +163,14 @@ class NlgEvaluationBatchService {
 
         List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations =
                 validQuestionEvaluations(input.questionAnalyses(), response.questionAnalysisEvaluations());
-        List<NlgEvaluationErrorCode> errorCodes = mergeErrorCodes(response, evaluations);
+        boolean missedValidatedMissingKeywords =
+                input.validatedMissingKeywordCandidateCount() > 0 && input.actualMissingKeywordCount() == 0;
+        List<NlgEvaluationErrorCode> errorCodes = mergeErrorCodes(response, evaluations, missedValidatedMissingKeywords);
         boolean hasFatalError = hasFatalError(errorCodes);
+        Integer missingKeywordsCoverage = validCaseScore(response.missingKeywordsCoverage());
+        if (missedValidatedMissingKeywords) {
+            missingKeywordsCoverage = missingKeywordsCoverage == null ? 1 : Math.min(missingKeywordsCoverage, 1);
+        }
         return new NlgEvaluationResult(
                 input.caseId(),
                 input.sourceResultFile(),
@@ -177,7 +189,7 @@ class NlgEvaluationBatchService {
                 validCaseScore(response.strengthsPrecision()),
                 validCaseScore(response.strengthsCoverage()),
                 validCaseScore(response.missingKeywordsPrecision()),
-                validCaseScore(response.missingKeywordsCoverage()),
+                missingKeywordsCoverage,
                 validOverallUsefulness(response.overallUsefulness(), hasFatalError),
                 writeJson(errorCodes.stream().map(Enum::name).toList()),
                 truncateShortRationale(response.shortRationale()),
@@ -262,13 +274,18 @@ class NlgEvaluationBatchService {
 
     private List<NlgEvaluationErrorCode> mergeErrorCodes(
             NlgEvaluationResponse response,
-            List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations
+            List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations,
+            boolean missedValidatedMissingKeywords
     ) {
-        boolean hasLowScore = hasLowCaseScore(response);
+        boolean hasLowScore = hasLowCaseScore(response) || missedValidatedMissingKeywords;
         Set<NlgEvaluationErrorCode> codes = new HashSet<>(sanitizeErrorCodes(
                 response.caseErrorCodes(),
                 hasLowScore
         ));
+        if (missedValidatedMissingKeywords) {
+            codes.add(NlgEvaluationErrorCode.MISSED_MISSING_KEYWORD);
+            codes.remove(NlgEvaluationErrorCode.NONE);
+        }
         for (NlgEvaluationResponse.QuestionAnalysisEvaluation evaluation : evaluations) {
             boolean hasLowCriterionScore = hasLowCriterionScore(evaluation);
             hasLowScore = hasLowScore || hasLowCriterionScore;
@@ -394,6 +411,36 @@ class NlgEvaluationBatchService {
             return values == null ? List.of() : values;
         } catch (JsonProcessingException e) {
             return List.of();
+        }
+    }
+
+    private int readJsonArraySize(String json, String fieldName, String caseId) {
+        if (!StringUtils.hasText(json)) {
+            return 0;
+        }
+        try {
+            List<?> values = objectMapper.readValue(json, new TypeReference<>() {
+            });
+            return values == null ? 0 : values.size();
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException(fieldName + " must be a JSON array. caseId=" + caseId, e);
+        }
+    }
+
+    private int readMissingKeywordCandidateCount(String sanitizedCandidateResponseJson) {
+        if (!StringUtils.hasText(sanitizedCandidateResponseJson)) {
+            return 0;
+        }
+        try {
+            Map<String, Object> values = objectMapper.readValue(sanitizedCandidateResponseJson, new TypeReference<>() {
+            });
+            Object candidates = values.get("missingKeywordCandidates");
+            if (candidates instanceof List<?> list) {
+                return list.size();
+            }
+            return 0;
+        } catch (JsonProcessingException e) {
+            return 0;
         }
     }
 
@@ -541,6 +588,7 @@ class NlgEvaluationBatchService {
                 inputPath.toString(),
                 rows.size(),
                 successfulRows.size(),
+                rows.size() - successfulRows.size(),
                 averageColumn(successfulRows, "averageRelevance"),
                 averageColumn(successfulRows, "averageProblemValidity"),
                 averageColumn(successfulRows, "averageSentenceTypeConsistency"),

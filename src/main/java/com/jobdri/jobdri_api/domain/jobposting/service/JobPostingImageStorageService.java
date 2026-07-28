@@ -99,18 +99,20 @@ public class JobPostingImageStorageService {
         if (imageObjectKey != null && !imageObjectKey.isBlank()) {
             normalized.add(imageObjectKey.trim());
         }
+        Set<String> arrayKeys = new LinkedHashSet<>();
         if (imageObjectKeys != null) {
             for (String objectKey : imageObjectKeys) {
                 if (objectKey == null || objectKey.isBlank()) {
                     continue;
                 }
                 String trimmed = objectKey.trim();
-                if (!normalized.add(trimmed)) {
+                if (!arrayKeys.add(trimmed)) {
                     throw new GeneralException(
                             GeneralErrorCode.INVALID_PARAMETER,
                             "동일한 이미지 objectKey를 중복으로 전달할 수 없습니다."
                     );
                 }
+                normalized.add(trimmed);
             }
         }
         if (normalized.size() > MAX_IMAGE_COUNT) {

@@ -17,15 +17,19 @@ class EvaluationRunnerFlagValidator implements SmartInitializingSingleton {
     @Value("${evaluation.hybrid-merge.enabled:false}")
     private boolean hybridMergeEnabled;
 
+    @Value("${evaluation.missing-keyword-replay.enabled:false}")
+    private boolean missingKeywordReplayEnabled;
+
     @Override
     public void afterSingletonsInstantiated() {
         int enabledRunnerCount = 0;
         enabledRunnerCount += analysisEvaluationEnabled ? 1 : 0;
         enabledRunnerCount += nlgJudgeEnabled ? 1 : 0;
         enabledRunnerCount += hybridMergeEnabled ? 1 : 0;
+        enabledRunnerCount += missingKeywordReplayEnabled ? 1 : 0;
         if (enabledRunnerCount > 1) {
             throw new IllegalStateException(
-                    "analysis-eval runner flags are mutually exclusive: evaluation.analysis.enabled, evaluation.nlg-judge.enabled, evaluation.hybrid-merge.enabled"
+                    "analysis-eval runner flags are mutually exclusive: evaluation.analysis.enabled, evaluation.nlg-judge.enabled, evaluation.hybrid-merge.enabled, evaluation.missing-keyword-replay.enabled"
             );
         }
     }

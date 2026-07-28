@@ -15,6 +15,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -350,6 +351,73 @@ class NlgEvaluationBatchServiceTest {
         assertThat(row.get("errorCodes"))
                 .contains("MISSED_STRENGTH")
                 .contains("MISSED_MISSING_KEYWORD");
+    }
+
+    @Test
+    @DisplayName("검증된 missing keyword 후보가 있는데 actual이 빈 배열이면 coverage와 errorCode를 서버에서 보정한다")
+    void correctsEmptyActualMissingKeywordsWhenValidatedCandidatesExist() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
+                new NlgEvaluationResponse(
+                        "EV-17",
+                        List.of(),
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        List.of(NlgEvaluationErrorCode.NONE),
+                        "누락 키워드를 높게 평가했습니다."
+                ),
+                100L,
+                null,
+                null
+        ));
+        Path input = writeJudgeInputWithMissingKeywordState(
+                "EV-17",
+                "[]",
+                "{\"missingKeywordCandidates\":[{\"keyword\":\"장애 대응 경험\",\"source\":\"QUALIFICATION\",\"relatedRequirement\":\"장애 대응 경험\"}]}",
+                "[]"
+        );
+        Path output = tempDir.resolve("judge_empty_missing_keywords.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("missingKeywordsCoverage")).isEqualTo("1");
+        assertThat(row.get("errorCodes"))
+                .contains("MISSED_MISSING_KEYWORD")
+                .doesNotContain("NONE");
+    }
+
+    @Test
+    @DisplayName("검증된 missing keyword 후보와 actual이 모두 비어 있으면 빈 배열을 정상 처리한다")
+    void keepsEmptyActualMissingKeywordsWhenNoValidatedCandidateExists() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        stubJudge(aiClient, "EV-18");
+        Path input = writeJudgeInputWithMissingKeywordState("EV-18", "[]", "{\"missingKeywordCandidates\":[]}", "[]");
+        Path output = tempDir.resolve("judge_empty_missing_keywords_ok.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("missingKeywordsCoverage")).isEqualTo("5");
+        assertThat(row.get("errorCodes")).contains("NONE");
+    }
+
+    @Test
+    @DisplayName("actual missingKeywords JSON이 깨져 있으면 validation failure로 기록한다")
+    void malformedActualMissingKeywordsFailsValidation() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        Path input = writeJudgeInputWithMissingKeywordState("EV-19", "not-json", "{\"missingKeywordCandidates\":[]}", "[]");
+        Path output = tempDir.resolve("judge_malformed_missing_keywords.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("failureStage")).isEqualTo("judge_validation_failed");
+        verify(aiClient, never()).evaluate(any());
     }
 
     @Test
@@ -689,6 +757,9 @@ class NlgEvaluationBatchServiceTest {
         List<Map<String, String>> outputRows = EvaluationCsvSupport.read(output);
         assertThat(outputRows).hasSize(2);
         Map<String, String> row = outputRows.getFirst();
+        assertThat(row.get("caseCount")).isEqualTo("1");
+        assertThat(row.get("successCount")).isEqualTo("1");
+        assertThat(row.get("judgeFailedCount")).isEqualTo("0");
         assertThat(row.get("averageProblemValidity")).isEqualTo("3.0");
         assertThat(row.get("metaImprovementRate")).isEqualTo("100.0");
         assertThat(row.get("fatalErrorRate")).isEqualTo("100.0");
@@ -721,6 +792,46 @@ class NlgEvaluationBatchServiceTest {
                         + csv("[]") + ","
                         + csv(rawLlmResponseJson()) + ","
                         + csv("") + ","
+                        + csv("") + "\n",
+                StandardCharsets.UTF_8
+        );
+        return input;
+    }
+
+    private Path writeJudgeInputWithMissingKeywordState(
+            String caseId,
+            String missingKeywordsJson,
+            String sanitizedCandidateResponseJson,
+            String analysesJson
+    ) throws Exception {
+        Path input = tempDir.resolve(caseId + "_missing.csv");
+        Files.writeString(
+                input,
+                String.join(",", List.of(
+                        "caseId",
+                        "mainTasks",
+                        "qualifications",
+                        "preferences",
+                        "question",
+                        "answer",
+                        "aiQuestionAnalysesJson",
+                        "aiMissingKeywordsJson",
+                        "rawLlmResponseJson",
+                        "rawCandidateResponseJson",
+                        "sanitizedCandidateResponseJson",
+                        "candidateReviewResponseJson"
+                )) + "\n"
+                        + csv(caseId) + ","
+                        + csv("재고 분석") + ","
+                        + csv("장애 대응 경험") + ","
+                        + csv("") + ","
+                        + csv("지원 동기") + ","
+                        + csv("답변") + ","
+                        + csv(analysesJson) + ","
+                        + csv(missingKeywordsJson) + ","
+                        + csv(rawLlmResponseJson()) + ","
+                        + csv("") + ","
+                        + csv(sanitizedCandidateResponseJson) + ","
                         + csv("") + "\n",
                 StandardCharsets.UTF_8
         );

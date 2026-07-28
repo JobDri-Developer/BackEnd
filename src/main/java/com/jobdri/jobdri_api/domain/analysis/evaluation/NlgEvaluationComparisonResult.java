@@ -4,6 +4,7 @@ record NlgEvaluationComparisonResult(
         String sourceResultFile,
         Integer caseCount,
         Integer successCount,
+        Integer judgeFailedCount,
         Double averageRelevance,
         Double averageProblemValidity,
         Double averageSentenceTypeConsistency,

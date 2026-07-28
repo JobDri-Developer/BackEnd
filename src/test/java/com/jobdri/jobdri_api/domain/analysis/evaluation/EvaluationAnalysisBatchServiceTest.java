@@ -349,7 +349,19 @@ class EvaluationAnalysisBatchServiceTest {
         );
         when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
                 .thenReturn(new AnalysisAiCallResult(
-                        new AnalysisLlmResponse(80, 70, 60, "피드백", List.of(), List.of()),
+                        new AnalysisLlmResponse(
+                                80,
+                                70,
+                                60,
+                                "피드백",
+                                List.of(),
+                                List.of(),
+                                List.of(
+                                        new AnalysisLlmResponse.MissingKeywordItem("Spring Boot 경험", "qualification"),
+                                        new AnalysisLlmResponse.MissingKeywordItem("API 개발", "mainTask")
+                                ),
+                                List.of()
+                        ),
                         null,
                         new AnalysisCandidateResponse(
                                 List.of(),
@@ -381,7 +393,18 @@ class EvaluationAnalysisBatchServiceTest {
                                                 "역할이 부족합니다."
                                         )
                                 ),
-                                List.of()
+                                List.of(
+                                        new AnalysisCandidateResponse.MissingKeywordCandidate(
+                                                "Spring Boot 경험",
+                                                "QUALIFICATION",
+                                                "Spring Boot 경험"
+                                        ),
+                                        new AnalysisCandidateResponse.MissingKeywordCandidate(
+                                                "API 개발",
+                                                "MAIN_TASK",
+                                                "API 개발"
+                                        )
+                                )
                         ),
                         new CandidateReviewResponse(
                                 List.of(
@@ -427,6 +450,10 @@ class EvaluationAnalysisBatchServiceTest {
 
         Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
         assertThat(row.get("candidateCount")).isEqualTo("2");
+        assertThat(row.get("candidateMissingKeywordCount")).isEqualTo("2");
+        assertThat(row.get("missingKeywordCandidateCount")).isEqualTo("2");
+        assertThat(row.get("finalMissingKeywordCount")).isEqualTo("2");
+        assertThat(row.get("aiMissingKeywordsJson")).contains("Spring Boot 경험").contains("API 개발");
         assertThat(row.get("acceptedCandidateCount")).isEqualTo("1");
         assertThat(row.get("rejectedCandidateCount")).isEqualTo("1");
         assertThat(row.get("rejectionCodeCounts")).contains("NOT_ACTIONABLE");
