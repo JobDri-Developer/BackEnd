@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -58,7 +59,7 @@ public class TossPayClient {
     }
 
     public TossPayCreateResponse createPayment(String orderNo, int amount, String productDesc) {
-        ensureConfigured();
+        ensureCreatePaymentConfigured();
         Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderNo, null, amount);
         try (var ignored = LoggingContext.with("payment.create.external_called", null, paymentContext)) {
             log.info("Calling Toss Pay create payment API");
@@ -113,7 +114,7 @@ public class TossPayClient {
     }
 
     public TossPayStatusResponse getPaymentStatus(String payToken, String orderNo) {
-        ensureConfigured();
+        ensureStatusQueryConfigured(payToken, orderNo);
         try {
             return restClient
                     .post()
@@ -137,18 +138,35 @@ public class TossPayClient {
         }
     }
 
-    private void ensureConfigured() {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw missingConfiguration("payment.toss-pay.api-key");
+    private void ensureCreatePaymentConfigured() {
+        ensureApiKeyConfigured();
+        ensureConfiguredValue(returnUrl, "payment.toss-pay.return-url");
+        ensureConfiguredValue(cancelUrl, "payment.toss-pay.cancel-url");
+        ensureConfiguredValue(resultCallbackUrl, "payment.toss-pay.result-callback-url");
+    }
+
+    private void ensureStatusQueryConfigured(String payToken, String orderNo) {
+        ensureApiKeyConfigured();
+        ensureRequestValue(payToken, "payToken");
+        ensureRequestValue(orderNo, "orderNo");
+    }
+
+    private void ensureApiKeyConfigured() {
+        ensureConfiguredValue(apiKey, "payment.toss-pay.api-key");
+    }
+
+    private void ensureConfiguredValue(String value, String propertyName) {
+        if (!StringUtils.hasText(value)) {
+            throw missingConfiguration(propertyName);
         }
-        if (returnUrl == null || returnUrl.isBlank()) {
-            throw missingConfiguration("payment.toss-pay.return-url");
-        }
-        if (cancelUrl == null || cancelUrl.isBlank()) {
-            throw missingConfiguration("payment.toss-pay.cancel-url");
-        }
-        if (resultCallbackUrl == null || resultCallbackUrl.isBlank()) {
-            throw missingConfiguration("payment.toss-pay.result-callback-url");
+    }
+
+    private void ensureRequestValue(String value, String fieldName) {
+        if (!StringUtils.hasText(value)) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    fieldName + "는 필수입니다."
+            );
         }
     }
 

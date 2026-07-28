@@ -2,7 +2,6 @@ package com.jobdri.jobdri_api.domain.analysis.service.sanitization;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
-import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisPromptInput;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
@@ -15,18 +14,6 @@ public final class MissingKeywordSanitizer {
     private static final int MAX_ACCEPTED_COUNT = 3;
 
     private MissingKeywordSanitizer() {
-    }
-
-    public static MissingKeywordSanitizationResult sanitize(
-            AnalysisPromptInput promptInput,
-            AnalysisCandidateResponse candidates
-    ) {
-        return sanitize(
-                promptInput == null ? "" : promptInput.mainTasks(),
-                promptInput == null ? "" : promptInput.qualifications(),
-                "",
-                candidates == null ? null : candidates.missingKeywordCandidates()
-        );
     }
 
     public static MissingKeywordSanitizationResult sanitize(

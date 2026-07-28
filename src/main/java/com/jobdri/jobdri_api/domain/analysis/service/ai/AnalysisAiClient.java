@@ -1169,7 +1169,12 @@ public class AnalysisAiClient {
             AnalysisPromptInput promptInput,
             AnalysisCandidateResponse candidates
     ) {
-        return MissingKeywordSanitizer.sanitize(promptInput, candidates).acceptedCandidates();
+        return MissingKeywordSanitizer.sanitize(
+                promptInput == null ? "" : promptInput.mainTasks(),
+                promptInput == null ? "" : promptInput.qualifications(),
+                "",
+                candidates == null ? null : candidates.missingKeywordCandidates()
+        ).acceptedCandidates();
     }
 
     private Optional<MissingKeywordSource> parseCandidateSource(String source) {
