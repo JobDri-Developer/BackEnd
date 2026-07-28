@@ -9,8 +9,8 @@ import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerFailureReq
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerRetryRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerRunningRequest;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAsyncTaskService;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisWorkerBridgeService;
+import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncTaskService;
+import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisWorkerBridgeService;
 import com.jobdri.jobdri_api.domain.workerresult.dto.WorkerTaskResultResponse;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.security.InternalApiKeyValidator;

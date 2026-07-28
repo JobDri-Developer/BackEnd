@@ -1,7 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.controller;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisService;
+import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;

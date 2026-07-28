@@ -1,6 +1,6 @@
 package com.jobdri.jobdri_api.global.scheduling;
 
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisAsyncSweepService;
+import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncSweepService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAsyncTaskService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;

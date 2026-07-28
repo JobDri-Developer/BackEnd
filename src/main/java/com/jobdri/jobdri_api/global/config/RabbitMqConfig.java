@@ -1,6 +1,6 @@
 package com.jobdri.jobdri_api.global.config;
 
-import com.jobdri.jobdri_api.domain.analysis.service.AnalysisQueueProperties;
+import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisQueueProperties;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingQueueProperties;
 import org.springframework.amqp.core.Binding;
 import org.springframework.amqp.core.BindingBuilder;
