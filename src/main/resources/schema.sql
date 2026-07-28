@@ -49,23 +49,9 @@ ALTER TABLE IF EXISTS analyses
 ALTER TABLE IF EXISTS analyses
     ADD COLUMN IF NOT EXISTS key_weaknesses TEXT NOT NULL DEFAULT '[]';
 
-ALTER TABLE IF EXISTS analyses
-    ALTER COLUMN missing_keywords SET DEFAULT '[]';
-
-ALTER TABLE IF EXISTS analyses
-    ALTER COLUMN key_strengths SET DEFAULT '[]';
-
-ALTER TABLE IF EXISTS analyses
-    ALTER COLUMN key_weaknesses SET DEFAULT '[]';
-
-ALTER TABLE IF EXISTS job_postings
-    ALTER COLUMN profile_color SET DEFAULT 'DEFAULT';
-
-ALTER TABLE IF EXISTS job_postings
-    ALTER COLUMN posting_name SET DEFAULT '미입력';
-
-ALTER TABLE IF EXISTS job_postings
-    ALTER COLUMN job_title SET DEFAULT '미입력';
+-- Column defaults that must also exist outside Spring SQL initialization
+-- are managed in ops/db/migrations so profiles like analysis-eval do not
+-- implicitly depend on this schema.sql contract.
 
 UPDATE job_postings
 SET profile_color = 'DEFAULT'
