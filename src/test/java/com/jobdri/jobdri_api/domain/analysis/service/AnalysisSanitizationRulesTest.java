@@ -4,9 +4,24 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.Locale;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class AnalysisSanitizationRulesTest {
+
+    @Test
+    @DisplayName("텍스트 정규화는 JVM 기본 locale과 무관하게 소문자로 변환한다")
+    void normalizesTextWithRootLocale() {
+        Locale originalLocale = Locale.getDefault();
+        try {
+            Locale.setDefault(Locale.forLanguageTag("tr"));
+
+            assertThat(AnalysisSanitizationRules.normalizeText(" INVENTORY ")).isEqualTo("inventory");
+        } finally {
+            Locale.setDefault(originalLocale);
+        }
+    }
 
     @Test
     @DisplayName("PROVEN 모순 reason은 결핍 구문 기준으로만 판단한다")

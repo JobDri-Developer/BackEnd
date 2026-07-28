@@ -13,12 +13,13 @@ class MissingKeywordSanitizerTest {
     private static final String QUALIFICATIONS = "영어 고객 커뮤니케이션 경험과 Spring Boot API 개발 경험";
 
     @Test
-    @DisplayName("기존 boolean sanitizer와 decision 기반 accepted 결과가 동일하다")
-    void acceptedCandidatesMatchExistingValidationRules() {
+    @DisplayName("유효 후보가 4개이면 앞의 3개만 허용하고 네 번째는 최대 개수 제한으로 거절한다")
+    void acceptsOnlyFirstThreeValidCandidates() {
         List<AnalysisCandidateResponse.MissingKeywordCandidate> candidates = List.of(
                 candidate("재고 관리 및 분석 경험", "MAIN_TASK"),
-                candidate("SQL 활용 경험", "MAIN_TASK"),
-                candidate("영어 고객 커뮤니케이션 경험", "QUALIFICATION")
+                candidate("장애 대응 경험", "MAIN_TASK"),
+                candidate("영어 고객 커뮤니케이션 경험", "QUALIFICATION"),
+                candidate("Spring Boot API 개발 경험", "QUALIFICATION")
         );
 
         MissingKeywordSanitizationResult result = MissingKeywordSanitizer.sanitize(
@@ -28,17 +29,9 @@ class MissingKeywordSanitizerTest {
                 candidates
         );
 
-        List<AnalysisCandidateResponse.MissingKeywordCandidate> expected = candidates.stream()
-                .filter(candidate -> AnalysisSanitizationRules.isValidMissingKeyword(
-                        candidate.keyword(),
-                        "MAIN_TASK".equals(candidate.source())
-                                ? com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource.MAIN_TASK
-                                : com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource.QUALIFICATION,
-                        MAIN_TASKS,
-                        QUALIFICATIONS
-                ))
-                .toList();
-        assertThat(result.acceptedCandidates()).isEqualTo(expected);
+        assertThat(result.acceptedCandidates()).containsExactlyElementsOf(candidates.subList(0, 3));
+        assertThat(result.decisions().get(3).rejectionReason())
+                .isEqualTo(MissingKeywordRejectionReason.MAX_ACCEPTED_LIMIT);
     }
 
     @Test

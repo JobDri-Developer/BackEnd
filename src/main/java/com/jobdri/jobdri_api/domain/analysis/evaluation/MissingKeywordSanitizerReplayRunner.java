@@ -92,7 +92,33 @@ public class MissingKeywordSanitizerReplayRunner implements ApplicationRunner {
         if (!StringUtils.hasText(reviewOutputPath)) {
             throw new IllegalArgumentException("evaluation.missing-keyword-replay.review-output 값을 지정해야 합니다.");
         }
-        if (!Files.isRegularFile(Path.of(inputPath))) {
+
+        Path normalizedInput = Path.of(inputPath).toAbsolutePath().normalize();
+        Path normalizedOutput = Path.of(outputPath).toAbsolutePath().normalize();
+        Path normalizedReviewOutput = Path.of(reviewOutputPath).toAbsolutePath().normalize();
+        if (normalizedInput.equals(normalizedOutput)) {
+            throw new IllegalArgumentException(
+                    "evaluation.missing-keyword-replay.input과 "
+                            + "evaluation.missing-keyword-replay.output은 서로 다른 파일이어야 합니다."
+            );
+        }
+        if (normalizedInput.equals(normalizedReviewOutput)) {
+            throw new IllegalArgumentException(
+                    "evaluation.missing-keyword-replay.input과 "
+                            + "evaluation.missing-keyword-replay.review-output은 서로 다른 파일이어야 합니다."
+            );
+        }
+        if (normalizedOutput.equals(normalizedReviewOutput)) {
+            throw new IllegalArgumentException(
+                    "evaluation.missing-keyword-replay.output과 "
+                            + "evaluation.missing-keyword-replay.review-output은 서로 다른 파일이어야 합니다."
+            );
+        }
+
+        inputPath = normalizedInput.toString();
+        outputPath = normalizedOutput.toString();
+        reviewOutputPath = normalizedReviewOutput.toString();
+        if (!Files.isRegularFile(normalizedInput)) {
             throw new IllegalArgumentException(
                     "evaluation.missing-keyword-replay.input 파일을 찾을 수 없습니다. path=" + inputPath
             );
