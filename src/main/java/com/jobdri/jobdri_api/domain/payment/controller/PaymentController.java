@@ -9,6 +9,7 @@ import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.service.CouponService;
 import com.jobdri.jobdri_api.domain.payment.service.PaymentService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
+import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -65,7 +66,13 @@ public class PaymentController {
     public ResponseEntity<Void> tossPayCallback(
             @RequestBody TossPayCallbackRequest request
     ) {
-        paymentService.handleTossPayCallback(request);
+        try {
+            paymentService.handleTossPayCallback(request);
+        } catch (GeneralException e) {
+            if (!paymentService.shouldAcknowledgeTossPayCallbackFailure(e)) {
+                throw e;
+            }
+        }
         return ResponseEntity.ok().build();
     }
 

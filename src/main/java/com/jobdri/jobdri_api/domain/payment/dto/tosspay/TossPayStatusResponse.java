@@ -12,8 +12,8 @@ public record TossPayStatusResponse(
         String orderNo,
         String payStatus,
         String payMethod,
-        int amount,
-        int discountedAmount,
-        int paidAmount
+        Integer amount,
+        Integer discountedAmount,
+        Integer paidAmount
 ) {
 }

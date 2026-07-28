@@ -10,6 +10,7 @@ import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
+import com.jobdri.jobdri_api.domain.payment.entity.TossPayStatus;
 import com.jobdri.jobdri_api.domain.payment.repository.CreditTransactionRepository;
 import com.jobdri.jobdri_api.domain.payment.repository.PaymentRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
@@ -18,10 +19,8 @@ import com.jobdri.jobdri_api.global.apiPayload.code.BaseErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.logging.LoggingContext;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,7 +38,6 @@ public class PaymentService {
 
     private static final String EXPECTED_PAYMENT_METHOD = "간편결제";
     private static final String EXPECTED_EASY_PAY_PROVIDER = "토스페이";
-    private static final String TOSS_PAY_COMPLETE = "PAY_COMPLETE";
 
     private final UserService userService;
     private final PaymentRepository paymentRepository;
@@ -67,17 +65,12 @@ public class PaymentService {
         }
         String orderId = "jobdri-" + UUID.randomUUID();
         Payment payment = paymentTransactionService.createPendingPayment(validatedUser.getId(), plan, orderId);
+        TossPayCreateResponse tossPayResponse;
         try {
-            TossPayCreateResponse tossPayResponse = tossPayClient.createPayment(
+            tossPayResponse = tossPayClient.createPayment(
                     payment.getOrderId(),
                     payment.getPrice(),
                     payment.getContent()
-            );
-            payment = paymentTransactionService.completeTossPayCreation(
-                    validatedUser.getId(),
-                    payment.getOrderId(),
-                    tossPayResponse.payToken(),
-                    tossPayResponse.checkoutPage()
             );
         } catch (RuntimeException e) {
             if (e instanceof GeneralException generalException
@@ -86,6 +79,23 @@ public class PaymentService {
                 throw e;
             }
             paymentTransactionService.failTossPayCreation(validatedUser.getId(), payment.getOrderId());
+            throw e;
+        }
+
+        try {
+            payment = paymentTransactionService.completeTossPayCreation(
+                    validatedUser.getId(),
+                    payment.getOrderId(),
+                    tossPayResponse.payToken(),
+                    tossPayResponse.checkoutPage()
+            );
+        } catch (RuntimeException e) {
+            paymentTransactionService.markTossPayCreationUnknown(
+                    validatedUser.getId(),
+                    payment.getOrderId(),
+                    tossPayResponse.payToken(),
+                    tossPayResponse.checkoutPage()
+            );
             throw e;
         }
         try (var ignored = LoggingContext.with(
@@ -175,7 +185,13 @@ public class PaymentService {
             log.info("Toss Pay callback received");
         }
         try {
-            paymentTransactionService.handleTossPayCallback(request);
+            TossPayStatusResponse statusResponse = getVerifiedTossPayStatus(request);
+            paymentTransactionService.applyTossPayStatus(
+                    statusResponse.orderNo(),
+                    statusResponse.payToken(),
+                    TossPayStatus.valueOf(statusResponse.payStatus()),
+                    statusResponse.amount()
+            );
             try (var ignored = LoggingContext.with("payment.callback.completed", null, paymentContext)) {
                 log.info("Toss Pay callback processed");
             }
@@ -195,13 +211,14 @@ public class PaymentService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PaymentConfirmResponse reconcileTossPayStatus(String payToken, String orderId) {
         TossPayStatusResponse statusResponse = tossPayClient.getPaymentStatus(payToken, orderId);
-        if (statusResponse == null || !TOSS_PAY_COMPLETE.equals(statusResponse.payStatus())) {
+        validateTossPayStatusResponse(statusResponse, payToken, orderId);
+        if (TossPayStatus.valueOf(statusResponse.payStatus()) != TossPayStatus.PAY_COMPLETE) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스페이 결제가 완료되지 않았습니다.");
         }
         return paymentTransactionService.applyTossPayStatus(
                 statusResponse.orderNo(),
                 statusResponse.payToken(),
-                statusResponse.payStatus(),
+                TossPayStatus.valueOf(statusResponse.payStatus()),
                 statusResponse.amount()
         );
     }
@@ -260,5 +277,49 @@ public class PaymentService {
                     easyPayProvider
             );
         }
+    }
+
+    private TossPayStatusResponse getVerifiedTossPayStatus(TossPayCallbackRequest request) {
+        validateCallbackReference(request);
+        TossPayStatusResponse statusResponse = tossPayClient.getPaymentStatus(request.payToken(), request.orderNo());
+        validateTossPayStatusResponse(statusResponse, request.payToken(), request.orderNo());
+        return statusResponse;
+    }
+
+    private void validateCallbackReference(TossPayCallbackRequest request) {
+        if (request == null || isBlank(request.payToken()) || isBlank(request.orderNo())) {
+            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "토스페이 콜백 필수값이 누락되었습니다.");
+        }
+    }
+
+    private void validateTossPayStatusResponse(TossPayStatusResponse response, String payToken, String orderId) {
+        if (response == null
+                || isBlank(response.payToken())
+                || isBlank(response.orderNo())
+                || isBlank(response.payStatus())
+                || response.amount() == null) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스페이 상태 조회 응답 검증에 실패했습니다.");
+        }
+        if (!response.payToken().equals(payToken) || !response.orderNo().equals(orderId)) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스페이 상태 조회 응답 식별자가 일치하지 않습니다.");
+        }
+        try {
+            TossPayStatus.valueOf(response.payStatus());
+        } catch (IllegalArgumentException e) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "지원하지 않는 토스페이 상태입니다.", e);
+        }
+    }
+
+    public boolean shouldAcknowledgeTossPayCallbackFailure(Exception exception) {
+        if (!(exception instanceof GeneralException generalException)) {
+            return false;
+        }
+        BaseErrorCode code = generalException.getCode();
+        return code == GeneralErrorCode.INVALID_PARAMETER
+                || code == GeneralErrorCode.PAYMENT_CONFIRM_FAILED;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }

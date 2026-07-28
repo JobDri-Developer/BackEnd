@@ -19,8 +19,6 @@ import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 
-import java.io.InterruptedIOException;
-import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.Map;
 
@@ -28,8 +26,6 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Slf4j
 public class TossPayClient {
-
-    private static final int LOG_MESSAGE_MAX_LENGTH = 500;
 
     private final RestClient.Builder restClientBuilder;
     private RestClient restClient;
@@ -106,14 +102,16 @@ public class TossPayClient {
             throw e;
         } catch (HttpStatusCodeException e) {
             try (var ignored = LoggingContext.with("payment.create.failed", GeneralErrorCode.PAYMENT_CONFIRM_FAILED, paymentContext)) {
-                log.warn("Toss Pay create payment failed. status={}, response={}", e.getStatusCode(), truncate(e.getResponseBodyAsString()));
+                log.warn("Toss Pay create payment failed. status={}, response={}",
+                        e.getStatusCode(),
+                        TossHttpClientSupport.truncate(e.getResponseBodyAsString()));
                 log.warn("Toss Pay create payment exception", e);
             }
             throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스페이 결제 생성 실패", e);
         } catch (ResourceAccessException e) {
-            if (isTimeoutException(e)) {
+            if (TossHttpClientSupport.isTimeoutException(e)) {
                 try (var ignored = LoggingContext.with("payment.create.external_timeout", GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, paymentContext)) {
-                    log.warn("Toss Pay create payment request timed out. message={}", truncate(e.getMessage()));
+                    log.warn("Toss Pay create payment request timed out. message={}", TossHttpClientSupport.truncate(e.getMessage()));
                     log.warn("Toss Pay create payment timeout exception", e);
                 }
                 throw new GeneralException(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, "토스페이 결제 생성 응답이 지연되고 있습니다.", e);
@@ -135,34 +133,26 @@ public class TossPayClient {
                     .body(new TossPayStatusRequest(apiKey, payToken, orderNo))
                     .retrieve()
                     .body(TossPayStatusResponse.class);
-        } catch (RestClientException e) {
+        } catch (HttpStatusCodeException e) {
+            if (e.getStatusCode().is5xxServerError()) {
+                throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "토스페이 결제 상태 조회가 일시적으로 실패했습니다.", e);
+            }
             throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스페이 결제 상태 조회 실패", e);
+        } catch (ResourceAccessException e) {
+            if (TossHttpClientSupport.isTimeoutException(e)) {
+                throw new GeneralException(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, "토스페이 결제 상태 조회 응답이 지연되고 있습니다.", e);
+            }
+            throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "토스페이 결제 상태 조회 중 통신 오류가 발생했습니다.", e);
+        } catch (RestClientException e) {
+            throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "토스페이 결제 상태 조회 중 오류가 발생했습니다.", e);
         }
     }
 
     private void throwPaymentCreateFailure(RestClientException e, Map<String, String> paymentContext) {
         try (var ignored = LoggingContext.with("payment.create.failed", GeneralErrorCode.PAYMENT_CONFIRM_FAILED, paymentContext)) {
-            log.warn("Toss Pay create payment request failed. message={}", truncate(e.getMessage()));
+            log.warn("Toss Pay create payment request failed. message={}", TossHttpClientSupport.truncate(e.getMessage()));
             log.warn("Toss Pay create payment request exception", e);
         }
         throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스페이 결제 생성 중 오류 발생", e);
-    }
-
-    private String truncate(String value) {
-        if (value == null || value.length() <= LOG_MESSAGE_MAX_LENGTH) {
-            return value;
-        }
-        return value.substring(0, LOG_MESSAGE_MAX_LENGTH) + "...";
-    }
-
-    private boolean isTimeoutException(Throwable throwable) {
-        Throwable current = throwable;
-        while (current != null) {
-            if (current instanceof SocketTimeoutException || current instanceof InterruptedIOException) {
-                return true;
-            }
-            current = current.getCause();
-        }
-        return false;
     }
 }

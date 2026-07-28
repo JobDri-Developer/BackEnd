@@ -121,6 +121,12 @@ public class Payment extends BaseEntity {
         this.status = PaymentStatus.UNKNOWN;
     }
 
+    public void markTossPayCreationUnknown(String payToken, String checkoutPage) {
+        this.payToken = payToken;
+        this.checkoutPage = checkoutPage;
+        this.status = PaymentStatus.UNKNOWN;
+    }
+
     public void updateTossStatus(String tossStatus) {
         this.tossStatus = tossStatus;
         this.callbackReceivedAt = LocalDateTime.now();

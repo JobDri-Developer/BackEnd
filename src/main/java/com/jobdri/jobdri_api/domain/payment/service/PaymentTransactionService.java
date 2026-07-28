@@ -1,12 +1,12 @@
 package com.jobdri.jobdri_api.domain.payment.service;
 
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
-import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentOrderStatusResponse;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
 import com.jobdri.jobdri_api.domain.payment.entity.PaymentStatus;
+import com.jobdri.jobdri_api.domain.payment.entity.TossPayStatus;
 import com.jobdri.jobdri_api.domain.payment.repository.PaymentRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
@@ -19,9 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class PaymentTransactionService {
-
-    private static final String TOSS_PAY_COMPLETE = "PAY_COMPLETE";
-    private static final String TOSS_PAY_CANCEL = "PAY_CANCEL";
 
     private final PaymentRepository paymentRepository;
     private final UserService userService;
@@ -60,6 +57,14 @@ public class PaymentTransactionService {
         Payment payment = getOwnedPaymentForUpdate(userId, orderId);
         if (payment.getStatus() == PaymentStatus.PENDING) {
             payment.markTossPayUnknown();
+        }
+    }
+
+    @Transactional
+    public void markTossPayCreationUnknown(Long userId, String orderId, String payToken, String checkoutPage) {
+        Payment payment = getOwnedPaymentForUpdate(userId, orderId);
+        if (payment.getStatus() == PaymentStatus.PENDING) {
+            payment.markTossPayCreationUnknown(payToken, checkoutPage);
         }
     }
 
@@ -115,21 +120,28 @@ public class PaymentTransactionService {
     }
 
     @Transactional
-    public PaymentConfirmResponse handleTossPayCallback(TossPayCallbackRequest request) {
-        Payment payment = paymentRepository.findByOrderIdForUpdate(request.orderNo())
+    public PaymentConfirmResponse applyTossPayStatus(String orderId, String payToken, TossPayStatus tossPayStatus, int amount) {
+        Payment payment = paymentRepository.findByOrderIdForUpdate(orderId)
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.PAYMENT_NOT_FOUND,
-                        "결제 정보를 찾을 수 없습니다. orderNo=" + request.orderNo()
+                        "결제 정보를 찾을 수 없습니다. orderId=" + orderId
                 ));
-        validateTossPayCallback(payment, request);
+        validateTossPayStatus(payment, payToken, amount);
 
         if (payment.getStatus() == PaymentStatus.COMPLETED) {
+            if (tossPayStatus == TossPayStatus.PAY_CANCEL) {
+                payment.updateTossStatus(tossPayStatus.name());
+            }
             return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
         }
 
-        if (TOSS_PAY_COMPLETE.equals(request.status())) {
+        if (payment.getStatus() == PaymentStatus.FAILED || payment.getStatus() == PaymentStatus.PROCESSING) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED, "처리할 수 없는 결제 상태입니다.");
+        }
+
+        if (tossPayStatus == TossPayStatus.PAY_COMPLETE) {
             User user = userService.getUser(payment.getUser().getId());
-            payment.completeByTossPay(request.status());
+            payment.completeByTossPay(tossPayStatus.name());
             int creditBalance = creditService.charge(
                     user,
                     payment.getCreditAmount(),
@@ -139,40 +151,24 @@ public class PaymentTransactionService {
             return PaymentConfirmResponse.of(payment, creditBalance);
         }
 
-        if (TOSS_PAY_CANCEL.equals(request.status())) {
-            payment.failByTossPay(request.status());
+        if (tossPayStatus == TossPayStatus.PAY_CANCEL) {
+            payment.failByTossPay(tossPayStatus.name());
             return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
         }
 
-        payment.updateTossStatus(request.status());
+        payment.updateTossStatus(tossPayStatus.name());
         return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
     }
 
     @Transactional
-    public PaymentConfirmResponse applyTossPayStatus(String orderId, String payToken, String payStatus, int amount) {
+    public void markTossPayStatusChecked(String orderId, String payToken, TossPayStatus tossPayStatus, int amount) {
         Payment payment = paymentRepository.findByOrderIdForUpdate(orderId)
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.PAYMENT_NOT_FOUND,
                         "결제 정보를 찾을 수 없습니다. orderId=" + orderId
                 ));
-        if (!payment.hasPayToken(payToken) || payment.getPrice() != amount) {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "결제 상태 조회 응답 검증에 실패했습니다.");
-        }
-        payment.markStatusChecked(payStatus);
-        if (payment.getStatus() == PaymentStatus.COMPLETED) {
-            return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
-        }
-        return handleTossPayCallback(new TossPayCallbackRequest(
-                payStatus,
-                payToken,
-                orderId,
-                null,
-                amount,
-                0,
-                0,
-                null,
-                null
-        ));
+        validateTossPayStatus(payment, payToken, amount);
+        payment.markStatusChecked(tossPayStatus.name());
     }
 
     public PaymentOrderStatusResponse getOwnedOrderStatus(Long userId, String orderId) {
@@ -227,12 +223,12 @@ public class PaymentTransactionService {
         }
     }
 
-    private void validateTossPayCallback(Payment payment, TossPayCallbackRequest request) {
-        if (request == null
-                || !payment.hasPayToken(request.payToken())
-                || !payment.getOrderId().equals(request.orderNo())
-                || payment.getPrice() != request.amount()) {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스페이 콜백 검증에 실패했습니다.");
+    private void validateTossPayStatus(Payment payment, String payToken, int amount) {
+        if (!payment.hasPayToken(payToken)) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스페이 결제 토큰이 일치하지 않습니다.");
+        }
+        if (payment.getPrice() != amount) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_AMOUNT_MISMATCH, "결제 금액이 일치하지 않습니다.");
         }
     }
 
