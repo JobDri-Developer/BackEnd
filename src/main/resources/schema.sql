@@ -49,6 +49,24 @@ ALTER TABLE IF EXISTS analyses
 ALTER TABLE IF EXISTS analyses
     ADD COLUMN IF NOT EXISTS key_weaknesses TEXT NOT NULL DEFAULT '[]';
 
+ALTER TABLE IF EXISTS analyses
+    ALTER COLUMN missing_keywords SET DEFAULT '[]';
+
+ALTER TABLE IF EXISTS analyses
+    ALTER COLUMN key_strengths SET DEFAULT '[]';
+
+ALTER TABLE IF EXISTS analyses
+    ALTER COLUMN key_weaknesses SET DEFAULT '[]';
+
+ALTER TABLE IF EXISTS job_postings
+    ALTER COLUMN profile_color SET DEFAULT 'DEFAULT';
+
+ALTER TABLE IF EXISTS job_postings
+    ALTER COLUMN posting_name SET DEFAULT '미입력';
+
+ALTER TABLE IF EXISTS job_postings
+    ALTER COLUMN job_title SET DEFAULT '미입력';
+
 UPDATE job_postings
 SET profile_color = 'DEFAULT'
 WHERE profile_color IS NULL;

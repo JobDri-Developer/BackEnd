@@ -40,15 +40,15 @@ public class Analysis extends BaseEntity {
     private String feedback;
 
     @Builder.Default
-    @Column(name = "missing_keywords", nullable = false, columnDefinition = "TEXT DEFAULT '[]'")
+    @Column(name = "missing_keywords", nullable = false, columnDefinition = "TEXT")
     private String missingKeywordsJson = "[]";
 
     @Builder.Default
-    @Column(name = "key_strengths", nullable = false, columnDefinition = "TEXT DEFAULT '[]'")
+    @Column(name = "key_strengths", nullable = false, columnDefinition = "TEXT")
     private String keyStrengthsJson = "[]";
 
     @Builder.Default
-    @Column(name = "key_weaknesses", nullable = false, columnDefinition = "TEXT DEFAULT '[]'")
+    @Column(name = "key_weaknesses", nullable = false, columnDefinition = "TEXT")
     private String keyWeaknessesJson = "[]";
 
     @Builder.Default
