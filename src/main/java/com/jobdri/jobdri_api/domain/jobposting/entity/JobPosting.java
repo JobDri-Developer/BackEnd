@@ -37,13 +37,13 @@ public class JobPosting extends BaseEntity {
 
     @Builder.Default
     @Enumerated(EnumType.STRING)
-    @Column(nullable = false, columnDefinition = "VARCHAR(20) DEFAULT 'DEFAULT'")
+    @Column(nullable = false, length = 20)
     private JobPostingProfileColor profileColor = JobPostingProfileColor.DEFAULT;
 
-    @Column(nullable = false, columnDefinition = "VARCHAR(255) DEFAULT '미입력'")
+    @Column(nullable = false, length = 255)
     private String postingName;
 
-    @Column(nullable = false, columnDefinition = "VARCHAR(255) DEFAULT '미입력'")
+    @Column(nullable = false, length = 255)
     private String jobTitle;
 
     @Column(nullable = false, columnDefinition = "TEXT")

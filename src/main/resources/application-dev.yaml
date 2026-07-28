@@ -171,6 +171,12 @@ payment:
     client-key: ${TOSS_CLIENT_KEY:}
     secret-key: ${TOSS_SECRET_KEY:}
     base-url: ${TOSS_BASE_URL:https://api.tosspayments.com}
+  toss-pay:
+    api-base-url: ${TOSS_PAY_API_BASE_URL:https://pay.toss.im}
+    api-key: ${TOSS_PAY_API_KEY:}
+    return-url: ${TOSS_PAY_RETURN_URL:http://localhost:3000/credit/payment-result}
+    cancel-url: ${TOSS_PAY_CANCEL_URL:http://localhost:3000/credit/payment-cancel}
+    result-callback-url: ${TOSS_PAY_RESULT_CALLBACK_URL:http://localhost:8080/api/payments/toss/callback}
 
 job-posting:
   ingest:

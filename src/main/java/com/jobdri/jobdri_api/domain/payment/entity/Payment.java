@@ -32,6 +32,15 @@ public class Payment extends BaseEntity {
     @Column(unique = true)
     private String paymentKey;
 
+    @Column(unique = true)
+    private String payToken;
+
+    @Column(length = 500)
+    private String checkoutPage;
+
+    @Column(length = 50)
+    private String tossStatus;
+
     @Column(nullable = false)
     private String planCode;
 
@@ -46,6 +55,10 @@ public class Payment extends BaseEntity {
     private PaymentStatus status;
 
     private LocalDateTime approvedAt;
+
+    private LocalDateTime callbackReceivedAt;
+
+    private LocalDateTime lastStatusCheckedAt;
 
     public static Payment createPending(
             User user,
@@ -71,18 +84,57 @@ public class Payment extends BaseEntity {
         this.status = PaymentStatus.PROCESSING;
     }
 
+    public void attachTossPayPayment(String payToken, String checkoutPage) {
+        this.payToken = payToken;
+        this.checkoutPage = checkoutPage;
+        this.tossStatus = PaymentStatus.PENDING.name();
+    }
+
     public void complete(String paymentKey) {
         this.paymentKey = paymentKey;
         this.status = PaymentStatus.COMPLETED;
         this.approvedAt = LocalDateTime.now();
     }
 
+    public void completeByTossPay(String tossStatus) {
+        this.tossStatus = tossStatus;
+        this.status = PaymentStatus.COMPLETED;
+        this.approvedAt = LocalDateTime.now();
+        this.callbackReceivedAt = LocalDateTime.now();
+    }
+
     public void fail() {
         this.status = PaymentStatus.FAILED;
     }
 
+    public void failByTossPay(String tossStatus) {
+        this.tossStatus = tossStatus;
+        this.status = PaymentStatus.FAILED;
+        this.callbackReceivedAt = LocalDateTime.now();
+    }
+
     public void markUnknown() {
         this.status = PaymentStatus.UNKNOWN;
+    }
+
+    public void markTossPayUnknown() {
+        this.status = PaymentStatus.UNKNOWN;
+    }
+
+    public void markTossPayCreationUnknown(String payToken, String checkoutPage) {
+        this.payToken = payToken;
+        this.checkoutPage = checkoutPage;
+        this.status = PaymentStatus.UNKNOWN;
+    }
+
+    public void updateTossStatus(String tossStatus) {
+        this.tossStatus = tossStatus;
+        this.callbackReceivedAt = LocalDateTime.now();
+    }
+
+    public void markStatusChecked(String tossStatus) {
+        this.tossStatus = tossStatus;
+        this.lastStatusCheckedAt = LocalDateTime.now();
     }
 
     public boolean belongsTo(Long userId) {
@@ -91,5 +143,9 @@ public class Payment extends BaseEntity {
 
     public boolean hasPaymentKey(String paymentKey) {
         return this.paymentKey != null && this.paymentKey.equals(paymentKey);
+    }
+
+    public boolean hasPayToken(String payToken) {
+        return this.payToken != null && this.payToken.equals(payToken);
     }
 }

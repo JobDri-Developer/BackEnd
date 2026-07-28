@@ -49,6 +49,10 @@ ALTER TABLE IF EXISTS analyses
 ALTER TABLE IF EXISTS analyses
     ADD COLUMN IF NOT EXISTS key_weaknesses TEXT NOT NULL DEFAULT '[]';
 
+-- Column defaults that must also exist outside Spring SQL initialization
+-- are managed in ops/db/migrations so profiles like analysis-eval do not
+-- implicitly depend on this schema.sql contract.
+
 UPDATE job_postings
 SET profile_color = 'DEFAULT'
 WHERE profile_color IS NULL;
@@ -92,3 +96,22 @@ ALTER TABLE IF EXISTS job_posting_async_tasks
 
 ALTER TABLE IF EXISTS job_posting_async_tasks
     ADD COLUMN IF NOT EXISTS estimated_remaining_seconds INTEGER;
+
+ALTER TABLE IF EXISTS payments
+    ADD COLUMN IF NOT EXISTS pay_token VARCHAR(50);
+
+ALTER TABLE IF EXISTS payments
+    ADD COLUMN IF NOT EXISTS checkout_page VARCHAR(500);
+
+ALTER TABLE IF EXISTS payments
+    ADD COLUMN IF NOT EXISTS toss_status VARCHAR(50);
+
+ALTER TABLE IF EXISTS payments
+    ADD COLUMN IF NOT EXISTS callback_received_at TIMESTAMP;
+
+ALTER TABLE IF EXISTS payments
+    ADD COLUMN IF NOT EXISTS last_status_checked_at TIMESTAMP;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_pay_token_unique
+    ON payments (pay_token)
+    WHERE pay_token IS NOT NULL;
