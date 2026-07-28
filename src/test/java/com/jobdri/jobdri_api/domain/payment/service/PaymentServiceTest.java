@@ -2,14 +2,19 @@ package com.jobdri.jobdri_api.domain.payment.service;
 
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentPrepareResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayCreateResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.toss.TossEasyPayInfo;
 import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
+import com.jobdri.jobdri_api.domain.payment.controller.PaymentController;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
 import com.jobdri.jobdri_api.domain.payment.entity.PaymentStatus;
+import com.jobdri.jobdri_api.domain.payment.entity.TossPayStatus;
 import com.jobdri.jobdri_api.domain.payment.repository.CreditTransactionRepository;
 import com.jobdri.jobdri_api.domain.payment.repository.PaymentRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
@@ -20,7 +25,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
 
 import java.util.List;
@@ -42,6 +47,9 @@ class PaymentServiceTest {
     private PaymentService paymentService;
 
     @Autowired
+    private PaymentController paymentController;
+
+    @Autowired
     private UserRepository userRepository;
 
     @Autowired
@@ -50,8 +58,11 @@ class PaymentServiceTest {
     @Autowired
     private CreditTransactionRepository creditTransactionRepository;
 
-    @MockBean
+    @MockitoBean
     private TossPaymentClient tossPaymentClient;
+
+    @MockitoBean
+    private TossPayClient tossPayClient;
 
     @Test
     @DisplayName("크레딧 플랜 목록을 조회한다")
@@ -72,6 +83,7 @@ class PaymentServiceTest {
     @DisplayName("결제 준비 시 PENDING 결제 정보를 생성한다")
     void prepare() {
         User user = saveUser("payment-prepare@example.com");
+        mockTossPayCreateSuccess();
 
         PaymentPrepareResponse response = paymentService.prepare(user, new PaymentPrepareRequest("FIVE_TIMES"));
 
@@ -79,14 +91,18 @@ class PaymentServiceTest {
         assertThat(response.orderName()).isEqualTo("JobDri 크레딧 5회권");
         assertThat(response.amount()).isEqualTo(11500);
         assertThat(response.creditAmount()).isEqualTo(5);
+        assertThat(response.checkoutPage()).startsWith("https://pay.toss.im/checkout/");
         Payment payment = paymentRepository.findByOrderId(response.orderId()).orElseThrow();
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(payment.getPayToken()).startsWith("pay-token-");
+        assertThat(payment.getCheckoutPage()).isEqualTo(response.checkoutPage());
     }
 
     @Test
     @DisplayName("토스 결제 승인 성공 시 크레딧을 충전하고 거래 내역을 저장한다")
     void confirm() {
         User user = saveUser("payment-confirm@example.com");
+        mockTossPayCreateSuccess();
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
         String paymentKey = "payment-key-" + prepared.orderId();
         when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
@@ -110,6 +126,7 @@ class PaymentServiceTest {
     @DisplayName("이미 완료된 동일 결제 승인 재시도는 기존 결과를 반환하고 중복 충전하지 않는다")
     void confirmReturnsExistingResultWhenAlreadyCompleted() {
         User user = saveUser("payment-confirm-idempotent@example.com");
+        mockTossPayCreateSuccess();
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
         String paymentKey = "payment-key-" + prepared.orderId();
         when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
@@ -133,6 +150,7 @@ class PaymentServiceTest {
     @DisplayName("결제 승인 요청 금액이 준비 금액과 다르면 예외를 던진다")
     void confirmThrowsWhenAmountMismatch() {
         User user = saveUser("payment-amount-mismatch@example.com");
+        mockTossPayCreateSuccess();
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest(CreditPlan.ONE_TIME.getCode()));
 
         assertThatThrownBy(() -> paymentService.confirm(
@@ -148,6 +166,7 @@ class PaymentServiceTest {
     @DisplayName("토스 결제 승인 실패 시 결제 상태를 FAILED로 변경한다")
     void confirmMarksPaymentAsFailedWhenTossConfirmFails() {
         User user = saveUser("payment-confirm-fail@example.com");
+        mockTossPayCreateSuccess();
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
         String paymentKey = "payment-key-" + prepared.orderId();
         when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
@@ -174,6 +193,7 @@ class PaymentServiceTest {
     @DisplayName("토스 승인 타임아웃이면 결제를 UNKNOWN으로 남기고 재시도를 허용한다")
     void confirmAllowsRetryWhenTossConfirmTimesOut() {
         User user = saveUser("payment-confirm-timeout@example.com");
+        mockTossPayCreateSuccess();
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
         String paymentKey = "payment-key-" + prepared.orderId();
         PaymentConfirmRequest request = new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500);
@@ -204,6 +224,7 @@ class PaymentServiceTest {
     @DisplayName("동일 결제 승인 요청이 동시에 들어와도 한 번만 크레딧을 충전한다")
     void confirmConcurrentlyChargesOnlyOnce() throws Exception {
         User user = saveUser("payment-concurrent-confirm@example.com");
+        mockTossPayCreateSuccess();
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
         String paymentKey = "payment-key-" + prepared.orderId();
         when(tossPaymentClient.confirm(anyString(), anyString(), anyInt()))
@@ -237,6 +258,7 @@ class PaymentServiceTest {
     @DisplayName("토스 승인 응답이 간편결제가 아니면 결제를 실패 처리하고 크레딧을 충전하지 않는다")
     void confirmThrowsWhenPaymentMethodIsNotEasyPay() {
         User user = saveUser("payment-method-card@example.com");
+        mockTossPayCreateSuccess();
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
         String paymentKey = "payment-key-" + prepared.orderId();
         when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
@@ -265,6 +287,7 @@ class PaymentServiceTest {
     @DisplayName("토스 승인 응답의 easyPay가 없으면 결제를 실패 처리하고 크레딧을 충전하지 않는다")
     void confirmThrowsWhenEasyPayIsMissing() {
         User user = saveUser("payment-method-easypay-missing@example.com");
+        mockTossPayCreateSuccess();
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
         String paymentKey = "payment-key-" + prepared.orderId();
         when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
@@ -293,6 +316,7 @@ class PaymentServiceTest {
     @DisplayName("토스 승인 응답의 간편결제 제공사가 토스페이가 아니면 결제를 실패 처리하고 크레딧을 충전하지 않는다")
     void confirmThrowsWhenEasyPayProviderIsNotTossPay() {
         User user = saveUser("payment-method-other-easypay@example.com");
+        mockTossPayCreateSuccess();
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
         String paymentKey = "payment-key-" + prepared.orderId();
         when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
@@ -317,8 +341,367 @@ class PaymentServiceTest {
         assertPaymentFailedWithoutCreditCharge(user, prepared.orderId());
     }
 
+    @Test
+    @DisplayName("토스페이 결제 생성 실패 시 결제 상태를 FAILED로 변경하고 크레딧을 지급하지 않는다")
+    void prepareMarksPaymentAsFailedWhenTossPayCreateFails() {
+        User user = saveUser("payment-create-failed@example.com");
+        when(tossPayClient.createPayment(anyString(), anyInt(), anyString()))
+                .thenThrow(new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스페이 생성 실패"));
+
+        assertThatThrownBy(() -> paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME")))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.PAYMENT_CONFIRM_FAILED);
+
+        Payment payment = paymentRepository.findAllByUserId(user.getId()).getFirst();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("토스페이 결제 생성 타임아웃 시 결제 상태를 UNKNOWN으로 남긴다")
+    void prepareMarksPaymentAsUnknownWhenTossPayCreateTimesOut() {
+        User user = saveUser("payment-create-timeout@example.com");
+        when(tossPayClient.createPayment(anyString(), anyInt(), anyString()))
+                .thenThrow(new GeneralException(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, "timeout"));
+
+        assertThatThrownBy(() -> paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME")))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT);
+
+        Payment payment = paymentRepository.findAllByUserId(user.getId()).getFirst();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.UNKNOWN);
+        assertThat(payment.getPayToken()).isNull();
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("토스페이 PAY_COMPLETE 콜백 수신 시 크레딧을 지급한다")
+    void tossPayCallbackCompletesPaymentAndChargesCredit() {
+        User user = saveUser("payment-callback-complete@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+
+        paymentService.handleTossPayCallback(tossPayCompleteCallback(prepared));
+
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(payment.getTossStatus()).isEqualTo("PAY_COMPLETE");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("동일 토스페이 콜백을 재수신해도 크레딧은 한 번만 지급된다")
+    void tossPayCallbackIsIdempotent() {
+        User user = saveUser("payment-callback-idempotent@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+        TossPayCallbackRequest callback = tossPayCompleteCallback(prepared);
+
+        paymentService.handleTossPayCallback(callback);
+        paymentService.handleTossPayCallback(callback);
+
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("토스페이 PAY_COMPLETE 콜백이 동시에 들어와도 크레딧은 한 번만 지급된다")
+    void tossPayCallbackConcurrentlyChargesOnlyOnce() throws Exception {
+        User user = saveUser("payment-callback-concurrent@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+        TossPayCallbackRequest callback = tossPayCompleteCallback(prepared);
+
+        List<Result> results = runConcurrently(2, () -> {
+            try {
+                paymentService.handleTossPayCallback(callback);
+                return Result.ok();
+            } catch (Exception e) {
+                return Result.failure(e);
+            }
+        });
+
+        assertThat(results).filteredOn(Result::success).hasSize(2);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("토스페이 콜백 payToken이 일치하지 않으면 크레딧을 지급하지 않는다")
+    void tossPayCallbackThrowsWhenPayTokenMismatches() {
+        User user = saveUser("payment-callback-token-mismatch@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        when(tossPayClient.getPaymentStatus("wrong-pay-token", prepared.orderId()))
+                .thenReturn(tossPayStatus("wrong-pay-token", prepared.orderId(), TossPayStatus.PAY_COMPLETE, prepared.amount()));
+
+        assertThatThrownBy(() -> paymentService.handleTossPayCallback(new TossPayCallbackRequest(
+                "PAY_COMPLETE",
+                "wrong-pay-token",
+                prepared.orderId(),
+                "CARD",
+                prepared.amount(),
+                0,
+                prepared.amount(),
+                "2026-07-28 10:00:00",
+                "transaction-id"
+        )))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.PAYMENT_CONFIRM_FAILED);
+
+        assertPaymentPendingWithoutCreditCharge(user, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("토스페이 콜백 금액이 일치하지 않으면 크레딧을 지급하지 않는다")
+    void tossPayCallbackThrowsWhenAmountMismatches() {
+        User user = saveUser("payment-callback-amount-mismatch@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, 1000);
+
+        assertThatThrownBy(() -> paymentService.handleTossPayCallback(new TossPayCallbackRequest(
+                "PAY_COMPLETE",
+                savedPayToken(prepared),
+                prepared.orderId(),
+                "CARD",
+                1000,
+                0,
+                1000,
+                "2026-07-28 10:00:00",
+                "transaction-id"
+        )))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.PAYMENT_AMOUNT_MISMATCH);
+
+        assertPaymentPendingWithoutCreditCharge(user, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("토스페이 PAY_CANCEL 콜백은 결제를 실패 처리하고 크레딧을 지급하지 않는다")
+    void tossPayCallbackDoesNotChargeWhenCanceled() {
+        User user = saveUser("payment-callback-cancel@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        mockTossPayStatus(prepared, TossPayStatus.PAY_CANCEL, prepared.amount());
+
+        paymentService.handleTossPayCallback(new TossPayCallbackRequest(
+                "PAY_CANCEL",
+                savedPayToken(prepared),
+                prepared.orderId(),
+                "CARD",
+                prepared.amount(),
+                0,
+                0,
+                null,
+                null
+        ));
+
+        assertPaymentFailedWithoutCreditCharge(user, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("이미 완료된 결제에 PAY_CANCEL 콜백이 와도 크레딧을 회수하지 않는다")
+    void tossPayCallbackIgnoresCancelAfterCompleted() {
+        User user = saveUser("payment-callback-cancel-after-complete@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+        paymentService.handleTossPayCallback(tossPayCompleteCallback(prepared));
+
+        mockTossPayStatus(prepared, TossPayStatus.PAY_CANCEL, prepared.amount());
+        paymentService.handleTossPayCallback(new TossPayCallbackRequest(
+                "PAY_CANCEL",
+                savedPayToken(prepared),
+                prepared.orderId(),
+                "CARD",
+                prepared.amount(),
+                0,
+                0,
+                null,
+                null
+        ));
+
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(payment.getTossStatus()).isEqualTo("PAY_CANCEL");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("토스페이 중간 상태 콜백은 상태만 저장하고 크레딧을 지급하지 않는다")
+    void tossPayCallbackDoesNotChargeWhenStatusIsNotComplete() {
+        User user = saveUser("payment-callback-progress@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        mockTossPayStatus(prepared, TossPayStatus.PAY_APPROVED, prepared.amount());
+
+        paymentService.handleTossPayCallback(new TossPayCallbackRequest(
+                "PAY_APPROVED",
+                savedPayToken(prepared),
+                prepared.orderId(),
+                "CARD",
+                prepared.amount(),
+                0,
+                0,
+                null,
+                null
+        ));
+
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(payment.getTossStatus()).isEqualTo("PAY_APPROVED");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).isEmpty();
+    }
+
+    @Test
+    @DisplayName("복구 불가능한 토스페이 콜백 검증 실패는 컨트롤러에서 200으로 응답한다")
+    void tossPayCallbackControllerAcknowledgesUnrecoverableValidationFailure() {
+        var response = paymentController.tossPayCallback(new TossPayCallbackRequest(
+                "PAY_COMPLETE",
+                null,
+                null,
+                "CARD",
+                0,
+                0,
+                0,
+                null,
+                null
+        ));
+
+        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+    }
+
+    @Test
+    @DisplayName("재시도 가능한 토스페이 콜백 상태 조회 실패는 컨트롤러에서 전파한다")
+    void tossPayCallbackControllerPropagatesRetryableStatusFailure() {
+        User user = saveUser("payment-callback-retryable@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        when(tossPayClient.getPaymentStatus(savedPayToken(prepared), prepared.orderId()))
+                .thenThrow(new GeneralException(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, "timeout"));
+
+        assertThatThrownBy(() -> paymentController.tossPayCallback(tossPayCompleteCallback(prepared)))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT);
+    }
+
+    @Test
+    @DisplayName("결제 주문 상태 조회는 소유자의 주문만 반환한다")
+    void getOrderStatus() {
+        User user = saveUser("payment-status-owner@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+
+        var response = paymentService.getOrderStatus(user, prepared.orderId());
+
+        assertThat(response.orderId()).isEqualTo(prepared.orderId());
+        assertThat(response.status()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(response.amount()).isEqualTo(2500);
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 결제 주문 상태는 조회할 수 없다")
+    void getOrderStatusThrowsWhenUserIsNotOwner() {
+        User owner = saveUser("payment-status-real-owner@example.com");
+        User other = saveUser("payment-status-other@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(owner, new PaymentPrepareRequest("ONE_TIME"));
+
+        assertThatThrownBy(() -> paymentService.getOrderStatus(other, prepared.orderId()))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.FORBIDDEN);
+    }
+
     private User saveUser(String email) {
         return userRepository.save(User.signup("테스트 사용자", email, "encoded-password"));
+    }
+
+    private void mockTossPayCreateSuccess() {
+        when(tossPayClient.createPayment(anyString(), anyInt(), anyString()))
+                .thenAnswer(invocation -> {
+                    String orderId = invocation.getArgument(0);
+                    return new TossPayCreateResponse(
+                            0,
+                            null,
+                            "성공",
+                            200,
+                            "pay-token-" + orderId,
+                            "https://pay.toss.im/checkout/" + orderId
+                    );
+                });
+    }
+
+    private void mockTossPayStatus(PaymentPrepareResponse prepared, TossPayStatus tossPayStatus, int amount) {
+        String payToken = savedPayToken(prepared);
+        when(tossPayClient.getPaymentStatus(payToken, prepared.orderId()))
+                .thenReturn(tossPayStatus(payToken, prepared.orderId(), tossPayStatus, amount));
+    }
+
+    private TossPayStatusResponse tossPayStatus(
+            String payToken,
+            String orderId,
+            TossPayStatus tossPayStatus,
+            int amount
+    ) {
+        return new TossPayStatusResponse(
+                0,
+                null,
+                "성공",
+                "TEST",
+                payToken,
+                orderId,
+                tossPayStatus.name(),
+                "CARD",
+                amount,
+                0,
+                amount
+        );
+    }
+
+    private TossPayCallbackRequest tossPayCompleteCallback(PaymentPrepareResponse prepared) {
+        return new TossPayCallbackRequest(
+                "PAY_COMPLETE",
+                savedPayToken(prepared),
+                prepared.orderId(),
+                "CARD",
+                prepared.amount(),
+                0,
+                prepared.amount(),
+                "2026-07-28 10:00:00",
+                "transaction-id"
+        );
+    }
+
+    private String savedPayToken(PaymentPrepareResponse prepared) {
+        return paymentRepository.findByOrderId(prepared.orderId()).orElseThrow().getPayToken();
     }
 
     private TossPaymentConfirmResponse tossPayResponse(
@@ -340,6 +723,16 @@ class PaymentServiceTest {
     private void assertPaymentFailedWithoutCreditCharge(User user, String orderId) {
         Payment payment = paymentRepository.findByOrderId(orderId).orElseThrow();
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.FAILED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).isEmpty();
+    }
+
+    private void assertPaymentPendingWithoutCreditCharge(User user, String orderId) {
+        Payment payment = paymentRepository.findByOrderId(orderId).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
         assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
         assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
                 user.getId(),

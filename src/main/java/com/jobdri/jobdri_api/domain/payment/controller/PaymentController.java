@@ -3,16 +3,19 @@ package com.jobdri.jobdri_api.domain.payment.controller;
 import com.jobdri.jobdri_api.domain.payment.dto.request.CouponRedeemRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.*;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.service.CouponService;
 import com.jobdri.jobdri_api.domain.payment.service.PaymentService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
+import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
@@ -47,6 +50,7 @@ public class PaymentController {
 
     @Operation(summary = "토스 결제 승인", description = "토스페이먼츠 결제 성공 후 paymentKey/orderId/amount를 검증하고 크레딧을 충전합니다.")
     @PostMapping("/confirm")
+    @Deprecated
     public ApiResponse<PaymentConfirmResponse> confirm(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @Valid @RequestBody PaymentConfirmRequest request
@@ -54,6 +58,33 @@ public class PaymentController {
         return ApiResponse.onSuccess(
                 "결제가 완료되었습니다.",
                 paymentService.confirm(userDetails.getUser(), request)
+        );
+    }
+
+    @Operation(summary = "토스페이 결제 결과 콜백", description = "토스페이 서버가 호출하는 결제 결과 콜백입니다. PAY_COMPLETE일 때만 크레딧을 충전합니다.")
+    @PostMapping("/toss/callback")
+    public ResponseEntity<Void> tossPayCallback(
+            @RequestBody TossPayCallbackRequest request
+    ) {
+        try {
+            paymentService.handleTossPayCallback(request);
+        } catch (GeneralException e) {
+            if (!paymentService.shouldAcknowledgeTossPayCallbackFailure(e)) {
+                throw e;
+            }
+        }
+        return ResponseEntity.ok().build();
+    }
+
+    @Operation(summary = "결제 주문 상태 조회", description = "결제 복귀 페이지에서 현재 주문 상태를 조회합니다.")
+    @GetMapping("/orders/{orderId}")
+    public ApiResponse<PaymentOrderStatusResponse> getOrderStatus(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable String orderId
+    ) {
+        return ApiResponse.onSuccess(
+                "결제 주문 상태 조회에 성공했습니다.",
+                paymentService.getOrderStatus(userDetails.getUser(), orderId)
         );
     }
 
