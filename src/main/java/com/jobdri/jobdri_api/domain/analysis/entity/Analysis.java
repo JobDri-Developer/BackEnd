@@ -51,6 +51,9 @@ public class Analysis extends BaseEntity {
     @Column(name = "key_weaknesses", nullable = false, columnDefinition = "TEXT")
     private String keyWeaknessesJson = "[]";
 
+    @Column(name = "input_fingerprint", length = 64)
+    private String inputFingerprint;
+
     @Builder.Default
     @OneToMany(mappedBy = "analysis", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<QuestionAnalysis> questionAnalyses = new ArrayList<>();
@@ -89,6 +92,32 @@ public class Analysis extends BaseEntity {
             String keyStrengthsJson,
             String keyWeaknessesJson
     ) {
+        return create(
+                mockApply,
+                score,
+                jobFit,
+                impact,
+                completeness,
+                feedback,
+                missingKeywordsJson,
+                keyStrengthsJson,
+                keyWeaknessesJson,
+                null
+        );
+    }
+
+    public static Analysis create(
+            MockApply mockApply,
+            int score,
+            int jobFit,
+            int impact,
+            int completeness,
+            String feedback,
+            String missingKeywordsJson,
+            String keyStrengthsJson,
+            String keyWeaknessesJson,
+            String inputFingerprint
+    ) {
         return Analysis.builder()
                 .mockApply(mockApply)
                 .score(score)
@@ -99,6 +128,7 @@ public class Analysis extends BaseEntity {
                 .missingKeywordsJson(missingKeywordsJson == null ? "[]" : missingKeywordsJson)
                 .keyStrengthsJson(keyStrengthsJson == null ? "[]" : keyStrengthsJson)
                 .keyWeaknessesJson(keyWeaknessesJson == null ? "[]" : keyWeaknessesJson)
+                .inputFingerprint(inputFingerprint)
                 .build();
     }
 

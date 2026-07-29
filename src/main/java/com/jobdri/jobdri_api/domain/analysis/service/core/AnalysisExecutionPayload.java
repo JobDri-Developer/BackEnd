@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.analysis.service.core;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 
 import java.util.List;
@@ -13,7 +14,8 @@ public record AnalysisExecutionPayload(
         JobPosting jobPosting,
         List<Question> questions,
         List<Question> answeredQuestions,
-        JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
+        JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
+        RetrievalContext retrievalContext
 ) {
     public AnalysisExecutionPayload(
             Long userId,
@@ -22,6 +24,17 @@ public record AnalysisExecutionPayload(
             List<Question> questions,
             List<Question> answeredQuestions
     ) {
-        this(userId, mockApplyId, jobPosting, questions, answeredQuestions, null);
+        this(userId, mockApplyId, jobPosting, questions, answeredQuestions, null, null);
+    }
+
+    public AnalysisExecutionPayload(
+            Long userId,
+            Long mockApplyId,
+            JobPosting jobPosting,
+            List<Question> questions,
+            List<Question> answeredQuestions,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
+    ) {
+        this(userId, mockApplyId, jobPosting, questions, answeredQuestions, jobCategoryEvaluationCriteria, null);
     }
 }

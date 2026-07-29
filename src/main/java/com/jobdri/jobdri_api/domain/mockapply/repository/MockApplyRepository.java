@@ -2,10 +2,12 @@ package com.jobdri.jobdri_api.domain.mockapply.repository;
 
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -117,6 +119,15 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
             where ma.id = :mockApplyId
             """)
     Optional<MockApply> findByIdWithJobPosting(@Param("mockApplyId") Long mockApplyId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            select ma
+            from MockApply ma
+            join fetch ma.user
+            where ma.id = :mockApplyId
+            """)
+    Optional<MockApply> findByIdForUpdate(@Param("mockApplyId") Long mockApplyId);
 
     @Query("""
             select coalesce(max(ma.sequence), 0)

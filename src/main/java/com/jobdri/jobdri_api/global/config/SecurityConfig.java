@@ -7,6 +7,7 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.handler.CustomAccessDen
 import com.jobdri.jobdri_api.global.apiPayload.exception.handler.CustomAuthenticationEntryPoint;
 import com.jobdri.jobdri_api.global.jwt.JwtAuthenticationFilter;
 import com.jobdri.jobdri_api.global.jwt.JwtUtil;
+import com.jobdri.jobdri_api.global.metrics.AuthRedisMetricsRecorder;
 import com.jobdri.jobdri_api.global.security.UserDetailsServiceImpl;
 import com.jobdri.jobdri_api.global.logging.RequestContextLoggingFilter;
 import lombok.RequiredArgsConstructor;
@@ -35,13 +36,14 @@ public class SecurityConfig {
     private final CustomAuthenticationEntryPoint customAuthenticationEntryPoint;
     private final CustomAccessDeniedHandler customAccessDeniedHandler;
     private final StringRedisTemplate redisTemplate;
+    private final AuthRedisMetricsRecorder authRedisMetricsRecorder;
     private final CustomOAuth2UserService customOAuth2UserService;
     private final OAuth2AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler;
     private final OAuth2AuthenticationFailureHandler oAuth2AuthenticationFailureHandler;
 
     @Bean
     public JwtAuthenticationFilter jwtAuthenticationFilter() {
-        return new JwtAuthenticationFilter(jwtUtil, userDetailsService, redisTemplate);
+        return new JwtAuthenticationFilter(jwtUtil, userDetailsService, redisTemplate, authRedisMetricsRecorder);
     }
 
     @Bean

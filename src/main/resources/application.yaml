@@ -9,6 +9,12 @@ spring:
     defer-datasource-initialization: true
 
 app:
+  job-posting:
+    mock-question-cache:
+      version-prefix: v1
+      lock-ttl-millis: 30000
+      wait-timeout-millis: 10000
+      poll-interval-millis: 200
   logging:
     path: ${APP_LOG_PATH:logs}
     audit-path: ${APP_AUDIT_LOG_PATH:logs/audit}

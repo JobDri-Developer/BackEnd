@@ -22,6 +22,8 @@ import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.JobCategoryEvaluationCriteriaProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
@@ -80,16 +82,25 @@ public class AnalysisService {
     private final CreditService creditService;
     private final ObjectMapper objectMapper;
     private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
+    private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
+    private final CorpusRetrievalService corpusRetrievalService;
 
     @Transactional
     @AuditLogEvent(action = "ANALYSIS_RUN", targetType = "MOCK_APPLY", targetId = "#arg1")
     public AnalysisResponse analyze(User user, Long mockApplyId) {
         validateAnalysisRequest(user, mockApplyId);
-        String referenceId = "mockApplyId=" + mockApplyId;
+        AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
+        String inputFingerprint = analysisInputFingerprintProvider.create(payload);
+        lockOwnedMockApply(user, mockApplyId);
+        AnalysisResponse cachedResponse = reuseExistingAnalysisIfSameInput(user, mockApplyId, inputFingerprint);
+        if (cachedResponse != null) {
+            return cachedResponse;
+        }
+
+        String referenceId = analysisCreditReferenceId(mockApplyId, inputFingerprint);
         deductAnalysisCredit(user, referenceId);
 
         try {
-            AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
             AnalysisLlmResponse llmResponse = executeAnalysis(payload);
             AnalysisResponse response = finalizeAnalysis(user, mockApplyId, payload, llmResponse);
             return response;
@@ -152,19 +163,13 @@ public class AnalysisService {
                 mockApply.getJobPosting(),
                 List.copyOf(questions),
                 List.copyOf(answeredQuestions),
-                evaluationCriteria
+                evaluationCriteria,
+                retrieveAnalysisReferences(mockApply.getJobPosting(), answeredQuestions)
         );
     }
 
     public AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
-        if (payload.jobCategoryEvaluationCriteria() == null) {
-            return analysisAiClient.analyze(payload.jobPosting(), payload.answeredQuestions());
-        }
-        return analysisAiClient.analyze(
-                payload.jobPosting(),
-                payload.answeredQuestions(),
-                payload.jobCategoryEvaluationCriteria()
-        );
+        return analysisAiClient.analyze(payload);
     }
 
     @Transactional
@@ -174,6 +179,7 @@ public class AnalysisService {
             AnalysisExecutionPayload payload,
             AnalysisLlmResponse llmResponse
     ) {
+        String inputFingerprint = analysisInputFingerprintProvider.create(payload);
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         validateRequiredScores(llmResponse);
@@ -194,7 +200,8 @@ public class AnalysisService {
                 normalizeFeedback(llmResponse.feedback()),
                 serializeMissingKeywords(missingKeywords),
                 serializeHighlights(keyStrengths, "keyStrengths"),
-                serializeHighlights(keyWeaknesses, "keyWeaknesses")
+                serializeHighlights(keyWeaknesses, "keyWeaknesses"),
+                inputFingerprint
         ));
 
         List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(
@@ -252,6 +259,15 @@ public class AnalysisService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public boolean hasReusableAnalysis(User user, Long mockApplyId) {
+        AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
+        String inputFingerprint = analysisInputFingerprintProvider.create(payload);
+        return analysisRepository.findByMockApplyId(mockApplyId)
+                .filter(analysis -> inputFingerprint.equals(analysis.getInputFingerprint()))
+                .isPresent();
+    }
+
     private MockApply resolveMockApplyBySequence(JobPosting jobPosting, int sequence) {
         if (sequence < 1) {
             throw new GeneralException(
@@ -286,6 +302,30 @@ public class AnalysisService {
         );
     }
 
+    private RetrievalContext retrieveAnalysisReferences(JobPosting jobPosting, List<Question> answeredQuestions) {
+        try {
+            return corpusRetrievalService.retrieveForAnalysis(jobPosting, answeredQuestions);
+        } catch (Exception exception) {
+            log.warn("자소서 분석 fingerprint용 retrieval 실패. fallback without references. message={}", exception.getMessage());
+            log.debug("analysis fingerprint retrieval exception", exception);
+            return new RetrievalContext(List.of(), List.of());
+        }
+    }
+
+    private MockApply lockOwnedMockApply(User user, Long mockApplyId) {
+        MockApply mockApply = mockApplyRepository.findByIdForUpdate(mockApplyId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
+                        "해당 모의 서류 지원을 찾을 수 없습니다. mockApplyId=" + mockApplyId
+                ));
+
+        if (!mockApply.getUser().getId().equals(user.getId())) {
+            throw new GeneralException(GeneralErrorCode.FORBIDDEN, "해당 모의 서류 지원에 접근할 수 없습니다.");
+        }
+
+        return mockApply;
+    }
+
     private void replaceExistingAnalysis(MockApply mockApply) {
         Optional<Analysis> existingAnalysis = analysisRepository.findByMockApplyId(mockApply.getId());
         if (existingAnalysis.isEmpty()) {
@@ -297,6 +337,17 @@ public class AnalysisService {
         questionAnalysisRepository.deleteAllByAnalysisId(analysis.getId());
         analysisRepository.delete(analysis);
         analysisRepository.flush();
+    }
+
+    private AnalysisResponse reuseExistingAnalysisIfSameInput(User user, Long mockApplyId, String inputFingerprint) {
+        return analysisRepository.findByMockApplyId(mockApplyId)
+                .filter(analysis -> inputFingerprint.equals(analysis.getInputFingerprint()))
+                .map(analysis -> getAnalysis(user, mockApplyId))
+                .orElse(null);
+    }
+
+    private String analysisCreditReferenceId(Long mockApplyId, String inputFingerprint) {
+        return "mockApplyId=" + mockApplyId + ":fingerprint=" + inputFingerprint;
     }
 
     private List<QuestionAnalysis> buildQuestionAnalyses(

@@ -49,6 +49,9 @@ ALTER TABLE IF EXISTS analyses
 ALTER TABLE IF EXISTS analyses
     ADD COLUMN IF NOT EXISTS key_weaknesses TEXT NOT NULL DEFAULT '[]';
 
+ALTER TABLE IF EXISTS analyses
+    ADD COLUMN IF NOT EXISTS input_fingerprint VARCHAR(64);
+
 -- Column defaults that must also exist outside Spring SQL initialization
 -- are managed in ops/db/migrations so profiles like analysis-eval do not
 -- implicitly depend on this schema.sql contract.

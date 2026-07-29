@@ -302,6 +302,6 @@ public final class AnalysisSanitizationRules {
     }
 
     private static String normalize(String value) {
-        return value == null ? "" : value.replaceAll("\\s+", "").toLowerCase();
+        return value == null ? "" : value.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
     }
 }

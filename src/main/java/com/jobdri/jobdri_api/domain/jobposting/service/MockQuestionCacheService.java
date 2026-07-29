@@ -15,19 +15,23 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 
 @Service
 @RequiredArgsConstructor
 public class MockQuestionCacheService {
 
-    static final String PROMPT_VERSION = "v1";
     private static final String CACHE_UNIQUE_CONSTRAINT = "uk_mock_question_cache_company_detail_version";
 
     private final DetailClassificationRepository detailClassificationRepository;
     private final CompanyRepository companyRepository;
     private final JobPostingAiService jobPostingAiService;
     private final MockQuestionInflightRegistry mockQuestionInflightRegistry;
+    private final MockQuestionDistributedLockService mockQuestionDistributedLockService;
+    private final MockQuestionCacheWaitExecutor mockQuestionCacheWaitExecutor;
     private final MockQuestionCacheTransactionalService mockQuestionCacheTransactionalService;
+    private final MockQuestionCacheProperties mockQuestionCacheProperties;
+    private final MockQuestionCacheVersionProvider mockQuestionCacheVersionProvider;
 
     public List<String> getRecommendedQuestions(JobPostingMockGenerateRequest request) {
         return getCachedQuestions(request)
@@ -35,7 +39,20 @@ public class MockQuestionCacheService {
     }
 
     public List<String> createAndCacheQuestions(JobPostingMockGenerateRequest request) {
-        return getCachedQuestions(request).orElseGet(() -> createAndCacheQuestionsInternal(request));
+        return getCachedQuestions(request).orElseGet(() -> createAndCacheQuestionsWithLock(request));
+    }
+
+    private List<String> createAndCacheQuestionsWithLock(JobPostingMockGenerateRequest request) {
+        String cacheKey = cacheKey(request);
+        MockQuestionDistributedLockService.LockLease lockLease = mockQuestionDistributedLockService.tryAcquire(cacheKey);
+
+        if (lockLease == null) {
+            return awaitCachedQuestions(request, cacheKey);
+        }
+
+        try (lockLease) {
+            return getCachedQuestions(request).orElseGet(() -> createAndCacheQuestionsInternal(request));
+        }
     }
 
     private List<String> createAndCacheQuestionsInternal(JobPostingMockGenerateRequest request) {
@@ -55,7 +72,7 @@ public class MockQuestionCacheService {
             return mockQuestionCacheTransactionalService.saveQuestions(
                     company,
                     detailClassification,
-                    PROMPT_VERSION,
+                    currentPromptVersion(),
                     generated.recommendedQuestions()
             );
         } catch (DataIntegrityViolationException e) {
@@ -70,12 +87,60 @@ public class MockQuestionCacheService {
         return mockQuestionCacheTransactionalService.findQuestions(
                 request.companyId(),
                 request.detailClassificationId(),
-                PROMPT_VERSION
+                currentPromptVersion()
         );
     }
 
+    private List<String> awaitCachedQuestions(JobPostingMockGenerateRequest request, String cacheKey) {
+        return mockQuestionCacheWaitExecutor.execute(
+                () -> awaitCachedQuestionsWithTakeover(request, cacheKey),
+                mockQuestionCacheProperties.getWaitTimeoutMillis()
+        );
+    }
+
+    private List<String> awaitCachedQuestionsWithTakeover(JobPostingMockGenerateRequest request, String cacheKey) {
+        long pollIntervalMillis = Math.max(0L, mockQuestionCacheProperties.getPollIntervalMillis());
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(
+                Math.max(0L, mockQuestionCacheProperties.getWaitTimeoutMillis())
+        );
+
+        Optional<List<String>> cachedQuestions = getCachedQuestions(request);
+        while (cachedQuestions.isEmpty() && System.nanoTime() < deadline) {
+            MockQuestionDistributedLockService.LockLease takeoverLease = mockQuestionDistributedLockService.tryAcquire(cacheKey);
+            if (takeoverLease != null) {
+                try (takeoverLease) {
+                    return getCachedQuestions(request).orElseGet(() -> createAndCacheQuestionsInternal(request));
+                }
+            }
+
+            pauseBeforeRetry(pollIntervalMillis);
+            cachedQuestions = getCachedQuestions(request);
+        }
+
+        return cachedQuestions.orElseThrow(() -> new GeneralException(
+                GeneralErrorCode.SERVICE_UNAVAILABLE,
+                "추천 질문 생성이 처리 중입니다. 잠시 후 다시 시도해주세요."
+        ));
+    }
+
     private String cacheKey(JobPostingMockGenerateRequest request) {
-        return request.companyId() + ":" + request.detailClassificationId() + ":" + PROMPT_VERSION;
+        return request.companyId() + ":" + request.detailClassificationId() + ":" + currentPromptVersion();
+    }
+
+    private String currentPromptVersion() {
+        return mockQuestionCacheVersionProvider.currentVersion();
+    }
+
+    private void pauseBeforeRetry(long pollIntervalMillis) {
+        try {
+            Thread.sleep(pollIntervalMillis);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new GeneralException(
+                    GeneralErrorCode.SERVICE_UNAVAILABLE,
+                    "추천 질문 생성 대기 중 인터럽트가 발생했습니다."
+            );
+        }
     }
 
     private boolean isCacheUniqueConflict(DataIntegrityViolationException exception) {

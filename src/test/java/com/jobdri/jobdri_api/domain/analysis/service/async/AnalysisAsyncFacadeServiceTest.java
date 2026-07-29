@@ -53,6 +53,7 @@ class AnalysisAsyncFacadeServiceTest {
         AnalysisAsyncTask existingTask = AnalysisAsyncTask.pending(1L, 10L, 3);
 
         when(userService.validateUser(user)).thenReturn(user);
+        when(analysisService.hasReusableAnalysis(user, 10L)).thenReturn(false);
         when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty(), Optional.of(existingTask));
         when(analysisAsyncTaskService.createPendingTask(1L, 10L))
                 .thenThrow(new DataIntegrityViolationException("uk_analysis_async_tasks_active_user_mock_apply"));
@@ -75,6 +76,7 @@ class AnalysisAsyncFacadeServiceTest {
                 new DataIntegrityViolationException("uk_analysis_async_tasks_active_user_mock_apply");
 
         when(userService.validateUser(user)).thenReturn(user);
+        when(analysisService.hasReusableAnalysis(user, 10L)).thenReturn(false);
         when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty(), Optional.empty());
         when(analysisAsyncTaskService.createPendingTask(1L, 10L)).thenThrow(exception);
 
@@ -91,6 +93,7 @@ class AnalysisAsyncFacadeServiceTest {
         AnalysisAsyncTask createdTask = AnalysisAsyncTask.pending(1L, 10L, 3);
 
         when(userService.validateUser(user)).thenReturn(user);
+        when(analysisService.hasReusableAnalysis(user, 10L)).thenReturn(false);
         when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty());
         when(analysisAsyncTaskService.createPendingTask(1L, 10L)).thenReturn(createdTask);
 
@@ -98,8 +101,49 @@ class AnalysisAsyncFacadeServiceTest {
 
         assertThat(response.taskId()).isEqualTo(createdTask.getTaskId());
         assertThat(response.status()).isEqualTo("PENDING");
+        assertThat(response.cached()).isFalse();
+        assertThat(response.resultAvailable()).isFalse();
         verify(analysisAsyncProcessor, times(1)).process(createdTask.getTaskId(), 1L, 10L, 3);
         verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
+    }
+
+    @Test
+    @DisplayName("활성 작업이 없고 동일 입력 분석 결과가 있으면 task를 만들지 않고 즉시 재사용 응답을 반환한다")
+    void submitReturnsCachedResponseWhenReusableAnalysisExists() {
+        User user = User.signup("테스트 사용자", "analysis-async-cached@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty());
+        when(analysisService.hasReusableAnalysis(user, 10L)).thenReturn(true);
+
+        AnalysisAsyncSubmitResponse response = analysisAsyncFacadeService.submit(user, 10L);
+
+        assertThat(response.taskId()).isNull();
+        assertThat(response.status()).isEqualTo("SUCCEEDED");
+        assertThat(response.cached()).isTrue();
+        assertThat(response.resultAvailable()).isTrue();
+        verify(analysisAsyncTaskService, never()).createPendingTask(1L, 10L);
+        verify(analysisAsyncProcessor, never()).process(anyString(), eq(1L), eq(10L), eq(3));
+    }
+
+    @Test
+    @DisplayName("진행 중 작업이 있으면 캐시 재사용보다 진행 중 작업 응답을 우선한다")
+    void submitPrefersActiveTaskOverCachedResult() {
+        User user = User.signup("테스트 사용자", "analysis-async-active@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncTask existingTask = AnalysisAsyncTask.pending(1L, 10L, 3);
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.of(existingTask));
+
+        AnalysisAsyncSubmitResponse response = analysisAsyncFacadeService.submit(user, 10L);
+
+        assertThat(response.taskId()).isEqualTo(existingTask.getTaskId());
+        assertThat(response.status()).isEqualTo("PENDING");
+        assertThat(response.cached()).isFalse();
+        assertThat(response.resultAvailable()).isFalse();
+        verify(analysisService, never()).hasReusableAnalysis(user, 10L);
     }
 
     @Test
