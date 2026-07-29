@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.global.jwt;
 
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.entity.UserRole;
+import com.jobdri.jobdri_api.global.metrics.AuthRedisMetricsRecorder;
 import com.jobdri.jobdri_api.global.security.UserDetailsServiceImpl;
 import com.jobdri.jobdri_api.global.logging.LoggingMdcKeys;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
@@ -23,6 +24,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j(topic = "JWT 검증 및 인가")
 @RequiredArgsConstructor
@@ -33,6 +35,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtUtil jwtUtil;
     private final UserDetailsServiceImpl userDetailsService;
     private final StringRedisTemplate redisTemplate;
+    private final AuthRedisMetricsRecorder authRedisMetricsRecorder;
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -43,7 +46,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (StringUtils.hasText(tokenValue) && tokenValue.startsWith(JwtUtil.BEARER_PREFIX)) {
             String token = jwtUtil.substringToken(tokenValue);
 
-            if (Boolean.TRUE.equals(redisTemplate.hasKey(BLACKLIST_PREFIX + token))) {
+            if (isBlacklisted(token)) {
                 log.info("블랙리스트 처리된 액세스 토큰입니다.");
                 filterChain.doFilter(request, response);
                 return;
@@ -71,6 +74,26 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isBlacklisted(String token) {
+        long startedAt = System.nanoTime();
+        try {
+            boolean blacklisted = Boolean.TRUE.equals(redisTemplate.hasKey(BLACKLIST_PREFIX + token));
+            authRedisMetricsRecorder.recordBlacklistLookup(
+                    blacklisted ? "hit" : "miss",
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+            );
+            return blacklisted;
+        } catch (RuntimeException exception) {
+            authRedisMetricsRecorder.recordBlacklistLookup(
+                    "error",
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+            );
+            authRedisMetricsRecorder.incrementBlacklistFallback("redis_error");
+            log.warn("Redis 블랙리스트 조회에 실패해 fail-open 정책으로 인증을 계속 진행합니다.", exception);
+            return false;
+        }
     }
 
     private UserDetails createUserDetails(Claims claims) {

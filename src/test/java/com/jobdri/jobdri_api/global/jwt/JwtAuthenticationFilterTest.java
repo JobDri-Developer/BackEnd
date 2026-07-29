@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.global.jwt;
 
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.entity.UserRole;
+import com.jobdri.jobdri_api.global.metrics.AuthRedisMetricsRecorder;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import com.jobdri.jobdri_api.global.security.UserDetailsServiceImpl;
 import io.jsonwebtoken.Claims;
@@ -10,6 +11,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -25,7 +27,13 @@ class JwtAuthenticationFilterTest {
     private final JwtUtil jwtUtil = mock(JwtUtil.class);
     private final UserDetailsServiceImpl userDetailsService = mock(UserDetailsServiceImpl.class);
     private final StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
-    private final JwtAuthenticationFilter filter = new JwtAuthenticationFilter(jwtUtil, userDetailsService, redisTemplate);
+    private final AuthRedisMetricsRecorder authRedisMetricsRecorder = mock(AuthRedisMetricsRecorder.class);
+    private final JwtAuthenticationFilter filter = new JwtAuthenticationFilter(
+            jwtUtil,
+            userDetailsService,
+            redisTemplate,
+            authRedisMetricsRecorder
+    );
 
     @AfterEach
     void tearDown() {
@@ -85,6 +93,31 @@ class JwtAuthenticationFilterTest {
 
         verify(userDetailsService).loadUserByUsername("legacy@example.com");
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("블랙리스트 Redis 조회가 실패해도 fail-open 정책으로 인증을 계속 진행한다")
+    void continuesAuthenticationWhenBlacklistLookupFails() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(JwtUtil.AUTHORIZATION_HEADER, JwtUtil.BEARER_PREFIX + "access-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+        Claims claims = mock(Claims.class);
+
+        when(redisTemplate.hasKey("Blacklist:access-token"))
+                .thenThrow(new RedisConnectionFailureException("redis down"));
+        when(jwtUtil.substringToken(JwtUtil.BEARER_PREFIX + "access-token")).thenReturn("access-token");
+        when(jwtUtil.validateToken("access-token")).thenReturn(true);
+        when(jwtUtil.getClaimsFromToken("access-token")).thenReturn(claims);
+        when(jwtUtil.getEmailFromToken(claims)).thenReturn("user@example.com");
+        when(jwtUtil.getUserIdFromToken(claims)).thenReturn(42L);
+        when(jwtUtil.getRoleFromToken(claims)).thenReturn(UserRole.USER);
+
+        filter.doFilter(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
+        verify(authRedisMetricsRecorder).incrementBlacklistFallback("redis_error");
         verify(filterChain).doFilter(request, response);
     }
 }

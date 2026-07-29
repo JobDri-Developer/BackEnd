@@ -30,6 +30,8 @@ spring:
       host: localhost
       port: 6379
       password:
+      timeout: 500ms
+      connect-timeout: 500ms
       ssl:
         enabled: false
   mail:
