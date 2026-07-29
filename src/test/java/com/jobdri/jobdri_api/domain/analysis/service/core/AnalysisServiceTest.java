@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.analysis.service.core;
 
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
@@ -10,6 +11,7 @@ import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient;
+import com.jobdri.jobdri_api.domain.analysis.service.retrieval.JobPostingRagContextAssembler;
 import com.jobdri.jobdri_api.domain.classification.entity.Classification;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.entity.MiddleClassification;
@@ -106,10 +108,15 @@ class AnalysisServiceTest {
     @MockBean
     private CorpusRetrievalService corpusRetrievalService;
 
+    @MockBean
+    private JobPostingRagContextAssembler jobPostingRagContextAssembler;
+
     @BeforeEach
     void setUp() {
         lenient().when(corpusRetrievalService.retrieveForAnalysis(any(), any()))
                 .thenReturn(emptyRetrievalContext());
+        lenient().when(jobPostingRagContextAssembler.assemble(any()))
+                .thenReturn(List.of());
         lenient().when(analysisAiClient.analyze(any(AnalysisExecutionPayload.class)))
                 .thenAnswer(invocation -> {
                     AnalysisExecutionPayload payload = invocation.getArgument(0);
@@ -986,11 +993,25 @@ class AnalysisServiceTest {
         );
         MockApply mockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
         saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        SimilarJobPostingContext similarContext = new SimilarJobPostingContext(
+                31L,
+                "유사 회사",
+                "유사 공고",
+                "서버 개발자",
+                "API 개발",
+                "Java",
+                "AWS",
+                1,
+                0.91
+        );
+        when(jobPostingRagContextAssembler.assemble(jobPosting.getId())).thenReturn(List.of(similarContext));
 
         AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApply.getId());
 
         assertThat(payload.jobCategoryEvaluationCriteria()).isNotNull();
         assertThat(payload.jobCategoryEvaluationCriteria().jobCategoryMiddle()).isEqualTo("AI·개발·데이터");
+        assertThat(payload.similarJobPostings()).containsExactly(similarContext);
+        verify(jobPostingRagContextAssembler).assemble(jobPosting.getId());
     }
 
     @Test

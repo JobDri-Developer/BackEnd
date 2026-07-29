@@ -142,6 +142,32 @@ class JobPostingRetrievalServiceTest {
     }
 
     @Test
+    @DisplayName("cosine distance가 1보다 크면 similarity score를 0으로 제한한다")
+    void clampNegativeSimilarityScoreToZero() throws Exception {
+        JobPosting current = jobPosting(40L, 10L, "백엔드 개발자");
+        Connection connection = mock(Connection.class);
+        PreparedStatement statement = mock(PreparedStatement.class);
+        ResultSet resultSet = mock(ResultSet.class);
+        when(jobPostingRepository.findById(40L)).thenReturn(Optional.of(current));
+        when(cohereEmbeddingClient.embedQuery(textBuilder.build(current))).thenReturn(new float[]{0.5f});
+        when(dataSource.getConnection()).thenReturn(connection);
+        when(connection.prepareStatement(anyString())).thenReturn(statement);
+        when(statement.executeQuery()).thenReturn(resultSet);
+        when(resultSet.next()).thenReturn(true, false);
+        when(resultSet.getLong("id")).thenReturn(41L);
+        when(resultSet.getString("posting_name")).thenReturn("유사 공고");
+        when(resultSet.getString("company_name")).thenReturn("유사 회사");
+        when(resultSet.getString("job_title")).thenReturn("서버 개발자");
+        when(resultSet.getDouble("distance")).thenReturn(1.2);
+
+        try (MockedStatic<PGvector> ignored = mockStatic(PGvector.class)) {
+            List<JobPostingSimilarityResult> results = retrievalService.findSimilarJobPostings(40L);
+
+            assertThat(results.getFirst().similarityScore()).isZero();
+        }
+    }
+
+    @Test
     @DisplayName("존재하지 않는 현재 공고는 조회하지 않고 예외 처리한다")
     void currentJobPostingNotFound() {
         when(jobPostingRepository.findById(404L)).thenReturn(Optional.empty());
