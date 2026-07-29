@@ -272,6 +272,80 @@ class JobPostingAiServiceTest {
     }
 
     @Test
+    @DisplayName("공고 생성 결과는 AI가 바꾼 제목 대신 원문에서 추출한 공고명을 유지한다")
+    void normalizeGeneratedResponsePreservesExtractedPostingName() {
+        JobPostingGenerateRequest request = new JobPostingGenerateRequest(
+                "테스트 기업",
+                null,
+                100L,
+                "채용 요약",
+                "",
+                "주요 업무",
+                "자격 요건",
+                "우대 사항",
+                null,
+                "백엔드 개발자",
+                "2026 백엔드 개발자 공개채용"
+        );
+        JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                "테스트 기업 백엔드 채용",
+                "테스트 기업",
+                "백엔드 개발자",
+                "주요 업무",
+                "자격 요건",
+                "우대 사항",
+                "요약"
+        );
+
+        JobPostingGenerateResponse normalized = ReflectionTestUtils.invokeMethod(
+                jobPostingAiService,
+                "normalizeGeneratedResponse",
+                generated,
+                request
+        );
+
+        assertThat(normalized).isNotNull();
+        assertThat(normalized.postingName()).isEqualTo("2026 백엔드 개발자 공개채용");
+    }
+
+    @Test
+    @DisplayName("원문에 공고명이 없으면 생성 결과의 공고명도 빈 문자열로 유지한다")
+    void normalizeGeneratedResponseKeepsMissingPostingNameEmpty() {
+        JobPostingGenerateRequest request = new JobPostingGenerateRequest(
+                "테스트 기업",
+                null,
+                100L,
+                "채용 요약",
+                "",
+                "주요 업무",
+                "자격 요건",
+                "우대 사항",
+                null,
+                "백엔드 개발자",
+                ""
+        );
+        JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
+                "테스트 기업 백엔드 채용",
+                "테스트 기업",
+                "백엔드 개발자",
+                "주요 업무",
+                "자격 요건",
+                "우대 사항",
+                "요약"
+        );
+
+        JobPostingGenerateResponse normalized = ReflectionTestUtils.invokeMethod(
+                jobPostingAiService,
+                "normalizeGeneratedResponse",
+                generated,
+                request
+        );
+
+        assertThat(normalized).isNotNull();
+        assertThat(normalized.postingName()).isEmpty();
+    }
+
+    @Test
     @DisplayName("limiter 예외는 fallback으로 삼키지 않고 전파한다")
     void generateMockRecommendedQuestionsPropagatesLimiterFailure() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");

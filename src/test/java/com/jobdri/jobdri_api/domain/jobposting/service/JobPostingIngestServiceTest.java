@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
@@ -127,6 +128,7 @@ class JobPostingIngestServiceTest {
         );
 
         JobPostingExtractResponse extracted = new JobPostingExtractResponse(
+                "2026 해커스 클라우드 엔지니어 공개채용",
                 "해커스 교육그룹",
                 "클라우드 엔지니어",
                 "클라우드 운영",
@@ -197,6 +199,11 @@ class JobPostingIngestServiceTest {
         verify(jobPostingService).createJobPosting(eq(user), createRequestCaptor.capture());
 
         assertThat(imageObjectKeyCaptor.getValue()).isEqualTo("job-postings/1/posting.png");
+        ArgumentCaptor<JobPostingGenerateRequest> generateRequestCaptor =
+                ArgumentCaptor.forClass(JobPostingGenerateRequest.class);
+        verify(jobPostingAiService).generateJobPosting(generateRequestCaptor.capture());
+        assertThat(generateRequestCaptor.getValue().postingNameHint())
+                .isEqualTo("2026 해커스 클라우드 엔지니어 공개채용");
         assertThat(createRequestCaptor.getValue().postingName()).isEqualTo("클라우드 엔지니어 채용");
         assertThat(createRequestCaptor.getValue().jobTitle()).isEqualTo("클라우드 엔지니어");
         assertThat(response.isSavedToDatabase()).isTrue();

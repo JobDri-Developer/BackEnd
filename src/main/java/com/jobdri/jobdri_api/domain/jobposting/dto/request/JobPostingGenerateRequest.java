@@ -18,6 +18,33 @@ public record JobPostingGenerateRequest(
         String requirements,
         String preferredQualifications,
         String tone,
-        String jobTitleHint
+        String jobTitleHint,
+        String postingNameHint
 ) {
+    public JobPostingGenerateRequest(
+            String companyName,
+            CompanySize companySize,
+            Long detailClassificationId,
+            String hiringSummary,
+            String techStack,
+            String mainResponsibilities,
+            String requirements,
+            String preferredQualifications,
+            String tone,
+            String jobTitleHint
+    ) {
+        this(
+                companyName,
+                companySize,
+                detailClassificationId,
+                hiringSummary,
+                techStack,
+                mainResponsibilities,
+                requirements,
+                preferredQualifications,
+                tone,
+                jobTitleHint,
+                null
+        );
+    }
 }

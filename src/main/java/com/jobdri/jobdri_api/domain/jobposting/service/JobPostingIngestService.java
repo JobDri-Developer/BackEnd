@@ -96,7 +96,8 @@ public class JobPostingIngestService {
                         extracted.requirements(),
                         extracted.preferredQualifications(),
                         null,
-                        extracted.jobTitle()
+                        extracted.jobTitle(),
+                        extracted.postingName()
                 )
         );
         JobPostingIngestQualityValidator.validateGenerated(generated);
