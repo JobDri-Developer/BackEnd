@@ -37,7 +37,7 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class JobPostingAiService {
 
-    private static final int MAX_REFERENCE_FIELD_LENGTH = 400;
+    static final int MAX_REFERENCE_FIELD_LENGTH = 400;
     static final double MOCK_QUESTION_TEMPERATURE = 0.4;
     static final String NO_REFERENCE_POSTING_TEXT = "참고 가능한 기존 공고가 없습니다.";
     static final String NO_REFERENCE_QUESTION_TEXT = "참고 가능한 유사 자소서 문항이 없습니다.";

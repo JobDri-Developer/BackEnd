@@ -22,6 +22,8 @@ import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.JobCategoryEvaluationCriteriaProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
@@ -81,6 +83,7 @@ public class AnalysisService {
     private final ObjectMapper objectMapper;
     private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
     private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
+    private final CorpusRetrievalService corpusRetrievalService;
 
     @Transactional
     @AuditLogEvent(action = "ANALYSIS_RUN", targetType = "MOCK_APPLY", targetId = "#arg1")
@@ -88,6 +91,7 @@ public class AnalysisService {
         validateAnalysisRequest(user, mockApplyId);
         AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
         String inputFingerprint = analysisInputFingerprintProvider.create(payload);
+        lockOwnedMockApply(user, mockApplyId);
         AnalysisResponse cachedResponse = reuseExistingAnalysisIfSameInput(user, mockApplyId, inputFingerprint);
         if (cachedResponse != null) {
             return cachedResponse;
@@ -159,19 +163,13 @@ public class AnalysisService {
                 mockApply.getJobPosting(),
                 List.copyOf(questions),
                 List.copyOf(answeredQuestions),
-                evaluationCriteria
+                evaluationCriteria,
+                retrieveAnalysisReferences(mockApply.getJobPosting(), answeredQuestions)
         );
     }
 
     public AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
-        if (payload.jobCategoryEvaluationCriteria() == null) {
-            return analysisAiClient.analyze(payload.jobPosting(), payload.answeredQuestions());
-        }
-        return analysisAiClient.analyze(
-                payload.jobPosting(),
-                payload.answeredQuestions(),
-                payload.jobCategoryEvaluationCriteria()
-        );
+        return analysisAiClient.analyze(payload);
     }
 
     @Transactional
@@ -302,6 +300,30 @@ public class AnalysisService {
                         + ", sequence="
                         + sequence
         );
+    }
+
+    private RetrievalContext retrieveAnalysisReferences(JobPosting jobPosting, List<Question> answeredQuestions) {
+        try {
+            return corpusRetrievalService.retrieveForAnalysis(jobPosting, answeredQuestions);
+        } catch (Exception exception) {
+            log.warn("자소서 분석 fingerprint용 retrieval 실패. fallback without references. message={}", exception.getMessage());
+            log.debug("analysis fingerprint retrieval exception", exception);
+            return new RetrievalContext(List.of(), List.of());
+        }
+    }
+
+    private MockApply lockOwnedMockApply(User user, Long mockApplyId) {
+        MockApply mockApply = mockApplyRepository.findByIdForUpdate(mockApplyId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
+                        "해당 모의 서류 지원을 찾을 수 없습니다. mockApplyId=" + mockApplyId
+                ));
+
+        if (!mockApply.getUser().getId().equals(user.getId())) {
+            throw new GeneralException(GeneralErrorCode.FORBIDDEN, "해당 모의 서류 지원에 접근할 수 없습니다.");
+        }
+
+        return mockApply;
     }
 
     private void replaceExistingAnalysis(MockApply mockApply) {

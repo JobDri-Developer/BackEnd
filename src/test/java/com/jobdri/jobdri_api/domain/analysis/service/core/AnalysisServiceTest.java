@@ -18,6 +18,9 @@ import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificati
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
@@ -31,6 +34,7 @@ import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import jakarta.persistence.EntityManager;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,10 +47,12 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -96,6 +102,27 @@ class AnalysisServiceTest {
 
     @MockBean
     private AnalysisAiClient analysisAiClient;
+
+    @MockBean
+    private CorpusRetrievalService corpusRetrievalService;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(corpusRetrievalService.retrieveForAnalysis(any(), any()))
+                .thenReturn(emptyRetrievalContext());
+        lenient().when(analysisAiClient.analyze(any(AnalysisExecutionPayload.class)))
+                .thenAnswer(invocation -> {
+                    AnalysisExecutionPayload payload = invocation.getArgument(0);
+                    if (payload.jobCategoryEvaluationCriteria() == null) {
+                        return analysisAiClient.analyze(payload.jobPosting(), payload.answeredQuestions());
+                    }
+                    return analysisAiClient.analyze(
+                            payload.jobPosting(),
+                            payload.answeredQuestions(),
+                            payload.jobCategoryEvaluationCriteria()
+                    );
+                });
+    }
 
     @Test
     @DisplayName("자소서 분석을 실행하고 결과와 문항 분석을 저장한다")
@@ -1189,6 +1216,54 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("retrieval 참조 결과가 바뀌면 동일 답변이어도 새 분석을 실행한다")
+    void analyzeReplacesExistingAnalysisWhenRetrievalContextChanges() {
+        User user = saveUser("analysis-replace-retrieval@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "성과 경험", "가입 완료율을 개선했습니다. API 응답 속도를 개선했습니다.");
+        int initialCredit = userRepository.findById(user.getId()).orElseThrow().getCredit();
+
+        when(corpusRetrievalService.retrieveForAnalysis(any(), any()))
+                .thenReturn(retrievalContextWithJobPostingReference("참고 기업 A"))
+                .thenReturn(retrievalContextWithJobPostingReference("참고 기업 B"));
+        when(analysisAiClient.analyze(any(), any()))
+                .thenReturn(new AnalysisLlmResponse(
+                        61,
+                        62,
+                        63,
+                        "첫 번째 분석",
+                        List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "가입 완료율을 개선했습니다.",
+                                "mentioned",
+                                "수치가 부족합니다.",
+                                "가입 완료율을 12% 개선했습니다."
+                        ))
+                ))
+                .thenReturn(new AnalysisLlmResponse(
+                        89,
+                        90,
+                        91,
+                        "두 번째 분석",
+                        List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "API 응답 속도를 개선했습니다.",
+                                "mentioned",
+                                "성과가 드러납니다.",
+                                "API 응답 속도를 300ms 단축했습니다."
+                        ))
+                ));
+
+        AnalysisResponse first = analysisService.analyze(user, mockApply.getId());
+        AnalysisResponse second = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(second.analysisId()).isNotEqualTo(first.analysisId());
+        assertThat(second.feedback()).isEqualTo("두 번째 분석");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(initialCredit - 2);
+        verify(analysisAiClient, times(2)).analyze(any(), any());
+    }
+
+    @Test
     @DisplayName("답변이 바뀐 뒤 재분석하면 기존 분석과 문항 분석을 새 결과로 교체한다")
     void analyzeReplacesExistingAnalysisWhenFingerprintChanges() {
         User user = saveUser("analysis-replace-changed@example.com");
@@ -1590,6 +1665,62 @@ class AnalysisServiceTest {
         )).hasSize(1);
     }
 
+    @Test
+    @DisplayName("같은 mockApply를 동시에 분석해도 LLM 호출은 한 번만 발생한다")
+    void analyzeConcurrentlyInvokesLlmOnlyOnceForSameMockApply() throws Exception {
+        User user = saveUser("analysis-concurrent-same-mock-apply@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "지원 직무 경험을 작성해주세요.", "Spring Boot API를 개발했습니다.");
+        int initialCredit = userRepository.findById(user.getId()).orElseThrow().getCredit();
+        CountDownLatch llmEntered = new CountDownLatch(1);
+        CountDownLatch releaseLlm = new CountDownLatch(1);
+
+        when(analysisAiClient.analyze(any(), any())).thenAnswer(invocation -> {
+            llmEntered.countDown();
+            assertThat(releaseLlm.await(5, TimeUnit.SECONDS)).isTrue();
+            return new AnalysisLlmResponse(
+                    81,
+                    82,
+                    83,
+                    "동시 분석",
+                    List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                            question.getId(),
+                            "Spring Boot API를 개발했습니다.",
+                            "mentioned",
+                            "성과 지표가 부족합니다.",
+                            "Spring Boot API를 개발해 응답 시간을 개선했습니다."
+                    ))
+            );
+        });
+
+        var executor = Executors.newFixedThreadPool(2);
+        var ready = new CountDownLatch(2);
+        var start = new CountDownLatch(1);
+        try {
+            Callable<Result> task = () -> {
+                ready.countDown();
+                start.await();
+                return analyzeSafely(user, mockApply.getId());
+            };
+            var first = executor.submit(task);
+            var second = executor.submit(task);
+
+            ready.await();
+            start.countDown();
+            assertThat(llmEntered.await(5, TimeUnit.SECONDS)).isTrue();
+            releaseLlm.countDown();
+
+            List<Result> results = List.of(first.get(), second.get());
+
+            assertThat(results).allMatch(Result::success);
+            assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(initialCredit - 1);
+            assertThat(analysisRepository.findByMockApplyId(mockApply.getId())).isPresent();
+            verify(analysisAiClient, times(1)).analyze(any(), any());
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
     private User saveUser(String email) {
         return saveUserWithCredit(email, 11);
     }
@@ -1710,5 +1841,24 @@ class AnalysisServiceTest {
         static Result failure(Exception exception) {
             return new Result(false, exception);
         }
+    }
+
+    private RetrievalContext emptyRetrievalContext() {
+        return new RetrievalContext(List.of(), List.of());
+    }
+
+    private RetrievalContext retrievalContextWithJobPostingReference(String companyName) {
+        return new RetrievalContext(
+                List.of(new RetrievedJobPostingReference(
+                        1L,
+                        companyName,
+                        "백엔드 개발자",
+                        "API 개발",
+                        "Spring Boot",
+                        "Redis",
+                        0.1234
+                )),
+                List.of()
+        );
     }
 }

@@ -39,4 +39,70 @@ class MockQuestionCacheVersionProviderTest {
 
         assertThat(changedModel.currentVersion()).isNotEqualTo(baseline.currentVersion());
     }
+
+    @Test
+    @DisplayName("임베딩 모델이 바뀌면 자동 fingerprint도 달라진다")
+    void currentVersionChangesWhenEmbeddingModelChanges() {
+        MockQuestionCacheProperties properties = MockQuestionCachePropertiesTestSupport.createProperties();
+        MockQuestionCacheVersionProvider baseline = new MockQuestionCacheVersionProvider(
+                properties,
+                "gpt-4o-mini",
+                "embed-v4.0",
+                3,
+                5
+        );
+        MockQuestionCacheVersionProvider changedEmbeddingModel = new MockQuestionCacheVersionProvider(
+                properties,
+                "gpt-4o-mini",
+                "embed-v5.0",
+                3,
+                5
+        );
+
+        assertThat(changedEmbeddingModel.currentVersion()).isNotEqualTo(baseline.currentVersion());
+    }
+
+    @Test
+    @DisplayName("JD retrieval limit이 바뀌면 자동 fingerprint도 달라진다")
+    void currentVersionChangesWhenJdLimitChanges() {
+        MockQuestionCacheProperties properties = MockQuestionCachePropertiesTestSupport.createProperties();
+        MockQuestionCacheVersionProvider baseline = new MockQuestionCacheVersionProvider(
+                properties,
+                "gpt-4o-mini",
+                "embed-v4.0",
+                3,
+                5
+        );
+        MockQuestionCacheVersionProvider changedJdLimit = new MockQuestionCacheVersionProvider(
+                properties,
+                "gpt-4o-mini",
+                "embed-v4.0",
+                4,
+                5
+        );
+
+        assertThat(changedJdLimit.currentVersion()).isNotEqualTo(baseline.currentVersion());
+    }
+
+    @Test
+    @DisplayName("문항 retrieval limit이 바뀌면 자동 fingerprint도 달라진다")
+    void currentVersionChangesWhenQuestionLimitChanges() {
+        MockQuestionCacheProperties properties = MockQuestionCachePropertiesTestSupport.createProperties();
+        MockQuestionCacheVersionProvider baseline = new MockQuestionCacheVersionProvider(
+                properties,
+                "gpt-4o-mini",
+                "embed-v4.0",
+                3,
+                5
+        );
+        MockQuestionCacheVersionProvider changedQuestionLimit = new MockQuestionCacheVersionProvider(
+                properties,
+                "gpt-4o-mini",
+                "embed-v4.0",
+                3,
+                6
+        );
+
+        assertThat(changedQuestionLimit.currentVersion()).isNotEqualTo(baseline.currentVersion());
+    }
 }

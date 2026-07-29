@@ -57,6 +57,7 @@ public class MockQuestionCacheVersionProvider {
                 CorpusRetrievalService.MOCK_BASE_QUERY_TEMPLATE,
                 "model=" + extractionModel,
                 "temperature=" + JobPostingAiService.MOCK_QUESTION_TEMPERATURE,
+                "maxReferenceFieldLength=" + JobPostingAiService.MAX_REFERENCE_FIELD_LENGTH,
                 "embeddingModel=" + embeddingModel,
                 "jdLimit=" + jdLimit,
                 "questionLimit=" + questionLimit,
