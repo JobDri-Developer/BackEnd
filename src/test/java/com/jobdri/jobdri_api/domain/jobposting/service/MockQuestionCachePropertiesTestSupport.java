@@ -10,6 +10,9 @@ final class MockQuestionCachePropertiesTestSupport {
     static MockQuestionCacheProperties createProperties() {
         MockQuestionCacheProperties properties = new MockQuestionCacheProperties();
         properties.setVersionPrefix(VERSION_PREFIX);
+        properties.setLockTtlMillis(30_000L);
+        properties.setWaitTimeoutMillis(10_000L);
+        properties.setPollIntervalMillis(0L);
         return properties;
     }
 

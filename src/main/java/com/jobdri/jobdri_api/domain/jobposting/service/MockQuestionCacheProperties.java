@@ -12,4 +12,7 @@ import org.springframework.stereotype.Component;
 public class MockQuestionCacheProperties {
 
     private String versionPrefix = "v1";
+    private long lockTtlMillis = 30_000L;
+    private long waitTimeoutMillis = 10_000L;
+    private long pollIntervalMillis = 200L;
 }
