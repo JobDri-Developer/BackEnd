@@ -261,6 +261,15 @@ public class AnalysisService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public boolean hasReusableAnalysis(User user, Long mockApplyId) {
+        AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
+        String inputFingerprint = analysisInputFingerprintProvider.create(payload);
+        return analysisRepository.findByMockApplyId(mockApplyId)
+                .filter(analysis -> inputFingerprint.equals(analysis.getInputFingerprint()))
+                .isPresent();
+    }
+
     private MockApply resolveMockApplyBySequence(JobPosting jobPosting, int sequence) {
         if (sequence < 1) {
             throw new GeneralException(
