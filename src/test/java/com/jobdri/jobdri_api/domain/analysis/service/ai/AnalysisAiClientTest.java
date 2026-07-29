@@ -317,7 +317,17 @@ class AnalysisAiClientTest {
                 .contains("MISSING은 analysisCandidates에 넣지 않고 missingKeywordCandidates로만 분리한다.")
                 .contains("독립적인 문제가 있으면 최대 3개까지 반환한다.")
                 .contains("내부 판단 과정이나 chain-of-thought를 출력하지 않는다.")
-                .contains("점수 필드, feedback, improvement, keyWeaknesses는 1차 출력에 존재하지 않는다.");
+                .contains("점수 필드, feedback, improvement, keyWeaknesses는 1차 출력에 존재하지 않는다.")
+                .contains("[missingKeywordCandidates 생성 규칙]")
+                .contains("missingKeywordCandidates는 recall보다 precision을 우선한다.")
+                .contains("확실한 누락 역량이 없으면 []를 반환한다.")
+                .contains("keyword는 main_tasks 또는 qualifications에 명시적으로 존재하거나 직접적으로 동일한 의미인 항목만 사용한다.")
+                .contains("relatedRequirement는 main_tasks 또는 qualifications의 실제 문장을 그대로 복사하거나 조사/공백 정도만 최소 수정한다.")
+                .contains("답변 전체에 keyword와 직접 동일한 역량, 수행 경험, 도구 사용, 업무 수행이 이미 충분히 있으면 missingKeywordCandidates에 넣지 않는다.")
+                .contains("[missingKeywordCandidates Negative Examples]")
+                .contains("상세페이지 제작을 UX/UI 인터페이스 설계 같은 JD 밖 개념으로 확장하지 않는다.")
+                .contains("브랜드 운영은 이미 답변에 있으며, BI/CI 구축 경험으로 일반화하지 않는다.")
+                .contains("행정지원 역량이 이미 답변에 충분히 존재한다.");
     }
 
     @Test
