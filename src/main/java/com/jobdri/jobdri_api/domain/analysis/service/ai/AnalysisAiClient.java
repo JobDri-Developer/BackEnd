@@ -301,11 +301,16 @@ public class AnalysisAiClient {
     }
 
     public AnalysisLlmResponse analyze(AnalysisExecutionPayload payload) {
-        return analyze(payload.jobPosting(), payload.answeredQuestions(), payload.jobCategoryEvaluationCriteria());
+        return analyze(
+                payload.jobPosting(),
+                payload.answeredQuestions(),
+                payload.jobCategoryEvaluationCriteria(),
+                payload.retrievalContext()
+        );
     }
 
     public AnalysisLlmResponse analyze(JobPosting jobPosting, List<Question> questions) {
-        return analyze(jobPosting, questions, null);
+        return analyze(jobPosting, questions, null, null);
     }
 
     public AnalysisLlmResponse analyze(
@@ -313,13 +318,16 @@ public class AnalysisAiClient {
             List<Question> questions,
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
     ) {
-        RetrievalContext referenceContext = emptyContext();
-        try {
-            referenceContext = corpusRetrievalService.retrieveForAnalysis(jobPosting, questions);
-        } catch (Exception e) {
-            log.warn("자소서 분석 retrieval 실패. mock analysis will continue without references. message={}", e.getMessage());
-            log.debug("analysis retrieval exception", e);
-        }
+        return analyze(jobPosting, questions, jobCategoryEvaluationCriteria, null);
+    }
+
+    public AnalysisLlmResponse analyze(
+            JobPosting jobPosting,
+            List<Question> questions,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
+            RetrievalContext precomputedReferenceContext
+    ) {
+        RetrievalContext referenceContext = resolveReferenceContext(jobPosting, questions, precomputedReferenceContext);
         try {
             AnalysisPromptInput promptInput = AnalysisPromptInput.from(jobPosting, questions);
             return switch (resolveAnalysisMode()) {
@@ -351,6 +359,25 @@ public class AnalysisAiClient {
                     "자소서 분석 AI 호출에 실패했습니다."
             );
         }
+    }
+
+    private RetrievalContext resolveReferenceContext(
+            JobPosting jobPosting,
+            List<Question> questions,
+            RetrievalContext precomputedReferenceContext
+    ) {
+        if (precomputedReferenceContext != null) {
+            return precomputedReferenceContext;
+        }
+
+        RetrievalContext referenceContext = emptyContext();
+        try {
+            referenceContext = corpusRetrievalService.retrieveForAnalysis(jobPosting, questions);
+        } catch (Exception e) {
+            log.warn("자소서 분석 retrieval 실패. mock analysis will continue without references. message={}", e.getMessage());
+            log.debug("analysis retrieval exception", e);
+        }
+        return referenceContext;
     }
 
     public AnalysisLlmResponse analyzeForEvaluation(

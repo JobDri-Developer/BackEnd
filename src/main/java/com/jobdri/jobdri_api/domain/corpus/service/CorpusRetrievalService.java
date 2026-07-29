@@ -24,6 +24,30 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class CorpusRetrievalService {
 
+    public static final String ANALYSIS_JOB_POSTING_QUERY_TEMPLATE = """
+            직무명: %s
+            자격 요건: %s
+            우대 사항: %s
+            주요 업무: %s
+            핵심 요구 역량 요약: %s
+            우대 역량 요약: %s
+            참고 회사명: %s
+            """;
+    public static final String ANALYSIS_QUESTION_QUERY_TEMPLATE = """
+            직무명: %s
+            자격 요건: %s
+            우대 사항: %s
+            자소서 문항:
+            %s
+            참고 회사명: %s
+            """;
+    public static final String MOCK_BASE_QUERY_TEMPLATE = """
+            직무명: %s
+            중분류: %s
+            대분류: %s
+            회사명: %s
+            """;
+
     @Value("${app.analysis.retrieval.jd-limit:3}")
     private int jdLimit;
 
@@ -352,15 +376,7 @@ public class CorpusRetrievalService {
     }
 
     private String buildAnalysisJobPostingQuery(JobPosting jobPosting) {
-        return """
-                직무명: %s
-                자격 요건: %s
-                우대 사항: %s
-                주요 업무: %s
-                핵심 요구 역량 요약: %s
-                우대 역량 요약: %s
-                참고 회사명: %s
-                """.formatted(
+        return ANALYSIS_JOB_POSTING_QUERY_TEMPLATE.formatted(
                 defaultString(jobPosting.getDetailClassification().getDetailName()),
                 defaultString(jobPosting.getRequirement()),
                 defaultString(jobPosting.getPreferred()),
@@ -379,14 +395,7 @@ public class CorpusRetrievalService {
                 .reduce("", (left, right) -> left + "\n" + right)
                 .trim();
 
-        return """
-                직무명: %s
-                자격 요건: %s
-                우대 사항: %s
-                자소서 문항:
-                %s
-                참고 회사명: %s
-                """.formatted(
+        return ANALYSIS_QUESTION_QUERY_TEMPLATE.formatted(
                 defaultString(jobPosting.getDetailClassification().getDetailName()),
                 defaultString(jobPosting.getRequirement()),
                 defaultString(jobPosting.getPreferred()),
@@ -396,12 +405,7 @@ public class CorpusRetrievalService {
     }
 
     private String buildMockBaseQuery(Company company, DetailClassification detailClassification) {
-        return """
-                직무명: %s
-                중분류: %s
-                대분류: %s
-                회사명: %s
-                """.formatted(
+        return MOCK_BASE_QUERY_TEMPLATE.formatted(
                 defaultString(detailClassification.getDetailName()),
                 defaultString(detailClassification.getMiddleClassification().getMiddleName()),
                 defaultString(detailClassification.getMiddleClassification().getClassification().getBigName()),

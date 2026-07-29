@@ -32,7 +32,7 @@ public class AnalysisAsyncFacadeService {
 
         return analysisAsyncTaskService.findActiveTask(validatedUser.getId(), mockApplyId)
                 .map(this::toInProgressResponse)
-                .orElseGet(() -> createAndProcessTask(validatedUser, mockApplyId));
+                .orElseGet(() -> createCachedOrProcessTask(validatedUser, mockApplyId));
     }
 
     public AnalysisAsyncStatusResponse getTask(User user, Long mockApplyId, String taskId) {
@@ -76,6 +76,13 @@ public class AnalysisAsyncFacadeService {
         return analysisAsyncTaskService.cancelTask(validatedUser.getId(), mockApplyId, taskId);
     }
 
+    private AnalysisAsyncSubmitResponse createCachedOrProcessTask(User user, Long mockApplyId) {
+        if (analysisService.hasReusableAnalysis(user, mockApplyId)) {
+            return toCachedResponse();
+        }
+        return createAndProcessTask(user, mockApplyId);
+    }
+
     private AnalysisAsyncSubmitResponse createAndProcessTask(User user, Long mockApplyId) {
         PendingTaskResult pendingTaskResult = createPendingTask(user, mockApplyId);
         if (!pendingTaskResult.created()) {
@@ -95,7 +102,9 @@ public class AnalysisAsyncFacadeService {
             return new AnalysisAsyncSubmitResponse(
                     taskId,
                     "PENDING",
-                    "자소서 분석 비동기 작업이 접수되었습니다."
+                    "자소서 분석 비동기 작업이 접수되었습니다.",
+                    false,
+                    false
             );
         } catch (RuntimeException e) {
             analysisAsyncTaskService.deleteTask(taskId);
@@ -123,7 +132,19 @@ public class AnalysisAsyncFacadeService {
         return new AnalysisAsyncSubmitResponse(
                 task.getTaskId(),
                 task.getStatus().name(),
-                "이미 진행 중인 자소서 분석 작업이 있습니다."
+                "이미 진행 중인 자소서 분석 작업이 있습니다.",
+                false,
+                false
+        );
+    }
+
+    private AnalysisAsyncSubmitResponse toCachedResponse() {
+        return new AnalysisAsyncSubmitResponse(
+                null,
+                "SUCCEEDED",
+                "동일 입력의 기존 자소서 분석 결과를 재사용했습니다.",
+                true,
+                true
         );
     }
 
