@@ -79,7 +79,7 @@ job-posting:
 
 payment:
   coupon:
-    code: TEST-COUP-2026
+    code: TESTCOUP2026
   toss:
     client-key: test-toss-client-key
     secret-key: test-toss-secret-key

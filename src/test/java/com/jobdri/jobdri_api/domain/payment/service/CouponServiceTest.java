@@ -9,6 +9,7 @@ import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import jakarta.validation.Validator;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -44,19 +45,22 @@ class CouponServiceTest {
     @Autowired
     private CouponRedemptionRepository couponRedemptionRepository;
 
+    @Autowired
+    private Validator validator;
+
     @Test
     @DisplayName("유효한 쿠폰 번호를 등록하면 크레딧 1회가 충전되고 사용 이력이 저장된다")
     void redeem() {
         User user = saveUser("coupon-redeem@example.com");
 
-        CouponRedeemResponse response = couponService.redeem(user, new CouponRedeemRequest("  test-coup-2026  "));
+        CouponRedeemResponse response = couponService.redeem(user, new CouponRedeemRequest("  testcoup2026  "));
 
-        assertThat(response.couponCode()).isEqualTo("TEST-COUP-2026");
+        assertThat(response.couponCode()).isEqualTo("TESTCOUP2026");
         assertThat(response.creditAmount()).isEqualTo(1);
         assertThat(response.creditBalance()).isEqualTo(2);
         assertThat(response.redeemedAt()).isNotNull();
         assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
-        assertThat(couponRedemptionRepository.findByUserIdAndCouponCode(user.getId(), "TEST-COUP-2026")).isPresent();
+        assertThat(couponRedemptionRepository.findByUserIdAndCouponCode(user.getId(), "TESTCOUP2026")).isPresent();
         assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
                 user.getId(),
                 CreditTransactionType.COUPON
@@ -68,7 +72,7 @@ class CouponServiceTest {
     void redeemThrowsWhenCouponCodeIsInvalid() {
         User user = saveUser("coupon-invalid@example.com");
 
-        assertThatThrownBy(() -> couponService.redeem(user, new CouponRedeemRequest("ABCD-EFGH-IJKL")))
+        assertThatThrownBy(() -> couponService.redeem(user, new CouponRedeemRequest("ABCDEFGHIJKM")))
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")
                 .isEqualTo(GeneralErrorCode.COUPON_INVALID);
@@ -78,9 +82,9 @@ class CouponServiceTest {
     @DisplayName("같은 사용자가 동일 쿠폰을 다시 등록하면 중복 사용을 막는다")
     void redeemThrowsWhenCouponAlreadyRedeemed() {
         User user = saveUser("coupon-duplicate@example.com");
-        couponService.redeem(user, new CouponRedeemRequest("TEST-COUP-2026"));
+        couponService.redeem(user, new CouponRedeemRequest("TESTCOUP2026"));
 
-        assertThatThrownBy(() -> couponService.redeem(user, new CouponRedeemRequest("TEST-COUP-2026")))
+        assertThatThrownBy(() -> couponService.redeem(user, new CouponRedeemRequest("TESTCOUP2026")))
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")
                 .isEqualTo(GeneralErrorCode.COUPON_ALREADY_REDEEMED);
@@ -96,7 +100,7 @@ class CouponServiceTest {
     @DisplayName("동일 쿠폰 등록 요청이 동시에 들어와도 한 번만 충전한다")
     void redeemConcurrentlyChargesOnlyOnce() throws Exception {
         User user = saveUser("coupon-concurrent@example.com");
-        CouponRedeemRequest request = new CouponRedeemRequest("TEST-COUP-2026");
+        CouponRedeemRequest request = new CouponRedeemRequest("TESTCOUP2026");
 
         List<Result> results = runConcurrently(2, () -> {
             try {
@@ -115,11 +119,19 @@ class CouponServiceTest {
                         .extracting("code")
                         .isEqualTo(GeneralErrorCode.COUPON_ALREADY_REDEEMED));
         assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
-        assertThat(couponRedemptionRepository.findByUserIdAndCouponCode(user.getId(), "TEST-COUP-2026")).isPresent();
+        assertThat(couponRedemptionRepository.findByUserIdAndCouponCode(user.getId(), "TESTCOUP2026")).isPresent();
         assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
                 user.getId(),
                 CreditTransactionType.COUPON
         )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("쿠폰 번호는 대시 없는 영문 또는 숫자 12자리 형식만 허용한다")
+    void validateCouponCodeFormat() {
+        assertThat(validator.validate(new CouponRedeemRequest("ABCDEFGHIJKL"))).isEmpty();
+        assertThat(validator.validate(new CouponRedeemRequest("ABCD-EFGH-IJKL"))).isNotEmpty();
+        assertThat(validator.validate(new CouponRedeemRequest("ABCDEFGHIJK"))).isNotEmpty();
     }
 
     private User saveUser(String email) {
