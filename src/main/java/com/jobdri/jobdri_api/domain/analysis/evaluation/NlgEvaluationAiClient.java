@@ -45,6 +45,12 @@ class NlgEvaluationAiClient {
               2. JobDri 서비스 정책상 missing keyword 제외 대상이 아니다.
               3. answer에 동일하거나 의미상 충족되는 내용이 없다.
               4. 현재 missingKeywords에 동일하거나 충분히 유사한 키워드가 없다.
+            - MISSED_MISSING_KEYWORD를 부여한다면 missedMissingKeywordEvaluations에도 같은 개수 이상의 근거를 작성한다.
+            - missedMissingKeywordEvaluations의 각 항목은 keyword, source, relatedRequirement, reason을 모두 포함한다.
+            - relatedRequirement는 mainTasks 또는 qualifications에 실제 존재하는 JD 원문 일부를 그대로 사용한다.
+            - source는 MAIN_TASK 또는 QUALIFICATION만 사용한다.
+            - "JD의 핵심 경험 요구사항", "채용 관련 경험", "업무 경험 부족", "핵심 경험"처럼 추상적인 표현을 keyword나 relatedRequirement로 사용하지 않는다.
+            - JD에 없는 요구사항을 생성하지 않는다.
             - missing keyword 평가 대상에서 제외한다: 자격증, 면허, 학력, 경력 연차, 나이, 법적/정형 보유 조건, 선택형 자격요건의 다른 선택지.
             - 제외 예시: 사회복지사, 청소년상담사, 직업상담사, 운전면허, 대졸 이상, 경력 3년 이상.
             - 제외 대상이 아닌 예시: Spring Boot 실무 경험, 포토샵 활용 능력, 엑셀 고급 활용, 더존 사용 능력, 4대보험 신고 경험.

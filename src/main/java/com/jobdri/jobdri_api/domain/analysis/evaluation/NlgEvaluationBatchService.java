@@ -6,6 +6,8 @@ import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
+import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.NestedExceptionUtils;
@@ -181,9 +183,17 @@ class NlgEvaluationBatchService {
 
         List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations =
                 validQuestionEvaluations(input.questionAnalyses(), response.questionAnalysisEvaluations());
+        List<NlgEvaluationResponse.MissingKeywordMissEvaluation> validMissingKeywordMissEvaluations =
+                validMissingKeywordMissEvaluations(input, response.missedMissingKeywordEvaluations());
         boolean missedValidatedMissingKeywords =
                 input.validatedMissingKeywordCandidateCount() > 0 && input.actualMissingKeywordCount() == 0;
-        List<NlgEvaluationErrorCode> errorCodes = mergeErrorCodes(response, evaluations, missedValidatedMissingKeywords);
+        List<NlgEvaluationErrorCode> errorCodes = mergeErrorCodes(
+                input,
+                response,
+                evaluations,
+                missedValidatedMissingKeywords,
+                !validMissingKeywordMissEvaluations.isEmpty()
+        );
         boolean hasFatalError = hasFatalError(errorCodes);
         Integer missingKeywordsCoverage = validCaseScore(response.missingKeywordsCoverage());
         if (missedValidatedMissingKeywords) {
@@ -245,6 +255,7 @@ class NlgEvaluationBatchService {
                 response.missingKeywordsPrecision(),
                 response.missingKeywordsCoverage(),
                 response.overallUsefulness(),
+                response.missedMissingKeywordEvaluations(),
                 response.caseErrorCodes(),
                 response.shortRationale()
         );
@@ -323,15 +334,28 @@ class NlgEvaluationBatchService {
     }
 
     private List<NlgEvaluationErrorCode> mergeErrorCodes(
+            NlgEvaluationAiClient.NlgJudgeInput input,
             NlgEvaluationResponse response,
             List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations,
-            boolean missedValidatedMissingKeywords
+            boolean missedValidatedMissingKeywords,
+            boolean hasValidMissingKeywordMissEvidence
     ) {
         boolean hasLowScore = hasLowCaseScore(response) || missedValidatedMissingKeywords;
         Set<NlgEvaluationErrorCode> codes = new HashSet<>(sanitizeErrorCodes(
                 response.caseErrorCodes(),
                 hasLowScore
         ));
+        if (codes.remove(NlgEvaluationErrorCode.MISSED_MISSING_KEYWORD)) {
+            if (hasValidMissingKeywordMissEvidence || missedValidatedMissingKeywords) {
+                codes.add(NlgEvaluationErrorCode.MISSED_MISSING_KEYWORD);
+            } else {
+                log.warn(
+                        "Removed NLG Judge missing keyword error without valid evidence. reason=judge_missing_keyword_without_valid_evidence, caseId={}, sourceResultFile={}",
+                        input.caseId(),
+                        input.sourceResultFile()
+                );
+            }
+        }
         if (missedValidatedMissingKeywords) {
             codes.add(NlgEvaluationErrorCode.MISSED_MISSING_KEYWORD);
             codes.remove(NlgEvaluationErrorCode.NONE);
@@ -356,6 +380,106 @@ class NlgEvaluationBatchService {
         return codes.stream()
                 .sorted()
                 .toList();
+    }
+
+    private List<NlgEvaluationResponse.MissingKeywordMissEvaluation> validMissingKeywordMissEvaluations(
+            NlgEvaluationAiClient.NlgJudgeInput input,
+            List<NlgEvaluationResponse.MissingKeywordMissEvaluation> evaluations
+    ) {
+        if (evaluations == null || evaluations.isEmpty()) {
+            return List.of();
+        }
+        List<AnalysisLlmResponse.MissingKeywordItem> actualMissingKeywords =
+                readActualMissingKeywords(input.missingKeywordsJson(), input.caseId());
+        List<NlgEvaluationResponse.MissingKeywordMissEvaluation> valid = new ArrayList<>();
+        for (NlgEvaluationResponse.MissingKeywordMissEvaluation evaluation : evaluations) {
+            Optional<MissingKeywordMissInvalidReason> invalidReason =
+                    missingKeywordMissInvalidReason(input, actualMissingKeywords, evaluation);
+            if (invalidReason.isPresent()) {
+                log.warn(
+                        "Removed NLG Judge missing keyword evidence. caseId={}, keyword={}, relatedRequirement={}, reason={}, invalidReason={}",
+                        input.caseId(),
+                        evaluation == null ? null : evaluation.keyword(),
+                        evaluation == null ? null : evaluation.relatedRequirement(),
+                        evaluation == null ? null : evaluation.reason(),
+                        invalidReason.get()
+                );
+                continue;
+            }
+            valid.add(evaluation);
+        }
+        return valid;
+    }
+
+    private Optional<MissingKeywordMissInvalidReason> missingKeywordMissInvalidReason(
+            NlgEvaluationAiClient.NlgJudgeInput input,
+            List<AnalysisLlmResponse.MissingKeywordItem> actualMissingKeywords,
+            NlgEvaluationResponse.MissingKeywordMissEvaluation evaluation
+    ) {
+        if (evaluation == null) {
+            return Optional.of(MissingKeywordMissInvalidReason.NULL_EVIDENCE);
+        }
+        if (!StringUtils.hasText(evaluation.keyword())) {
+            return Optional.of(MissingKeywordMissInvalidReason.BLANK_KEYWORD);
+        }
+        if (!StringUtils.hasText(evaluation.relatedRequirement())) {
+            return Optional.of(MissingKeywordMissInvalidReason.BLANK_RELATED_REQUIREMENT);
+        }
+        if (!StringUtils.hasText(evaluation.reason())) {
+            return Optional.of(MissingKeywordMissInvalidReason.BLANK_REASON);
+        }
+        Optional<MissingKeywordSource> source = parseJudgeMissingKeywordSource(evaluation.source());
+        if (source.isEmpty() || source.get() == MissingKeywordSource.PREFERENCE) {
+            return Optional.of(MissingKeywordMissInvalidReason.INVALID_SOURCE);
+        }
+        if (AnalysisSanitizationRules.isStructuredQualificationKeyword(evaluation.keyword())
+                || AnalysisSanitizationRules.isStructuredQualificationKeyword(evaluation.relatedRequirement())) {
+            return Optional.of(MissingKeywordMissInvalidReason.STRUCTURED_QUALIFICATION);
+        }
+        String sourceText = source.get() == MissingKeywordSource.MAIN_TASK
+                ? input.mainTasks()
+                : input.qualifications();
+        if (!containsNormalized(sourceText, evaluation.relatedRequirement())) {
+            return Optional.of(MissingKeywordMissInvalidReason.RELATED_REQUIREMENT_NOT_IN_JD);
+        }
+        if (!AnalysisSanitizationRules.isValidMissingKeyword(
+                evaluation.keyword(),
+                source.get(),
+                input.mainTasks(),
+                input.qualifications()
+        )) {
+            return Optional.of(MissingKeywordMissInvalidReason.INVALID_KEYWORD);
+        }
+        if (actualMissingKeywords.stream().anyMatch(keyword -> sameMissingKeyword(keyword, evaluation, source.get()))) {
+            return Optional.of(MissingKeywordMissInvalidReason.ALREADY_PRESENT_IN_FINAL_MISSING_KEYWORDS);
+        }
+        return Optional.empty();
+    }
+
+    private Optional<MissingKeywordSource> parseJudgeMissingKeywordSource(String source) {
+        if (!StringUtils.hasText(source)) {
+            return Optional.empty();
+        }
+        String normalized = source.trim();
+        if ("MAIN_TASK".equalsIgnoreCase(normalized) || "MAIN_TASKS".equalsIgnoreCase(normalized)) {
+            return Optional.of(MissingKeywordSource.MAIN_TASK);
+        }
+        if ("QUALIFICATION".equalsIgnoreCase(normalized) || "QUALIFICATIONS".equalsIgnoreCase(normalized)) {
+            return Optional.of(MissingKeywordSource.QUALIFICATION);
+        }
+        return MissingKeywordSource.from(normalized);
+    }
+
+    private boolean sameMissingKeyword(
+            AnalysisLlmResponse.MissingKeywordItem actual,
+            NlgEvaluationResponse.MissingKeywordMissEvaluation evaluation,
+            MissingKeywordSource source
+    ) {
+        return actual != null
+                && normalize(actual.keyword()).equals(normalize(evaluation.keyword()))
+                && parseJudgeMissingKeywordSource(actual.source())
+                .map(actualSource -> actualSource == source)
+                .orElse(false);
     }
 
     private List<NlgEvaluationErrorCode> sanitizeErrorCodes(
@@ -474,6 +598,22 @@ class NlgEvaluationBatchService {
             return values == null ? 0 : values.size();
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException(fieldName + " must be a JSON array. caseId=" + caseId, e);
+        }
+    }
+
+    private List<AnalysisLlmResponse.MissingKeywordItem> readActualMissingKeywords(String json, String caseId) {
+        if (!StringUtils.hasText(json)) {
+            return List.of();
+        }
+        try {
+            List<AnalysisLlmResponse.MissingKeywordItem> values = objectMapper.readValue(
+                    json,
+                    new TypeReference<>() {
+                    }
+            );
+            return values == null ? List.of() : values;
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("aiMissingKeywordsJson must be a JSON array. caseId=" + caseId, e);
         }
     }
 
@@ -741,6 +881,16 @@ class NlgEvaluationBatchService {
         }
     }
 
+    private boolean containsNormalized(String sourceText, String fragment) {
+        return StringUtils.hasText(sourceText)
+                && StringUtils.hasText(fragment)
+                && normalize(sourceText).contains(normalize(fragment));
+    }
+
+    private String normalize(String value) {
+        return AnalysisSanitizationRules.normalizeText(value);
+    }
+
     private String truncateShortRationale(String rationale) {
         if (!StringUtils.hasText(rationale)) {
             return "";
@@ -955,6 +1105,18 @@ class NlgEvaluationBatchService {
         SOURCE,
         JSON,
         MISSING
+    }
+
+    private enum MissingKeywordMissInvalidReason {
+        NULL_EVIDENCE,
+        BLANK_KEYWORD,
+        BLANK_RELATED_REQUIREMENT,
+        BLANK_REASON,
+        INVALID_SOURCE,
+        STRUCTURED_QUALIFICATION,
+        RELATED_REQUIREMENT_NOT_IN_JD,
+        INVALID_KEYWORD,
+        ALREADY_PRESENT_IN_FINAL_MISSING_KEYWORDS
     }
 
     private record ResolvedHeader(HeaderLocation location, String headerName) {
