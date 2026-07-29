@@ -11,7 +11,7 @@ spring:
 app:
   job-posting:
     mock-question-cache:
-      prompt-version: v1
+      version-prefix: v1
   logging:
     path: ${APP_LOG_PATH:logs}
     audit-path: ${APP_AUDIT_LOG_PATH:logs/audit}

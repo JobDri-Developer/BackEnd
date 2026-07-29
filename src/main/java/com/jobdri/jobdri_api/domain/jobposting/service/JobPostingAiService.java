@@ -38,6 +38,74 @@ import java.util.stream.Collectors;
 public class JobPostingAiService {
 
     private static final int MAX_REFERENCE_FIELD_LENGTH = 400;
+    static final double MOCK_QUESTION_TEMPERATURE = 0.4;
+    static final String NO_REFERENCE_POSTING_TEXT = "참고 가능한 기존 공고가 없습니다.";
+    static final String NO_REFERENCE_QUESTION_TEXT = "참고 가능한 유사 자소서 문항이 없습니다.";
+    static final String REFERENCE_POSTING_TEMPLATE = """
+            - 회사명:
+            %s
+            - 직무명:
+            %s
+            - 주요 업무:
+            %s
+            - 자격 요건:
+            %s
+            - 우대 사항:
+            %s
+            """;
+    static final String REFERENCE_QUESTION_TEMPLATE = """
+            - 회사명:
+            %s
+            - 직무명:
+            %s
+            - 문항 유형:
+            %s
+            - 글자 수 제한:
+            %s
+            - 문항:
+            %s
+            """;
+    static final String MOCK_QUESTION_PROMPT_TEMPLATE = """
+            아래 직무 분류와 참고 공고를 바탕으로, 모의 지원자에게 제시할 추천 질문 5개를 작성해주세요.
+            출력은 반드시 JSON 객체 하나만 반환하세요.
+            설명 문장, 마크다운, 코드블럭은 포함하지 마세요.
+
+            {
+              "recommendedQuestions": [
+                "string"
+              ]
+            }
+
+            작성 규칙:
+            1. 질문은 자기소개서 또는 지원 동기 작성을 돕는 면접/지원서형 질문으로 작성하세요.
+            2. 질문은 신입/주니어 지원자 기준으로 너무 과도하게 어렵지 않게 작성하세요.
+            3. 질문은 서로 중복되지 않게 작성하세요.
+            4. 참고 공고가 있으면 직무 맥락과 자주 요구되는 역량을 반영하세요.
+            5. 참고 공고가 없으면 중분류/소분류명만 기반으로 일반적인 직무 질문을 작성하세요.
+            6. 질문에 회사명을 포함해야 한다면 반드시 아래 제공된 회사명만 사용하세요.
+            7. 참고 자료에 등장하는 다른 회사명은 절대 질문에 쓰지 마세요.
+
+            [회사명]
+            %s
+
+            [중분류 ID]
+            %d
+
+            [중분류 직무]
+            %s
+
+            [소분류 ID]
+            %d
+
+            [소분류 직무]
+            %s
+
+            [같은 소분류의 기존 공고 참고 자료]
+            %s
+
+            [같은 조건의 유사 자소서 문항 참고 자료]
+            %s
+            """;
 
     private final OpenAIClient openAIClient;
     private final DetailClassificationRepository detailClassificationRepository;
@@ -138,7 +206,7 @@ public class JobPostingAiService {
         var params = ResponseCreateParams.builder()
                 .model(extractionModel)
                 .input(buildMockQuestionPrompt(company, request, detailClassification, retrievalContext))
-                .temperature(0.4)
+                .temperature(MOCK_QUESTION_TEMPERATURE)
                 .text(JobPostingMockQuestionResponse.class)
                 .build();
 
@@ -563,47 +631,7 @@ public class JobPostingAiService {
         String referenceText = buildReferencePostingText(retrievalContext.jobPostingReferences());
         String questionReferenceText = buildReferenceQuestionText(retrievalContext.questionReferences());
 
-        return """
-                아래 직무 분류와 참고 공고를 바탕으로, 모의 지원자에게 제시할 추천 질문 5개를 작성해주세요.
-                출력은 반드시 JSON 객체 하나만 반환하세요.
-                설명 문장, 마크다운, 코드블럭은 포함하지 마세요.
-
-                {
-                  "recommendedQuestions": [
-                    "string"
-                  ]
-                }
-
-                작성 규칙:
-                1. 질문은 자기소개서 또는 지원 동기 작성을 돕는 면접/지원서형 질문으로 작성하세요.
-                2. 질문은 신입/주니어 지원자 기준으로 너무 과도하게 어렵지 않게 작성하세요.
-                3. 질문은 서로 중복되지 않게 작성하세요.
-                4. 참고 공고가 있으면 직무 맥락과 자주 요구되는 역량을 반영하세요.
-                5. 참고 공고가 없으면 중분류/소분류명만 기반으로 일반적인 직무 질문을 작성하세요.
-                6. 질문에 회사명을 포함해야 한다면 반드시 아래 제공된 회사명만 사용하세요.
-                7. 참고 자료에 등장하는 다른 회사명은 절대 질문에 쓰지 마세요.
-
-                [회사명]
-                %s
-
-                [중분류 ID]
-                %d
-
-                [중분류 직무]
-                %s
-
-                [소분류 ID]
-                %d
-
-                [소분류 직무]
-                %s
-
-                [같은 소분류의 기존 공고 참고 자료]
-                %s
-
-                [같은 조건의 유사 자소서 문항 참고 자료]
-                %s
-                """.formatted(
+        return MOCK_QUESTION_PROMPT_TEMPLATE.formatted(
                 company.getName(),
                 request.middleClassificationId(),
                 middleName,
@@ -616,22 +644,11 @@ public class JobPostingAiService {
 
     private String buildReferencePostingText(List<RetrievedJobPostingReference> referencePostings) {
         if (referencePostings == null || referencePostings.isEmpty()) {
-            return "참고 가능한 기존 공고가 없습니다.";
+            return NO_REFERENCE_POSTING_TEXT;
         }
 
         return referencePostings.stream()
-                .map(jobPosting -> """
-                        - 회사명:
-                        %s
-                        - 직무명:
-                        %s
-                        - 주요 업무:
-                        %s
-                        - 자격 요건:
-                        %s
-                        - 우대 사항:
-                        %s
-                        """.formatted(
+                .map(jobPosting -> REFERENCE_POSTING_TEMPLATE.formatted(
                         truncateForPrompt(jobPosting.companyName()),
                         truncateForPrompt(jobPosting.roleName()),
                         truncateForPrompt(jobPosting.responsibilities()),
@@ -643,22 +660,11 @@ public class JobPostingAiService {
 
     private String buildReferenceQuestionText(List<RetrievedQuestionReference> referenceQuestions) {
         if (referenceQuestions == null || referenceQuestions.isEmpty()) {
-            return "참고 가능한 유사 자소서 문항이 없습니다.";
+            return NO_REFERENCE_QUESTION_TEXT;
         }
 
         return referenceQuestions.stream()
-                .map(question -> """
-                        - 회사명:
-                        %s
-                        - 직무명:
-                        %s
-                        - 문항 유형:
-                        %s
-                        - 글자 수 제한:
-                        %s
-                        - 문항:
-                        %s
-                        """.formatted(
+                .map(question -> REFERENCE_QUESTION_TEMPLATE.formatted(
                         truncateForPrompt(question.companyName()),
                         truncateForPrompt(question.roleName()),
                         truncateForPrompt(question.questionType()),

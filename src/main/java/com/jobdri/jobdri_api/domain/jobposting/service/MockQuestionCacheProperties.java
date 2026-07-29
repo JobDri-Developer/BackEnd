@@ -11,5 +11,5 @@ import org.springframework.stereotype.Component;
 @ConfigurationProperties(prefix = "app.job-posting.mock-question-cache")
 public class MockQuestionCacheProperties {
 
-    private String promptVersion = "v1";
+    private String versionPrefix = "v1";
 }

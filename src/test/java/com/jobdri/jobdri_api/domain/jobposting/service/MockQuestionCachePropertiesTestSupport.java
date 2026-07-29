@@ -2,14 +2,24 @@ package com.jobdri.jobdri_api.domain.jobposting.service;
 
 final class MockQuestionCachePropertiesTestSupport {
 
-    static final String PROMPT_VERSION = "v1";
+    static final String VERSION_PREFIX = "v1";
 
     private MockQuestionCachePropertiesTestSupport() {
     }
 
     static MockQuestionCacheProperties createProperties() {
         MockQuestionCacheProperties properties = new MockQuestionCacheProperties();
-        properties.setPromptVersion(PROMPT_VERSION);
+        properties.setVersionPrefix(VERSION_PREFIX);
         return properties;
+    }
+
+    static MockQuestionCacheVersionProvider createVersionProvider() {
+        return new MockQuestionCacheVersionProvider(
+                createProperties(),
+                "gpt-4o-mini",
+                "embed-v4.0",
+                3,
+                5
+        );
     }
 }

@@ -24,6 +24,13 @@ import java.util.List;
 @Transactional(readOnly = true)
 public class CorpusRetrievalService {
 
+    public static final String MOCK_BASE_QUERY_TEMPLATE = """
+            직무명: %s
+            중분류: %s
+            대분류: %s
+            회사명: %s
+            """;
+
     @Value("${app.analysis.retrieval.jd-limit:3}")
     private int jdLimit;
 
@@ -396,12 +403,7 @@ public class CorpusRetrievalService {
     }
 
     private String buildMockBaseQuery(Company company, DetailClassification detailClassification) {
-        return """
-                직무명: %s
-                중분류: %s
-                대분류: %s
-                회사명: %s
-                """.formatted(
+        return MOCK_BASE_QUERY_TEMPLATE.formatted(
                 defaultString(detailClassification.getDetailName()),
                 defaultString(detailClassification.getMiddleClassification().getMiddleName()),
                 defaultString(detailClassification.getMiddleClassification().getClassification().getBigName()),

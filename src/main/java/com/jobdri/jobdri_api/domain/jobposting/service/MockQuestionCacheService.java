@@ -27,7 +27,7 @@ public class MockQuestionCacheService {
     private final JobPostingAiService jobPostingAiService;
     private final MockQuestionInflightRegistry mockQuestionInflightRegistry;
     private final MockQuestionCacheTransactionalService mockQuestionCacheTransactionalService;
-    private final MockQuestionCacheProperties mockQuestionCacheProperties;
+    private final MockQuestionCacheVersionProvider mockQuestionCacheVersionProvider;
 
     public List<String> getRecommendedQuestions(JobPostingMockGenerateRequest request) {
         return getCachedQuestions(request)
@@ -79,7 +79,7 @@ public class MockQuestionCacheService {
     }
 
     private String currentPromptVersion() {
-        return mockQuestionCacheProperties.getPromptVersion();
+        return mockQuestionCacheVersionProvider.currentVersion();
     }
 
     private boolean isCacheUniqueConflict(DataIntegrityViolationException exception) {

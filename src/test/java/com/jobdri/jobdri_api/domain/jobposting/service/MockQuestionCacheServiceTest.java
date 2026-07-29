@@ -29,7 +29,7 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class MockQuestionCacheServiceTest {
 
-    private static final String PROMPT_VERSION = MockQuestionCachePropertiesTestSupport.PROMPT_VERSION;
+    private static final String PROMPT_VERSION = MockQuestionCachePropertiesTestSupport.createVersionProvider().currentVersion();
 
     @Mock
     private DetailClassificationRepository detailClassificationRepository;
@@ -56,7 +56,7 @@ class MockQuestionCacheServiceTest {
                 jobPostingAiService,
                 mockQuestionInflightRegistry,
                 mockQuestionCacheTransactionalService,
-                MockQuestionCachePropertiesTestSupport.createProperties()
+                MockQuestionCachePropertiesTestSupport.createVersionProvider()
         );
     }
 
