@@ -9,6 +9,7 @@ import com.openai.models.responses.StructuredResponseOutputMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -44,7 +45,7 @@ class NlgEvaluationAiClient {
                     toIntegerTokenCount(usage == null ? null : usage.outputTokens())
             );
         } catch (RuntimeException e) {
-            Throwable rootCause = rootCause(e);
+            Throwable rootCause = NestedExceptionUtils.getMostSpecificCause(e);
             log.error(
                     "NLG Judge call failed. caseId={}, sourceResultFile={}, exceptionType={}, message={}, rootCauseType={}, rootCauseMessage={}, rawJudgeResponseAvailable=false",
                     input.caseId(),
@@ -191,14 +192,6 @@ class NlgEvaluationAiClient {
             return null;
         }
         return tokens > Integer.MAX_VALUE ? Integer.MAX_VALUE : tokens.intValue();
-    }
-
-    private Throwable rootCause(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null && current.getCause() != current) {
-            current = current.getCause();
-        }
-        return current;
     }
 
     record JudgeCallResult(

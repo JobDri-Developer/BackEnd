@@ -4,11 +4,16 @@ import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
 import com.openai.client.OpenAIClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class NlgEvaluationAiClientTest {
 
@@ -126,6 +131,20 @@ class NlgEvaluationAiClientTest {
                 .contains("MISSED_MISSING_KEYWORD");
     }
 
+    @Test
+    @DisplayName("NLG judge evaluate는 limiter 예외를 감싸지 않고 그대로 전파한다")
+    void evaluateRethrowsLimiterRuntimeException() {
+        OpenAIClient openAIClient = mock(OpenAIClient.class);
+        LlmConcurrencyLimiter llmConcurrencyLimiter = mock(LlmConcurrencyLimiter.class);
+        NlgEvaluationAiClient client = new NlgEvaluationAiClient(openAIClient, llmConcurrencyLimiter);
+        ReflectionTestUtils.setField(client, "judgeModel", "gpt-4o-mini");
+        RuntimeException failure = new RuntimeException("limiter failure");
+        when(llmConcurrencyLimiter.execute(anyString(), any())).thenThrow(failure);
+
+        assertThatThrownBy(() -> client.evaluate(judgeInput("[]", "", "")))
+                .isSameAs(failure);
+    }
+
     private String buildPrompt(
             String questionAnalysesJson,
             String rawCandidateResponseJson,
@@ -135,7 +154,19 @@ class NlgEvaluationAiClientTest {
                 mock(OpenAIClient.class),
                 mock(LlmConcurrencyLimiter.class)
         );
-        return client.buildPrompt(new NlgEvaluationAiClient.NlgJudgeInput(
+        return client.buildPrompt(judgeInput(
+                questionAnalysesJson,
+                rawCandidateResponseJson,
+                candidateReviewResponseJson
+        ));
+    }
+
+    private NlgEvaluationAiClient.NlgJudgeInput judgeInput(
+            String questionAnalysesJson,
+            String rawCandidateResponseJson,
+            String candidateReviewResponseJson
+    ) {
+        return new NlgEvaluationAiClient.NlgJudgeInput(
                 "EV-01",
                 "evaluation/result.csv",
                 "재고 분석",
@@ -152,6 +183,6 @@ class NlgEvaluationAiClientTest {
                 0,
                 0,
                 List.of()
-        ));
+        );
     }
 }

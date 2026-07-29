@@ -30,6 +30,7 @@ class MissingKeywordSanitizerReplayService {
             "caseId",
             "mainTasks",
             "qualifications",
+            "question",
             "answer",
             "rawCandidateResponseJson",
             "sanitizedCandidateResponseJson"

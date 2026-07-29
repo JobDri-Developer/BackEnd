@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -155,12 +156,9 @@ class NlgEvaluationBatchService {
         NlgEvaluationResponse response = callResult.response();
         if (response == null) {
             log.warn(
-                    "Judge validation failed. reason=response_null, caseId={}, sourceResultFile={}",
+                    "Judge validation failed. reason=response_null, caseId={}, sourceResultFile={}, expectedCaseId={}, actualCaseId={}, responseNull={}",
                     input.caseId(),
-                    input.sourceResultFile()
-            );
-            log.warn(
-                    "Judge validation failed. expectedCaseId={}, actualCaseId={}, responseNull={}",
+                    input.sourceResultFile(),
                     input.caseId(),
                     null,
                     true
@@ -169,13 +167,9 @@ class NlgEvaluationBatchService {
         }
         if (!Objects.equals(input.caseId(), response.caseId())) {
             log.warn(
-                    "Judge validation failed. reason=case_id_mismatch, expectedCaseId={}, actualCaseId={}, sourceResultFile={}",
+                    "Judge validation failed. reason=case_id_mismatch, caseId={}, sourceResultFile={}, expectedCaseId={}, actualCaseId={}, responseNull={}",
                     input.caseId(),
-                    response.caseId(),
-                    input.sourceResultFile()
-            );
-            log.warn(
-                    "Judge validation failed. expectedCaseId={}, actualCaseId={}, responseNull={}",
+                    input.sourceResultFile(),
                     input.caseId(),
                     response.caseId(),
                     false
@@ -842,59 +836,18 @@ class NlgEvaluationBatchService {
     }
 
     private void logEvaluationFailure(String caseId, String sourceResultFile, Exception e) {
-        Throwable rootCause = rootCause(e);
+        Throwable rootCause = NestedExceptionUtils.getMostSpecificCause(e);
         String internalReason = failureReason(e);
         String jacksonPath = jacksonPath(e);
         String failedField = failedFieldName(e);
         Object unknownEnumValue = unknownEnumValue(e);
-        if (e instanceof JsonProcessingException jsonProcessingException) {
-            log.error(
-                    "NLG Judge evaluation failed. caseId={}, sourceResultFile={}, reason={}, exceptionType={}, message={}, rootCauseType={}, rootCauseMessage={}, jacksonPath={}, failedField={}, targetEnum={}, unknownValue={}, rawJudgeResponseAvailable=false",
-                    caseId,
-                    sourceResultFile,
-                    internalReason,
-                    jsonProcessingException.getClass().getSimpleName(),
-                    jsonProcessingException.getMessage(),
-                    rootCause.getClass().getName(),
-                    rootCause.getMessage(),
-                    jacksonPath,
-                    failedField,
-                    targetEnumName(e),
-                    unknownEnumValue,
-                    e
-            );
-            log.error(
-                    "NLG Judge JsonProcessingException detail. caseId={}, originalMessage={}",
-                    caseId,
-                    jsonProcessingException.getOriginalMessage(),
-                    e
-            );
-            return;
-        }
-        if (e instanceof IllegalArgumentException illegalArgumentException) {
-            log.error(
-                    "NLG Judge evaluation failed. caseId={}, sourceResultFile={}, reason={}, exceptionType={}, message={}, rootCauseType={}, rootCauseMessage={}, jacksonPath={}, failedField={}, targetEnum={}, unknownValue={}, rawJudgeResponseAvailable=false",
-                    caseId,
-                    sourceResultFile,
-                    internalReason,
-                    illegalArgumentException.getClass().getSimpleName(),
-                    illegalArgumentException.getMessage(),
-                    rootCause.getClass().getName(),
-                    rootCause.getMessage(),
-                    jacksonPath,
-                    failedField,
-                    targetEnumName(e),
-                    unknownEnumValue,
-                    e
-            );
-            return;
-        }
+        String exceptionType = e.getClass().getSimpleName();
         log.error(
                 "NLG Judge evaluation failed. caseId={}, sourceResultFile={}, reason={}, exceptionType={}, message={}, rootCauseType={}, rootCauseMessage={}, jacksonPath={}, failedField={}, targetEnum={}, unknownValue={}, rawJudgeResponseAvailable=false",
                 caseId,
                 sourceResultFile,
                 internalReason,
-                e.getClass().getName(),
+                exceptionType,
                 e.getMessage(),
                 rootCause.getClass().getName(),
                 rootCause.getMessage(),
@@ -904,6 +857,14 @@ class NlgEvaluationBatchService {
                 unknownEnumValue,
                 e
         );
+        if (e instanceof JsonProcessingException jsonProcessingException) {
+            log.error(
+                    "NLG Judge JsonProcessingException detail. caseId={}, originalMessage={}",
+                    caseId,
+                    jsonProcessingException.getOriginalMessage(),
+                    e
+            );
+        }
     }
 
     private String failureReason(Exception e) {
@@ -960,14 +921,6 @@ class NlgEvaluationBatchService {
                 .map(InvalidFormatException::getTargetType)
                 .map(Class::getSimpleName)
                 .orElse("");
-    }
-
-    private Throwable rootCause(Throwable throwable) {
-        Throwable current = throwable;
-        while (current.getCause() != null && current.getCause() != current) {
-            current = current.getCause();
-        }
-        return current;
     }
 
     private <T extends Throwable> Optional<T> findCause(Throwable throwable, Class<T> type) {

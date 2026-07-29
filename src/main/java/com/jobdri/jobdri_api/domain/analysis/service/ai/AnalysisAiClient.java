@@ -673,9 +673,9 @@ public class AnalysisAiClient {
                   이유: 브랜드 운영은 이미 답변에 있으며, BI/CI 구축 경험으로 일반화하지 않는다.
                 - Example 3
                   JD main_tasks: 사업 및 행정지원
-                  Answer: 총무부에서 행정 업무와 예산 관리를 담당했습니다.
+                  Answer: 총무부에서 사업 및 행정지원 업무와 예산 관리를 담당했습니다.
                   missingKeywordCandidates: []
-                  이유: 행정지원 역량이 이미 답변에 충분히 존재한다.
+                  이유: 사업 및 행정지원 역량이 이미 답변에 충분히 존재한다.
 
                 [문장 유형별 후보 기준]
                 - EXPERIENCE: 역할, 행동, 방법, 결과, 직무 연결성 중 실제로 부족한 요소가 있어야 한다.
