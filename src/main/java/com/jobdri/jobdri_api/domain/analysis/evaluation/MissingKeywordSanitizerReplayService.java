@@ -53,6 +53,10 @@ class MissingKeywordSanitizerReplayService {
     private static final List<String> REVIEW_HEADERS = List.of(
             "caseId",
             "candidateIndex",
+            "question",
+            "answer",
+            "mainTasks",
+            "qualifications",
             "keyword",
             "relatedRequirement",
             "accepted",
@@ -129,7 +133,7 @@ class MissingKeywordSanitizerReplayService {
                 reasonCounts.merge(decision.rejectionReason().name(), 1L, Long::sum);
                 replayRows.add(toReplayRow(caseId, rawCandidateCount, acceptedCount, rejectedCount, decision));
                 if (rawCandidateCount > 0) {
-                    reviewRows.add(toReviewRow(caseId, decision));
+                    reviewRows.add(toReviewRow(caseId, row, decision));
                 }
             }
         }
@@ -237,11 +241,19 @@ class MissingKeywordSanitizerReplayService {
         return row;
     }
 
-    private Map<String, String> toReviewRow(String caseId, MissingKeywordSanitizationDecision decision) {
+    private Map<String, String> toReviewRow(
+            String caseId,
+            Map<String, String> inputRow,
+            MissingKeywordSanitizationDecision decision
+    ) {
         AnalysisCandidateResponse.MissingKeywordCandidate candidate = decision.originalCandidate();
         Map<String, String> row = new LinkedHashMap<>();
         row.put("caseId", caseId);
         row.put("candidateIndex", String.valueOf(decision.candidateIndex()));
+        row.put("question", value(inputRow, "question"));
+        row.put("answer", value(inputRow, "answer"));
+        row.put("mainTasks", value(inputRow, "mainTasks"));
+        row.put("qualifications", value(inputRow, "qualifications"));
         row.put("keyword", candidate == null ? "" : value(candidate.keyword()));
         row.put("relatedRequirement", candidate == null ? "" : value(candidate.relatedRequirement()));
         row.put("accepted", String.valueOf(decision.accepted()));
