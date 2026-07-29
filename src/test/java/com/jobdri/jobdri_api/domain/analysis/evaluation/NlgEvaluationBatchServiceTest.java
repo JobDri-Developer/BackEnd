@@ -375,6 +375,12 @@ class NlgEvaluationBatchServiceTest {
                         5,
                         2,
                         3,
+                        List.of(new NlgEvaluationResponse.MissingKeywordMissEvaluation(
+                                "장애 대응 경험",
+                                "QUALIFICATION",
+                                "장애 대응 경험",
+                                "답변에서 해당 경험을 확인할 수 없습니다."
+                        )),
                         List.of(NlgEvaluationErrorCode.MISSED_STRENGTH, NlgEvaluationErrorCode.MISSED_MISSING_KEYWORD),
                         "강점과 누락 키워드 coverage가 낮습니다."
                 ),
@@ -394,6 +400,116 @@ class NlgEvaluationBatchServiceTest {
         assertThat(row.get("errorCodes"))
                 .contains("MISSED_STRENGTH")
                 .contains("MISSED_MISSING_KEYWORD");
+    }
+
+    @Test
+    @DisplayName("MISSED_MISSING_KEYWORD는 JD requirement 근거가 유효하면 유지한다")
+    void keepsMissedMissingKeywordWhenEvidenceIsGroundedInJd() throws Exception {
+        Map<String, String> row = runJudgeWithMissedMissingKeywordEvidence(
+                new NlgEvaluationResponse.MissingKeywordMissEvaluation(
+                        "4대보험 신고",
+                        "MAIN_TASK",
+                        "4대보험 신고 및 지원금 신청",
+                        "답변에서 4대보험 신고 경험을 확인할 수 없습니다."
+                ),
+                "4대보험 신고 및 지원금 신청",
+                "엑셀 고급 활용",
+                "[]"
+        );
+
+        assertThat(row.get("errorCodes")).contains("MISSED_MISSING_KEYWORD");
+    }
+
+    @Test
+    @DisplayName("MISSED_MISSING_KEYWORD는 Spring Boot 실무 경험처럼 비정형 역량 근거가 유효하면 유지한다")
+    void keepsTechnicalMissingKeywordEvidence() throws Exception {
+        Map<String, String> row = runJudgeWithMissedMissingKeywordEvidence(
+                new NlgEvaluationResponse.MissingKeywordMissEvaluation(
+                        "Spring Boot 실무 경험",
+                        "QUALIFICATION",
+                        "Spring Boot 실무 경험",
+                        "답변에서 Spring Boot 사용 경험을 확인할 수 없습니다."
+                ),
+                "REST API 개발",
+                "Spring Boot 실무 경험",
+                "[]"
+        );
+
+        assertThat(row.get("errorCodes")).contains("MISSED_MISSING_KEYWORD");
+    }
+
+    @Test
+    @DisplayName("MISSED_MISSING_KEYWORD는 JD에 없는 추상 relatedRequirement면 제거한다")
+    void removesMissedMissingKeywordWhenRelatedRequirementIsNotInJd() throws Exception {
+        for (String relatedRequirement : List.of("채용 관련 경험", "핵심 경험")) {
+            Map<String, String> row = runJudgeWithMissedMissingKeywordEvidence(
+                    new NlgEvaluationResponse.MissingKeywordMissEvaluation(
+                            relatedRequirement,
+                            "MAIN_TASK",
+                            relatedRequirement,
+                            "답변에서 해당 경험을 확인할 수 없습니다."
+                    ),
+                    "엑셀 고급 활용, 4대보험 신고, 더존 사용",
+                    "인사 회계 경험",
+                    "[]"
+            );
+
+            assertThat(row.get("errorCodes")).doesNotContain("MISSED_MISSING_KEYWORD");
+        }
+    }
+
+    @Test
+    @DisplayName("MISSED_MISSING_KEYWORD는 정형 자격요건 근거면 제거한다")
+    void removesStructuredQualificationMissedMissingKeywordEvidence() throws Exception {
+        for (String keyword : List.of("사회복지사", "청소년상담사", "운전면허", "대졸", "경력 3년")) {
+            Map<String, String> row = runJudgeWithMissedMissingKeywordEvidence(
+                    new NlgEvaluationResponse.MissingKeywordMissEvaluation(
+                            keyword,
+                            "QUALIFICATION",
+                            keyword,
+                            "답변에서 해당 조건을 확인할 수 없습니다."
+                    ),
+                    "상담 지원",
+                    keyword,
+                    "[]"
+            );
+
+            assertThat(row.get("errorCodes")).doesNotContain("MISSED_MISSING_KEYWORD");
+        }
+    }
+
+    @Test
+    @DisplayName("MISSED_MISSING_KEYWORD는 이미 final missingKeywords에 있으면 제거한다")
+    void removesMissedMissingKeywordAlreadyCoveredByFinalMissingKeywords() throws Exception {
+        Map<String, String> row = runJudgeWithMissedMissingKeywordEvidence(
+                new NlgEvaluationResponse.MissingKeywordMissEvaluation(
+                        "4대보험 신고",
+                        "MAIN_TASK",
+                        "4대보험 신고 및 지원금 신청",
+                        "답변에서 4대보험 신고 경험을 확인할 수 없습니다."
+                ),
+                "4대보험 신고 및 지원금 신청",
+                "엑셀 고급 활용",
+                objectMapper.writeValueAsString(List.of(new AnalysisLlmResponse.MissingKeywordItem(
+                        "4대보험 신고",
+                        "mainTask"
+                )))
+        );
+
+        assertThat(row.get("errorCodes")).doesNotContain("MISSED_MISSING_KEYWORD");
+    }
+
+    @Test
+    @DisplayName("MISSED_MISSING_KEYWORD는 evidence 없이 errorCode만 있으면 제거한다")
+    void removesMissedMissingKeywordWithoutEvidence() throws Exception {
+        Map<String, String> row = runJudgeWithMissedMissingKeywordEvidence(
+                null,
+                "4대보험 신고 및 지원금 신청",
+                "엑셀 고급 활용",
+                "[]"
+        );
+
+        assertThat(row.get("errorCodes")).doesNotContain("MISSED_MISSING_KEYWORD");
     }
 
     @Test
@@ -876,6 +992,80 @@ class NlgEvaluationBatchServiceTest {
                         + csv(rawLlmResponseJson()) + ","
                         + csv("") + ","
                         + csv(sanitizedCandidateResponseJson) + ","
+                        + csv("") + "\n",
+                StandardCharsets.UTF_8
+        );
+        return input;
+    }
+
+    private Map<String, String> runJudgeWithMissedMissingKeywordEvidence(
+            NlgEvaluationResponse.MissingKeywordMissEvaluation evidence,
+            String mainTasks,
+            String qualifications,
+            String missingKeywordsJson
+    ) throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
+                new NlgEvaluationResponse(
+                        "EV-20",
+                        List.of(),
+                        2,
+                        5,
+                        5,
+                        2,
+                        2,
+                        3,
+                        evidence == null ? List.of() : List.of(evidence),
+                        List.of(NlgEvaluationErrorCode.MISSED_MISSING_KEYWORD),
+                        "누락 키워드 근거를 평가했습니다."
+                ),
+                100L,
+                null,
+                null
+        ));
+        Path input = writeJudgeInputWithContext("EV-20", mainTasks, qualifications, missingKeywordsJson, "[]");
+        Path output = tempDir.resolve("judge_missed_keyword_" + System.nanoTime() + ".csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        return EvaluationCsvSupport.read(output).getFirst();
+    }
+
+    private Path writeJudgeInputWithContext(
+            String caseId,
+            String mainTasks,
+            String qualifications,
+            String missingKeywordsJson,
+            String analysesJson
+    ) throws Exception {
+        Path input = tempDir.resolve(caseId + "_context_" + System.nanoTime() + ".csv");
+        Files.writeString(
+                input,
+                String.join(",", List.of(
+                        "caseId",
+                        "mainTasks",
+                        "qualifications",
+                        "preferences",
+                        "question",
+                        "answer",
+                        "aiQuestionAnalysesJson",
+                        "aiMissingKeywordsJson",
+                        "rawLlmResponseJson",
+                        "rawCandidateResponseJson",
+                        "sanitizedCandidateResponseJson",
+                        "candidateReviewResponseJson"
+                )) + "\n"
+                        + csv(caseId) + ","
+                        + csv(mainTasks) + ","
+                        + csv(qualifications) + ","
+                        + csv("") + ","
+                        + csv("지원 동기") + ","
+                        + csv("답변") + ","
+                        + csv(analysesJson) + ","
+                        + csv(missingKeywordsJson) + ","
+                        + csv(rawLlmResponseJson()) + ","
+                        + csv("") + ","
+                        + csv("{\"missingKeywordCandidates\":[]}") + ","
                         + csv("") + "\n",
                 StandardCharsets.UTF_8
         );
