@@ -28,8 +28,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Service
@@ -338,12 +340,13 @@ public class JobPostingAiService {
 
         return """
                 이 %s는 채용 공고입니다.
-                회사명, 직무명, 주요 업무, 자격 요건, 우대 사항을 추출해주세요.
+                공고 제목, 회사명, 직무명, 주요 업무, 자격 요건, 우대 사항을 추출해주세요.
 
                 반드시 아래 JSON 형식으로만 응답해주세요.
                 설명 문장, 마크다운, 코드블럭은 포함하지 마세요.
 
                 {
+                  "postingName": "string",
                   "companyName": "string",
                   "jobTitle": "string",
                   "task": "string",
@@ -354,12 +357,15 @@ public class JobPostingAiService {
                 }
 
                 규칙:
-                1. 이미지가 있으면 이미지 안의 채용 공고 문구를 읽어 rawText에 정리해주세요.
-                2. 텍스트가 있으면 rawText에는 입력 원문을 최대한 그대로 넣어주세요.
-                3. 이미지와 텍스트가 둘 다 있으면 둘을 함께 참고해서 가장 정확한 값으로 채워주세요.
-                4. 정보가 없거나 확실하지 않으면 해당 필드는 빈 문자열로 두세요.
-                5. confidence는 추출 결과 전체에 대한 신뢰도를 0~1 사이 실수로 반환하세요.
-                6. JSON 외의 다른 텍스트는 절대 출력하지 마세요.
+                1. postingName은 원문에 명시된 채용 공고 제목을 그대로 추출하세요.
+                2. 원문에 공고 제목이 없거나 확실하지 않으면 postingName은 반드시 빈 문자열로 두세요.
+                3. postingName을 회사명과 직무명으로 새로 만들거나 요약하지 마세요.
+                4. 이미지가 있으면 이미지 안의 채용 공고 문구를 읽어 rawText에 정리해주세요.
+                5. 텍스트가 있으면 rawText에는 입력 원문을 최대한 그대로 넣어주세요.
+                6. 이미지와 텍스트가 둘 다 있으면 둘을 함께 참고해서 가장 정확한 값으로 채워주세요.
+                7. 정보가 없거나 확실하지 않으면 해당 필드는 빈 문자열로 두세요.
+                8. confidence는 추출 결과 전체에 대한 신뢰도를 0~1 사이 실수로 반환하세요.
+                9. JSON 외의 다른 텍스트는 절대 출력하지 마세요.
 
                 [채용 공고 텍스트]
                 %s
@@ -461,19 +467,41 @@ public class JobPostingAiService {
             confidence = 1.0;
         }
 
+        String normalizedRawText = response.rawText() == null || response.rawText().isBlank()
+                ? defaultString(rawText)
+                : response.rawText();
+
         return new JobPostingExtractResponse(
+                resolveSupportedPostingName(response.postingName(), normalizedRawText),
                 defaultString(response.companyName()),
                 defaultString(response.jobTitle()),
                 defaultString(response.task()),
                 defaultString(response.requirements()),
                 defaultString(response.preferredQualifications()),
-                response.rawText() == null || response.rawText().isBlank() ? defaultString(rawText) : response.rawText(),
+                normalizedRawText,
                 confidence
         );
     }
 
+    private String resolveSupportedPostingName(String postingName, String sourceText) {
+        String normalizedPostingName = normalizeForSourceMatch(defaultString(postingName));
+        if (normalizedPostingName.isBlank()) {
+            return "";
+        }
+        return normalizeForSourceMatch(defaultString(sourceText)).contains(normalizedPostingName)
+                ? defaultString(postingName)
+                : "";
+    }
+
+    private String normalizeForSourceMatch(String value) {
+        return Normalizer.normalize(value, Normalizer.Form.NFKC)
+                .replaceAll("[\\s\\p{Z}]+", "")
+                .toLowerCase(Locale.ROOT);
+    }
+
     private JobPostingExtractResponse createFallbackResponse(String rawText) {
         return new JobPostingExtractResponse(
+                "",
                 "",
                 "",
                 "",
@@ -503,7 +531,7 @@ public class JobPostingAiService {
                 }
 
                 작성 규칙:
-                1. postingName은 공고 제목으로 사용할 수 있게 회사명과 직무명을 반영해 간결하게 작성하세요.
+                1. postingName은 공고명 힌트를 그대로 사용하세요. 빈 문자열이면 새로 만들지 말고 빈 문자열로 두세요.
                 2. jobTitle은 직무명만 작성하세요.
                 3. task는 문장형 또는 불릿을 줄바꿈으로 구분한 자연스러운 본문으로 작성하세요.
                 4. requirements는 필수 자격 요건만 정리하세요.
@@ -521,6 +549,9 @@ public class JobPostingAiService {
                 %s
 
                 [직무명 힌트]
+                %s
+
+                [공고명 힌트]
                 %s
 
                 [채용 배경 또는 포지션 소개]
@@ -545,6 +576,7 @@ public class JobPostingAiService {
                 companySize,
                 detailClassification.getDetailName(),
                 defaultString(request.jobTitleHint()),
+                defaultString(request.postingNameHint()),
                 defaultString(request.hiringSummary()),
                 defaultString(request.techStack()),
                 defaultString(request.mainResponsibilities()),
@@ -687,8 +719,10 @@ public class JobPostingAiService {
             companyName = request.companyName();
         }
 
+        String postingName = request.postingNameHint() == null ? "" : request.postingNameHint();
+
         return new JobPostingGenerateResponse(
-                defaultIfBlank(response.postingName(), request.jobTitleHint()),
+                postingName,
                 companyName,
                 defaultString(response.jobTitle()),
                 defaultString(response.task()),
@@ -814,8 +848,10 @@ public class JobPostingAiService {
     }
 
     private JobPostingGenerateResponse createFallbackGeneratedResponse(JobPostingGenerateRequest request) {
+        String postingName = request.postingNameHint() == null ? "" : request.postingNameHint();
+
         return new JobPostingGenerateResponse(
-                defaultString(request.jobTitleHint()),
+                postingName,
                 request.companyName(),
                 defaultString(request.jobTitleHint()),
                 defaultString(request.mainResponsibilities()),
@@ -882,10 +918,6 @@ public class JobPostingAiService {
 
     private String defaultString(String value) {
         return value == null ? "" : value;
-    }
-
-    private String defaultIfBlank(String value, String fallback) {
-        return value == null || value.isBlank() ? defaultString(fallback) : value;
     }
 
     private RetrievalContext emptyRetrievalContext() {
