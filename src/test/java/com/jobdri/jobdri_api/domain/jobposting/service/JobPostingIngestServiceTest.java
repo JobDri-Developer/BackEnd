@@ -123,7 +123,7 @@ class JobPostingIngestServiceTest {
     @DisplayName("동기 ingest는 image object key를 추출 단계로 전달한다")
     void ingestAndCreatePassesImageObjectKeyToExtract() {
         JobPostingIngestRequest request = new JobPostingIngestRequest(
-                "채용 공고 원문",
+                "2026 해커스 클라우드 엔지니어 공개채용 채용 공고 원문",
                 "job-postings/1/posting.png"
         );
 
@@ -134,7 +134,7 @@ class JobPostingIngestServiceTest {
                 "클라우드 운영",
                 "클라우드 운영 경력",
                 "",
-                "채용 공고 원문",
+                "2026 해커스 클라우드 엔지니어 공개채용 채용 공고 원문",
                 0.9
         );
         JobPostingClassificationCandidateResponse candidate = new JobPostingClassificationCandidateResponse(
@@ -190,7 +190,7 @@ class JobPostingIngestServiceTest {
         ArgumentCaptor<String> imageObjectKeyCaptor = ArgumentCaptor.forClass(String.class);
         verify(jobPostingAiService).extractJobPosting(
                 eq(1L),
-                eq("채용 공고 원문"),
+                eq("2026 해커스 클라우드 엔지니어 공개채용 채용 공고 원문"),
                 imageObjectKeyCaptor.capture(),
                 eq(List.of("job-postings/1/posting.png"))
         );

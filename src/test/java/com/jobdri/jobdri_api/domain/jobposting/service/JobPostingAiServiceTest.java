@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.Retrie
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingMockGenerateRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockQuestionResponse;
@@ -250,6 +251,8 @@ class JobPostingAiServiceTest {
     void generateJobPostingDoesNotThrowWhenCompanySizeIsNull() {
         DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(llmConcurrencyLimiter.execute(eq("job-posting-generate"), any()))
+                .thenThrow(new RuntimeException("AI 호출 실패"));
         JobPostingGenerateRequest request = new JobPostingGenerateRequest(
                 "테스트 기업",
                 null,
@@ -266,14 +269,18 @@ class JobPostingAiServiceTest {
         JobPostingGenerateResponse response = jobPostingAiService.generateJobPosting(request);
 
         assertThat(response.companyName()).isEqualTo("테스트 기업");
-        assertThat(response.postingName()).isEqualTo("백엔드 개발자");
+        assertThat(response.postingName()).isEmpty();
         assertThat(response.jobTitle()).isEqualTo("백엔드 개발자");
         verify(llmConcurrencyLimiter).execute(eq("job-posting-generate"), any());
     }
 
     @Test
-    @DisplayName("공고 생성 결과는 AI가 바꾼 제목 대신 원문에서 추출한 공고명을 유지한다")
-    void normalizeGeneratedResponsePreservesExtractedPostingName() {
+    @DisplayName("AI 호출 실패 시 fallback은 원문에서 추출한 공고명을 유지한다")
+    void generateJobPostingFallbackPreservesExtractedPostingName() {
+        DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
+        when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(llmConcurrencyLimiter.execute(eq("job-posting-generate"), any()))
+                .thenThrow(new RuntimeException("AI 호출 실패"));
         JobPostingGenerateRequest request = new JobPostingGenerateRequest(
                 "테스트 기업",
                 null,
@@ -287,30 +294,19 @@ class JobPostingAiServiceTest {
                 "백엔드 개발자",
                 "2026 백엔드 개발자 공개채용"
         );
-        JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
-                "테스트 기업 백엔드 채용",
-                "테스트 기업",
-                "백엔드 개발자",
-                "주요 업무",
-                "자격 요건",
-                "우대 사항",
-                "요약"
-        );
 
-        JobPostingGenerateResponse normalized = ReflectionTestUtils.invokeMethod(
-                jobPostingAiService,
-                "normalizeGeneratedResponse",
-                generated,
-                request
-        );
+        JobPostingGenerateResponse response = jobPostingAiService.generateJobPosting(request);
 
-        assertThat(normalized).isNotNull();
-        assertThat(normalized.postingName()).isEqualTo("2026 백엔드 개발자 공개채용");
+        assertThat(response.postingName()).isEqualTo("2026 백엔드 개발자 공개채용");
     }
 
     @Test
-    @DisplayName("원문에 공고명이 없으면 생성 결과의 공고명도 빈 문자열로 유지한다")
-    void normalizeGeneratedResponseKeepsMissingPostingNameEmpty() {
+    @DisplayName("AI 호출 실패 시 fallback은 빈 공고명 힌트를 그대로 유지한다")
+    void generateJobPostingFallbackKeepsMissingPostingNameEmpty() {
+        DetailClassification detailClassification = createDetailClassification(10L, 100L, "백엔드", "Java/Spring");
+        when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
+        when(llmConcurrencyLimiter.execute(eq("job-posting-generate"), any()))
+                .thenThrow(new RuntimeException("AI 호출 실패"));
         JobPostingGenerateRequest request = new JobPostingGenerateRequest(
                 "테스트 기업",
                 null,
@@ -324,21 +320,56 @@ class JobPostingAiServiceTest {
                 "백엔드 개발자",
                 ""
         );
-        JobPostingGenerateResponse generated = new JobPostingGenerateResponse(
-                "테스트 기업 백엔드 채용",
+
+        JobPostingGenerateResponse response = jobPostingAiService.generateJobPosting(request);
+
+        assertThat(response.postingName()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("추출된 공고명이 공백과 대소문자 차이만 있는 원문에 존재하면 유지한다")
+    void normalizeResponseKeepsPostingNameSupportedBySourceText() {
+        JobPostingExtractResponse extracted = new JobPostingExtractResponse(
+                "BACKEND Engineer",
                 "테스트 기업",
                 "백엔드 개발자",
-                "주요 업무",
-                "자격 요건",
-                "우대 사항",
-                "요약"
+                "",
+                "",
+                "",
+                "Backend\nEngineer 공개채용",
+                0.9
         );
 
-        JobPostingGenerateResponse normalized = ReflectionTestUtils.invokeMethod(
+        JobPostingExtractResponse normalized = ReflectionTestUtils.invokeMethod(
                 jobPostingAiService,
-                "normalizeGeneratedResponse",
-                generated,
-                request
+                "normalizeResponse",
+                extracted,
+                "Backend Engineer 공개채용"
+        );
+
+        assertThat(normalized).isNotNull();
+        assertThat(normalized.postingName()).isEqualTo("BACKEND Engineer");
+    }
+
+    @Test
+    @DisplayName("추출된 공고명이 원문에 없으면 빈 문자열로 제거한다")
+    void normalizeResponseRemovesPostingNameUnsupportedBySourceText() {
+        JobPostingExtractResponse extracted = new JobPostingExtractResponse(
+                "2026 백엔드 개발자 공개채용",
+                "테스트 기업",
+                "백엔드 개발자",
+                "",
+                "",
+                "",
+                "테스트 기업에서 개발자를 모집합니다.",
+                0.9
+        );
+
+        JobPostingExtractResponse normalized = ReflectionTestUtils.invokeMethod(
+                jobPostingAiService,
+                "normalizeResponse",
+                extracted,
+                "테스트 기업에서 개발자를 모집합니다."
         );
 
         assertThat(normalized).isNotNull();

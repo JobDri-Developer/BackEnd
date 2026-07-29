@@ -28,8 +28,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Service
@@ -397,16 +399,36 @@ public class JobPostingAiService {
             confidence = 1.0;
         }
 
+        String normalizedRawText = response.rawText() == null || response.rawText().isBlank()
+                ? defaultString(rawText)
+                : response.rawText();
+
         return new JobPostingExtractResponse(
-                defaultString(response.postingName()),
+                resolveSupportedPostingName(response.postingName(), normalizedRawText),
                 defaultString(response.companyName()),
                 defaultString(response.jobTitle()),
                 defaultString(response.task()),
                 defaultString(response.requirements()),
                 defaultString(response.preferredQualifications()),
-                response.rawText() == null || response.rawText().isBlank() ? defaultString(rawText) : response.rawText(),
+                normalizedRawText,
                 confidence
         );
+    }
+
+    private String resolveSupportedPostingName(String postingName, String sourceText) {
+        String normalizedPostingName = normalizeForSourceMatch(defaultString(postingName));
+        if (normalizedPostingName.isBlank()) {
+            return "";
+        }
+        return normalizeForSourceMatch(defaultString(sourceText)).contains(normalizedPostingName)
+                ? defaultString(postingName)
+                : "";
+    }
+
+    private String normalizeForSourceMatch(String value) {
+        return Normalizer.normalize(value, Normalizer.Form.NFKC)
+                .replaceAll("[\\s\\p{Z}]+", "")
+                .toLowerCase(Locale.ROOT);
     }
 
     private JobPostingExtractResponse createFallbackResponse(String rawText) {
@@ -691,9 +713,7 @@ public class JobPostingAiService {
             companyName = request.companyName();
         }
 
-        String postingName = request.postingNameHint() == null
-                ? defaultIfBlank(response.postingName(), request.jobTitleHint())
-                : request.postingNameHint();
+        String postingName = request.postingNameHint() == null ? "" : request.postingNameHint();
 
         return new JobPostingGenerateResponse(
                 postingName,
@@ -822,9 +842,7 @@ public class JobPostingAiService {
     }
 
     private JobPostingGenerateResponse createFallbackGeneratedResponse(JobPostingGenerateRequest request) {
-        String postingName = request.postingNameHint() == null
-                ? defaultString(request.jobTitleHint())
-                : request.postingNameHint();
+        String postingName = request.postingNameHint() == null ? "" : request.postingNameHint();
 
         return new JobPostingGenerateResponse(
                 postingName,
@@ -894,10 +912,6 @@ public class JobPostingAiService {
 
     private String defaultString(String value) {
         return value == null ? "" : value;
-    }
-
-    private String defaultIfBlank(String value, String fallback) {
-        return value == null || value.isBlank() ? defaultString(fallback) : value;
     }
 
     private RetrievalContext emptyRetrievalContext() {
