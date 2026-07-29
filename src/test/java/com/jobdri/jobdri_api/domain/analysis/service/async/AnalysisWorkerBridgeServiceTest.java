@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.analysis.service.async;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
@@ -27,6 +28,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -133,23 +135,37 @@ class AnalysisWorkerBridgeServiceTest {
         when(jobPosting.getDetailClassification().getMiddleClassification().getMiddleName()).thenReturn("서버");
         when(jobPosting.getDetailClassification().getMiddleClassification().getClassification().getBigName()).thenReturn("개발");
 
+        SimilarJobPostingContext similarContext = new SimilarJobPostingContext(
+                31L,
+                "유사 회사",
+                "유사 공고",
+                "서버 개발자",
+                "API 개발",
+                "Java",
+                "AWS",
+                1,
+                0.91
+        );
         AnalysisExecutionPayload payload = new AnalysisExecutionPayload(
                 1L,
                 10L,
                 jobPosting,
                 List.of(),
-                List.of()
+                List.of(),
+                null,
+                null,
+                List.of(similarContext)
         );
 
         when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.prepareAnalysisExecution(user, 10L)).thenReturn(payload);
-
-        analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
+        var context = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
 
         verify(analysisService).deductAnalysisCredit(user, "analysisTaskId=" + task.getTaskId());
         verify(analysisAsyncTaskService).markCreditReserved(task.getTaskId(), "analysisTaskId=" + task.getTaskId());
         verify(analysisService).prepareAnalysisExecution(user, 10L);
+        assertThat(context.similarJobPostings()).containsExactly(similarContext);
     }
 
     @Test

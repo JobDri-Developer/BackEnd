@@ -123,7 +123,8 @@ public class AnalysisWorkerBridgeService {
                 payload.jobPosting().getDetailClassification().getMiddleClassification().getClassification().getBigName(),
                 payload.jobPosting().getDetailClassification().getMiddleClassification().getMiddleName(),
                 payload.jobPosting().getDetailClassification().getDetailName(),
-                toQuestionItems(payload.questions())
+                toQuestionItems(payload.questions()),
+                payload.similarJobPostings()
         );
     }
 
