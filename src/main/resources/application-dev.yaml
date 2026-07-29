@@ -163,6 +163,13 @@ openai:
     job-posting-extractor: ${OPENAI_JOB_POSTING_MODEL:gpt-4o-mini}
 
 cohere:
+  api-key: ${COHERE_API_KEY:}
+  base-url: ${COHERE_BASE_URL:https://api.cohere.com}
+  embedding:
+    model: ${COHERE_EMBEDDING_MODEL:embed-v4.0}
+    dimension: ${COHERE_EMBEDDING_DIMENSION:1024}
+    connect-timeout: ${COHERE_EMBEDDING_CONNECT_TIMEOUT:3s}
+    read-timeout: ${COHERE_EMBEDDING_READ_TIMEOUT:15s}
   api:
     key: ${COHERE_API_KEY:}
 
