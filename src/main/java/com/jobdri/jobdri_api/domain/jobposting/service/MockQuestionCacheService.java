@@ -20,7 +20,6 @@ import java.util.Optional;
 @RequiredArgsConstructor
 public class MockQuestionCacheService {
 
-    static final String PROMPT_VERSION = "v1";
     private static final String CACHE_UNIQUE_CONSTRAINT = "uk_mock_question_cache_company_detail_version";
 
     private final DetailClassificationRepository detailClassificationRepository;
@@ -28,6 +27,7 @@ public class MockQuestionCacheService {
     private final JobPostingAiService jobPostingAiService;
     private final MockQuestionInflightRegistry mockQuestionInflightRegistry;
     private final MockQuestionCacheTransactionalService mockQuestionCacheTransactionalService;
+    private final MockQuestionCacheProperties mockQuestionCacheProperties;
 
     public List<String> getRecommendedQuestions(JobPostingMockGenerateRequest request) {
         return getCachedQuestions(request)
@@ -55,7 +55,7 @@ public class MockQuestionCacheService {
             return mockQuestionCacheTransactionalService.saveQuestions(
                     company,
                     detailClassification,
-                    PROMPT_VERSION,
+                    currentPromptVersion(),
                     generated.recommendedQuestions()
             );
         } catch (DataIntegrityViolationException e) {
@@ -70,12 +70,16 @@ public class MockQuestionCacheService {
         return mockQuestionCacheTransactionalService.findQuestions(
                 request.companyId(),
                 request.detailClassificationId(),
-                PROMPT_VERSION
+                currentPromptVersion()
         );
     }
 
     private String cacheKey(JobPostingMockGenerateRequest request) {
-        return request.companyId() + ":" + request.detailClassificationId() + ":" + PROMPT_VERSION;
+        return request.companyId() + ":" + request.detailClassificationId() + ":" + currentPromptVersion();
+    }
+
+    private String currentPromptVersion() {
+        return mockQuestionCacheProperties.getPromptVersion();
     }
 
     private boolean isCacheUniqueConflict(DataIntegrityViolationException exception) {

@@ -29,6 +29,8 @@ import static org.mockito.Mockito.when;
 @ExtendWith(MockitoExtension.class)
 class MockQuestionCacheServiceTest {
 
+    private static final String PROMPT_VERSION = MockQuestionCachePropertiesTestSupport.PROMPT_VERSION;
+
     @Mock
     private DetailClassificationRepository detailClassificationRepository;
 
@@ -53,7 +55,8 @@ class MockQuestionCacheServiceTest {
                 companyRepository,
                 jobPostingAiService,
                 mockQuestionInflightRegistry,
-                mockQuestionCacheTransactionalService
+                mockQuestionCacheTransactionalService,
+                MockQuestionCachePropertiesTestSupport.createProperties()
         );
     }
 
@@ -65,7 +68,7 @@ class MockQuestionCacheServiceTest {
         when(mockQuestionCacheTransactionalService.findQuestions(
                 1L,
                 100L,
-                MockQuestionCacheService.PROMPT_VERSION
+                PROMPT_VERSION
         ))
                 .thenReturn(Optional.of(List.of("질문 1", "질문 2")));
 
@@ -90,7 +93,7 @@ class MockQuestionCacheServiceTest {
         when(mockQuestionCacheTransactionalService.findQuestions(
                 1L,
                 100L,
-                MockQuestionCacheService.PROMPT_VERSION
+                PROMPT_VERSION
         ))
                 .thenReturn(Optional.empty());
         when(detailClassificationRepository.findById(100L)).thenReturn(Optional.of(detailClassification));
@@ -102,7 +105,7 @@ class MockQuestionCacheServiceTest {
         when(mockQuestionCacheTransactionalService.saveQuestions(
                 org.mockito.ArgumentMatchers.any(Company.class),
                 org.mockito.ArgumentMatchers.eq(detailClassification),
-                org.mockito.ArgumentMatchers.eq(MockQuestionCacheService.PROMPT_VERSION),
+                org.mockito.ArgumentMatchers.eq(PROMPT_VERSION),
                 org.mockito.ArgumentMatchers.eq(List.of("질문 A", "질문 B"))
         )).thenReturn(List.of("질문 A", "질문 B"));
 
@@ -112,7 +115,7 @@ class MockQuestionCacheServiceTest {
         verify(mockQuestionCacheTransactionalService).saveQuestions(
                 org.mockito.ArgumentMatchers.any(Company.class),
                 org.mockito.ArgumentMatchers.eq(detailClassification),
-                org.mockito.ArgumentMatchers.eq(MockQuestionCacheService.PROMPT_VERSION),
+                org.mockito.ArgumentMatchers.eq(PROMPT_VERSION),
                 org.mockito.ArgumentMatchers.eq(List.of("질문 A", "질문 B"))
         );
     }
@@ -128,7 +131,7 @@ class MockQuestionCacheServiceTest {
         when(mockQuestionCacheTransactionalService.findQuestions(
                 1L,
                 100L,
-                MockQuestionCacheService.PROMPT_VERSION
+                PROMPT_VERSION
         ))
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(List.of("질문 A", "질문 B")));
@@ -141,7 +144,7 @@ class MockQuestionCacheServiceTest {
         when(mockQuestionCacheTransactionalService.saveQuestions(
                 org.mockito.ArgumentMatchers.eq(company),
                 org.mockito.ArgumentMatchers.eq(detailClassification),
-                org.mockito.ArgumentMatchers.eq(MockQuestionCacheService.PROMPT_VERSION),
+                org.mockito.ArgumentMatchers.eq(PROMPT_VERSION),
                 org.mockito.ArgumentMatchers.eq(List.of("질문 A", "질문 B"))
         )).thenThrow(new DataIntegrityViolationException("uk_mock_question_cache_company_detail_version"));
 
@@ -158,10 +161,10 @@ class MockQuestionCacheServiceTest {
         Company company = Company.create("선택 기업", CompanySize.MEDIUM);
         JobPostingMockQuestionResponse aiResponse = new JobPostingMockQuestionResponse(List.of("질문 A", "질문 B"));
 
-        when(mockQuestionCacheTransactionalService.findQuestions(1L, 100L, MockQuestionCacheService.PROMPT_VERSION))
+        when(mockQuestionCacheTransactionalService.findQuestions(1L, 100L, PROMPT_VERSION))
                 .thenReturn(Optional.empty(), Optional.empty());
         when(mockQuestionInflightRegistry.execute(
-                org.mockito.ArgumentMatchers.eq("1:100:v1"),
+                org.mockito.ArgumentMatchers.eq("1:100:" + PROMPT_VERSION),
                 org.mockito.ArgumentMatchers.any()
         )).thenAnswer(invocation -> {
             MockQuestionInflightRegistry.TaskSupplier supplier = invocation.getArgument(1);
@@ -177,7 +180,7 @@ class MockQuestionCacheServiceTest {
         when(mockQuestionCacheTransactionalService.saveQuestions(
                 company,
                 detailClassification,
-                MockQuestionCacheService.PROMPT_VERSION,
+                PROMPT_VERSION,
                 List.of("질문 A", "질문 B")
         )).thenReturn(List.of("질문 A", "질문 B"));
 
@@ -185,7 +188,7 @@ class MockQuestionCacheServiceTest {
 
         assertThat(questions).containsExactly("질문 A", "질문 B");
         verify(mockQuestionInflightRegistry).execute(
-                org.mockito.ArgumentMatchers.eq("1:100:v1"),
+                org.mockito.ArgumentMatchers.eq("1:100:" + PROMPT_VERSION),
                 org.mockito.ArgumentMatchers.any()
         );
     }
