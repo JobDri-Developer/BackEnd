@@ -327,7 +327,18 @@ class AnalysisAiClientTest {
                 .contains("[missingKeywordCandidates Negative Examples]")
                 .contains("상세페이지 제작을 UX/UI 인터페이스 설계 같은 JD 밖 개념으로 확장하지 않는다.")
                 .contains("브랜드 운영은 이미 답변에 있으며, BI/CI 구축 경험으로 일반화하지 않는다.")
-                .contains("행정지원 역량이 이미 답변에 충분히 존재한다.");
+                .contains("사업 및 행정지원 역량이 이미 답변에 충분히 존재한다.")
+                .contains("[strengthCandidates 생성 규칙]")
+                .contains("반드시 수치 성과가 있어야만 strengthCandidates가 되는 것은 아니다.")
+                .contains("구체적인 도구·기술 사용 경험은 strengthCandidates가 될 수 있다.")
+                .contains("실제 업무 또는 프로젝트 수행 경험, 업무 전 과정을 수행한 경험은 strengthCandidates가 될 수 있다.")
+                .contains("수치로 표현되지 않더라도 확인 가능한 결과는 strengthCandidates가 될 수 있다.")
+                .contains("자격 취득 자체가 아니라 직무와 연결되는 실습·적용 경험은 strengthCandidates가 될 수 있다.")
+                .contains("[strengthCandidates Positive Examples]")
+                .contains("포토샵과 일러스트로 상세페이지를 제작")
+                .contains("라이노와 Fusion360으로 제품을 설계")
+                .contains("급여 정산표를 만들어 함수로 자동 비교")
+                .contains("5만 원 시재 차이 원인을 거래 자료 대조로 추적");
     }
 
     @Test
@@ -1022,14 +1033,18 @@ class AnalysisAiClientTest {
     @DisplayName("candidate review는 검증된 candidateId와 accepted/rejectionCode 조합만 유지한다")
     void validateCandidateReviewKeepsOnlyConsistentDecisions() {
         AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
-                List.of(),
+                List.of(strengthCandidate("Spring Boot API를 개발했습니다.")),
                 List.of(
                         candidate("accepted-1", "Spring Boot API를 개발했습니다."),
                         candidate("rejected-1", "장애 대응 경험이 있습니다."),
                         candidate("bad-accepted-code", "Spring Boot API를 개발했습니다."),
                         candidate("bad-rejected-code", "장애 대응 경험이 있습니다.")
                 ),
-                List.of()
+                List.of(new AnalysisCandidateResponse.MissingKeywordCandidate(
+                        "Spring Boot API 개발 경험",
+                        "QUALIFICATION",
+                        "Spring Boot 경험"
+                ))
         );
 
         CandidateReviewResponse validated = analysisAiClient.validateCandidateReview(
@@ -1078,8 +1093,22 @@ class AnalysisAiClientTest {
                                         null
                                 )
                         ),
-                        List.of(),
-                        List.of(),
+                        List.of(
+                                new CandidateReviewResponse.FinalStrengthCandidate(
+                                        "API 개발 경험",
+                                        "Spring Boot API를 개발했습니다.",
+                                        "MAIN_TASK"
+                                ),
+                                new CandidateReviewResponse.FinalStrengthCandidate(
+                                        "입력 후보에 없는 강점",
+                                        "장애 대응 경험이 있습니다.",
+                                        "MAIN_TASK"
+                                )
+                        ),
+                        List.of(
+                                new CandidateReviewResponse.FinalMissingKeywordCandidate("Spring Boot API 개발 경험", "qualification"),
+                                new CandidateReviewResponse.FinalMissingKeywordCandidate("채용 파이프라인 소싱 경험", "JD")
+                        ),
                         80,
                         70,
                         60,
@@ -1092,10 +1121,14 @@ class AnalysisAiClientTest {
                 .containsExactly("accepted-1", "rejected-1");
         assertThat(validated.decisions().getFirst().improvement()).isNull();
         assertThat(validated.decisions().get(1).improvement()).isNull();
+        assertThat(validated.strengths()).extracting("quote")
+                .containsExactly("Spring Boot API를 개발했습니다.");
+        assertThat(validated.missingKeywords()).extracting("keyword")
+                .containsExactly("Spring Boot API 개발 경험");
     }
 
     @Test
-    @DisplayName("candidate가 없으면 review decisions는 빈 배열로 검증된다")
+    @DisplayName("candidate가 없으면 review 출력은 빈 배열로 검증된다")
     void validateCandidateReviewReturnsEmptyDecisionsWhenNoCandidates() {
         CandidateReviewResponse validated = analysisAiClient.validateCandidateReview(
                 promptInput(),
@@ -1109,8 +1142,12 @@ class AnalysisAiClientTest {
                                 "1차에 없는 후보입니다.",
                                 null
                         )),
-                        List.of(),
-                        List.of(),
+                        List.of(new CandidateReviewResponse.FinalStrengthCandidate(
+                                "입력 후보에 없는 강점",
+                                "Spring Boot API를 개발했습니다.",
+                                "MAIN_TASK"
+                        )),
+                        List.of(new CandidateReviewResponse.FinalMissingKeywordCandidate("채용 파이프라인 소싱 경험", "JD")),
                         80,
                         70,
                         60,
@@ -1119,6 +1156,61 @@ class AnalysisAiClientTest {
         );
 
         assertThat(validated.decisions()).isEmpty();
+        assertThat(validated.strengths()).isEmpty();
+        assertThat(validated.missingKeywords()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("review strength와 missingKeyword는 sanitized 후보에 존재하는 항목만 유지한다")
+    void validateCandidateReviewKeepsOnlyProvenancedStrengthsAndMissingKeywords() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(strengthCandidate("Spring Boot API를 개발했습니다.")),
+                List.of(),
+                List.of(new AnalysisCandidateResponse.MissingKeywordCandidate(
+                        "Spring Boot API 개발 경험",
+                        "QUALIFICATION",
+                        "Spring Boot 경험"
+                ))
+        );
+
+        CandidateReviewResponse validated = analysisAiClient.validateCandidateReview(
+                promptInput(),
+                candidates,
+                new CandidateReviewResponse(
+                        List.of(),
+                        List.of(
+                                new CandidateReviewResponse.FinalStrengthCandidate(
+                                        "API 개발 경험",
+                                        "Spring Boot API를 개발했습니다.",
+                                        "MAIN_TASK"
+                                ),
+                                new CandidateReviewResponse.FinalStrengthCandidate(
+                                        "후보 없는 강점",
+                                        "장애 대응 경험이 있습니다.",
+                                        "MAIN_TASK"
+                                )
+                        ),
+                        List.of(
+                                new CandidateReviewResponse.FinalMissingKeywordCandidate(
+                                        " spring boot api 개발 경험 ",
+                                        "qualification"
+                                ),
+                                new CandidateReviewResponse.FinalMissingKeywordCandidate(
+                                        "채용 파이프라인 소싱 경험",
+                                        "JD"
+                                )
+                        ),
+                        80,
+                        70,
+                        60,
+                        "피드백"
+                )
+        );
+
+        assertThat(validated.strengths()).extracting("quote")
+                .containsExactly("Spring Boot API를 개발했습니다.");
+        assertThat(validated.missingKeywords()).extracting("keyword")
+                .containsExactly(" spring boot api 개발 경험 ");
     }
 
     @Test
@@ -1263,6 +1355,16 @@ class AnalysisAiClientTest {
                 "MENTIONED",
                 "LACK_OF_RESULT",
                 "결과가 부족합니다."
+        );
+    }
+
+    private AnalysisCandidateResponse.StrengthCandidate strengthCandidate(String quote) {
+        return new AnalysisCandidateResponse.StrengthCandidate(
+                1L,
+                quote,
+                "MAIN_TASK",
+                "API 개발",
+                "직접 근거입니다."
         );
     }
 
