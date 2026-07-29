@@ -84,7 +84,7 @@ public class JobPostingRetrievalService {
                                 resultSet.getString("posting_name"),
                                 resultSet.getString("company_name"),
                                 resultSet.getString("job_title"),
-                                1.0 - distance
+                                Math.max(0.0, Math.min(1.0, 1.0 - distance))
                         ));
                     }
                     return results;

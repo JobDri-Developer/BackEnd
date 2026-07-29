@@ -20,6 +20,7 @@ import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisReposito
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.JobCategoryEvaluationCriteriaProvider;
+import com.jobdri.jobdri_api.domain.analysis.service.retrieval.JobPostingRagContextAssembler;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
@@ -84,6 +85,7 @@ public class AnalysisService {
     private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
     private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
     private final CorpusRetrievalService corpusRetrievalService;
+    private final JobPostingRagContextAssembler jobPostingRagContextAssembler;
 
     @Transactional
     @AuditLogEvent(action = "ANALYSIS_RUN", targetType = "MOCK_APPLY", targetId = "#arg1")
@@ -164,7 +166,8 @@ public class AnalysisService {
                 List.copyOf(questions),
                 List.copyOf(answeredQuestions),
                 evaluationCriteria,
-                retrieveAnalysisReferences(mockApply.getJobPosting(), answeredQuestions)
+                retrieveAnalysisReferences(mockApply.getJobPosting(), answeredQuestions),
+                jobPostingRagContextAssembler.assemble(mockApply.getJobPosting().getId())
         );
     }
 

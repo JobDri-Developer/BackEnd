@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.analysis.service.core;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedQuestionReference;
@@ -25,8 +26,8 @@ import java.util.Map;
 @Component
 public class AnalysisInputFingerprintProvider {
 
-    private static final String FINGERPRINT_SCHEMA_VERSION = "analysis-input-fingerprint-v1";
-    private static final String ANALYSIS_PROMPT_POLICY_VERSION = "analysis-prompt-policy-v1";
+    private static final String FINGERPRINT_SCHEMA_VERSION = "analysis-input-fingerprint-v2";
+    private static final String ANALYSIS_PROMPT_POLICY_VERSION = "analysis-prompt-policy-v2-similar-job-posting-rag";
     private static final double ANALYSIS_TEMPERATURE = 0.2;
 
     private final ObjectMapper objectMapper;
@@ -68,6 +69,7 @@ public class AnalysisInputFingerprintProvider {
         fingerprintSource.put("fewShotPrompt", fewShotPromptProvider.getPrompt());
         fingerprintSource.put("retrievalPolicy", retrievalPolicy());
         fingerprintSource.put("retrievalContext", retrievalContextFingerprintSource(payload.retrievalContext()));
+        fingerprintSource.put("similarJobPostings", similarJobPostingFingerprintSource(payload.similarJobPostings()));
         fingerprintSource.put("jobPosting", jobPostingFingerprintSource(payload.jobPosting()));
         fingerprintSource.put("answeredQuestions", answeredQuestionFingerprintSource(payload.answeredQuestions()));
         fingerprintSource.put("jobCategoryEvaluationCriteria", payload.jobCategoryEvaluationCriteria());
@@ -147,6 +149,28 @@ public class AnalysisInputFingerprintProvider {
         jobPostingSource.put("requirement", defaultString(jobPosting.getRequirement()));
         jobPostingSource.put("preferred", defaultString(jobPosting.getPreferred()));
         return jobPostingSource;
+    }
+
+    private List<Map<String, Object>> similarJobPostingFingerprintSource(
+            List<SimilarJobPostingContext> similarJobPostings
+    ) {
+        if (similarJobPostings == null) {
+            return List.of();
+        }
+        return similarJobPostings.stream()
+                .map(context -> {
+                    Map<String, Object> source = new LinkedHashMap<>();
+                    source.put("jobPostingId", context.jobPostingId());
+                    source.put("companyName", defaultString(context.companyName()));
+                    source.put("postingName", defaultString(context.postingName()));
+                    source.put("jobTitle", defaultString(context.jobTitle()));
+                    source.put("task", defaultString(context.task()));
+                    source.put("requirements", defaultString(context.requirements()));
+                    source.put("preferredQualifications", defaultString(context.preferredQualifications()));
+                    source.put("similarityRank", context.similarityRank());
+                    return source;
+                })
+                .toList();
     }
 
     private List<Map<String, Object>> answeredQuestionFingerprintSource(List<Question> answeredQuestions) {
