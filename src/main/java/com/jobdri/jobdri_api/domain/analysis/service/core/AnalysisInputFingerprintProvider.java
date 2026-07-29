@@ -1,0 +1,145 @@
+package com.jobdri.jobdri_api.domain.analysis.service.core;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.FewShotPromptProvider;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+
+@Component
+public class AnalysisInputFingerprintProvider {
+
+    private static final String FINGERPRINT_SCHEMA_VERSION = "analysis-input-fingerprint-v1";
+    private static final String ANALYSIS_PROMPT_POLICY_VERSION = "analysis-prompt-policy-v1";
+    private static final double ANALYSIS_TEMPERATURE = 0.2;
+
+    private final ObjectMapper objectMapper;
+    private final FewShotPromptProvider fewShotPromptProvider;
+    private final String analysisModel;
+    private final boolean twoPassEnabled;
+    private final String analysisMode;
+    private final String embeddingModel;
+    private final int jdLimit;
+    private final int questionLimit;
+
+    public AnalysisInputFingerprintProvider(
+            ObjectMapper objectMapper,
+            FewShotPromptProvider fewShotPromptProvider,
+            @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}") String analysisModel,
+            @Value("${analysis.two-pass.enabled:false}") boolean twoPassEnabled,
+            @Value("${analysis.mode:}") String analysisMode,
+            @Value("${app.corpus.embedding.model:embed-v4.0}") String embeddingModel,
+            @Value("${app.analysis.retrieval.jd-limit:3}") int jdLimit,
+            @Value("${app.analysis.retrieval.question-limit:5}") int questionLimit
+    ) {
+        this.objectMapper = objectMapper;
+        this.fewShotPromptProvider = fewShotPromptProvider;
+        this.analysisModel = analysisModel;
+        this.twoPassEnabled = twoPassEnabled;
+        this.analysisMode = analysisMode;
+        this.embeddingModel = embeddingModel;
+        this.jdLimit = jdLimit;
+        this.questionLimit = questionLimit;
+    }
+
+    public String create(AnalysisExecutionPayload payload) {
+        Map<String, Object> fingerprintSource = new LinkedHashMap<>();
+        fingerprintSource.put("schemaVersion", FINGERPRINT_SCHEMA_VERSION);
+        fingerprintSource.put("promptPolicyVersion", ANALYSIS_PROMPT_POLICY_VERSION);
+        fingerprintSource.put("analysisMode", resolveAnalysisMode());
+        fingerprintSource.put("analysisModel", analysisModel);
+        fingerprintSource.put("temperature", ANALYSIS_TEMPERATURE);
+        fingerprintSource.put("fewShotPrompt", fewShotPromptProvider.getPrompt());
+        fingerprintSource.put("retrievalPolicy", retrievalPolicy());
+        fingerprintSource.put("jobPosting", jobPostingFingerprintSource(payload.jobPosting()));
+        fingerprintSource.put("answeredQuestions", answeredQuestionFingerprintSource(payload.answeredQuestions()));
+        fingerprintSource.put("jobCategoryEvaluationCriteria", payload.jobCategoryEvaluationCriteria());
+        return sha256Hex(writeFingerprintSource(fingerprintSource));
+    }
+
+    private Map<String, Object> retrievalPolicy() {
+        Map<String, Object> retrievalPolicy = new LinkedHashMap<>();
+        retrievalPolicy.put("embeddingModel", embeddingModel);
+        retrievalPolicy.put("jdLimit", jdLimit);
+        retrievalPolicy.put("questionLimit", questionLimit);
+        retrievalPolicy.put("jobPostingQueryTemplate", CorpusRetrievalService.ANALYSIS_JOB_POSTING_QUERY_TEMPLATE);
+        retrievalPolicy.put("questionQueryTemplate", CorpusRetrievalService.ANALYSIS_QUESTION_QUERY_TEMPLATE);
+        return retrievalPolicy;
+    }
+
+    private Map<String, Object> jobPostingFingerprintSource(JobPosting jobPosting) {
+        Map<String, Object> jobPostingSource = new LinkedHashMap<>();
+        jobPostingSource.put("companyName", defaultString(jobPosting.getCompany().getName()));
+        jobPostingSource.put("bigClassification", defaultString(
+                jobPosting.getDetailClassification().getMiddleClassification().getClassification().getBigName()
+        ));
+        jobPostingSource.put("middleClassification", defaultString(
+                jobPosting.getDetailClassification().getMiddleClassification().getMiddleName()
+        ));
+        jobPostingSource.put("detailClassification", defaultString(jobPosting.getDetailClassification().getDetailName()));
+        jobPostingSource.put("postingName", defaultString(jobPosting.getPostingName()));
+        jobPostingSource.put("jobTitle", defaultString(jobPosting.getJobTitle()));
+        jobPostingSource.put("task", defaultString(jobPosting.getTask()));
+        jobPostingSource.put("requirement", defaultString(jobPosting.getRequirement()));
+        jobPostingSource.put("preferred", defaultString(jobPosting.getPreferred()));
+        return jobPostingSource;
+    }
+
+    private List<Map<String, Object>> answeredQuestionFingerprintSource(List<Question> answeredQuestions) {
+        return answeredQuestions.stream()
+                .map(question -> {
+                    Map<String, Object> questionSource = new LinkedHashMap<>();
+                    questionSource.put("questionId", question.getId());
+                    questionSource.put("content", defaultString(question.getContent()));
+                    questionSource.put("answer", defaultString(question.getAnswer()));
+                    questionSource.put("limit", question.getLimit());
+                    return questionSource;
+                })
+                .toList();
+    }
+
+    private String resolveAnalysisMode() {
+        if (StringUtils.hasText(analysisMode)) {
+            return analysisMode.trim().replace('-', '_').toUpperCase(Locale.ROOT);
+        }
+        return twoPassEnabled ? "TWO_PASS" : "SINGLE_PASS";
+    }
+
+    private String writeFingerprintSource(Map<String, Object> fingerprintSource) {
+        try {
+            return objectMapper.writeValueAsString(fingerprintSource);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("analysis input fingerprint source를 직렬화할 수 없습니다.", exception);
+        }
+    }
+
+    private String sha256Hex(String value) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            StringBuilder builder = new StringBuilder(hash.length * 2);
+            for (byte b : hash) {
+                builder.append(String.format("%02x", b));
+            }
+            return builder.toString();
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("analysis input fingerprint를 생성할 수 없습니다.", exception);
+        }
+    }
+
+    private String defaultString(String value) {
+        return value == null ? "" : value;
+    }
+}

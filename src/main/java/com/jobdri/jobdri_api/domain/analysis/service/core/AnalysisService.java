@@ -80,16 +80,23 @@ public class AnalysisService {
     private final CreditService creditService;
     private final ObjectMapper objectMapper;
     private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
+    private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
 
     @Transactional
     @AuditLogEvent(action = "ANALYSIS_RUN", targetType = "MOCK_APPLY", targetId = "#arg1")
     public AnalysisResponse analyze(User user, Long mockApplyId) {
         validateAnalysisRequest(user, mockApplyId);
-        String referenceId = "mockApplyId=" + mockApplyId;
+        AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
+        String inputFingerprint = analysisInputFingerprintProvider.create(payload);
+        AnalysisResponse cachedResponse = reuseExistingAnalysisIfSameInput(user, mockApplyId, inputFingerprint);
+        if (cachedResponse != null) {
+            return cachedResponse;
+        }
+
+        String referenceId = analysisCreditReferenceId(mockApplyId, inputFingerprint);
         deductAnalysisCredit(user, referenceId);
 
         try {
-            AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
             AnalysisLlmResponse llmResponse = executeAnalysis(payload);
             AnalysisResponse response = finalizeAnalysis(user, mockApplyId, payload, llmResponse);
             return response;
@@ -174,6 +181,7 @@ public class AnalysisService {
             AnalysisExecutionPayload payload,
             AnalysisLlmResponse llmResponse
     ) {
+        String inputFingerprint = analysisInputFingerprintProvider.create(payload);
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         validateRequiredScores(llmResponse);
@@ -194,7 +202,8 @@ public class AnalysisService {
                 normalizeFeedback(llmResponse.feedback()),
                 serializeMissingKeywords(missingKeywords),
                 serializeHighlights(keyStrengths, "keyStrengths"),
-                serializeHighlights(keyWeaknesses, "keyWeaknesses")
+                serializeHighlights(keyWeaknesses, "keyWeaknesses"),
+                inputFingerprint
         ));
 
         List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(
@@ -297,6 +306,17 @@ public class AnalysisService {
         questionAnalysisRepository.deleteAllByAnalysisId(analysis.getId());
         analysisRepository.delete(analysis);
         analysisRepository.flush();
+    }
+
+    private AnalysisResponse reuseExistingAnalysisIfSameInput(User user, Long mockApplyId, String inputFingerprint) {
+        return analysisRepository.findByMockApplyId(mockApplyId)
+                .filter(analysis -> inputFingerprint.equals(analysis.getInputFingerprint()))
+                .map(analysis -> getAnalysis(user, mockApplyId))
+                .orElse(null);
+    }
+
+    private String analysisCreditReferenceId(Long mockApplyId, String inputFingerprint) {
+        return "mockApplyId=" + mockApplyId + ":fingerprint=" + inputFingerprint;
     }
 
     private List<QuestionAnalysis> buildQuestionAnalyses(

@@ -47,6 +47,8 @@ import java.util.concurrent.Executors;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
@@ -1137,11 +1139,12 @@ class AnalysisServiceTest {
     }
 
     @Test
-    @DisplayName("재분석 시 기존 분석과 문항 분석을 새 결과로 교체한다")
-    void analyzeReplacesExistingAnalysis() {
+    @DisplayName("동일 입력 재분석 시 기존 분석 결과를 재사용하고 크레딧을 다시 차감하지 않는다")
+    void analyzeReusesExistingAnalysisWhenFingerprintMatches() {
         User user = saveUser("analysis-replace@example.com");
         MockApply mockApply = saveMockApply(user);
         Question question = saveQuestion(mockApply, "성과 경험", "가입 완료율을 개선했습니다. API 응답 속도를 개선했습니다.");
+        int initialCredit = userRepository.findById(user.getId()).orElseThrow().getCredit();
         when(analysisAiClient.analyze(any(), any()))
                 .thenReturn(new AnalysisLlmResponse(
                         61,
@@ -1173,6 +1176,60 @@ class AnalysisServiceTest {
         AnalysisResponse first = analysisService.analyze(user, mockApply.getId());
         AnalysisResponse second = analysisService.analyze(user, mockApply.getId());
 
+        assertThat(second.analysisId()).isEqualTo(first.analysisId());
+        assertThat(second.score()).isEqualTo(first.score());
+        assertThat(second.feedback()).isEqualTo("첫 번째 분석");
+        assertThat(analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow().getInputFingerprint()).isNotBlank();
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(initialCredit - 1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.USE
+        )).hasSize(1);
+        verify(analysisAiClient, times(1)).analyze(any(), any());
+    }
+
+    @Test
+    @DisplayName("답변이 바뀐 뒤 재분석하면 기존 분석과 문항 분석을 새 결과로 교체한다")
+    void analyzeReplacesExistingAnalysisWhenFingerprintChanges() {
+        User user = saveUser("analysis-replace-changed@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "성과 경험", "가입 완료율을 개선했습니다. API 응답 속도를 개선했습니다.");
+        int initialCredit = userRepository.findById(user.getId()).orElseThrow().getCredit();
+        when(analysisAiClient.analyze(any(), any()))
+                .thenReturn(new AnalysisLlmResponse(
+                        61,
+                        62,
+                        63,
+                        "첫 번째 분석",
+                        List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "가입 완료율을 개선했습니다.",
+                                "mentioned",
+                                "수치가 부족합니다.",
+                                "가입 완료율을 12% 개선했습니다."
+                        ))
+                ))
+                .thenReturn(new AnalysisLlmResponse(
+                        89,
+                        90,
+                        91,
+                        "두 번째 분석",
+                        List.of(new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "API 응답 속도를 크게 개선했습니다.",
+                                "proven",
+                                "성과가 구체적으로 제시되어 있습니다.",
+                                "API 응답 속도를 300ms 단축했습니다."
+                        ))
+                ));
+
+        AnalysisResponse first = analysisService.analyze(user, mockApply.getId());
+        question.updateAnswer("가입 완료율을 개선했습니다. API 응답 속도를 크게 개선했습니다.");
+        questionRepository.saveAndFlush(question);
+        entityManager.clear();
+
+        AnalysisResponse second = analysisService.analyze(user, mockApply.getId());
+
         assertThat(second.analysisId()).isNotEqualTo(first.analysisId());
         assertThat(second.score()).isEqualTo(90);
         assertThat(second.feedback()).isEqualTo("두 번째 분석");
@@ -1180,6 +1237,12 @@ class AnalysisServiceTest {
         assertThat(analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow().getScore()).isEqualTo(90);
         assertThat(questionAnalysisRepository.findAllByAnalysisId(second.analysisId())).isEmpty();
         assertThat(questionAnalysisRepository.findAllByAnalysisId(first.analysisId())).isEmpty();
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(initialCredit - 2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.USE
+        )).hasSize(2);
+        verify(analysisAiClient, times(2)).analyze(any(), any());
     }
 
     @Test
