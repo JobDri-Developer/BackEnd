@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
+import com.jobdri.jobdri_api.global.cohere.CohereProperties;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -24,14 +25,14 @@ public class MockQuestionCacheVersionProvider {
 
     public MockQuestionCacheVersionProvider(
             MockQuestionCacheProperties mockQuestionCacheProperties,
+            CohereProperties cohereProperties,
             @Value("${openai.model.job-posting-extractor:gpt-4o-mini}") String extractionModel,
-            @Value("${app.corpus.embedding.model:embed-v4.0}") String embeddingModel,
             @Value("${app.analysis.retrieval.jd-limit:3}") int jdLimit,
             @Value("${app.analysis.retrieval.question-limit:5}") int questionLimit
     ) {
         this.mockQuestionCacheProperties = mockQuestionCacheProperties;
         this.extractionModel = extractionModel;
-        this.embeddingModel = embeddingModel;
+        this.embeddingModel = cohereProperties.embedding().model();
         this.jdLimit = jdLimit;
         this.questionLimit = questionLimit;
     }

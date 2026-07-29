@@ -93,8 +93,6 @@ cohere:
     dimension: ${COHERE_EMBEDDING_DIMENSION:1024}
     connect-timeout: ${COHERE_EMBEDDING_CONNECT_TIMEOUT:3s}
     read-timeout: ${COHERE_EMBEDDING_READ_TIMEOUT:15s}
-  api:
-    key: ${COHERE_API_KEY:}
 
 jwt:
   secret:
