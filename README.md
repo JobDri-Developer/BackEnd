@@ -96,6 +96,31 @@ Server: `https://api.jobdri.site`
 | **Mail / Realtime** | JavaMailSender(Gmail SMTP), SSE |
 | **Docs / Build** | SpringDoc Swagger, Gradle, GitHub Actions |
 
+## Cohere Embed API 로컬 검증
+
+Cohere 임베딩 클라이언트는 `COHERE_API_KEY` 환경변수를 통해 API key를 읽습니다. 값이 없어도 애플리케이션 기동은 실패하지 않지만, 실제 임베딩 호출 시 명확한 예외가 발생합니다.
+
+```bash
+export COHERE_API_KEY='실제_API_키'
+```
+
+기본 설정:
+
+- endpoint: `POST https://api.cohere.com/v2/embed`
+- model: `embed-v4.0`
+- output dimension: `1024`
+- document input type: `search_document`
+- query input type: `search_query`
+- embedding type: `float`
+
+초기 검증용 텍스트:
+
+```text
+Spring Boot 기반 REST API 개발 및 PostgreSQL 성능 최적화
+```
+
+기본 테스트 스위트는 실제 Cohere API를 호출하지 않습니다. 수동 검증이 필요하면 `COHERE_API_KEY`를 설정한 뒤 Spring 컨텍스트에서 `CohereEmbeddingClient.embedDocuments(...)` 또는 `embedQuery(...)`를 호출해 반환 벡터 차원이 1024인지 확인합니다. 전체 embedding 값이나 API key는 로그에 남기지 않습니다.
+
 ## ✨ Key Features
 
 ### 1. 인증 및 사용자 관리
