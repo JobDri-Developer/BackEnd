@@ -109,6 +109,46 @@ class MissingKeywordSanitizerTest {
     }
 
     @Test
+    @DisplayName("자격증, 면허, 학력, 경력 연차 누락 키워드는 정형 자격요건으로 제거한다")
+    void structuredCertificateAndEducationKeywordsRejected() {
+        List<AnalysisCandidateResponse.MissingKeywordCandidate> candidates = List.of(
+                candidate("사회복지사", "QUALIFICATION"),
+                candidate("청소년상담사 3급", "QUALIFICATION"),
+                candidate("운전면허", "QUALIFICATION"),
+                candidate("대졸 이상", "QUALIFICATION"),
+                candidate("경력 3년 이상", "QUALIFICATION")
+        );
+
+        MissingKeywordSanitizationResult result = MissingKeywordSanitizer.sanitize(
+                MAIN_TASKS,
+                QUALIFICATIONS,
+                "",
+                candidates
+        );
+
+        assertThat(result.acceptedCandidates()).isEmpty();
+        assertThat(result.decisions()).extracting(MissingKeywordSanitizationDecision::rejectionReason)
+                .containsOnly(MissingKeywordRejectionReason.CERTIFICATE_OR_QUANTITATIVE_NOISE);
+    }
+
+    @Test
+    @DisplayName("자격요건 섹션의 기술·실무 역량은 정형 자격요건으로 오인하지 않는다")
+    void practicalSkillQualificationKeywordsAreNotStructuredNoise() {
+        MissingKeywordSanitizationResult result = MissingKeywordSanitizer.sanitize(
+                MAIN_TASKS,
+                "Spring Boot 실무 경험과 포토샵 활용 능력",
+                "",
+                List.of(
+                        candidate("Spring Boot 실무 경험", "QUALIFICATION"),
+                        candidate("포토샵 활용 능력", "QUALIFICATION")
+                )
+        );
+
+        assertThat(result.acceptedCandidates()).extracting("keyword")
+                .containsExactly("Spring Boot 실무 경험", "포토샵 활용 능력");
+    }
+
+    @Test
     @DisplayName("유효 후보는 ACCEPTED로 기록한다")
     void validCandidateAccepted() {
         MissingKeywordSanitizationResult result = sanitize(candidate("장애 대응 경험", "MAIN_TASK"));

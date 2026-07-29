@@ -15,7 +15,9 @@ public final class AnalysisSanitizationRules {
     private static final Pattern CAREER_YEAR_PATTERN = Pattern.compile("경력\\s*\\d+\\s*년|\\d+\\s*년\\s*(이상|이하|미만|초과)");
     private static final String[] STRUCTURED_QUALIFICATION_TERMS = {
             "자격증", "면허", "면허증", "공인성적", "어학성적", "토익", "toeic", "토플", "toefl",
-            "opic", "ielts", "학위", "전공", "졸업", "학력", "신입", "근무 가능", "국적", "나이", "연령"
+            "opic", "ielts", "학위", "전공", "졸업", "학력", "신입", "근무 가능", "국적", "나이", "연령",
+            "사회복지사", "청소년지도사", "청소년상담사", "직업상담사", "임상심리사",
+            "대졸", "초대졸", "전문대졸", "고졸"
     };
     private static final String[] META_IMPROVEMENT_TERMS = {
             "구체적으로 작성했습니다", "명확히 설명했습니다", "성과를 강조했습니다", "수치로 명시했습니다",

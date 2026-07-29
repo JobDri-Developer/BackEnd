@@ -644,6 +644,15 @@ public class AnalysisAiClient {
                 - status 다양성이나 개수를 채우기 위해 후보를 만들지 않는다.
                 - improvement를 생성하지 않는다.
 
+                [strengthCandidates 생성 규칙]
+                - 반드시 수치 성과가 있어야만 strengthCandidates가 되는 것은 아니다.
+                - JD와 직접 연결된다면 구체적인 도구·기술 사용 경험은 strengthCandidates가 될 수 있다.
+                - 실제 업무 또는 프로젝트 수행 경험, 업무 전 과정을 수행한 경험은 strengthCandidates가 될 수 있다.
+                - 문제를 발견하고 해결한 과정, 수치로 표현되지 않더라도 확인 가능한 결과는 strengthCandidates가 될 수 있다.
+                - 자격 취득 자체가 아니라 직무와 연결되는 실습·적용 경험은 strengthCandidates가 될 수 있다.
+                - JD 우대사항과 직접 연결되는 경험도 strengthCandidates가 될 수 있으나 preference-only 강점을 과대평가하지 않는다.
+                - 추상적인 포부, 근거 없는 자기평가, 단순 성격 표현, JD와 무관한 경험, 답변에 없는 추론 강점, 동일 근거의 중복 강점은 생성하지 않는다.
+
                 [missingKeywordCandidates 생성 규칙]
                 - missingKeywordCandidates는 recall보다 precision을 우선한다. 확실한 누락 역량이 없으면 []를 반환한다.
                 - 개수를 채우기 위해 missingKeywordCandidates를 생성하지 않는다. 애매하면 생성하지 않는다.
@@ -676,6 +685,21 @@ public class AnalysisAiClient {
                   Answer: 총무부에서 사업 및 행정지원 업무와 예산 관리를 담당했습니다.
                   missingKeywordCandidates: []
                   이유: 사업 및 행정지원 역량이 이미 답변에 충분히 존재한다.
+
+                [strengthCandidates Positive Examples]
+                - Example 1
+                  JD main_tasks: 상세페이지 제작
+                  JD qualifications: 포토샵·일러스트 활용
+                  JD preferences: 라이노·키샷 우대
+                  Answer: 포토샵과 일러스트로 상세페이지를 제작했고, 1인 제품 브랜드를 직접 기획·운영했습니다. 라이노와 Fusion360으로 제품을 설계한 뒤 키샷으로 렌더링하고 실제 제품 제작까지 완료했습니다.
+                  strengthCandidates: 포토샵과 일러스트 상세페이지 제작 경험, 1인 제품 브랜드 기획·운영 경험, 라이노·Fusion360·키샷 기반 제품 제작 경험 중 JD와 직접 연결되는 quote를 사용한다.
+                  이유: 수치 성과가 없어도 도구, 수행 업무, 제작 완료 결과가 확인 가능하다.
+                - Example 2
+                  JD main_tasks: 엑셀 고급 활용, 4대보험 신고, 회계 업무
+                  JD preferences: 더존 활용 우대
+                  Answer: 급여 정산표를 만들어 함수로 자동 비교했고, 전표 입력과 계정 분류를 실습했습니다. 4대보험 자료 작성 방법을 학습하고 더존 프로그램 입력 기준을 비교했으며, 5만 원 시재 차이 원인을 거래 자료 대조로 추적해 수정 요청을 주 3~4건에서 1~2건으로 줄였습니다.
+                  strengthCandidates: 엑셀 자동 비교, 회계 전표·계정 분류 실습, 4대보험 자료 작성 학습, 더존 입력 기준 비교, 시재 차이 원인 추적과 수정 요청 감소 중 JD와 직접 연결되는 quote를 사용한다.
+                  이유: 직무 도구, 실무 처리 과정, 문제 해결, 개선 결과가 확인 가능하다.
 
                 [문장 유형별 후보 기준]
                 - EXPERIENCE: 역할, 행동, 방법, 결과, 직무 연결성 중 실제로 부족한 요소가 있어야 한다.
@@ -1667,11 +1691,22 @@ public class AnalysisAiClient {
                 sanitizedCandidates == null || sanitizedCandidates.analysisCandidates() == null
                         ? List.of()
                         : sanitizedCandidates.analysisCandidates();
+        List<CandidateReviewResponse.FinalStrengthCandidate> strengths = validateReviewStrengths(
+                promptInput,
+                sanitizedCandidates,
+                reviewResponse.strengths()
+        );
+        List<CandidateReviewResponse.FinalMissingKeywordCandidate> missingKeywords = validateReviewMissingKeywords(
+                promptInput,
+                sanitizedCandidates,
+                reviewResponse.missingKeywords()
+        );
         if (analysisCandidates.isEmpty()) {
+            logDroppedDecisionsWithoutInput(promptInput, reviewResponse.decisions());
             return new CandidateReviewResponse(
                     List.of(),
-                    reviewResponse.strengths() == null ? List.of() : reviewResponse.strengths(),
-                    reviewResponse.missingKeywords() == null ? List.of() : reviewResponse.missingKeywords(),
+                    strengths,
+                    missingKeywords,
                     reviewResponse.jobFit(),
                     reviewResponse.impact(),
                     reviewResponse.completeness(),
@@ -1698,10 +1733,12 @@ public class AnalysisAiClient {
                 }
                 String candidateId = decision.candidateId().trim();
                 if (!seenCandidateIds.add(candidateId)) {
+                    logReviewDrop(promptInput, "review_unknown_candidate_id", candidateId, null, null);
                     continue;
                 }
                 AnalysisCandidateResponse.AnalysisCandidate candidate = candidateById.get(candidateId);
                 if (candidate == null || decision.accepted() == null || decision.rejectionCode() == null) {
+                    logReviewDrop(promptInput, "review_unknown_candidate_id", candidateId, null, null);
                     continue;
                 }
                 if (Boolean.TRUE.equals(decision.accepted())) {
@@ -1723,12 +1760,162 @@ public class AnalysisAiClient {
         }
         return new CandidateReviewResponse(
                 decisions,
-                reviewResponse.strengths() == null ? List.of() : reviewResponse.strengths(),
-                reviewResponse.missingKeywords() == null ? List.of() : reviewResponse.missingKeywords(),
+                strengths,
+                missingKeywords,
                 reviewResponse.jobFit(),
                 reviewResponse.impact(),
                 reviewResponse.completeness(),
                 reviewResponse.feedback()
+        );
+    }
+
+    private void logDroppedDecisionsWithoutInput(
+            AnalysisPromptInput promptInput,
+            List<CandidateReviewResponse.CandidateDecision> decisions
+    ) {
+        if (decisions == null) {
+            return;
+        }
+        for (CandidateReviewResponse.CandidateDecision decision : decisions) {
+            if (decision != null) {
+                logReviewDrop(
+                        promptInput,
+                        "review_output_without_input_candidate",
+                        decision.candidateId(),
+                        null,
+                        null
+                );
+            }
+        }
+    }
+
+    private List<CandidateReviewResponse.FinalStrengthCandidate> validateReviewStrengths(
+            AnalysisPromptInput promptInput,
+            AnalysisCandidateResponse sanitizedCandidates,
+            List<CandidateReviewResponse.FinalStrengthCandidate> reviewStrengths
+    ) {
+        if (reviewStrengths == null || sanitizedCandidates == null || sanitizedCandidates.strengthCandidates() == null) {
+            if (reviewStrengths != null) {
+                logReviewStrengthsWithoutInput(promptInput, reviewStrengths);
+            }
+            return List.of();
+        }
+        Set<String> allowedQuotes = sanitizedCandidates.strengthCandidates().stream()
+                .filter(candidate -> isPrimarySource(candidate.relatedSource()))
+                .map(candidate -> normalize(candidate.quote()))
+                .collect(Collectors.toSet());
+        if (allowedQuotes.isEmpty()) {
+            logReviewStrengthsWithoutInput(promptInput, reviewStrengths);
+            return List.of();
+        }
+
+        List<CandidateReviewResponse.FinalStrengthCandidate> result = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (CandidateReviewResponse.FinalStrengthCandidate strength : reviewStrengths) {
+            if (strength == null || !StringUtils.hasText(strength.quote())) {
+                logReviewDrop(promptInput, "review_strength_without_candidate", null, null, null);
+                continue;
+            }
+            String normalizedQuote = normalize(strength.quote());
+            if (!allowedQuotes.contains(normalizedQuote) || !seen.add(normalizedQuote)) {
+                logReviewDrop(promptInput, "review_strength_without_candidate", null, null, null);
+                continue;
+            }
+            result.add(strength);
+        }
+        return List.copyOf(result);
+    }
+
+    private void logReviewStrengthsWithoutInput(
+            AnalysisPromptInput promptInput,
+            List<CandidateReviewResponse.FinalStrengthCandidate> strengths
+    ) {
+        for (CandidateReviewResponse.FinalStrengthCandidate strength : strengths) {
+            logReviewDrop(promptInput, "review_strength_without_candidate", null, null, null);
+        }
+    }
+
+    private List<CandidateReviewResponse.FinalMissingKeywordCandidate> validateReviewMissingKeywords(
+            AnalysisPromptInput promptInput,
+            AnalysisCandidateResponse sanitizedCandidates,
+            List<CandidateReviewResponse.FinalMissingKeywordCandidate> reviewMissingKeywords
+    ) {
+        if (reviewMissingKeywords == null || sanitizedCandidates == null || sanitizedCandidates.missingKeywordCandidates() == null) {
+            if (reviewMissingKeywords != null) {
+                logReviewMissingKeywordsWithoutInput(promptInput, reviewMissingKeywords);
+            }
+            return List.of();
+        }
+        Set<String> allowedKeywords = sanitizedCandidates.missingKeywordCandidates().stream()
+                .filter(candidate -> StringUtils.hasText(candidate.keyword()))
+                .map(candidate -> missingKeywordProvenanceKey(candidate.keyword(), candidate.source()))
+                .collect(Collectors.toSet());
+        if (allowedKeywords.isEmpty()) {
+            logReviewMissingKeywordsWithoutInput(promptInput, reviewMissingKeywords);
+            return List.of();
+        }
+
+        List<CandidateReviewResponse.FinalMissingKeywordCandidate> result = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (CandidateReviewResponse.FinalMissingKeywordCandidate keyword : reviewMissingKeywords) {
+            if (keyword == null || !StringUtils.hasText(keyword.keyword())) {
+                logReviewDrop(promptInput, "review_missing_keyword_without_candidate", null, null, null);
+                continue;
+            }
+            String key = missingKeywordProvenanceKey(keyword.keyword(), keyword.source());
+            if (!allowedKeywords.contains(key) || !seen.add(key)) {
+                logReviewDrop(
+                        promptInput,
+                        "review_missing_keyword_without_candidate",
+                        null,
+                        keyword.keyword(),
+                        keyword.source()
+                );
+                continue;
+            }
+            result.add(keyword);
+        }
+        return List.copyOf(result);
+    }
+
+    private void logReviewMissingKeywordsWithoutInput(
+            AnalysisPromptInput promptInput,
+            List<CandidateReviewResponse.FinalMissingKeywordCandidate> keywords
+    ) {
+        for (CandidateReviewResponse.FinalMissingKeywordCandidate keyword : keywords) {
+            logReviewDrop(
+                    promptInput,
+                    "review_missing_keyword_without_candidate",
+                    null,
+                    keyword == null ? null : keyword.keyword(),
+                    keyword == null ? null : keyword.source()
+            );
+        }
+    }
+
+    private String missingKeywordProvenanceKey(String keyword, String source) {
+        String normalizedKeyword = AnalysisSanitizationRules.normalizeText(keyword);
+        String normalizedSource = parseCandidateSource(source)
+                .map(Enum::name)
+                .orElseGet(() -> AnalysisSanitizationRules.normalizeText(source));
+        return normalizedKeyword + ":" + normalizedSource;
+    }
+
+    private void logReviewDrop(
+            AnalysisPromptInput promptInput,
+            String reason,
+            String candidateId,
+            String keyword,
+            String source
+    ) {
+        log.warn(
+                "Candidate review output removed. reason={}, companyName={}, jobName={}, candidateId={}, keyword={}, source={}",
+                reason,
+                promptInput == null ? null : promptInput.companyName(),
+                promptInput == null ? null : promptInput.jobName(),
+                candidateId,
+                keyword,
+                source
         );
     }
 
