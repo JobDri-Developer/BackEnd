@@ -2,10 +2,15 @@ package com.jobdri.jobdri_api.domain.analysis.evaluation;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
+import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -83,7 +88,7 @@ class NlgEvaluationBatchService {
                     successCount++;
                 }
             } catch (Exception e) {
-                log.warn("NLG judge failed. caseId={}, message={}", caseId, e.getMessage());
+                logEvaluationFailure(caseId, inputPath.toString(), e);
                 results.add(NlgEvaluationResult.failed(caseId, inputPath.toString(), failureStage(e)));
             }
         }
@@ -151,21 +156,44 @@ class NlgEvaluationBatchService {
             NlgEvaluationAiClient.JudgeCallResult callResult
     ) {
         NlgEvaluationResponse response = callResult.response();
-        if (response == null || !Objects.equals(input.caseId(), response.caseId())) {
+        if (response == null) {
+            log.warn(
+                    "Judge validation failed. reason=response_null, caseId={}, sourceResultFile={}, expectedCaseId={}, actualCaseId={}, responseNull={}",
+                    input.caseId(),
+                    input.sourceResultFile(),
+                    input.caseId(),
+                    null,
+                    true
+            );
+            return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
+        }
+        if (!Objects.equals(input.caseId(), response.caseId())) {
+            log.warn(
+                    "Judge validation failed. reason=case_id_mismatch, caseId={}, sourceResultFile={}, expectedCaseId={}, actualCaseId={}, responseNull={}",
+                    input.caseId(),
+                    input.sourceResultFile(),
+                    input.caseId(),
+                    response.caseId(),
+                    false
+            );
             return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
         }
 
-        if (input.questionAnalyses().isEmpty()
-                && response.questionAnalysisEvaluations() != null
-                && !response.questionAnalysisEvaluations().isEmpty()) {
-            return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
-        }
+        response = normalizeQuestionAnalysisEvaluations(input, response);
 
         List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations =
                 validQuestionEvaluations(input.questionAnalyses(), response.questionAnalysisEvaluations());
+        List<NlgEvaluationResponse.MissingKeywordMissEvaluation> validMissingKeywordMissEvaluations =
+                validMissingKeywordMissEvaluations(input, response.missedMissingKeywordEvaluations());
         boolean missedValidatedMissingKeywords =
                 input.validatedMissingKeywordCandidateCount() > 0 && input.actualMissingKeywordCount() == 0;
-        List<NlgEvaluationErrorCode> errorCodes = mergeErrorCodes(response, evaluations, missedValidatedMissingKeywords);
+        List<NlgEvaluationErrorCode> errorCodes = mergeErrorCodes(
+                input,
+                response,
+                evaluations,
+                missedValidatedMissingKeywords,
+                !validMissingKeywordMissEvaluations.isEmpty()
+        );
         boolean hasFatalError = hasFatalError(errorCodes);
         Integer missingKeywordsCoverage = validCaseScore(response.missingKeywordsCoverage());
         if (missedValidatedMissingKeywords) {
@@ -197,6 +225,39 @@ class NlgEvaluationBatchService {
                 callResult.outputTokens(),
                 callResult.latencyMs(),
                 ""
+        );
+    }
+
+    private NlgEvaluationResponse normalizeQuestionAnalysisEvaluations(
+            NlgEvaluationAiClient.NlgJudgeInput input,
+            NlgEvaluationResponse response
+    ) {
+        if (!input.questionAnalyses().isEmpty()) {
+            return response;
+        }
+        int originalCount = response.questionAnalysisEvaluations() == null
+                ? 0
+                : response.questionAnalysisEvaluations().size();
+        if (originalCount > 0) {
+            log.warn(
+                    "Normalized NLG Judge question analysis evaluations. reason=empty_input_evaluations_normalized, caseId={}, sourceResultFile={}, inputQuestionAnalyses=0, originalResponseQuestionAnalysisEvaluations={}, normalizedResponseQuestionAnalysisEvaluations=0",
+                    input.caseId(),
+                    input.sourceResultFile(),
+                    originalCount
+            );
+        }
+        return new NlgEvaluationResponse(
+                response.caseId(),
+                List.of(),
+                response.noAnalysisAppropriateness(),
+                response.strengthsPrecision(),
+                response.strengthsCoverage(),
+                response.missingKeywordsPrecision(),
+                response.missingKeywordsCoverage(),
+                response.overallUsefulness(),
+                response.missedMissingKeywordEvaluations(),
+                response.caseErrorCodes(),
+                response.shortRationale()
         );
     }
 
@@ -273,15 +334,28 @@ class NlgEvaluationBatchService {
     }
 
     private List<NlgEvaluationErrorCode> mergeErrorCodes(
+            NlgEvaluationAiClient.NlgJudgeInput input,
             NlgEvaluationResponse response,
             List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations,
-            boolean missedValidatedMissingKeywords
+            boolean missedValidatedMissingKeywords,
+            boolean hasValidMissingKeywordMissEvidence
     ) {
         boolean hasLowScore = hasLowCaseScore(response) || missedValidatedMissingKeywords;
         Set<NlgEvaluationErrorCode> codes = new HashSet<>(sanitizeErrorCodes(
                 response.caseErrorCodes(),
                 hasLowScore
         ));
+        if (codes.remove(NlgEvaluationErrorCode.MISSED_MISSING_KEYWORD)) {
+            if (hasValidMissingKeywordMissEvidence || missedValidatedMissingKeywords) {
+                codes.add(NlgEvaluationErrorCode.MISSED_MISSING_KEYWORD);
+            } else {
+                log.warn(
+                        "Removed NLG Judge missing keyword error without valid evidence. reason=judge_missing_keyword_without_valid_evidence, caseId={}, sourceResultFile={}",
+                        input.caseId(),
+                        input.sourceResultFile()
+                );
+            }
+        }
         if (missedValidatedMissingKeywords) {
             codes.add(NlgEvaluationErrorCode.MISSED_MISSING_KEYWORD);
             codes.remove(NlgEvaluationErrorCode.NONE);
@@ -306,6 +380,106 @@ class NlgEvaluationBatchService {
         return codes.stream()
                 .sorted()
                 .toList();
+    }
+
+    private List<NlgEvaluationResponse.MissingKeywordMissEvaluation> validMissingKeywordMissEvaluations(
+            NlgEvaluationAiClient.NlgJudgeInput input,
+            List<NlgEvaluationResponse.MissingKeywordMissEvaluation> evaluations
+    ) {
+        if (evaluations == null || evaluations.isEmpty()) {
+            return List.of();
+        }
+        List<AnalysisLlmResponse.MissingKeywordItem> actualMissingKeywords =
+                readActualMissingKeywords(input.missingKeywordsJson(), input.caseId());
+        List<NlgEvaluationResponse.MissingKeywordMissEvaluation> valid = new ArrayList<>();
+        for (NlgEvaluationResponse.MissingKeywordMissEvaluation evaluation : evaluations) {
+            Optional<MissingKeywordMissInvalidReason> invalidReason =
+                    missingKeywordMissInvalidReason(input, actualMissingKeywords, evaluation);
+            if (invalidReason.isPresent()) {
+                log.warn(
+                        "Removed NLG Judge missing keyword evidence. caseId={}, keyword={}, relatedRequirement={}, reason={}, invalidReason={}",
+                        input.caseId(),
+                        evaluation == null ? null : evaluation.keyword(),
+                        evaluation == null ? null : evaluation.relatedRequirement(),
+                        evaluation == null ? null : evaluation.reason(),
+                        invalidReason.get()
+                );
+                continue;
+            }
+            valid.add(evaluation);
+        }
+        return valid;
+    }
+
+    private Optional<MissingKeywordMissInvalidReason> missingKeywordMissInvalidReason(
+            NlgEvaluationAiClient.NlgJudgeInput input,
+            List<AnalysisLlmResponse.MissingKeywordItem> actualMissingKeywords,
+            NlgEvaluationResponse.MissingKeywordMissEvaluation evaluation
+    ) {
+        if (evaluation == null) {
+            return Optional.of(MissingKeywordMissInvalidReason.NULL_EVIDENCE);
+        }
+        if (!StringUtils.hasText(evaluation.keyword())) {
+            return Optional.of(MissingKeywordMissInvalidReason.BLANK_KEYWORD);
+        }
+        if (!StringUtils.hasText(evaluation.relatedRequirement())) {
+            return Optional.of(MissingKeywordMissInvalidReason.BLANK_RELATED_REQUIREMENT);
+        }
+        if (!StringUtils.hasText(evaluation.reason())) {
+            return Optional.of(MissingKeywordMissInvalidReason.BLANK_REASON);
+        }
+        Optional<MissingKeywordSource> source = parseJudgeMissingKeywordSource(evaluation.source());
+        if (source.isEmpty() || source.get() == MissingKeywordSource.PREFERENCE) {
+            return Optional.of(MissingKeywordMissInvalidReason.INVALID_SOURCE);
+        }
+        if (AnalysisSanitizationRules.isStructuredQualificationKeyword(evaluation.keyword())
+                || AnalysisSanitizationRules.isStructuredQualificationKeyword(evaluation.relatedRequirement())) {
+            return Optional.of(MissingKeywordMissInvalidReason.STRUCTURED_QUALIFICATION);
+        }
+        String sourceText = source.get() == MissingKeywordSource.MAIN_TASK
+                ? input.mainTasks()
+                : input.qualifications();
+        if (!containsNormalized(sourceText, evaluation.relatedRequirement())) {
+            return Optional.of(MissingKeywordMissInvalidReason.RELATED_REQUIREMENT_NOT_IN_JD);
+        }
+        if (!AnalysisSanitizationRules.isValidMissingKeyword(
+                evaluation.keyword(),
+                source.get(),
+                input.mainTasks(),
+                input.qualifications()
+        )) {
+            return Optional.of(MissingKeywordMissInvalidReason.INVALID_KEYWORD);
+        }
+        if (actualMissingKeywords.stream().anyMatch(keyword -> sameMissingKeyword(keyword, evaluation, source.get()))) {
+            return Optional.of(MissingKeywordMissInvalidReason.ALREADY_PRESENT_IN_FINAL_MISSING_KEYWORDS);
+        }
+        return Optional.empty();
+    }
+
+    private Optional<MissingKeywordSource> parseJudgeMissingKeywordSource(String source) {
+        if (!StringUtils.hasText(source)) {
+            return Optional.empty();
+        }
+        String normalized = source.trim();
+        if ("MAIN_TASK".equalsIgnoreCase(normalized) || "MAIN_TASKS".equalsIgnoreCase(normalized)) {
+            return Optional.of(MissingKeywordSource.MAIN_TASK);
+        }
+        if ("QUALIFICATION".equalsIgnoreCase(normalized) || "QUALIFICATIONS".equalsIgnoreCase(normalized)) {
+            return Optional.of(MissingKeywordSource.QUALIFICATION);
+        }
+        return MissingKeywordSource.from(normalized);
+    }
+
+    private boolean sameMissingKeyword(
+            AnalysisLlmResponse.MissingKeywordItem actual,
+            NlgEvaluationResponse.MissingKeywordMissEvaluation evaluation,
+            MissingKeywordSource source
+    ) {
+        return actual != null
+                && normalize(actual.keyword()).equals(normalize(evaluation.keyword()))
+                && parseJudgeMissingKeywordSource(actual.source())
+                .map(actualSource -> actualSource == source)
+                .orElse(false);
     }
 
     private List<NlgEvaluationErrorCode> sanitizeErrorCodes(
@@ -424,6 +598,22 @@ class NlgEvaluationBatchService {
             return values == null ? 0 : values.size();
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException(fieldName + " must be a JSON array. caseId=" + caseId, e);
+        }
+    }
+
+    private List<AnalysisLlmResponse.MissingKeywordItem> readActualMissingKeywords(String json, String caseId) {
+        if (!StringUtils.hasText(json)) {
+            return List.of();
+        }
+        try {
+            List<AnalysisLlmResponse.MissingKeywordItem> values = objectMapper.readValue(
+                    json,
+                    new TypeReference<>() {
+                    }
+            );
+            return values == null ? List.of() : values;
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("aiMissingKeywordsJson must be a JSON array. caseId=" + caseId, e);
         }
     }
 
@@ -691,6 +881,16 @@ class NlgEvaluationBatchService {
         }
     }
 
+    private boolean containsNormalized(String sourceText, String fragment) {
+        return StringUtils.hasText(sourceText)
+                && StringUtils.hasText(fragment)
+                && normalize(sourceText).contains(normalize(fragment));
+    }
+
+    private String normalize(String value) {
+        return AnalysisSanitizationRules.normalizeText(value);
+    }
+
     private String truncateShortRationale(String rationale) {
         if (!StringUtils.hasText(rationale)) {
             return "";
@@ -785,6 +985,105 @@ class NlgEvaluationBatchService {
         return "judge_call_failed";
     }
 
+    private void logEvaluationFailure(String caseId, String sourceResultFile, Exception e) {
+        Throwable rootCause = NestedExceptionUtils.getMostSpecificCause(e);
+        String internalReason = failureReason(e);
+        String jacksonPath = jacksonPath(e);
+        String failedField = failedFieldName(e);
+        Object unknownEnumValue = unknownEnumValue(e);
+        String exceptionType = e.getClass().getSimpleName();
+        log.error(
+                "NLG Judge evaluation failed. caseId={}, sourceResultFile={}, reason={}, exceptionType={}, message={}, rootCauseType={}, rootCauseMessage={}, jacksonPath={}, failedField={}, targetEnum={}, unknownValue={}, rawJudgeResponseAvailable=false",
+                caseId,
+                sourceResultFile,
+                internalReason,
+                exceptionType,
+                e.getMessage(),
+                rootCause.getClass().getName(),
+                rootCause.getMessage(),
+                jacksonPath,
+                failedField,
+                targetEnumName(e),
+                unknownEnumValue,
+                e
+        );
+        if (e instanceof JsonProcessingException jsonProcessingException) {
+            log.error(
+                    "NLG Judge JsonProcessingException detail. caseId={}, originalMessage={}",
+                    caseId,
+                    jsonProcessingException.getOriginalMessage(),
+                    e
+            );
+        }
+    }
+
+    private String failureReason(Exception e) {
+        if (findCause(e, InvalidFormatException.class)
+                .filter(this::isNlgEvaluationErrorCodeFailure)
+                .isPresent()) {
+            return "unknown_error_code";
+        }
+        if (findCause(e, JsonProcessingException.class).isPresent()) {
+            return "json_deserialization_failed";
+        }
+        if (e instanceof IllegalArgumentException) {
+            return "illegal_argument";
+        }
+        if (findCause(e, IllegalStateException.class)
+                .map(Throwable::getMessage)
+                .filter(message -> message != null && message.contains("구조화된 결과를 찾을 수 없습니다"))
+                .isPresent()) {
+            return "structured_output_missing";
+        }
+        return "judge_call_failed";
+    }
+
+    private boolean isNlgEvaluationErrorCodeFailure(InvalidFormatException e) {
+        Class<?> targetType = e.getTargetType();
+        return targetType != null && NlgEvaluationErrorCode.class.equals(targetType);
+    }
+
+    private String jacksonPath(Exception e) {
+        return findCause(e, JsonMappingException.class)
+                .map(JsonMappingException::getPathReference)
+                .orElse("");
+    }
+
+    private String failedFieldName(Exception e) {
+        return findCause(e, JsonMappingException.class)
+                .flatMap(mappingException -> mappingException.getPath().stream()
+                        .map(JsonMappingException.Reference::getFieldName)
+                        .filter(StringUtils::hasText)
+                        .reduce((first, second) -> second))
+                .orElse("");
+    }
+
+    private Object unknownEnumValue(Exception e) {
+        return findCause(e, InvalidFormatException.class)
+                .filter(this::isNlgEvaluationErrorCodeFailure)
+                .map(InvalidFormatException::getValue)
+                .orElse(null);
+    }
+
+    private String targetEnumName(Exception e) {
+        return findCause(e, InvalidFormatException.class)
+                .filter(this::isNlgEvaluationErrorCodeFailure)
+                .map(InvalidFormatException::getTargetType)
+                .map(Class::getSimpleName)
+                .orElse("");
+    }
+
+    private <T extends Throwable> Optional<T> findCause(Throwable throwable, Class<T> type) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (type.isInstance(current)) {
+                return Optional.of(type.cast(current));
+            }
+            current = current.getCause();
+        }
+        return Optional.empty();
+    }
+
     record NlgEvaluationSummary(
             int totalCount,
             int successCount,
@@ -806,6 +1105,18 @@ class NlgEvaluationBatchService {
         SOURCE,
         JSON,
         MISSING
+    }
+
+    private enum MissingKeywordMissInvalidReason {
+        NULL_EVIDENCE,
+        BLANK_KEYWORD,
+        BLANK_RELATED_REQUIREMENT,
+        BLANK_REASON,
+        INVALID_SOURCE,
+        STRUCTURED_QUALIFICATION,
+        RELATED_REQUIREMENT_NOT_IN_JD,
+        INVALID_KEYWORD,
+        ALREADY_PRESENT_IN_FINAL_MISSING_KEYWORDS
     }
 
     private record ResolvedHeader(HeaderLocation location, String headerName) {

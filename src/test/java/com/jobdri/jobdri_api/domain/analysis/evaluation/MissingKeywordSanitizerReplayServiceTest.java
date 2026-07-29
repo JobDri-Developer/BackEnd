@@ -43,7 +43,13 @@ class MissingKeywordSanitizerReplayServiceTest {
         assertThat(replayRows.getFirst().get("rejectionReason")).isEqualTo("ACCEPTED");
         assertThat(replayRows.get(1).get("accepted")).isEqualTo("false");
         assertThat(replayRows.get(1).get("rejectionReason")).isEqualTo("NOT_RELATED_TO_JD");
-        assertThat(EvaluationCsvSupport.read(reviewOutput)).hasSize(2);
+        List<Map<String, String>> reviewRows = EvaluationCsvSupport.read(reviewOutput);
+        assertThat(reviewRows).hasSize(2);
+        assertThat(reviewRows.getFirst())
+                .containsEntry("question", "지원 동기")
+                .containsEntry("answer", "재고관리및분석경험을 쌓았습니다.")
+                .containsEntry("mainTasks", "재고 현황을 분석하고 적정 재고를 관리합니다.")
+                .containsEntry("qualifications", "영어 고객 커뮤니케이션 경험");
         assertThat(Files.isRegularFile(summary.summaryOutput())).isTrue();
         assertThat(summary.rawCandidateCount()).isEqualTo(2);
         assertThat(summary.acceptedCandidateCount()).isEqualTo(1);
@@ -127,6 +133,24 @@ class MissingKeywordSanitizerReplayServiceTest {
     }
 
     @Test
+    @DisplayName("question 헤더가 누락되면 fail-fast 한다")
+    void missingQuestionHeaderFailsFast() throws Exception {
+        Path input = tempDir.resolve("input.csv");
+        List<String> headersWithoutQuestion = headers().stream()
+                .filter(header -> !header.equals("question"))
+                .toList();
+        EvaluationCsvSupport.writeRows(
+                input,
+                headersWithoutQuestion,
+                List.of(row("EV-01", response(List.of()), response(List.of())))
+        );
+
+        assertThatThrownBy(() -> service.replay(input, tempDir.resolve("replay.csv"), tempDir.resolve("review.csv")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("question");
+    }
+
+    @Test
     @DisplayName("UTF-8 BOM과 쉼표, 줄바꿈, 큰따옴표가 포함된 후보를 처리한다")
     void replayHandlesBomAndEscapedCsvValues() throws Exception {
         Path input = tempDir.resolve("input.csv");
@@ -150,6 +174,7 @@ class MissingKeywordSanitizerReplayServiceTest {
                 "caseId",
                 "mainTasks",
                 "qualifications",
+                "question",
                 "answer",
                 "rawCandidateResponseJson",
                 "sanitizedCandidateResponseJson"
@@ -165,6 +190,7 @@ class MissingKeywordSanitizerReplayServiceTest {
         row.put("caseId", caseId);
         row.put("mainTasks", "재고 현황을 분석하고 적정 재고를 관리합니다.");
         row.put("qualifications", "영어 고객 커뮤니케이션 경험");
+        row.put("question", "지원 동기");
         row.put("answer", "재고관리및분석경험을 쌓았습니다.");
         row.put("rawCandidateResponseJson", objectMapper.writeValueAsString(raw));
         row.put("sanitizedCandidateResponseJson", objectMapper.writeValueAsString(sanitized));

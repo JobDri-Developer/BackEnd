@@ -74,6 +74,14 @@ class AnalysisSanitizationRulesTest {
         assertThat(AnalysisSanitizationRules.isStructuredQualificationKeyword("반도체 공정 분석 경험")).isFalse();
         assertThat(AnalysisSanitizationRules.isStructuredQualificationKeyword("경력 3년 이상")).isTrue();
         assertThat(AnalysisSanitizationRules.isStructuredQualificationKeyword("장애 대응 경험")).isFalse();
+        assertThat(AnalysisSanitizationRules.isStructuredQualificationKeyword("사회복지사")).isTrue();
+        assertThat(AnalysisSanitizationRules.isStructuredQualificationKeyword("청소년상담사 3급")).isTrue();
+        assertThat(AnalysisSanitizationRules.isStructuredQualificationKeyword("직업상담사")).isTrue();
+        assertThat(AnalysisSanitizationRules.isStructuredQualificationKeyword("운전면허")).isTrue();
+        assertThat(AnalysisSanitizationRules.isStructuredQualificationKeyword("컴퓨터활용능력 자격증")).isTrue();
+        assertThat(AnalysisSanitizationRules.isStructuredQualificationKeyword("대졸 이상")).isTrue();
+        assertThat(AnalysisSanitizationRules.isStructuredQualificationKeyword("Spring Boot 실무 경험")).isFalse();
+        assertThat(AnalysisSanitizationRules.isStructuredQualificationKeyword("포토샵 활용 능력")).isFalse();
     }
 
     @Test
