@@ -161,6 +161,8 @@ class NlgEvaluationAiClientTest {
 
         assertThat(prompt)
                 .contains("[MISSED_MISSING_KEYWORD 판정 기준]")
+                .contains("필요한 비정형 업무·역량 누락 키워드가 존재하면 actual=[]라도")
+                .contains("정형 자격요건은 이후 [MISSED_MISSING_KEYWORD 판정 기준]의 제외 정책이 우선")
                 .contains("실제 JD 원문의 mainTasks 또는 qualifications에 요구사항이 존재한다")
                 .contains("JobDri 서비스 정책상 missing keyword 제외 대상이 아니다")
                 .contains("answer에 동일하거나 의미상 충족되는 내용이 없다")

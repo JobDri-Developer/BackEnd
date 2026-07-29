@@ -18,6 +18,42 @@ import java.util.List;
 @RequiredArgsConstructor
 @Slf4j
 class NlgEvaluationAiClient {
+    private static final String MISSED_ANALYSIS_RULES = """
+            [MISSED_ANALYSIS 판정 기준]
+            - MISSED_ANALYSIS는 다음을 모두 만족할 때만 caseErrorCodes에 포함한다.
+              1. answer에 독립적으로 식별 가능한 명확한 문제 문장 또는 핵심 구절이 존재한다.
+              2. 그 문제는 단순한 "더 구체적이면 좋음" 수준이 아니다.
+              3. 문제 유형을 특정할 수 있다. 예: 근거 없는 과장, 명시적 모순, 문항 의도 불충족, 핵심 행동/역할/방법/결과의 명확한 부재.
+              4. 해당 문장을 분석하지 않아 사용자에게 실질적인 첨삭 가치 손실이 발생한다.
+              5. 현재 questionAnalyses에 동일하거나 충분히 유사한 문제 분석이 존재하지 않는다.
+            - 다음 경우에는 MISSED_ANALYSIS를 부여하지 않는다.
+              문장이 더 좋아질 수 있다는 정도, 수치가 없다는 이유만 있는 경우, 추상적인 포부지만 문항 목적상 자연스러운 경우,
+              이미 다른 분석이 동일한 핵심 문제를 다루는 경우, 명확한 문제 문장을 특정할 수 없는 경우,
+              답변 전반에 대한 일반적 아쉬움만 있는 경우, 단순히 분석 개수가 적다는 이유,
+              "구체성 부족"만 있고 어느 문장이 왜 문제인지 특정할 수 없는 경우.
+            - MISSED_ANALYSIS를 부여할 때 shortRationale에는 놓친 원문 문장 또는 핵심 구절, 문제 유형, 기존 분석으로 커버되지 않는 이유를 간결하게 포함한다.
+            - 이 근거를 제시할 수 없으면 MISSED_ANALYSIS를 부여하지 않는다.
+            - 명확한 문제 문장이 없다고 판단했다면 MISSED_ANALYSIS를 errorCodes에 포함하지 않는다.
+            - "명확한 문제 문장이 없다"와 "MISSED_ANALYSIS"를 동시에 주장하지 않는다.
+            - "첨삭 대상이 명확하지 않다"와 "중요한 첨삭 대상을 놓쳤다"를 동시에 주장하지 않는다.
+            """;
+
+    private static final String MISSED_MISSING_KEYWORD_RULES = """
+            [MISSED_MISSING_KEYWORD 판정 기준]
+            - MISSED_MISSING_KEYWORD는 다음을 모두 만족할 때만 caseErrorCodes에 포함한다.
+              1. 실제 JD 원문의 mainTasks 또는 qualifications에 요구사항이 존재한다.
+              2. JobDri 서비스 정책상 missing keyword 제외 대상이 아니다.
+              3. answer에 동일하거나 의미상 충족되는 내용이 없다.
+              4. 현재 missingKeywords에 동일하거나 충분히 유사한 키워드가 없다.
+            - missing keyword 평가 대상에서 제외한다: 자격증, 면허, 학력, 경력 연차, 나이, 법적/정형 보유 조건, 선택형 자격요건의 다른 선택지.
+            - 제외 예시: 사회복지사, 청소년상담사, 직업상담사, 운전면허, 대졸 이상, 경력 3년 이상.
+            - 제외 대상이 아닌 예시: Spring Boot 실무 경험, 포토샵 활용 능력, 엑셀 고급 활용, 더존 사용 능력, 4대보험 신고 경험.
+            - source=QUALIFICATION이라는 이유만으로 모든 항목을 제외하지 않는다.
+            - JD에 없는 키워드, 다른 직군의 일반 요구사항, 답변에 이미 존재하는 키워드, OR 조건에서 하나를 충족했을 때 나머지 선택지를 누락으로 판단하지 않는다.
+            - MISSED_MISSING_KEYWORD를 부여할 때 shortRationale에는 JD의 실제 요구사항, 답변에서 충족되지 않은 이유, 기존 missingKeywords로 커버되지 않는 이유를 간결하게 포함한다.
+            - 이 근거를 제시할 수 없으면 MISSED_MISSING_KEYWORD를 부여하지 않는다.
+            """;
+
     private final OpenAIClient openAIClient;
     private final LlmConcurrencyLimiter llmConcurrencyLimiter;
 
@@ -93,7 +129,7 @@ class NlgEvaluationAiClient {
                 - keyStrengths: strengthsPrecision과 strengthsCoverage를 각각 1~5로 평가한다. 명백한 좋은 문장을 놓치면 MISSED_STRENGTH를 사용한다.
                 - missingKeywords: missingKeywordsPrecision과 missingKeywordsCoverage를 각각 1~5로 평가한다. JD 핵심 경험 요구사항 누락을 놓치면 MISSED_MISSING_KEYWORD를 사용한다.
                 - actual missingKeywords가 빈 배열이라고 해서 자동으로 정확한 것이 아니다.
-                - JD와 answer 기준상 필요한 누락 키워드가 존재하면 actual=[]라도 missingKeywordsCoverage를 낮게 평가하고 MISSED_MISSING_KEYWORD를 사용한다.
+                - JD와 answer 기준상 필요한 비정형 업무·역량 누락 키워드가 존재하면 actual=[]라도 missingKeywordsCoverage를 낮게 평가하고 MISSED_MISSING_KEYWORD를 사용한다. 단, 자격증, 면허, 학력, 경력 연차, 나이 등 정형 자격요건은 이후 [MISSED_MISSING_KEYWORD 판정 기준]의 제외 정책이 우선하며 MISSED_MISSING_KEYWORD 대상이 아니다.
                 - actual=[]이고 실제로 누락 키워드가 없을 때만 정상 빈 배열로 평가한다.
                 - 빈 배열은 precision과 coverage를 분리해 판단한다.
                 - case 전체: overallUsefulness를 1~5로 독립 평가한다. 기본값을 3이나 4로 두지 말고 1,2,3,4,5 전체 범위를 실제 품질에 맞게 사용한다.
@@ -126,37 +162,9 @@ class NlgEvaluationAiClient {
                 - questionAnalysesJson이 빈 배열이면 output questionAnalysisEvaluations도 빈 배열이어야 한다.
                 - 입력에 없는 분석 평가를 생성하거나, answer에서 임의 문장을 골라 evaluation 배열을 만들거나, 분석 개수를 0보다 크게 만들지 않는다.
 
-                [MISSED_ANALYSIS 판정 기준]
-                - MISSED_ANALYSIS는 다음을 모두 만족할 때만 caseErrorCodes에 포함한다.
-                  1. answer에 독립적으로 식별 가능한 명확한 문제 문장 또는 핵심 구절이 존재한다.
-                  2. 그 문제는 단순한 "더 구체적이면 좋음" 수준이 아니다.
-                  3. 문제 유형을 특정할 수 있다. 예: 근거 없는 과장, 명시적 모순, 문항 의도 불충족, 핵심 행동/역할/방법/결과의 명확한 부재.
-                  4. 해당 문장을 분석하지 않아 사용자에게 실질적인 첨삭 가치 손실이 발생한다.
-                  5. 현재 questionAnalyses에 동일하거나 충분히 유사한 문제 분석이 존재하지 않는다.
-                - 다음 경우에는 MISSED_ANALYSIS를 부여하지 않는다.
-                  문장이 더 좋아질 수 있다는 정도, 수치가 없다는 이유만 있는 경우, 추상적인 포부지만 문항 목적상 자연스러운 경우,
-                  이미 다른 분석이 동일한 핵심 문제를 다루는 경우, 명확한 문제 문장을 특정할 수 없는 경우,
-                  답변 전반에 대한 일반적 아쉬움만 있는 경우, 단순히 분석 개수가 적다는 이유,
-                  "구체성 부족"만 있고 어느 문장이 왜 문제인지 특정할 수 없는 경우.
-                - MISSED_ANALYSIS를 부여할 때 shortRationale에는 놓친 원문 문장 또는 핵심 구절, 문제 유형, 기존 분석으로 커버되지 않는 이유를 간결하게 포함한다.
-                - 이 근거를 제시할 수 없으면 MISSED_ANALYSIS를 부여하지 않는다.
-                - 명확한 문제 문장이 없다고 판단했다면 MISSED_ANALYSIS를 errorCodes에 포함하지 않는다.
-                - "명확한 문제 문장이 없다"와 "MISSED_ANALYSIS"를 동시에 주장하지 않는다.
-                - "첨삭 대상이 명확하지 않다"와 "중요한 첨삭 대상을 놓쳤다"를 동시에 주장하지 않는다.
+                %s
 
-                [MISSED_MISSING_KEYWORD 판정 기준]
-                - MISSED_MISSING_KEYWORD는 다음을 모두 만족할 때만 caseErrorCodes에 포함한다.
-                  1. 실제 JD 원문의 mainTasks 또는 qualifications에 요구사항이 존재한다.
-                  2. JobDri 서비스 정책상 missing keyword 제외 대상이 아니다.
-                  3. answer에 동일하거나 의미상 충족되는 내용이 없다.
-                  4. 현재 missingKeywords에 동일하거나 충분히 유사한 키워드가 없다.
-                - missing keyword 평가 대상에서 제외한다: 자격증, 면허, 학력, 경력 연차, 나이, 법적/정형 보유 조건, 선택형 자격요건의 다른 선택지.
-                - 제외 예시: 사회복지사, 청소년상담사, 직업상담사, 운전면허, 대졸 이상, 경력 3년 이상.
-                - 제외 대상이 아닌 예시: Spring Boot 실무 경험, 포토샵 활용 능력, 엑셀 고급 활용, 더존 사용 능력, 4대보험 신고 경험.
-                - source=QUALIFICATION이라는 이유만으로 모든 항목을 제외하지 않는다.
-                - JD에 없는 키워드, 다른 직군의 일반 요구사항, 답변에 이미 존재하는 키워드, OR 조건에서 하나를 충족했을 때 나머지 선택지를 누락으로 판단하지 않는다.
-                - MISSED_MISSING_KEYWORD를 부여할 때 shortRationale에는 JD의 실제 요구사항, 답변에서 충족되지 않은 이유, 기존 missingKeywords로 커버되지 않는 이유를 간결하게 포함한다.
-                - 이 근거를 제시할 수 없으면 MISSED_MISSING_KEYWORD를 부여하지 않는다.
+                %s
 
                 [errorCode와 점수 정합성]
                 - problemValidity <= 2이면 FALSE_POSITIVE_ANALYSIS 후보로 검토한다.
@@ -205,6 +213,8 @@ class NlgEvaluationAiClient {
                 actualMissingKeywordCount: %s
                 validatedMissingKeywordCandidateCount: %s
                 """.formatted(
+                MISSED_ANALYSIS_RULES,
+                MISSED_MISSING_KEYWORD_RULES,
                 input.caseId(),
                 input.sourceResultFile(),
                 input.mainTasks(),
