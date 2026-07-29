@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnalysisResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
@@ -139,6 +140,19 @@ public class AnalysisService {
 
     @Transactional(readOnly = true)
     public AnalysisExecutionPayload prepareAnalysisExecution(User user, Long mockApplyId) {
+        return prepareAnalysisExecution(
+                user,
+                mockApplyId,
+                jobPostingRagContextAssembler.assemble(getOwnedMockApply(user, mockApplyId).getJobPosting().getId())
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public AnalysisExecutionPayload prepareAnalysisExecution(
+            User user,
+            Long mockApplyId,
+            List<SimilarJobPostingContext> similarJobPostings
+    ) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         List<Question> answeredQuestions = questions.stream()
@@ -167,7 +181,7 @@ public class AnalysisService {
                 List.copyOf(answeredQuestions),
                 evaluationCriteria,
                 retrieveAnalysisReferences(mockApply.getJobPosting(), answeredQuestions),
-                jobPostingRagContextAssembler.assemble(mockApply.getJobPosting().getId())
+                similarJobPostings
         );
     }
 
@@ -182,7 +196,23 @@ public class AnalysisService {
             AnalysisExecutionPayload payload,
             AnalysisLlmResponse llmResponse
     ) {
-        String inputFingerprint = analysisInputFingerprintProvider.create(payload);
+        return finalizeAnalysis(
+                user,
+                mockApplyId,
+                payload,
+                llmResponse,
+                analysisInputFingerprintProvider.create(payload)
+        );
+    }
+
+    @Transactional
+    public AnalysisResponse finalizeAnalysis(
+            User user,
+            Long mockApplyId,
+            AnalysisExecutionPayload payload,
+            AnalysisLlmResponse llmResponse,
+            String inputFingerprint
+    ) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         validateRequiredScores(llmResponse);

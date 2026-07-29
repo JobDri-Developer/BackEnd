@@ -13,6 +13,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -82,6 +83,36 @@ class JobPostingRagContextAssemblerTest {
                 .thenThrow(new IllegalStateException("pgvector unavailable"));
 
         assertThat(assembler.assemble(10L)).isEmpty();
+    }
+
+    @Test
+    @DisplayName("상세 조회에서 누락된 공고만 제외하고 원래 검색 순위를 유지한다")
+    void excludesMissingPostingDetailsWithoutCompactingRanks() {
+        JobPosting postingA = posting(21L, "업무 A", "자격 A", "우대 A");
+        JobPosting postingC = posting(23L, "업무 C", "자격 C", "우대 C");
+        when(retrievalService.findSimilarJobPostings(10L, 3)).thenReturn(List.of(
+                result(21L, "회사 A", "공고 A", "백엔드 A", 0.91),
+                result(22L, "회사 B", "공고 B", "백엔드 B", 0.82),
+                result(23L, "회사 C", "공고 C", "백엔드 C", 0.73)
+        ));
+        when(jobPostingRepository.findAllById(anyList())).thenReturn(List.of(postingC, postingA));
+
+        List<SimilarJobPostingContext> contexts = assembler.assemble(10L);
+
+        assertThat(contexts).extracting(SimilarJobPostingContext::jobPostingId)
+                .containsExactly(21L, 23L);
+        assertThat(contexts).extracting(SimilarJobPostingContext::similarityRank)
+                .containsExactly(1, 3);
+    }
+
+    @Test
+    @DisplayName("유사 공고 검색 결과가 비어 있으면 상세 조회를 호출하지 않는다")
+    void skipsDetailLookupWhenRetrievalIsEmpty() {
+        when(retrievalService.findSimilarJobPostings(10L, 3)).thenReturn(List.of());
+
+        assertThat(assembler.assemble(10L)).isEmpty();
+
+        verify(jobPostingRepository, never()).findAllById(anyList());
     }
 
     private JobPostingSimilarityResult result(

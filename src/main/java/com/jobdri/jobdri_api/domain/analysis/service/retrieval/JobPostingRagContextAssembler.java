@@ -8,6 +8,8 @@ import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingRetrievalServic
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
@@ -26,6 +28,7 @@ public class JobPostingRagContextAssembler {
     private final JobPostingRetrievalService jobPostingRetrievalService;
     private final JobPostingRepository jobPostingRepository;
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<SimilarJobPostingContext> assemble(Long jobPostingId) {
         try {
             List<JobPostingSimilarityResult> results = jobPostingRetrievalService

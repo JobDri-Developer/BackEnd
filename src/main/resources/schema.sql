@@ -100,6 +100,12 @@ ALTER TABLE IF EXISTS analysis_async_tasks
 ALTER TABLE IF EXISTS analysis_async_tasks
     ADD COLUMN IF NOT EXISTS estimated_remaining_seconds INTEGER;
 
+ALTER TABLE IF EXISTS analysis_async_tasks
+    ADD COLUMN IF NOT EXISTS execution_context_snapshot TEXT;
+
+ALTER TABLE IF EXISTS analysis_async_tasks
+    ADD COLUMN IF NOT EXISTS input_fingerprint_snapshot VARCHAR(64);
+
 ALTER TABLE IF EXISTS job_posting_async_tasks
     ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN NOT NULL DEFAULT FALSE;
 

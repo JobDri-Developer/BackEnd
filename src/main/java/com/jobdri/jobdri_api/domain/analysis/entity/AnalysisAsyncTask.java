@@ -92,6 +92,12 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     @Column(name = "estimated_remaining_seconds")
     private Integer estimatedRemainingSeconds;
 
+    @Column(name = "execution_context_snapshot", columnDefinition = "TEXT")
+    private String executionContextSnapshot;
+
+    @Column(name = "input_fingerprint_snapshot", length = 64)
+    private String inputFingerprintSnapshot;
+
     public static AnalysisAsyncTask pending(Long userId, Long mockApplyId, int maxRetryCount) {
         AnalysisAsyncTask task = new AnalysisAsyncTask();
         task.taskId = UUID.randomUUID().toString();
@@ -215,6 +221,14 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         if (queueLatencyMillis != null) {
             this.queueLatencyMillis = Math.max(0L, queueLatencyMillis);
         }
+    }
+
+    public void captureExecutionSnapshot(String executionContextSnapshot, String inputFingerprintSnapshot) {
+        if (this.executionContextSnapshot != null || this.inputFingerprintSnapshot != null) {
+            return;
+        }
+        this.executionContextSnapshot = executionContextSnapshot;
+        this.inputFingerprintSnapshot = inputFingerprintSnapshot;
     }
 
     private boolean isTerminal() {
