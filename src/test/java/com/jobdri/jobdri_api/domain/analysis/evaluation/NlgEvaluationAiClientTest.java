@@ -62,7 +62,7 @@ class NlgEvaluationAiClientTest {
         assertThat(prompt).contains("actual missingKeywords가 빈 배열이라고 해서 자동으로 정확한 것이 아니다");
         assertThat(prompt).contains("actualMissingKeywordCount");
         assertThat(prompt).contains("validatedMissingKeywordCandidateCount");
-        assertThat(prompt).contains("기본값을 4로 두지 말고");
+        assertThat(prompt).contains("기본값을 3이나 4로 두지 말고");
         assertThat(prompt).contains("1,2,3,4,5를 실제 오류 심각도에 따라 분산");
     }
 
@@ -129,6 +129,78 @@ class NlgEvaluationAiClientTest {
                 .contains("shortRationale")
                 .contains("MISSED_ANALYSIS")
                 .contains("MISSED_MISSING_KEYWORD");
+    }
+
+    @Test
+    @DisplayName("MISSED_ANALYSIS는 명확한 문제 문장과 근거가 있을 때만 허용하도록 지시한다")
+    void buildPromptRestrictsMissedAnalysisCriteria() {
+        String prompt = buildPrompt("[]", "{}", "{}");
+
+        assertThat(prompt)
+                .contains("[MISSED_ANALYSIS 판정 기준]")
+                .contains("독립적으로 식별 가능한 명확한 문제 문장 또는 핵심 구절")
+                .contains("단순한 \"더 구체적이면 좋음\" 수준이 아니다")
+                .contains("문제 유형을 특정할 수 있다")
+                .contains("실질적인 첨삭 가치 손실")
+                .contains("현재 questionAnalyses에 동일하거나 충분히 유사한 문제 분석이 존재하지 않는다")
+                .contains("문장이 더 좋아질 수 있다는 정도")
+                .contains("수치가 없다는 이유만 있는 경우")
+                .contains("명확한 문제 문장을 특정할 수 없는 경우")
+                .contains("\"구체성 부족\"만 있고 어느 문장이 왜 문제인지 특정할 수 없는 경우")
+                .contains("놓친 원문 문장 또는 핵심 구절, 문제 유형, 기존 분석으로 커버되지 않는 이유")
+                .contains("명확한 문제 문장이 없다고 판단했다면 MISSED_ANALYSIS를 errorCodes에 포함하지 않는다")
+                .contains("\"명확한 문제 문장이 없다\"와 \"MISSED_ANALYSIS\"를 동시에 주장하지 않는다")
+                .contains("noAnalysisAppropriateness=4~5, MISSED_ANALYSIS 없음")
+                .contains("저는 모든 업무를 완벽하게 해낼 수 있습니다.");
+    }
+
+    @Test
+    @DisplayName("MISSED_MISSING_KEYWORD는 서비스의 정형 자격요건 제외 정책과 JD 근거를 따른다")
+    void buildPromptAlignsMissedMissingKeywordWithServicePolicy() {
+        String prompt = buildPrompt("[]", "{}", "{}");
+
+        assertThat(prompt)
+                .contains("[MISSED_MISSING_KEYWORD 판정 기준]")
+                .contains("실제 JD 원문의 mainTasks 또는 qualifications에 요구사항이 존재한다")
+                .contains("JobDri 서비스 정책상 missing keyword 제외 대상이 아니다")
+                .contains("answer에 동일하거나 의미상 충족되는 내용이 없다")
+                .contains("현재 missingKeywords에 동일하거나 충분히 유사한 키워드가 없다")
+                .contains("자격증, 면허, 학력, 경력 연차, 나이")
+                .contains("선택형 자격요건의 다른 선택지")
+                .contains("사회복지사")
+                .contains("청소년상담사")
+                .contains("운전면허")
+                .contains("대졸 이상")
+                .contains("경력 3년 이상")
+                .contains("Spring Boot 실무 경험")
+                .contains("포토샵 활용 능력")
+                .contains("엑셀 고급 활용")
+                .contains("더존 사용 능력")
+                .contains("4대보험 신고 경험")
+                .contains("JD에 없는 키워드")
+                .contains("OR 조건에서 하나를 충족했을 때 나머지 선택지를 누락으로 판단하지 않는다")
+                .contains("사회복지사, 청소년상담사 중 1개 이상")
+                .contains("채용 파이프라인 소싱, 온보딩 프로그램 기획")
+                .contains("Spring Boot 기반 REST API 개발");
+    }
+
+    @Test
+    @DisplayName("overallUsefulness와 noAnalysisAppropriateness는 1~5 전체 범위를 쓰도록 rubric을 제공한다")
+    void buildPromptDefinesUsefulnessAndNoAnalysisRubrics() {
+        String prompt = buildPrompt("[]", "{}", "{}");
+
+        assertThat(prompt)
+                .contains("5점: 명확한 첨삭 대상이 없으므로 0개가 적절함.")
+                .contains("4점: 아주 사소한 개선 여지는 있으나 분석 없음이 대체로 적절함.")
+                .contains("3점: 판단이 애매함.")
+                .contains("2점: 명확한 첨삭 대상이 일부 존재함.")
+                .contains("1점: 여러 개의 명확한 문제를 놓침.")
+                .contains("5점: 분석, 강점, 누락 키워드가 대부분 정확하고 사용자가 바로 수정에 활용할 수 있음.")
+                .contains("4점: 일부 아쉬움은 있으나 핵심 진단과 개선 방향이 유용함.")
+                .contains("3점: 일부는 유용하지만 중요한 누락 또는 부정확성이 존재하는 혼합 품질.")
+                .contains("2점: 다수 평가가 부정확하거나 핵심 문제를 놓쳐 활용도가 낮음.")
+                .contains("1점: 대부분 잘못됐거나 JD/답변과 무관하여 실질적으로 사용할 수 없음.")
+                .contains("analysisCount가 0이라는 이유만으로 overallUsefulness를 자동으로 3점 처리하지 않는다");
     }
 
     @Test
