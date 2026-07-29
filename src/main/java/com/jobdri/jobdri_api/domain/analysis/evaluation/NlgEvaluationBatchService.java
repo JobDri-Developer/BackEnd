@@ -83,7 +83,7 @@ class NlgEvaluationBatchService {
                     successCount++;
                 }
             } catch (Exception e) {
-                log.warn("NLG judge failed. caseId={}, message={}", caseId, e.getMessage());
+                logEvaluationFailure(caseId, inputPath.toString(), e);
                 results.add(NlgEvaluationResult.failed(caseId, inputPath.toString(), failureStage(e)));
             }
         }
@@ -152,12 +152,23 @@ class NlgEvaluationBatchService {
     ) {
         NlgEvaluationResponse response = callResult.response();
         if (response == null || !Objects.equals(input.caseId(), response.caseId())) {
+            log.warn(
+                    "Judge validation failed. expectedCaseId={}, actualCaseId={}, responseNull={}",
+                    input.caseId(),
+                    response == null ? null : response.caseId(),
+                    response == null
+            );
             return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
         }
 
         if (input.questionAnalyses().isEmpty()
                 && response.questionAnalysisEvaluations() != null
                 && !response.questionAnalysisEvaluations().isEmpty()) {
+            log.warn(
+                    "Judge validation failed. inputQuestionAnalyses={}, responseQuestionAnalysisEvaluations={}",
+                    input.questionAnalyses().size(),
+                    response.questionAnalysisEvaluations().size()
+            );
             return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
         }
 
@@ -783,6 +794,37 @@ class NlgEvaluationBatchService {
             return "judge_validation_failed";
         }
         return "judge_call_failed";
+    }
+
+    private void logEvaluationFailure(String caseId, String sourceResultFile, Exception e) {
+        if (e instanceof JsonProcessingException jsonProcessingException) {
+            log.error(
+                    "NLG Judge evaluation failed. caseId={}, sourceResultFile={}, exceptionType={}, originalMessage={}",
+                    caseId,
+                    sourceResultFile,
+                    jsonProcessingException.getClass().getSimpleName(),
+                    jsonProcessingException.getOriginalMessage(),
+                    e
+            );
+            return;
+        }
+        if (e instanceof IllegalArgumentException illegalArgumentException) {
+            log.error(
+                    "NLG Judge evaluation failed. caseId={}, sourceResultFile={}, exceptionType={}, validationMessage={}",
+                    caseId,
+                    sourceResultFile,
+                    illegalArgumentException.getClass().getSimpleName(),
+                    illegalArgumentException.getMessage(),
+                    e
+            );
+            return;
+        }
+        log.error(
+                "NLG Judge evaluation failed. caseId={}, sourceResultFile={}",
+                caseId,
+                sourceResultFile,
+                e
+        );
     }
 
     record NlgEvaluationSummary(
