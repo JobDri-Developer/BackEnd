@@ -7,6 +7,7 @@ import com.openai.models.responses.ResponseUsage;
 import com.openai.models.responses.StructuredResponse;
 import com.openai.models.responses.StructuredResponseOutputMessage;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -14,6 +15,7 @@ import java.util.List;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 class NlgEvaluationAiClient {
     private final OpenAIClient openAIClient;
     private final LlmConcurrencyLimiter llmConcurrencyLimiter;
@@ -29,17 +31,32 @@ class NlgEvaluationAiClient {
                 .temperature(0.0)
                 .text(NlgEvaluationResponse.class)
                 .build();
-        StructuredResponse<NlgEvaluationResponse> response = llmConcurrencyLimiter.execute(
-                "analysis-nlg-judge",
-                () -> openAIClient.responses().create(params)
-        );
-        ResponseUsage usage = response.usage().orElse(null);
-        return new JudgeCallResult(
-                extractStructuredContent(response),
-                elapsedMillis(startedAt),
-                toIntegerTokenCount(usage == null ? null : usage.inputTokens()),
-                toIntegerTokenCount(usage == null ? null : usage.outputTokens())
-        );
+        try {
+            StructuredResponse<NlgEvaluationResponse> response = llmConcurrencyLimiter.execute(
+                    "analysis-nlg-judge",
+                    () -> openAIClient.responses().create(params)
+            );
+            ResponseUsage usage = response.usage().orElse(null);
+            return new JudgeCallResult(
+                    extractStructuredContent(response),
+                    elapsedMillis(startedAt),
+                    toIntegerTokenCount(usage == null ? null : usage.inputTokens()),
+                    toIntegerTokenCount(usage == null ? null : usage.outputTokens())
+            );
+        } catch (RuntimeException e) {
+            Throwable rootCause = rootCause(e);
+            log.error(
+                    "NLG Judge call failed. caseId={}, sourceResultFile={}, exceptionType={}, message={}, rootCauseType={}, rootCauseMessage={}, rawJudgeResponseAvailable=false",
+                    input.caseId(),
+                    input.sourceResultFile(),
+                    e.getClass().getName(),
+                    e.getMessage(),
+                    rootCause.getClass().getName(),
+                    rootCause.getMessage(),
+                    e
+            );
+            throw e;
+        }
     }
 
     String buildPrompt(NlgJudgeInput input) {
@@ -158,6 +175,14 @@ class NlgEvaluationAiClient {
             return null;
         }
         return tokens > Integer.MAX_VALUE ? Integer.MAX_VALUE : tokens.intValue();
+    }
+
+    private Throwable rootCause(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     record JudgeCallResult(
