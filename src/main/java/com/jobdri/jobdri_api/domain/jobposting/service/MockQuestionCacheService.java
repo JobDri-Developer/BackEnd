@@ -28,6 +28,7 @@ public class MockQuestionCacheService {
     private final JobPostingAiService jobPostingAiService;
     private final MockQuestionInflightRegistry mockQuestionInflightRegistry;
     private final MockQuestionDistributedLockService mockQuestionDistributedLockService;
+    private final MockQuestionCacheWaitExecutor mockQuestionCacheWaitExecutor;
     private final MockQuestionCacheTransactionalService mockQuestionCacheTransactionalService;
     private final MockQuestionCacheProperties mockQuestionCacheProperties;
     private final MockQuestionCacheVersionProvider mockQuestionCacheVersionProvider;
@@ -43,16 +44,14 @@ public class MockQuestionCacheService {
 
     private List<String> createAndCacheQuestionsWithLock(JobPostingMockGenerateRequest request) {
         String cacheKey = cacheKey(request);
-        String lockToken = mockQuestionDistributedLockService.tryAcquire(cacheKey);
+        MockQuestionDistributedLockService.LockLease lockLease = mockQuestionDistributedLockService.tryAcquire(cacheKey);
 
-        if (lockToken == null) {
-            return awaitCachedQuestions(request);
+        if (lockLease == null) {
+            return awaitCachedQuestions(request, cacheKey);
         }
 
-        try {
+        try (lockLease) {
             return getCachedQuestions(request).orElseGet(() -> createAndCacheQuestionsInternal(request));
-        } finally {
-            mockQuestionDistributedLockService.release(cacheKey, lockToken);
         }
     }
 
@@ -92,7 +91,14 @@ public class MockQuestionCacheService {
         );
     }
 
-    private List<String> awaitCachedQuestions(JobPostingMockGenerateRequest request) {
+    private List<String> awaitCachedQuestions(JobPostingMockGenerateRequest request, String cacheKey) {
+        return mockQuestionCacheWaitExecutor.execute(
+                () -> awaitCachedQuestionsWithTakeover(request, cacheKey),
+                mockQuestionCacheProperties.getWaitTimeoutMillis()
+        );
+    }
+
+    private List<String> awaitCachedQuestionsWithTakeover(JobPostingMockGenerateRequest request, String cacheKey) {
         long pollIntervalMillis = Math.max(0L, mockQuestionCacheProperties.getPollIntervalMillis());
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(
                 Math.max(0L, mockQuestionCacheProperties.getWaitTimeoutMillis())
@@ -100,6 +106,13 @@ public class MockQuestionCacheService {
 
         Optional<List<String>> cachedQuestions = getCachedQuestions(request);
         while (cachedQuestions.isEmpty() && System.nanoTime() < deadline) {
+            MockQuestionDistributedLockService.LockLease takeoverLease = mockQuestionDistributedLockService.tryAcquire(cacheKey);
+            if (takeoverLease != null) {
+                try (takeoverLease) {
+                    return getCachedQuestions(request).orElseGet(() -> createAndCacheQuestionsInternal(request));
+                }
+            }
+
             pauseBeforeRetry(pollIntervalMillis);
             cachedQuestions = getCachedQuestions(request);
         }
