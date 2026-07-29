@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingGenerateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
@@ -122,17 +123,18 @@ class JobPostingIngestServiceTest {
     @DisplayName("동기 ingest는 image object key를 추출 단계로 전달한다")
     void ingestAndCreatePassesImageObjectKeyToExtract() {
         JobPostingIngestRequest request = new JobPostingIngestRequest(
-                "채용 공고 원문",
+                "2026 해커스 클라우드 엔지니어 공개채용 채용 공고 원문",
                 "job-postings/1/posting.png"
         );
 
         JobPostingExtractResponse extracted = new JobPostingExtractResponse(
+                "2026 해커스 클라우드 엔지니어 공개채용",
                 "해커스 교육그룹",
                 "클라우드 엔지니어",
                 "클라우드 운영",
                 "클라우드 운영 경력",
                 "",
-                "채용 공고 원문",
+                "2026 해커스 클라우드 엔지니어 공개채용 채용 공고 원문",
                 0.9
         );
         JobPostingClassificationCandidateResponse candidate = new JobPostingClassificationCandidateResponse(
@@ -188,7 +190,7 @@ class JobPostingIngestServiceTest {
         ArgumentCaptor<String> imageObjectKeyCaptor = ArgumentCaptor.forClass(String.class);
         verify(jobPostingAiService).extractJobPosting(
                 eq(1L),
-                eq("채용 공고 원문"),
+                eq("2026 해커스 클라우드 엔지니어 공개채용 채용 공고 원문"),
                 imageObjectKeyCaptor.capture(),
                 eq(List.of("job-postings/1/posting.png"))
         );
@@ -197,6 +199,11 @@ class JobPostingIngestServiceTest {
         verify(jobPostingService).createJobPosting(eq(user), createRequestCaptor.capture());
 
         assertThat(imageObjectKeyCaptor.getValue()).isEqualTo("job-postings/1/posting.png");
+        ArgumentCaptor<JobPostingGenerateRequest> generateRequestCaptor =
+                ArgumentCaptor.forClass(JobPostingGenerateRequest.class);
+        verify(jobPostingAiService).generateJobPosting(generateRequestCaptor.capture());
+        assertThat(generateRequestCaptor.getValue().postingNameHint())
+                .isEqualTo("2026 해커스 클라우드 엔지니어 공개채용");
         assertThat(createRequestCaptor.getValue().postingName()).isEqualTo("클라우드 엔지니어 채용");
         assertThat(createRequestCaptor.getValue().jobTitle()).isEqualTo("클라우드 엔지니어");
         assertThat(response.isSavedToDatabase()).isTrue();
