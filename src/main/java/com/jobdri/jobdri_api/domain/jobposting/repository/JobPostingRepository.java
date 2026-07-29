@@ -11,6 +11,8 @@ import org.springframework.data.repository.query.Param;
 import java.util.List;
 
 public interface JobPostingRepository extends JpaRepository<JobPosting, Long> {
+    List<JobPosting> findAllByOrderByIdAsc();
+
     @EntityGraph(attributePaths = {
             "company",
             "user",
