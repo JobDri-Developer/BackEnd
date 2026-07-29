@@ -79,7 +79,7 @@ class NlgEvaluationBatchService {
             try {
                 NlgEvaluationAiClient.NlgJudgeInput input = buildJudgeInput(inputPath, row, sourceCaseRows, resolvedHeaders);
                 NlgEvaluationAiClient.JudgeCallResult callResult = nlgEvaluationAiClient.evaluate(input);
-                NlgEvaluationResult result = validateAndBuildResult(input, callResult);
+                NlgEvaluationResult result = validateAndBuildResultWithRetry(input, callResult);
                 results.add(result);
                 if (!StringUtils.hasText(result.failureStage())) {
                     successCount++;
@@ -148,7 +148,36 @@ class NlgEvaluationBatchService {
         );
     }
 
-    private NlgEvaluationResult validateAndBuildResult(
+    private NlgEvaluationResult validateAndBuildResultWithRetry(
+            NlgEvaluationAiClient.NlgJudgeInput input,
+            NlgEvaluationAiClient.JudgeCallResult callResult
+    ) {
+        JudgeValidationResult firstValidation = validateAndBuildResult(input, callResult);
+        if (firstValidation.reason() != JudgeValidationReason.QUESTION_ANALYSIS_COUNT_MISMATCH) {
+            return firstValidation.result();
+        }
+
+        log.warn(
+                "Retrying NLG Judge after validation failure. caseId={}, sourceResultFile={}, retryAttempt=1, reason=question_analysis_count_mismatch, inputQuestionAnalyses={}, responseQuestionAnalysisEvaluations={}",
+                input.caseId(),
+                input.sourceResultFile(),
+                input.questionAnalyses().size(),
+                firstValidation.responseQuestionAnalysisEvaluations()
+        );
+        NlgEvaluationAiClient.JudgeCallResult retryCallResult = nlgEvaluationAiClient.evaluate(input);
+        JudgeValidationResult retryValidation = validateAndBuildResult(input, retryCallResult);
+        if (retryValidation.reason() == JudgeValidationReason.NONE) {
+            log.info("NLG Judge retry succeeded. caseId={}, retryAttempt=1", input.caseId());
+        } else if (retryValidation.reason() == JudgeValidationReason.QUESTION_ANALYSIS_COUNT_MISMATCH) {
+            log.warn(
+                    "NLG Judge retry failed. caseId={}, retryAttempt=1, reason=question_analysis_count_mismatch",
+                    input.caseId()
+            );
+        }
+        return retryValidation.result();
+    }
+
+    private JudgeValidationResult validateAndBuildResult(
             NlgEvaluationAiClient.NlgJudgeInput input,
             NlgEvaluationAiClient.JudgeCallResult callResult
     ) {
@@ -165,7 +194,11 @@ class NlgEvaluationBatchService {
                     null,
                     true
             );
-            return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
+            return JudgeValidationResult.failed(
+                    input,
+                    JudgeValidationReason.RESPONSE_NULL,
+                    null
+            );
         }
         if (!Objects.equals(input.caseId(), response.caseId())) {
             log.warn(
@@ -180,7 +213,11 @@ class NlgEvaluationBatchService {
                     response.caseId(),
                     false
             );
-            return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
+            return JudgeValidationResult.failed(
+                    input,
+                    JudgeValidationReason.CASE_ID_MISMATCH,
+                    response.questionAnalysisEvaluations()
+            );
         }
 
         if (input.questionAnalyses().isEmpty()
@@ -196,7 +233,11 @@ class NlgEvaluationBatchService {
                     input.questionAnalyses().size(),
                     response.questionAnalysisEvaluations().size()
             );
-            return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
+            return JudgeValidationResult.failed(
+                    input,
+                    JudgeValidationReason.QUESTION_ANALYSIS_COUNT_MISMATCH,
+                    response.questionAnalysisEvaluations()
+            );
         }
 
         List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations =
@@ -209,32 +250,34 @@ class NlgEvaluationBatchService {
         if (missedValidatedMissingKeywords) {
             missingKeywordsCoverage = missingKeywordsCoverage == null ? 1 : Math.min(missingKeywordsCoverage, 1);
         }
-        return new NlgEvaluationResult(
-                input.caseId(),
-                input.sourceResultFile(),
-                input.questionAnalyses().size(),
-                average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::relevance),
-                average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::problemValidity),
-                average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::sentenceTypeConsistency),
-                average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::reasonCorrectness),
-                average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::contextAwareness),
-                average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::faithfulness),
-                average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::tenseConsistency),
-                average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::usability),
-                average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::nonMeta),
-                average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::meaningPreservation),
-                validCaseScore(response.noAnalysisAppropriateness()),
-                validCaseScore(response.strengthsPrecision()),
-                validCaseScore(response.strengthsCoverage()),
-                validCaseScore(response.missingKeywordsPrecision()),
-                missingKeywordsCoverage,
-                validOverallUsefulness(response.overallUsefulness(), hasFatalError),
-                writeJson(errorCodes.stream().map(Enum::name).toList()),
-                truncateShortRationale(response.shortRationale()),
-                callResult.inputTokens(),
-                callResult.outputTokens(),
-                callResult.latencyMs(),
-                ""
+        return JudgeValidationResult.success(
+                new NlgEvaluationResult(
+                        input.caseId(),
+                        input.sourceResultFile(),
+                        input.questionAnalyses().size(),
+                        average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::relevance),
+                        average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::problemValidity),
+                        average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::sentenceTypeConsistency),
+                        average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::reasonCorrectness),
+                        average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::contextAwareness),
+                        average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::faithfulness),
+                        average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::tenseConsistency),
+                        average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::usability),
+                        average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::nonMeta),
+                        average(evaluations, NlgEvaluationResponse.QuestionAnalysisEvaluation::meaningPreservation),
+                        validCaseScore(response.noAnalysisAppropriateness()),
+                        validCaseScore(response.strengthsPrecision()),
+                        validCaseScore(response.strengthsCoverage()),
+                        validCaseScore(response.missingKeywordsPrecision()),
+                        missingKeywordsCoverage,
+                        validOverallUsefulness(response.overallUsefulness(), hasFatalError),
+                        writeJson(errorCodes.stream().map(Enum::name).toList()),
+                        truncateShortRationale(response.shortRationale()),
+                        callResult.inputTokens(),
+                        callResult.outputTokens(),
+                        callResult.latencyMs(),
+                        ""
+                )
         );
     }
 
@@ -977,6 +1020,35 @@ class NlgEvaluationBatchService {
             int summaryRowCount,
             long sizeBytes
     ) {
+    }
+
+    private enum JudgeValidationReason {
+        NONE,
+        RESPONSE_NULL,
+        CASE_ID_MISMATCH,
+        QUESTION_ANALYSIS_COUNT_MISMATCH
+    }
+
+    private record JudgeValidationResult(
+            NlgEvaluationResult result,
+            JudgeValidationReason reason,
+            int responseQuestionAnalysisEvaluations
+    ) {
+        private static JudgeValidationResult success(NlgEvaluationResult result) {
+            return new JudgeValidationResult(result, JudgeValidationReason.NONE, 0);
+        }
+
+        private static JudgeValidationResult failed(
+                NlgEvaluationAiClient.NlgJudgeInput input,
+                JudgeValidationReason reason,
+                List<NlgEvaluationResponse.QuestionAnalysisEvaluation> responseQuestionAnalysisEvaluations
+        ) {
+            return new JudgeValidationResult(
+                    NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed"),
+                    reason,
+                    responseQuestionAnalysisEvaluations == null ? 0 : responseQuestionAnalysisEvaluations.size()
+            );
+        }
     }
 
     private enum HeaderLocation {
