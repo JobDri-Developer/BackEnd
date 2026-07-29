@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.corpus.entity.MockJobPostingCorpus;
 import com.jobdri.jobdri_api.domain.corpus.entity.MockQuestionCorpus;
 import com.jobdri.jobdri_api.domain.corpus.repository.MockJobPostingCorpusRepository;
 import com.jobdri.jobdri_api.domain.corpus.repository.MockQuestionCorpusRepository;
+import com.jobdri.jobdri_api.global.cohere.CohereProperties;
 import com.pgvector.PGvector;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,12 +47,10 @@ public class CorpusEmbeddingSyncService {
                 updated_at = EXCLUDED.updated_at
             """;
 
-    @Value("${app.corpus.embedding.model:embed-v4.0}")
-    private String embeddingModel;
-
     @Value("${app.corpus.embedding.batch-size:32}")
     private int batchSize;
 
+    private final CohereProperties cohereProperties;
     private final MockJobPostingCorpusRepository mockJobPostingCorpusRepository;
     private final MockQuestionCorpusRepository mockQuestionCorpusRepository;
     private final CorpusEmbeddingClient corpusEmbeddingClient;
@@ -61,7 +60,7 @@ public class CorpusEmbeddingSyncService {
     public CorpusEmbeddingSyncResponse syncAll(Integer limit) {
         int jobPostingCount = syncJobPostingEmbeddings(limit);
         int questionCount = syncQuestionEmbeddings(limit);
-        return new CorpusEmbeddingSyncResponse(jobPostingCount, questionCount, embeddingModel);
+        return new CorpusEmbeddingSyncResponse(jobPostingCount, questionCount, cohereProperties.embedding().model());
     }
 
     @Transactional
@@ -116,7 +115,7 @@ public class CorpusEmbeddingSyncService {
                 Timestamp now = Timestamp.valueOf(LocalDateTime.now());
                 for (int i = 0; i < ids.size(); i++) {
                     statement.setLong(1, ids.get(i));
-                    statement.setString(2, embeddingModel);
+                statement.setString(2, cohereProperties.embedding().model());
                     statement.setObject(3, new PGvector(embeddings.get(i)));
                     statement.setTimestamp(4, now);
                     statement.setTimestamp(5, now);

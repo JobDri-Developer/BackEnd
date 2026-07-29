@@ -1,5 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
+import com.jobdri.jobdri_api.global.cohere.CohereProperties;
+
 final class MockQuestionCachePropertiesTestSupport {
 
     static final String VERSION_PREFIX = "v1";
@@ -21,8 +23,12 @@ final class MockQuestionCachePropertiesTestSupport {
     static MockQuestionCacheVersionProvider createVersionProvider() {
         return new MockQuestionCacheVersionProvider(
                 createProperties(),
+                new CohereProperties(
+                        "test-api-key",
+                        "https://api.cohere.com",
+                        new CohereProperties.Embedding("embed-v4.0", 1024, null, null)
+                ),
                 "gpt-4o-mini",
-                "embed-v4.0",
                 3,
                 5
         );

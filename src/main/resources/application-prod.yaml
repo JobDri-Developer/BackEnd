@@ -116,9 +116,6 @@ app:
       allowed-root: ${APP_CORPUS_IMPORT_ALLOWED_ROOT:}
     embedding:
       sync-on-startup: ${APP_CORPUS_EMBEDDING_SYNC_ON_STARTUP:false}
-      model: ${APP_CORPUS_EMBEDDING_MODEL:embed-v4.0}
-      output-dimension: ${APP_CORPUS_EMBEDDING_OUTPUT_DIMENSION:1024}
-      document-input-type: ${APP_CORPUS_EMBEDDING_DOCUMENT_INPUT_TYPE:search_document}
       batch-size: ${APP_CORPUS_EMBEDDING_BATCH_SIZE:32}
   analysis:
     retrieval:
@@ -171,8 +168,6 @@ cohere:
     dimension: ${COHERE_EMBEDDING_DIMENSION:1024}
     connect-timeout: ${COHERE_EMBEDDING_CONNECT_TIMEOUT:3s}
     read-timeout: ${COHERE_EMBEDDING_READ_TIMEOUT:15s}
-  api:
-    key: ${COHERE_API_KEY:}
 
 payment:
   coupon:

@@ -9,6 +9,7 @@ import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.Retrie
 import com.jobdri.jobdri_api.domain.analysis.service.ai.FewShotPromptProvider;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import com.jobdri.jobdri_api.global.cohere.CohereProperties;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -40,10 +41,10 @@ public class AnalysisInputFingerprintProvider {
     public AnalysisInputFingerprintProvider(
             ObjectMapper objectMapper,
             FewShotPromptProvider fewShotPromptProvider,
+            CohereProperties cohereProperties,
             @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}") String analysisModel,
             @Value("${analysis.two-pass.enabled:false}") boolean twoPassEnabled,
             @Value("${analysis.mode:}") String analysisMode,
-            @Value("${app.corpus.embedding.model:embed-v4.0}") String embeddingModel,
             @Value("${app.analysis.retrieval.jd-limit:3}") int jdLimit,
             @Value("${app.analysis.retrieval.question-limit:5}") int questionLimit
     ) {
@@ -52,7 +53,7 @@ public class AnalysisInputFingerprintProvider {
         this.analysisModel = analysisModel;
         this.twoPassEnabled = twoPassEnabled;
         this.analysisMode = analysisMode;
-        this.embeddingModel = embeddingModel;
+        this.embeddingModel = cohereProperties.embedding().model();
         this.jdLimit = jdLimit;
         this.questionLimit = questionLimit;
     }
