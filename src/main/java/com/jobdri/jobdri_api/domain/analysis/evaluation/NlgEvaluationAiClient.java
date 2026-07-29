@@ -7,13 +7,16 @@ import com.openai.models.responses.ResponseUsage;
 import com.openai.models.responses.StructuredResponse;
 import com.openai.models.responses.StructuredResponseOutputMessage;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 
 @Component
 @RequiredArgsConstructor
+@Slf4j
 class NlgEvaluationAiClient {
     private final OpenAIClient openAIClient;
     private final LlmConcurrencyLimiter llmConcurrencyLimiter;
@@ -29,17 +32,32 @@ class NlgEvaluationAiClient {
                 .temperature(0.0)
                 .text(NlgEvaluationResponse.class)
                 .build();
-        StructuredResponse<NlgEvaluationResponse> response = llmConcurrencyLimiter.execute(
-                "analysis-nlg-judge",
-                () -> openAIClient.responses().create(params)
-        );
-        ResponseUsage usage = response.usage().orElse(null);
-        return new JudgeCallResult(
-                extractStructuredContent(response),
-                elapsedMillis(startedAt),
-                toIntegerTokenCount(usage == null ? null : usage.inputTokens()),
-                toIntegerTokenCount(usage == null ? null : usage.outputTokens())
-        );
+        try {
+            StructuredResponse<NlgEvaluationResponse> response = llmConcurrencyLimiter.execute(
+                    "analysis-nlg-judge",
+                    () -> openAIClient.responses().create(params)
+            );
+            ResponseUsage usage = response.usage().orElse(null);
+            return new JudgeCallResult(
+                    extractStructuredContent(response),
+                    elapsedMillis(startedAt),
+                    toIntegerTokenCount(usage == null ? null : usage.inputTokens()),
+                    toIntegerTokenCount(usage == null ? null : usage.outputTokens())
+            );
+        } catch (RuntimeException e) {
+            Throwable rootCause = NestedExceptionUtils.getMostSpecificCause(e);
+            log.error(
+                    "NLG Judge call failed. caseId={}, sourceResultFile={}, exceptionType={}, message={}, rootCauseType={}, rootCauseMessage={}, rawJudgeResponseAvailable=false",
+                    input.caseId(),
+                    input.sourceResultFile(),
+                    e.getClass().getName(),
+                    e.getMessage(),
+                    rootCause.getClass().getName(),
+                    rootCause.getMessage(),
+                    e
+            );
+            throw e;
+        }
     }
 
     String buildPrompt(NlgJudgeInput input) {
@@ -76,6 +94,22 @@ class NlgEvaluationAiClient {
                 - 치명적 오류(UNSUPPORTED_FACT, TENSE_CHANGED, FALSE_POSITIVE_ANALYSIS, INVALID_MISSING_KEYWORD)가 있으면 overallUsefulness에 4~5점을 주지 않는다.
                 - questionAnalyses가 없으면 questionAnalysisEvaluations는 []로 둔다. 가짜 평가를 생성하지 않는다.
                 - questionAnalyses가 비어 있어도 중요한 첨삭 대상을 놓쳤다면 MISSED_ANALYSIS를 부여하고 overallUsefulness를 낮게 평가한다.
+
+                [questionAnalysisEvaluations 출력 계약]
+                - questionAnalysisEvaluations는 questionAnalysesJson에 명시적으로 포함된 분석 항목만 평가한다.
+                - The number of questionAnalysisEvaluations must equal the number of entries in questionAnalysesJson.
+                - Each evaluation must correspond to exactly one input question analysis.
+                - Do not add evaluations for analyses that are not present in questionAnalysesJson.
+                - questionAnalysesJson이 빈 배열인 경우 questionAnalysisEvaluations MUST be an empty array.
+                - 이 경우에도 noAnalysisAppropriateness, strengthsPrecision, strengthsCoverage, missingKeywordsPrecision, missingKeywordsCoverage, overallUsefulness, caseErrorCodes, shortRationale은 계속 평가한다.
+                - questionAnalysesJson이 빈 배열이어도 question, answer, keyStrengthsJson, missingKeywordsJson, rawCandidateResponseJson, sanitizedCandidateResponseJson, candidateReviewResponseJson을 보고 새로운 question analysis를 추론하거나 생성하지 않는다.
+                - Do not infer, reconstruct, create, or restore question analyses from question, answer, keyStrengthsJson, missingKeywordsJson, rawCandidateResponseJson, sanitizedCandidateResponseJson, or candidateReviewResponseJson.
+                - Rejected or removed candidates must not be converted into questionAnalysisEvaluations.
+                - 삭제되었거나 거절된 candidate를 questionAnalysisEvaluation으로 복원하지 않는다.
+                - raw/sanitized/review candidate는 참고 자료일 뿐 평가 대상 분석 목록이 아니다.
+                - 빈 questionAnalysesJson은 그 자체로 validation error가 아니며, 분석 부재의 적절성은 noAnalysisAppropriateness로 평가한다.
+                - 출력 예: questionAnalysesJson=[]이면 반드시 "questionAnalysisEvaluations": [] 이어야 한다.
+                - analysisIndex는 questionAnalysesJson 입력 배열의 index만 사용한다.
 
                 [errorCode와 점수 정합성]
                 - problemValidity <= 2이면 FALSE_POSITIVE_ANALYSIS 후보로 검토한다.

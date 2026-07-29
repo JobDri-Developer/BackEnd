@@ -671,6 +671,39 @@ public class AnalysisAiClient {
                 - status 다양성이나 개수를 채우기 위해 후보를 만들지 않는다.
                 - improvement를 생성하지 않는다.
 
+                [missingKeywordCandidates 생성 규칙]
+                - missingKeywordCandidates는 recall보다 precision을 우선한다. 확실한 누락 역량이 없으면 []를 반환한다.
+                - 개수를 채우기 위해 missingKeywordCandidates를 생성하지 않는다. 애매하면 생성하지 않는다.
+                - keyword는 main_tasks 또는 qualifications에 명시적으로 존재하거나 직접적으로 동일한 의미인 항목만 사용한다.
+                - 유사 JD, preferences, 유사 자소서 문항, 직무 일반 지식, 모델의 추론에서 keyword를 만들지 않는다.
+                - JD에 없는 개념으로 확장하거나 일반화하지 않는다.
+                - "상세페이지 제작"을 "UX/UI 인터페이스 설계"로 바꾸지 않는다.
+                - "브랜드 운영"을 "브랜드 BI/CI 수립 경험"으로 바꾸지 않는다.
+                - "사업 및 행정지원"을 "복지 프로그램 기획"으로 바꾸지 않는다.
+                - keyword는 가능하면 JD 원문 표현을 유지한다. 추상화하거나 더 넓은 상위 개념으로 바꾸지 않는다.
+                - relatedRequirement는 main_tasks 또는 qualifications의 실제 문장을 그대로 복사하거나 조사/공백 정도만 최소 수정한다.
+                - relatedRequirement에 JD 원문에 없는 새 표현을 만들지 않는다.
+                - 답변 전체에 keyword와 직접 동일한 역량, 수행 경험, 도구 사용, 업무 수행이 이미 충분히 있으면 missingKeywordCandidates에 넣지 않는다.
+                - "행정 업무", "행정 지원", "사업 및 행정지원"처럼 같은 역량이 답변에 입증되어 있으면 누락으로 만들지 않는다.
+
+                [missingKeywordCandidates Negative Examples]
+                - Example 1
+                  JD main_tasks: 상세페이지 제작
+                  JD qualifications: 포토샵
+                  Answer: 포토샵으로 상세페이지를 제작했습니다.
+                  missingKeywordCandidates: []
+                  이유: 이미 답변에 있으며, 상세페이지 제작을 UX/UI 인터페이스 설계 같은 JD 밖 개념으로 확장하지 않는다.
+                - Example 2
+                  JD main_tasks: 브랜드 운영
+                  Answer: 브랜드를 운영했습니다.
+                  missingKeywordCandidates: []
+                  이유: 브랜드 운영은 이미 답변에 있으며, BI/CI 구축 경험으로 일반화하지 않는다.
+                - Example 3
+                  JD main_tasks: 사업 및 행정지원
+                  Answer: 총무부에서 사업 및 행정지원 업무와 예산 관리를 담당했습니다.
+                  missingKeywordCandidates: []
+                  이유: 사업 및 행정지원 역량이 이미 답변에 충분히 존재한다.
+
                 [문장 유형별 후보 기준]
                 - EXPERIENCE: 역할, 행동, 방법, 결과, 직무 연결성 중 실제로 부족한 요소가 있어야 한다.
                 - EXPERIENCE: 주변 문장에 역할, 방법, 성과가 이어지면 부족하다고 판단하지 않는다.

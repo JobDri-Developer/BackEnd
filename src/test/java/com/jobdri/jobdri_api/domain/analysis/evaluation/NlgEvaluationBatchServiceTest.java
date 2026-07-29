@@ -16,6 +16,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -83,6 +84,7 @@ class NlgEvaluationBatchServiceTest {
         assertThat(row.get("averageRelevance")).isBlank();
         assertThat(row.get("strengthsPrecision")).isEqualTo("5");
         assertThat(row.get("errorCodes")).contains("FALSE_POSITIVE_ANALYSIS");
+        verify(aiClient, times(1)).evaluate(any());
     }
 
     @Test
@@ -117,52 +119,93 @@ class NlgEvaluationBatchServiceTest {
         assertThat(row.get("averageProblemValidity")).isBlank();
         assertThat(row.get("overallUsefulness")).isEqualTo("5");
         assertThat(row.get("failureStage")).isBlank();
+        verify(aiClient, times(1)).evaluate(any());
     }
 
     @Test
-    @DisplayName("빈 questionAnalyses에 대해 judge가 문장 평가를 생성하면 검증 실패로 기록한다")
-    void rejectsHallucinatedQuestionEvaluationForEmptyQuestionAnalyses() throws Exception {
+    @DisplayName("빈 questionAnalyses에 대해 judge가 문장 평가를 생성하면 빈 평가 배열로 정규화하고 case-level 결과를 보존한다")
+    void normalizesHallucinatedQuestionEvaluationsForEmptyQuestionAnalyses() throws Exception {
         NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
         when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
                 new NlgEvaluationResponse(
                         "EV-02",
-                        List.of(new NlgEvaluationResponse.QuestionAnalysisEvaluation(
-                                0,
-                                "없는 분석 문장입니다.",
-                                5,
-                                5,
-                                5,
-                                5,
-                                5,
-                                5,
-                                5,
-                                5,
-                                5,
-                                5,
-                                List.of(NlgEvaluationErrorCode.NONE)
-                        )),
-                        5,
-                        5,
-                        5,
-                        5,
-                        5,
-                        5,
-                        List.of(NlgEvaluationErrorCode.NONE),
-                        "빈 분석인데 문장 평가를 생성했습니다."
+                        hallucinatedQuestionEvaluations(2),
+                        2,
+                        3,
+                        4,
+                        1,
+                        2,
+                        3,
+                        List.of(NlgEvaluationErrorCode.MISSED_ANALYSIS),
+                        "빈 분석이지만 중요한 첨삭 대상을 놓쳤습니다."
                 ),
+                90L,
+                11,
+                22
+        ));
+
+        Path input = writeJudgeInput("EV-02", "[]");
+        Path output = tempDir.resolve("judge_empty_normalized.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("analysisCount")).isEqualTo("0");
+        assertThat(row.get("averageProblemValidity")).isBlank();
+        assertThat(row.get("noAnalysisAppropriateness")).isEqualTo("2");
+        assertThat(row.get("strengthsPrecision")).isEqualTo("3");
+        assertThat(row.get("strengthsCoverage")).isEqualTo("4");
+        assertThat(row.get("missingKeywordsPrecision")).isEqualTo("1");
+        assertThat(row.get("missingKeywordsCoverage")).isEqualTo("2");
+        assertThat(row.get("overallUsefulness")).isEqualTo("3");
+        assertThat(row.get("errorCodes")).contains("MISSED_ANALYSIS");
+        assertThat(row.get("shortRationale")).isEqualTo("빈 분석이지만 중요한 첨삭 대상을 놓쳤습니다.");
+        assertThat(row.get("failureStage")).isBlank();
+        assertThat(row.get("judgeInputTokens")).isEqualTo("11");
+        assertThat(row.get("judgeOutputTokens")).isEqualTo("22");
+        verify(aiClient, times(1)).evaluate(any());
+    }
+
+    @Test
+    @DisplayName("caseId mismatch는 재시도하지 않고 validation failure로 기록한다")
+    void doesNotRetryCaseIdMismatch() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
+                responseWithoutQuestionEvaluations("OTHER"),
                 90L,
                 null,
                 null
         ));
 
         Path input = writeJudgeInput("EV-02", "[]");
-        Path output = tempDir.resolve("judge_empty_hallucination.csv");
+        Path output = tempDir.resolve("judge_case_id_mismatch.csv");
 
         new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
 
         Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
-        assertThat(row.get("analysisCount")).isBlank();
         assertThat(row.get("failureStage")).isEqualTo("judge_validation_failed");
+        verify(aiClient, times(1)).evaluate(any());
+    }
+
+    @Test
+    @DisplayName("null judge response는 재시도하지 않고 validation failure로 기록한다")
+    void doesNotRetryNullJudgeResponse() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
+                null,
+                90L,
+                null,
+                null
+        ));
+
+        Path input = writeJudgeInput("EV-02", "[]");
+        Path output = tempDir.resolve("judge_null_response.csv");
+
+        new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("failureStage")).isEqualTo("judge_validation_failed");
+        verify(aiClient, times(1)).evaluate(any());
     }
 
     @Test
@@ -466,6 +509,7 @@ class NlgEvaluationBatchServiceTest {
         Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
         assertThat(row.get("caseId")).isEqualTo("EV-04");
         assertThat(row.get("failureStage")).isEqualTo("judge_call_failed");
+        verify(aiClient, times(1)).evaluate(any());
     }
 
     @Test
@@ -840,22 +884,46 @@ class NlgEvaluationBatchServiceTest {
 
     private void stubJudge(NlgEvaluationAiClient aiClient, String caseId) {
         when(aiClient.evaluate(any())).thenReturn(new NlgEvaluationAiClient.JudgeCallResult(
-                new NlgEvaluationResponse(
-                        caseId,
-                        List.of(),
-                        5,
-                        5,
-                        5,
-                        5,
-                        5,
-                        5,
-                        List.of(NlgEvaluationErrorCode.NONE),
-                        "정상 평가입니다."
-                ),
+                responseWithoutQuestionEvaluations(caseId),
                 100L,
                 10,
                 20
         ));
+    }
+
+    private NlgEvaluationResponse responseWithoutQuestionEvaluations(String caseId) {
+        return new NlgEvaluationResponse(
+                caseId,
+                List.of(),
+                5,
+                5,
+                5,
+                5,
+                5,
+                5,
+                List.of(NlgEvaluationErrorCode.NONE),
+                "정상 평가입니다."
+        );
+    }
+
+    private List<NlgEvaluationResponse.QuestionAnalysisEvaluation> hallucinatedQuestionEvaluations(int count) {
+        return java.util.stream.IntStream.range(0, count)
+                .mapToObj(index -> new NlgEvaluationResponse.QuestionAnalysisEvaluation(
+                        index,
+                        "없는 분석 문장입니다. " + index,
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        5,
+                        List.of(NlgEvaluationErrorCode.NONE)
+                ))
+                .toList();
     }
 
     private void writeSourceCases(

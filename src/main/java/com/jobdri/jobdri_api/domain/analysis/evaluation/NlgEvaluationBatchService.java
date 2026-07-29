@@ -2,10 +2,13 @@ package com.jobdri.jobdri_api.domain.analysis.evaluation;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -83,7 +86,7 @@ class NlgEvaluationBatchService {
                     successCount++;
                 }
             } catch (Exception e) {
-                log.warn("NLG judge failed. caseId={}, message={}", caseId, e.getMessage());
+                logEvaluationFailure(caseId, inputPath.toString(), e);
                 results.add(NlgEvaluationResult.failed(caseId, inputPath.toString(), failureStage(e)));
             }
         }
@@ -151,15 +154,30 @@ class NlgEvaluationBatchService {
             NlgEvaluationAiClient.JudgeCallResult callResult
     ) {
         NlgEvaluationResponse response = callResult.response();
-        if (response == null || !Objects.equals(input.caseId(), response.caseId())) {
+        if (response == null) {
+            log.warn(
+                    "Judge validation failed. reason=response_null, caseId={}, sourceResultFile={}, expectedCaseId={}, actualCaseId={}, responseNull={}",
+                    input.caseId(),
+                    input.sourceResultFile(),
+                    input.caseId(),
+                    null,
+                    true
+            );
+            return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
+        }
+        if (!Objects.equals(input.caseId(), response.caseId())) {
+            log.warn(
+                    "Judge validation failed. reason=case_id_mismatch, caseId={}, sourceResultFile={}, expectedCaseId={}, actualCaseId={}, responseNull={}",
+                    input.caseId(),
+                    input.sourceResultFile(),
+                    input.caseId(),
+                    response.caseId(),
+                    false
+            );
             return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
         }
 
-        if (input.questionAnalyses().isEmpty()
-                && response.questionAnalysisEvaluations() != null
-                && !response.questionAnalysisEvaluations().isEmpty()) {
-            return NlgEvaluationResult.failed(input.caseId(), input.sourceResultFile(), "judge_validation_failed");
-        }
+        response = normalizeQuestionAnalysisEvaluations(input, response);
 
         List<NlgEvaluationResponse.QuestionAnalysisEvaluation> evaluations =
                 validQuestionEvaluations(input.questionAnalyses(), response.questionAnalysisEvaluations());
@@ -197,6 +215,38 @@ class NlgEvaluationBatchService {
                 callResult.outputTokens(),
                 callResult.latencyMs(),
                 ""
+        );
+    }
+
+    private NlgEvaluationResponse normalizeQuestionAnalysisEvaluations(
+            NlgEvaluationAiClient.NlgJudgeInput input,
+            NlgEvaluationResponse response
+    ) {
+        if (!input.questionAnalyses().isEmpty()) {
+            return response;
+        }
+        int originalCount = response.questionAnalysisEvaluations() == null
+                ? 0
+                : response.questionAnalysisEvaluations().size();
+        if (originalCount > 0) {
+            log.warn(
+                    "Normalized NLG Judge question analysis evaluations. reason=empty_input_evaluations_normalized, caseId={}, sourceResultFile={}, inputQuestionAnalyses=0, originalResponseQuestionAnalysisEvaluations={}, normalizedResponseQuestionAnalysisEvaluations=0",
+                    input.caseId(),
+                    input.sourceResultFile(),
+                    originalCount
+            );
+        }
+        return new NlgEvaluationResponse(
+                response.caseId(),
+                List.of(),
+                response.noAnalysisAppropriateness(),
+                response.strengthsPrecision(),
+                response.strengthsCoverage(),
+                response.missingKeywordsPrecision(),
+                response.missingKeywordsCoverage(),
+                response.overallUsefulness(),
+                response.caseErrorCodes(),
+                response.shortRationale()
         );
     }
 
@@ -783,6 +833,105 @@ class NlgEvaluationBatchService {
             return "judge_validation_failed";
         }
         return "judge_call_failed";
+    }
+
+    private void logEvaluationFailure(String caseId, String sourceResultFile, Exception e) {
+        Throwable rootCause = NestedExceptionUtils.getMostSpecificCause(e);
+        String internalReason = failureReason(e);
+        String jacksonPath = jacksonPath(e);
+        String failedField = failedFieldName(e);
+        Object unknownEnumValue = unknownEnumValue(e);
+        String exceptionType = e.getClass().getSimpleName();
+        log.error(
+                "NLG Judge evaluation failed. caseId={}, sourceResultFile={}, reason={}, exceptionType={}, message={}, rootCauseType={}, rootCauseMessage={}, jacksonPath={}, failedField={}, targetEnum={}, unknownValue={}, rawJudgeResponseAvailable=false",
+                caseId,
+                sourceResultFile,
+                internalReason,
+                exceptionType,
+                e.getMessage(),
+                rootCause.getClass().getName(),
+                rootCause.getMessage(),
+                jacksonPath,
+                failedField,
+                targetEnumName(e),
+                unknownEnumValue,
+                e
+        );
+        if (e instanceof JsonProcessingException jsonProcessingException) {
+            log.error(
+                    "NLG Judge JsonProcessingException detail. caseId={}, originalMessage={}",
+                    caseId,
+                    jsonProcessingException.getOriginalMessage(),
+                    e
+            );
+        }
+    }
+
+    private String failureReason(Exception e) {
+        if (findCause(e, InvalidFormatException.class)
+                .filter(this::isNlgEvaluationErrorCodeFailure)
+                .isPresent()) {
+            return "unknown_error_code";
+        }
+        if (findCause(e, JsonProcessingException.class).isPresent()) {
+            return "json_deserialization_failed";
+        }
+        if (e instanceof IllegalArgumentException) {
+            return "illegal_argument";
+        }
+        if (findCause(e, IllegalStateException.class)
+                .map(Throwable::getMessage)
+                .filter(message -> message != null && message.contains("구조화된 결과를 찾을 수 없습니다"))
+                .isPresent()) {
+            return "structured_output_missing";
+        }
+        return "judge_call_failed";
+    }
+
+    private boolean isNlgEvaluationErrorCodeFailure(InvalidFormatException e) {
+        Class<?> targetType = e.getTargetType();
+        return targetType != null && NlgEvaluationErrorCode.class.equals(targetType);
+    }
+
+    private String jacksonPath(Exception e) {
+        return findCause(e, JsonMappingException.class)
+                .map(JsonMappingException::getPathReference)
+                .orElse("");
+    }
+
+    private String failedFieldName(Exception e) {
+        return findCause(e, JsonMappingException.class)
+                .flatMap(mappingException -> mappingException.getPath().stream()
+                        .map(JsonMappingException.Reference::getFieldName)
+                        .filter(StringUtils::hasText)
+                        .reduce((first, second) -> second))
+                .orElse("");
+    }
+
+    private Object unknownEnumValue(Exception e) {
+        return findCause(e, InvalidFormatException.class)
+                .filter(this::isNlgEvaluationErrorCodeFailure)
+                .map(InvalidFormatException::getValue)
+                .orElse(null);
+    }
+
+    private String targetEnumName(Exception e) {
+        return findCause(e, InvalidFormatException.class)
+                .filter(this::isNlgEvaluationErrorCodeFailure)
+                .map(InvalidFormatException::getTargetType)
+                .map(Class::getSimpleName)
+                .orElse("");
+    }
+
+    private <T extends Throwable> Optional<T> findCause(Throwable throwable, Class<T> type) {
+        Throwable current = throwable;
+        while (current != null) {
+            if (type.isInstance(current)) {
+                return Optional.of(type.cast(current));
+            }
+            current = current.getCause();
+        }
+        return Optional.empty();
     }
 
     record NlgEvaluationSummary(
