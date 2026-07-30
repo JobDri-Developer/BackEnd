@@ -112,3 +112,11 @@ payment:
     return-url: ${TOSS_PAY_RETURN_URL:http://localhost:3000/credit/payment-result}
     cancel-url: ${TOSS_PAY_CANCEL_URL:http://localhost:3000/credit/payment-cancel}
     result-callback-url: ${TOSS_PAY_RESULT_CALLBACK_URL:http://localhost:8080/api/payments/toss/callback}
+  portone:
+    enabled: ${PORTONE_ENABLED:false}
+    api-base-url: ${PORTONE_API_BASE_URL:https://api.portone.io}
+    store-id: ${PORTONE_STORE_ID:dummy-evaluation-store-id}
+    channel-key: ${PORTONE_CHANNEL_KEY:dummy-evaluation-channel-key}
+    api-secret: ${PORTONE_API_SECRET:dummy-evaluation-api-secret}
+    redirect-url: ${PORTONE_REDIRECT_URL:http://localhost:3000/credit/payment-result}
+    webhook-secret: ${PORTONE_WEBHOOK_SECRET:dummy-evaluation-webhook-secret}

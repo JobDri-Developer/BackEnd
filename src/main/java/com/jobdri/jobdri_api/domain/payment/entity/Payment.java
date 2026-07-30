@@ -41,6 +41,19 @@ public class Payment extends BaseEntity {
     @Column(length = 50)
     private String tossStatus;
 
+    @Enumerated(EnumType.STRING)
+    @Column(length = 30)
+    private PaymentProviderType provider;
+
+    @Column(unique = true)
+    private String externalPaymentId;
+
+    @Column
+    private String externalTransactionId;
+
+    @Column(length = 50)
+    private String externalStatus;
+
     @Column(nullable = false)
     private String planCode;
 
@@ -68,6 +81,18 @@ public class Payment extends BaseEntity {
             int creditAmount,
             int price
     ) {
+        return createPending(user, content, orderId, planCode, creditAmount, price, PaymentProviderType.TOSS_PAY_DIRECT);
+    }
+
+    public static Payment createPending(
+            User user,
+            String content,
+            String orderId,
+            String planCode,
+            int creditAmount,
+            int price,
+            PaymentProviderType provider
+    ) {
         return Payment.builder()
                 .user(user)
                 .content(content)
@@ -75,6 +100,7 @@ public class Payment extends BaseEntity {
                 .planCode(planCode)
                 .creditAmount(creditAmount)
                 .price(price)
+                .provider(PaymentProviderType.fromNullable(provider))
                 .status(PaymentStatus.PENDING)
                 .build();
     }
@@ -85,9 +111,16 @@ public class Payment extends BaseEntity {
     }
 
     public void attachTossPayPayment(String payToken, String checkoutPage) {
+        this.provider = PaymentProviderType.TOSS_PAY_DIRECT;
         this.payToken = payToken;
         this.checkoutPage = checkoutPage;
         this.tossStatus = PaymentStatus.PENDING.name();
+    }
+
+    public void attachPortOnePayment(String externalPaymentId) {
+        this.provider = PaymentProviderType.PORTONE;
+        this.externalPaymentId = externalPaymentId;
+        this.externalStatus = PaymentStatus.PENDING.name();
     }
 
     public void complete(String paymentKey) {
@@ -103,6 +136,15 @@ public class Payment extends BaseEntity {
         this.callbackReceivedAt = LocalDateTime.now();
     }
 
+    public void completeByPortOne(String externalStatus, String externalTransactionId) {
+        this.externalStatus = externalStatus;
+        this.externalTransactionId = externalTransactionId;
+        this.status = PaymentStatus.COMPLETED;
+        this.approvedAt = LocalDateTime.now();
+        this.callbackReceivedAt = LocalDateTime.now();
+        this.lastStatusCheckedAt = LocalDateTime.now();
+    }
+
     public void fail() {
         this.status = PaymentStatus.FAILED;
     }
@@ -111,6 +153,14 @@ public class Payment extends BaseEntity {
         this.tossStatus = tossStatus;
         this.status = PaymentStatus.FAILED;
         this.callbackReceivedAt = LocalDateTime.now();
+    }
+
+    public void failByPortOne(String externalStatus, String externalTransactionId) {
+        this.externalStatus = externalStatus;
+        this.externalTransactionId = externalTransactionId;
+        this.status = PaymentStatus.FAILED;
+        this.callbackReceivedAt = LocalDateTime.now();
+        this.lastStatusCheckedAt = LocalDateTime.now();
     }
 
     public void markUnknown() {
@@ -132,6 +182,21 @@ public class Payment extends BaseEntity {
         this.callbackReceivedAt = LocalDateTime.now();
     }
 
+    public void updatePortOneStatus(String externalStatus, String externalTransactionId) {
+        this.externalStatus = externalStatus;
+        this.externalTransactionId = externalTransactionId;
+        this.callbackReceivedAt = LocalDateTime.now();
+        this.lastStatusCheckedAt = LocalDateTime.now();
+    }
+
+    public void markPortOneUnknown(String externalStatus, String externalTransactionId) {
+        this.externalStatus = externalStatus;
+        this.externalTransactionId = externalTransactionId;
+        this.status = PaymentStatus.UNKNOWN;
+        this.callbackReceivedAt = LocalDateTime.now();
+        this.lastStatusCheckedAt = LocalDateTime.now();
+    }
+
     public void markStatusChecked(String tossStatus) {
         this.tossStatus = tossStatus;
         this.lastStatusCheckedAt = LocalDateTime.now();
@@ -147,5 +212,13 @@ public class Payment extends BaseEntity {
 
     public boolean hasPayToken(String payToken) {
         return this.payToken != null && this.payToken.equals(payToken);
+    }
+
+    public PaymentProviderType getProviderOrDefault() {
+        return PaymentProviderType.fromNullable(provider);
+    }
+
+    public boolean isProvider(PaymentProviderType provider) {
+        return getProviderOrDefault() == provider;
     }
 }

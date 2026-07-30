@@ -92,6 +92,14 @@ payment:
     return-url: http://localhost:3000/credit/payment-result
     cancel-url: http://localhost:3000/credit/payment-cancel
     result-callback-url: http://localhost:8080/api/payments/toss/callback
+  portone:
+    enabled: true
+    api-base-url: http://localhost:18080
+    store-id: store-test
+    channel-key: channel-key-test
+    api-secret: test-portone-api-secret
+    redirect-url: http://localhost:3000/credit/payment-result
+    webhook-secret: whsec_dGVzdC13ZWJob29rLXNlY3JldA==
 
 async:
   llm:
