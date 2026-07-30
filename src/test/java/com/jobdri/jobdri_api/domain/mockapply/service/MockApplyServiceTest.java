@@ -344,7 +344,9 @@ class MockApplyServiceTest {
         MockApply inProgress = mockApplyRepository.save(MockApply.create(user, backendPosting, ApplyType.ACTUAL));
         inProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
         inProgress.updateDisplayName("카카오 백엔드 지원 연습");
-        analysisAsyncTaskRepository.save(AnalysisAsyncTask.pending(user.getId(), inProgress.getId(), 3));
+        AnalysisAsyncTask pendingTask = analysisAsyncTaskRepository.save(
+                AnalysisAsyncTask.pending(user.getId(), inProgress.getId(), 3)
+        );
         MockApply runningInProgress = mockApplyRepository.save(MockApply.create(user, backendPosting, ApplyType.MOCK));
         runningInProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
         AnalysisAsyncTask runningTask = AnalysisAsyncTask.pending(user.getId(), runningInProgress.getId(), 3);
@@ -378,6 +380,7 @@ class MockApplyServiceTest {
         MockApplyHomeItemResponse pendingItem = response.inProgress().get(1);
         assertThat(runningItem.mockApplyId()).isEqualTo(runningInProgress.getId());
         assertThat(runningItem.analysisInProgress()).isTrue();
+        assertThat(runningItem.taskId()).isEqualTo(runningTask.getTaskId());
         assertThat(pendingItem.mockApplyId()).isEqualTo(inProgress.getId());
         assertThat(pendingItem.jobPostingId()).isEqualTo(backendPosting.getId());
         assertThat(pendingItem.displayName()).isEqualTo("카카오 백엔드 지원 연습");
@@ -391,6 +394,7 @@ class MockApplyServiceTest {
         assertThat(pendingItem.applyType()).isEqualTo(ApplyType.ACTUAL);
         assertThat(pendingItem.score()).isNull();
         assertThat(pendingItem.analysisInProgress()).isTrue();
+        assertThat(pendingItem.taskId()).isEqualTo(pendingTask.getTaskId());
         assertThat(pendingItem.resumePath()).isEqualTo("/mock-applies/" + inProgress.getId() + "/answers");
         assertThat(response.completed().getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
                 .containsExactly(completedSecond.getId(), completedFirst.getId());
@@ -403,6 +407,7 @@ class MockApplyServiceTest {
         assertThat(response.completed().getContent().get(0).displayName()).isNull();
         assertThat(response.completed().getContent().get(0).score()).isEqualTo(81);
         assertThat(response.completed().getContent().get(0).analysisInProgress()).isFalse();
+        assertThat(response.completed().getContent().get(0).taskId()).isNull();
         assertThat(response.completed().getContent().get(0).applyType()).isEqualTo(ApplyType.ACTUAL);
         assertThat(response.completed().getContent().get(0).resumePath()).isEqualTo("/mock-applies/" + completedSecond.getId() + "/analysis");
     }

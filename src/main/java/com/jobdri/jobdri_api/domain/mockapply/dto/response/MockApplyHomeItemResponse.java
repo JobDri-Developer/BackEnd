@@ -23,9 +23,14 @@ public record MockApplyHomeItemResponse(
         LocalDateTime createdAt,
         ApplyType applyType,
         Integer score,
-        boolean analysisInProgress
+        boolean analysisInProgress,
+        String taskId
 ) {
     public static MockApplyHomeItemResponse from(MockApply mockApply, boolean analysisInProgress) {
+        return from(mockApply, analysisInProgress, null);
+    }
+
+    public static MockApplyHomeItemResponse from(MockApply mockApply, boolean analysisInProgress, String taskId) {
         JobPosting jobPosting = mockApply.getJobPosting();
         String detailClassificationName = jobPosting.getDetailClassification().getDetailName();
         Analysis analysis = mockApply.getAnalysis();
@@ -44,7 +49,8 @@ public record MockApplyHomeItemResponse(
                 mockApply.getCreatedAt(),
                 mockApply.getApplyType(),
                 analysis == null ? null : analysis.getScore(),
-                analysisInProgress
+                analysisInProgress,
+                taskId
         );
     }
 
