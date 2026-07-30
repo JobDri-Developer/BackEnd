@@ -249,7 +249,25 @@ class AnalysisWorkerBridgeServiceTest {
         when(jobPosting.getDetailClassification().getMiddleClassification().getMiddleName()).thenReturn("서버");
         when(jobPosting.getDetailClassification().getMiddleClassification().getClassification().getBigName()).thenReturn("개발");
         AnalysisExecutionPayload initialPayload = new AnalysisExecutionPayload(
-                1L, 10L, jobPosting, List.of(), List.of(), null, null, List.of()
+                1L,
+                10L,
+                jobPosting,
+                List.of(),
+                List.of(),
+                null,
+                new RetrievalContext(
+                        List.of(new RetrievedJobPostingReference(
+                                11L,
+                                "참고 회사",
+                                "백엔드 개발자",
+                                "API 개발",
+                                "Spring Boot",
+                                "AWS",
+                                0.12
+                        )),
+                        List.of()
+                ),
+                List.of()
         );
         SimilarJobPostingContext laterContext = new SimilarJobPostingContext(
                 31L, "유사 회사", "유사 공고", "서버 개발자", "API 개발", "Java", "AWS", 1, 0.91
@@ -280,9 +298,13 @@ class AnalysisWorkerBridgeServiceTest {
                 "initial-fingerprint"
         )).thenReturn(analysisResponse);
 
-        analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
+        var initialContext = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
+        var retriedContext = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
         analysisWorkerBridgeService.completeTask(task.getTaskId(), request);
 
+        assertThat(retriedContext).isEqualTo(initialContext);
+        assertThat(retriedContext.corpusReferences()).hasSize(1);
+        assertThat(retriedContext.corpusReferences().getFirst().corpusId()).isEqualTo(11L);
         verify(analysisService, times(1)).prepareAnalysisExecution(user, 10L);
         verify(analysisService).prepareAnalysisExecution(user, 10L, List.of());
         verify(analysisService).finalizeAnalysis(

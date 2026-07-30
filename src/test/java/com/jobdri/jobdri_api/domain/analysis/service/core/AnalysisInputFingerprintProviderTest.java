@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext
 import com.jobdri.jobdri_api.domain.analysis.service.ai.FewShotPromptProvider;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedQuestionReference;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.global.cohere.CohereProperties;
 import org.junit.jupiter.api.DisplayName;
@@ -74,6 +75,28 @@ class AnalysisInputFingerprintProviderTest {
         assertThat(provider.create(first)).isEqualTo(provider.create(changedDistance));
     }
 
+    @Test
+    @DisplayName("Curated Corpus 문항 내용이 달라지면 fingerprint가 달라진다")
+    void fingerprintChangesWhenCorpusQuestionContentChanges() {
+        when(fewShotPromptProvider.getPrompt()).thenReturn("few-shot");
+        JobPosting current = currentJobPosting();
+        AnalysisExecutionPayload first = payload(current, questionCorpusReference("성과 경험", 0.1));
+        AnalysisExecutionPayload changed = payload(current, questionCorpusReference("지원 동기", 0.1));
+
+        assertThat(provider.create(first)).isNotEqualTo(provider.create(changed));
+    }
+
+    @Test
+    @DisplayName("Curated Corpus 문항 distance 변화는 fingerprint에 영향을 주지 않는다")
+    void fingerprintIgnoresCorpusQuestionDistance() {
+        when(fewShotPromptProvider.getPrompt()).thenReturn("few-shot");
+        JobPosting current = currentJobPosting();
+        AnalysisExecutionPayload first = payload(current, questionCorpusReference("성과 경험", 0.1));
+        AnalysisExecutionPayload changedDistance = payload(current, questionCorpusReference("성과 경험", 0.9));
+
+        assertThat(provider.create(first)).isEqualTo(provider.create(changedDistance));
+    }
+
     private AnalysisExecutionPayload payload(JobPosting jobPosting, SimilarJobPostingContext context) {
         return new AnalysisExecutionPayload(
                 1L,
@@ -112,6 +135,21 @@ class AnalysisInputFingerprintProviderTest {
                         distance
                 )),
                 List.of()
+        );
+    }
+
+    private RetrievalContext questionCorpusReference(String questionText, double distance) {
+        return new RetrievalContext(
+                List.of(),
+                List.of(new RetrievedQuestionReference(
+                        21L,
+                        "참고 회사",
+                        "백엔드 개발자",
+                        "EXPERIENCE",
+                        500,
+                        questionText,
+                        distance
+                ))
         );
     }
 

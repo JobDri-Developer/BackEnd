@@ -58,6 +58,10 @@ class AnalysisWorkerContextResponseTest {
         assertThat(json.path("similarJobPostings").get(0).has("userId")).isFalse();
         assertThat(json.path("corpusReferences").size()).isEqualTo(1);
         assertThat(json.path("corpusReferences").get(0).path("corpusId").asLong()).isEqualTo(11L);
+        assertThat(json.path("corpusReferences").get(0).path("category").asText()).isEqualTo("JOB_POSTING");
+        assertThat(json.path("corpusReferences").get(0).path("title").asText()).isEqualTo("참고 회사 - 백엔드");
+        assertThat(json.path("corpusReferences").get(0).path("content").asText()).isEqualTo("주요 업무: API 개발");
+        assertThat(json.path("corpusReferences").get(0).path("rank").asInt()).isEqualTo(1);
         assertThat(json.path("corpusReferences").get(0).has("distance")).isFalse();
         assertThat(json.path("corpusReferences").get(0).has("embedding")).isFalse();
     }
@@ -85,5 +89,45 @@ class AnalysisWorkerContextResponseTest {
         assertThat(json.path("similarJobPostings").size()).isZero();
         assertThat(json.path("corpusReferences").isArray()).isTrue();
         assertThat(json.path("corpusReferences").size()).isZero();
+    }
+
+    @Test
+    @DisplayName("기존 worker snapshot JSON은 corpusReferences 없이도 역직렬화된다")
+    void deserializeLegacySnapshotWithoutCorpusReferences() throws Exception {
+        String legacySnapshot = """
+                {
+                  "userId": 1,
+                  "mockApplyId": 10,
+                  "companyName": "현재 회사",
+                  "jobTitle": "백엔드 개발자",
+                  "task": "API 개발",
+                  "requirements": "Java",
+                  "preferredQualifications": "AWS",
+                  "bigClassificationName": "개발",
+                  "middleClassificationName": "서버",
+                  "detailClassificationName": "백엔드",
+                  "questions": [],
+                  "similarJobPostings": [{
+                    "jobPostingId": 31,
+                    "companyName": "유사 회사",
+                    "postingName": "유사 공고",
+                    "jobTitle": "서버 개발자",
+                    "task": "API 개발",
+                    "requirements": "Java",
+                    "preferredQualifications": "AWS",
+                    "similarityRank": 1,
+                    "similarityScore": 0.91
+                  }]
+                }
+                """;
+
+        AnalysisWorkerContextResponse response = objectMapper.readValue(
+                legacySnapshot,
+                AnalysisWorkerContextResponse.class
+        );
+
+        assertThat(response.corpusReferences()).isEmpty();
+        assertThat(response.similarJobPostings()).hasSize(1);
+        assertThat(response.similarJobPostings().getFirst().jobPostingId()).isEqualTo(31L);
     }
 }

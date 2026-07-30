@@ -117,15 +117,7 @@ public class AnalysisService {
     public void validateAnalysisRequest(User user, Long mockApplyId) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
-        boolean hasAnsweredQuestion = questions.stream()
-                .anyMatch(question -> StringUtils.hasText(question.getAnswer()));
-
-        if (!hasAnsweredQuestion) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "분석할 자소서 답변이 1개 이상 필요합니다."
-            );
-        }
+        answeredQuestionsOrThrow(questions);
     }
 
     @Transactional
@@ -142,10 +134,7 @@ public class AnalysisService {
     public AnalysisExecutionPayload prepareAnalysisExecution(User user, Long mockApplyId) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
-        List<Question> answeredQuestions = questions.stream()
-                .filter(question -> StringUtils.hasText(question.getAnswer()))
-                .toList();
-        validateAnsweredQuestions(answeredQuestions);
+        List<Question> answeredQuestions = answeredQuestionsOrThrow(questions);
         return prepareAnalysisExecution(
                 user,
                 mockApply,
@@ -164,9 +153,7 @@ public class AnalysisService {
     ) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
-        List<Question> answeredQuestions = questions.stream()
-                .filter(question -> StringUtils.hasText(question.getAnswer()))
-                .toList();
+        List<Question> answeredQuestions = answeredQuestionsOrThrow(questions);
         return prepareAnalysisExecution(
                 user,
                 mockApply,
@@ -185,8 +172,6 @@ public class AnalysisService {
             RetrievalContext retrievalContext,
             List<SimilarJobPostingContext> similarJobPostings
     ) {
-        validateAnsweredQuestions(answeredQuestions);
-
         // Initialize hierarchy before leaving the read transaction so detached payload can be used safely.
         mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName();
         mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getClassification().getBigName();
@@ -206,13 +191,17 @@ public class AnalysisService {
         );
     }
 
-    private void validateAnsweredQuestions(List<Question> answeredQuestions) {
+    private List<Question> answeredQuestionsOrThrow(List<Question> questions) {
+        List<Question> answeredQuestions = questions.stream()
+                .filter(question -> StringUtils.hasText(question.getAnswer()))
+                .toList();
         if (answeredQuestions.isEmpty()) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
                     "분석할 자소서 답변이 1개 이상 필요합니다."
             );
         }
+        return answeredQuestions;
     }
 
     public AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
