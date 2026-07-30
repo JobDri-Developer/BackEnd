@@ -94,7 +94,7 @@ payment:
     result-callback-url: http://localhost:8080/api/payments/toss/callback
   portone:
     enabled: true
-    api-base-url: https://api.portone.io
+    api-base-url: http://localhost:18080
     store-id: store-test
     channel-key: channel-key-test
     api-secret: test-portone-api-secret

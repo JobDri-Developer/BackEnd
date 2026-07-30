@@ -47,8 +47,8 @@ public class PaymentTransactionService {
     }
 
     @Transactional
-    public Payment attachPortOnePayment(Long userId, String orderId) {
-        Payment payment = getOwnedPaymentForUpdate(userId, orderId);
+    public Payment createPortOnePendingPayment(Long userId, CreditPlan plan, String orderId) {
+        Payment payment = createPendingPayment(userId, plan, orderId, PaymentProviderType.PORTONE);
         payment.attachPortOnePayment(orderId);
         return payment;
     }

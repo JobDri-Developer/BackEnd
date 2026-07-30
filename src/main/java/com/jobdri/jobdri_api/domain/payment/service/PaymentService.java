@@ -132,13 +132,11 @@ public class PaymentService {
     private PaymentPrepareResponse preparePortOne(User validatedUser, CreditPlan plan) {
         PortOnePrepareData prepareData = portOneClient.prepareData();
         String orderId = "jobdri-" + UUID.randomUUID();
-        Payment payment = paymentTransactionService.createPendingPayment(
+        Payment payment = paymentTransactionService.createPortOnePendingPayment(
                 validatedUser.getId(),
                 plan,
-                orderId,
-                PaymentProviderType.PORTONE
+                orderId
         );
-        payment = paymentTransactionService.attachPortOnePayment(validatedUser.getId(), payment.getOrderId());
         try (var ignored = LoggingContext.with(
                 "payment.portone.prepare.completed",
                 null,
@@ -244,6 +242,7 @@ public class PaymentService {
         } catch (GeneralException e) {
             if (e.getCode() == GeneralErrorCode.PAYMENT_NOT_FOUND
                     || e.getCode() == GeneralErrorCode.PAYMENT_CONFIRM_FAILED
+                    || e.getCode() == GeneralErrorCode.PAYMENT_AMOUNT_MISMATCH
                     || e.getCode() == GeneralErrorCode.INVALID_PARAMETER) {
                 try (var ignored = LoggingContext.with(
                         "payment.portone.webhook.ignored",

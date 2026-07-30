@@ -413,6 +413,62 @@ class MockApplyServiceTest {
     }
 
     @Test
+    @DisplayName("홈 화면 분석 진행 상태는 활성 작업만 표시하고 중복 활성 작업은 최신 작업을 선택한다")
+    void getMyMockAppliesUsesNewestActiveAnalysisTaskOnly() {
+        User user = saveUser("home-active-task@example.com");
+        JobPosting posting = saveJobPosting(user, "백엔드 개발");
+        LocalDateTime baseTime = LocalDateTime.of(2026, 1, 1, 12, 0);
+
+        MockApply noTask = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK));
+        noTask.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        MockApply failedTaskApply = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK));
+        failedTaskApply.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        AnalysisAsyncTask failedTask = AnalysisAsyncTask.pending(user.getId(), failedTaskApply.getId(), 0);
+        failedTask.markFailed(AnalysisAsyncTask.FailureReason.OPENAI_TIMEOUT, "timeout", 0);
+        analysisAsyncTaskRepository.save(failedTask);
+        MockApply cancelledTaskApply = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK));
+        cancelledTaskApply.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        AnalysisAsyncTask cancelledTask = AnalysisAsyncTask.pending(user.getId(), cancelledTaskApply.getId(), 0);
+        cancelledTask.requestCancel();
+        analysisAsyncTaskRepository.save(cancelledTask);
+        MockApply duplicateActiveTaskApply = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK));
+        duplicateActiveTaskApply.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        AnalysisAsyncTask oldActiveTask = analysisAsyncTaskRepository.save(
+                AnalysisAsyncTask.pending(user.getId(), duplicateActiveTaskApply.getId(), 0)
+        );
+        AnalysisAsyncTask newestActiveTask = analysisAsyncTaskRepository.save(
+                AnalysisAsyncTask.pending(user.getId(), duplicateActiveTaskApply.getId(), 0)
+        );
+
+        ReflectionTestUtils.setField(noTask, "createdAt", baseTime);
+        ReflectionTestUtils.setField(failedTaskApply, "createdAt", baseTime.plusMinutes(1));
+        ReflectionTestUtils.setField(cancelledTaskApply, "createdAt", baseTime.plusMinutes(2));
+        ReflectionTestUtils.setField(duplicateActiveTaskApply, "createdAt", baseTime.plusMinutes(3));
+        ReflectionTestUtils.setField(oldActiveTask, "createdAt", baseTime);
+        ReflectionTestUtils.setField(newestActiveTask, "createdAt", baseTime.plusMinutes(1));
+        mockApplyRepository.saveAndFlush(noTask);
+        mockApplyRepository.saveAndFlush(failedTaskApply);
+        mockApplyRepository.saveAndFlush(cancelledTaskApply);
+        mockApplyRepository.saveAndFlush(duplicateActiveTaskApply);
+        analysisAsyncTaskRepository.saveAndFlush(oldActiveTask);
+        analysisAsyncTaskRepository.saveAndFlush(newestActiveTask);
+
+        MockApplyHomeResponse response = mockApplyService.getMyMockApplies(user, 0, 9);
+
+        assertThat(response.inProgress()).hasSize(4);
+        MockApplyHomeItemResponse duplicateActiveTaskItem = response.inProgress().get(0);
+        assertThat(duplicateActiveTaskItem.mockApplyId()).isEqualTo(duplicateActiveTaskApply.getId());
+        assertThat(duplicateActiveTaskItem.analysisInProgress()).isTrue();
+        assertThat(duplicateActiveTaskItem.taskId()).isEqualTo(newestActiveTask.getTaskId());
+        assertThat(response.inProgress())
+                .filteredOn(item -> !item.mockApplyId().equals(duplicateActiveTaskApply.getId()))
+                .allSatisfy(item -> {
+                    assertThat(item.analysisInProgress()).isFalse();
+                    assertThat(item.taskId()).isNull();
+                });
+    }
+
+    @Test
     @DisplayName("완료된 분석 결과 카드는 9개 기준으로 페이지 조회한다")
     void getMyMockAppliesCompletedResultsPaged() {
         User user = saveUser("home-page@example.com");

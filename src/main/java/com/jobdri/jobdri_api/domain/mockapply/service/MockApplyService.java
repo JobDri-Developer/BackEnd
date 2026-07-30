@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.mockapply.service;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
@@ -47,6 +48,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.SQLException;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -336,6 +338,12 @@ public class MockApplyService {
                         List.of(TaskStatus.PENDING, TaskStatus.RUNNING)
                 )
                 .stream()
+                .sorted(Comparator
+                        .comparing(
+                                AnalysisAsyncTask::getCreatedAt,
+                                Comparator.nullsLast(Comparator.reverseOrder())
+                        )
+                        .thenComparing(AnalysisAsyncTask::getTaskId, Comparator.nullsLast(Comparator.reverseOrder())))
                 .collect(Collectors.toMap(
                         task -> task.getMockApplyId(),
                         task -> task.getTaskId(),

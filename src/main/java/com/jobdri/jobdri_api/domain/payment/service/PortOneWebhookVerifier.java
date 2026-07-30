@@ -95,9 +95,14 @@ public class PortOneWebhookVerifier {
     }
 
     private byte[] secretBytes() {
-        String secret = webhookSecret.startsWith("whsec_") ? webhookSecret.substring("whsec_".length()) : webhookSecret;
-        byte[] decoded = decodeBase64(secret);
-        return decoded == null ? webhookSecret.getBytes(StandardCharsets.UTF_8) : decoded;
+        if (webhookSecret.startsWith("whsec_")) {
+            byte[] decoded = decodeBase64(webhookSecret.substring("whsec_".length()));
+            if (decoded == null) {
+                throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "포트원 웹훅 시크릿 형식이 잘못되었습니다.");
+            }
+            return decoded;
+        }
+        return webhookSecret.getBytes(StandardCharsets.UTF_8);
     }
 
     private byte[] decodeBase64(String value) {

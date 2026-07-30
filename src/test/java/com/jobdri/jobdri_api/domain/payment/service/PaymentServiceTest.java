@@ -43,6 +43,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.function.IntFunction;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -53,6 +54,8 @@ import static org.mockito.Mockito.when;
 @SpringBootTest
 @ActiveProfiles("test")
 class PaymentServiceTest {
+
+    private static final String TEST_PORTONE_WEBHOOK_SECRET = "whsec_dGVzdC13ZWJob29rLXNlY3JldA==";
 
     @Autowired
     private PaymentService paymentService;
@@ -753,9 +756,9 @@ class PaymentServiceTest {
         String rawBody = portOneWebhookBody(prepared.orderId());
         HttpHeaders headers = signedWebhookHeaders(rawBody);
 
-        List<Result> results = runConcurrently(2, () -> {
+        List<Result> results = runConcurrentlyIndexed(2, index -> {
             try {
-                if (Thread.currentThread().getName().endsWith("1")) {
+                if (index == 0) {
                     paymentController.portOneWebhook(rawBody, headers);
                 } else {
                     paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
@@ -806,6 +809,52 @@ class PaymentServiceTest {
                 user.getId(),
                 CreditTransactionType.CHARGE
         )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("포트원 웹훅의 존재하지 않는 paymentId는 재시도 없이 무시한다")
+    void portOneWebhookIgnoresUnknownPaymentId() {
+        String rawBody = portOneWebhookBody("jobdri-unknown");
+        HttpHeaders headers = signedWebhookHeaders(rawBody);
+        when(portOneClient.getPayment("jobdri-unknown"))
+                .thenReturn(portOnePayment("jobdri-unknown", "PAID", 2500));
+        when(portOneClient.storeId()).thenReturn("store-test");
+
+        paymentController.portOneWebhook(rawBody, headers);
+
+        assertThat(paymentRepository.findByOrderId("jobdri-unknown")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("포트원 웹훅 금액 불일치는 영구 실패로 기록하고 재시도 없이 무시한다")
+    void portOneWebhookIgnoresAmountMismatch() {
+        User user = saveUser("payment-portone-webhook-amount-mismatch@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount() + 100);
+        String rawBody = portOneWebhookBody(prepared.orderId());
+        HttpHeaders headers = signedWebhookHeaders(rawBody);
+
+        paymentController.portOneWebhook(rawBody, headers);
+
+        assertPaymentPendingWithoutCreditCharge(user, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("포트원 웹훅 결제 조회 timeout은 전파해 포트원 재시도가 가능하게 한다")
+    void portOneWebhookPropagatesTimeout() {
+        User user = saveUser("payment-portone-webhook-timeout@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        String rawBody = portOneWebhookBody(prepared.orderId());
+        HttpHeaders headers = signedWebhookHeaders(rawBody);
+        when(portOneClient.getPayment(prepared.orderId()))
+                .thenThrow(new GeneralException(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, "포트원 조회 timeout"));
+
+        assertThatThrownBy(() -> paymentController.portOneWebhook(rawBody, headers))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT);
+
+        assertPaymentPendingWithoutCreditCharge(user, prepared.orderId());
     }
 
     @Test
@@ -890,13 +939,18 @@ class PaymentServiceTest {
     private String signPortOneWebhook(String webhookId, String timestamp, String rawBody) {
         try {
             Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec("test-webhook-secret".getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            mac.init(new SecretKeySpec(portOneWebhookSecretBytes(), "HmacSHA256"));
             return Base64.getEncoder().encodeToString(
                     mac.doFinal((webhookId + "." + timestamp + "." + rawBody).getBytes(StandardCharsets.UTF_8))
             );
         } catch (Exception e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    private byte[] portOneWebhookSecretBytes() {
+        String encodedSecret = TEST_PORTONE_WEBHOOK_SECRET.substring("whsec_".length());
+        return Base64.getDecoder().decode(encodedSecret);
     }
 
     private void mockTossPayCreateSuccess() {
@@ -996,6 +1050,16 @@ class PaymentServiceTest {
     }
 
     private List<Result> runConcurrently(int threadCount, Callable<Result> task) throws Exception {
+        return runConcurrentlyIndexed(threadCount, ignored -> {
+            try {
+                return task.call();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    private List<Result> runConcurrentlyIndexed(int threadCount, IntFunction<Result> task) throws Exception {
         var ready = new CountDownLatch(threadCount);
         var start = new CountDownLatch(1);
         var executor = Executors.newFixedThreadPool(threadCount);
@@ -1004,7 +1068,7 @@ class PaymentServiceTest {
                     .mapToObj(i -> (Callable<Result>) () -> {
                         ready.countDown();
                         start.await();
-                        return task.call();
+                        return task.apply(i);
                     })
                     .toList();
             var futures = tasks.stream()

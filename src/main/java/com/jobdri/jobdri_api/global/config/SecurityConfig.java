@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.global.config;
 import com.jobdri.jobdri_api.domain.auth.handler.OAuth2AuthenticationFailureHandler;
 import com.jobdri.jobdri_api.domain.auth.handler.OAuth2AuthenticationSuccessHandler;
 import com.jobdri.jobdri_api.domain.auth.service.CustomOAuth2UserService;
+import com.jobdri.jobdri_api.domain.payment.security.PortOneWebhookRateLimitFilter;
 import com.jobdri.jobdri_api.global.apiPayload.exception.handler.CustomAccessDeniedHandler;
 import com.jobdri.jobdri_api.global.apiPayload.exception.handler.CustomAuthenticationEntryPoint;
 import com.jobdri.jobdri_api.global.jwt.JwtAuthenticationFilter;
@@ -47,6 +48,11 @@ public class SecurityConfig {
     }
 
     @Bean
+    public PortOneWebhookRateLimitFilter portOneWebhookRateLimitFilter() {
+        return new PortOneWebhookRateLimitFilter();
+    }
+
+    @Bean
     public RequestContextLoggingFilter requestContextLoggingFilter(
             @Value("${app.logging.request-id-max-length:64}") int requestIdMaxLength,
             @Value("${app.logging.trusted-proxies:}") List<String> trustedProxies
@@ -73,10 +79,20 @@ public class SecurityConfig {
     }
 
     @Bean
+    public FilterRegistrationBean<PortOneWebhookRateLimitFilter> portOneWebhookRateLimitFilterRegistration(
+            PortOneWebhookRateLimitFilter portOneWebhookRateLimitFilter
+    ) {
+        FilterRegistrationBean<PortOneWebhookRateLimitFilter> registration = new FilterRegistrationBean<>(portOneWebhookRateLimitFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             RequestContextLoggingFilter requestContextLoggingFilter,
-            JwtAuthenticationFilter jwtAuthenticationFilter
+            JwtAuthenticationFilter jwtAuthenticationFilter,
+            PortOneWebhookRateLimitFilter portOneWebhookRateLimitFilter
     ) throws Exception {
 
         http.cors((cors) -> cors.configurationSource(corsConfigurationSource()));
@@ -111,6 +127,7 @@ public class SecurityConfig {
                 .failureHandler(oAuth2AuthenticationFailureHandler)
         );
 
+        http.addFilterBefore(portOneWebhookRateLimitFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterBefore(requestContextLoggingFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterAfter(jwtAuthenticationFilter, RequestContextLoggingFilter.class);
 
