@@ -13,6 +13,8 @@ import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPaylo
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
+import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
@@ -164,7 +166,18 @@ class AnalysisWorkerBridgeServiceTest {
                 List.of(),
                 List.of(),
                 null,
-                null,
+                new RetrievalContext(
+                        List.of(new RetrievedJobPostingReference(
+                                11L,
+                                "참고 회사",
+                                "백엔드 개발자",
+                                "API 개발",
+                                "Spring Boot",
+                                "AWS",
+                                0.12
+                        )),
+                        List.of()
+                ),
                 List.of(similarContext)
         );
 
@@ -176,6 +189,8 @@ class AnalysisWorkerBridgeServiceTest {
         verify(analysisService).deductAnalysisCredit(user, "analysisTaskId=" + task.getTaskId());
         verify(analysisAsyncTaskService).markCreditReserved(task.getTaskId(), "analysisTaskId=" + task.getTaskId());
         verify(analysisService).prepareAnalysisExecution(user, 10L);
+        assertThat(context.corpusReferences()).hasSize(1);
+        assertThat(context.corpusReferences().getFirst().corpusId()).isEqualTo(11L);
         assertThat(context.similarJobPostings()).containsExactly(similarContext);
     }
 

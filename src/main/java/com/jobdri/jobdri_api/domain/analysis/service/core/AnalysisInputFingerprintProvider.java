@@ -3,10 +3,9 @@ package com.jobdri.jobdri_api.domain.analysis.service.core;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.CorpusReferenceContext;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
-import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
-import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedQuestionReference;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.FewShotPromptProvider;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
@@ -26,8 +25,8 @@ import java.util.Map;
 @Component
 public class AnalysisInputFingerprintProvider {
 
-    private static final String FINGERPRINT_SCHEMA_VERSION = "analysis-input-fingerprint-v2";
-    private static final String ANALYSIS_PROMPT_POLICY_VERSION = "analysis-prompt-policy-v2-similar-job-posting-rag";
+    private static final String FINGERPRINT_SCHEMA_VERSION = "analysis-input-fingerprint-v3";
+    private static final String ANALYSIS_PROMPT_POLICY_VERSION = "analysis-prompt-policy-v3-curated-corpus-rag";
     private static final double ANALYSIS_TEMPERATURE = 0.2;
 
     private final ObjectMapper objectMapper;
@@ -88,49 +87,21 @@ public class AnalysisInputFingerprintProvider {
 
     private Map<String, Object> retrievalContextFingerprintSource(RetrievalContext retrievalContext) {
         Map<String, Object> retrievalContextSource = new LinkedHashMap<>();
-        if (retrievalContext == null) {
-            retrievalContextSource.put("jobPostingReferences", List.of());
-            retrievalContextSource.put("questionReferences", List.of());
-            return retrievalContextSource;
-        }
-
         retrievalContextSource.put(
-                "jobPostingReferences",
-                retrievalContext.jobPostingReferences().stream()
-                        .map(this::jobPostingReferenceFingerprintSource)
-                        .toList()
-        );
-        retrievalContextSource.put(
-                "questionReferences",
-                retrievalContext.questionReferences().stream()
-                        .map(this::questionReferenceFingerprintSource)
+                "corpusReferences",
+                CorpusReferenceContext.from(retrievalContext).stream()
+                        .map(reference -> {
+                            Map<String, Object> source = new LinkedHashMap<>();
+                            source.put("corpusId", reference.corpusId());
+                            source.put("category", reference.category());
+                            source.put("title", reference.title());
+                            source.put("content", reference.content());
+                            source.put("rank", reference.rank());
+                            return source;
+                        })
                         .toList()
         );
         return retrievalContextSource;
-    }
-
-    private Map<String, Object> jobPostingReferenceFingerprintSource(RetrievedJobPostingReference reference) {
-        Map<String, Object> referenceSource = new LinkedHashMap<>();
-        referenceSource.put("corpusId", reference.corpusId());
-        referenceSource.put("companyName", defaultString(reference.companyName()));
-        referenceSource.put("roleName", defaultString(reference.roleName()));
-        referenceSource.put("responsibilities", defaultString(reference.responsibilities()));
-        referenceSource.put("requirements", defaultString(reference.requirements()));
-        referenceSource.put("preferred", defaultString(reference.preferred()));
-        referenceSource.put("distance", reference.distance());
-        return referenceSource;
-    }
-
-    private Map<String, Object> questionReferenceFingerprintSource(RetrievedQuestionReference reference) {
-        Map<String, Object> referenceSource = new LinkedHashMap<>();
-        referenceSource.put("corpusId", reference.corpusId());
-        referenceSource.put("companyName", defaultString(reference.companyName()));
-        referenceSource.put("roleName", defaultString(reference.roleName()));
-        referenceSource.put("questionType", defaultString(reference.questionType()));
-        referenceSource.put("charLimit", reference.charLimit());
-        referenceSource.put("questionText", defaultString(reference.questionText()));
-        referenceSource.put("distance", reference.distance());
-        return referenceSource;
     }
 
     private Map<String, Object> jobPostingFingerprintSource(JobPosting jobPosting) {

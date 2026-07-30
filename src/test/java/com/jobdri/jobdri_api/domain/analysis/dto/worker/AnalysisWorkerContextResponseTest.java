@@ -39,6 +39,13 @@ class AnalysisWorkerContextResponseTest {
                 "서버",
                 "백엔드",
                 List.of(),
+                List.of(new CorpusReferenceContext(
+                        11L,
+                        "JOB_POSTING",
+                        "참고 회사 - 백엔드",
+                        "주요 업무: API 개발",
+                        1
+                )),
                 List.of(similarJobPosting)
         );
 
@@ -49,6 +56,10 @@ class AnalysisWorkerContextResponseTest {
         assertThat(json.path("similarJobPostings").get(0).path("similarityRank").asInt()).isEqualTo(1);
         assertThat(json.path("similarJobPostings").get(0).has("embedding")).isFalse();
         assertThat(json.path("similarJobPostings").get(0).has("userId")).isFalse();
+        assertThat(json.path("corpusReferences").size()).isEqualTo(1);
+        assertThat(json.path("corpusReferences").get(0).path("corpusId").asLong()).isEqualTo(11L);
+        assertThat(json.path("corpusReferences").get(0).has("distance")).isFalse();
+        assertThat(json.path("corpusReferences").get(0).has("embedding")).isFalse();
     }
 
     @Test
@@ -72,5 +83,7 @@ class AnalysisWorkerContextResponseTest {
 
         assertThat(json.path("similarJobPostings").isArray()).isTrue();
         assertThat(json.path("similarJobPostings").size()).isZero();
+        assertThat(json.path("corpusReferences").isArray()).isTrue();
+        assertThat(json.path("corpusReferences").size()).isZero();
     }
 }
