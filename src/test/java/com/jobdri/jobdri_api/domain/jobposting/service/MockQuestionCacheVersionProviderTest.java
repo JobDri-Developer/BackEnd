@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
+import com.jobdri.jobdri_api.global.cohere.CohereProperties;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
@@ -24,15 +25,15 @@ class MockQuestionCacheVersionProviderTest {
         MockQuestionCacheProperties properties = MockQuestionCachePropertiesTestSupport.createProperties();
         MockQuestionCacheVersionProvider baseline = new MockQuestionCacheVersionProvider(
                 properties,
+                cohereProperties("embed-v4.0"),
                 "gpt-4o-mini",
-                "embed-v4.0",
                 3,
                 5
         );
         MockQuestionCacheVersionProvider changedModel = new MockQuestionCacheVersionProvider(
                 properties,
+                cohereProperties("embed-v4.0"),
                 "gpt-5-mini",
-                "embed-v4.0",
                 3,
                 5
         );
@@ -46,15 +47,15 @@ class MockQuestionCacheVersionProviderTest {
         MockQuestionCacheProperties properties = MockQuestionCachePropertiesTestSupport.createProperties();
         MockQuestionCacheVersionProvider baseline = new MockQuestionCacheVersionProvider(
                 properties,
+                cohereProperties("embed-v4.0"),
                 "gpt-4o-mini",
-                "embed-v4.0",
                 3,
                 5
         );
         MockQuestionCacheVersionProvider changedEmbeddingModel = new MockQuestionCacheVersionProvider(
                 properties,
+                cohereProperties("embed-v5.0"),
                 "gpt-4o-mini",
-                "embed-v5.0",
                 3,
                 5
         );
@@ -68,15 +69,15 @@ class MockQuestionCacheVersionProviderTest {
         MockQuestionCacheProperties properties = MockQuestionCachePropertiesTestSupport.createProperties();
         MockQuestionCacheVersionProvider baseline = new MockQuestionCacheVersionProvider(
                 properties,
+                cohereProperties("embed-v4.0"),
                 "gpt-4o-mini",
-                "embed-v4.0",
                 3,
                 5
         );
         MockQuestionCacheVersionProvider changedJdLimit = new MockQuestionCacheVersionProvider(
                 properties,
+                cohereProperties("embed-v4.0"),
                 "gpt-4o-mini",
-                "embed-v4.0",
                 4,
                 5
         );
@@ -90,19 +91,27 @@ class MockQuestionCacheVersionProviderTest {
         MockQuestionCacheProperties properties = MockQuestionCachePropertiesTestSupport.createProperties();
         MockQuestionCacheVersionProvider baseline = new MockQuestionCacheVersionProvider(
                 properties,
+                cohereProperties("embed-v4.0"),
                 "gpt-4o-mini",
-                "embed-v4.0",
                 3,
                 5
         );
         MockQuestionCacheVersionProvider changedQuestionLimit = new MockQuestionCacheVersionProvider(
                 properties,
+                cohereProperties("embed-v4.0"),
                 "gpt-4o-mini",
-                "embed-v4.0",
                 3,
                 6
         );
 
         assertThat(changedQuestionLimit.currentVersion()).isNotEqualTo(baseline.currentVersion());
+    }
+
+    private CohereProperties cohereProperties(String model) {
+        return new CohereProperties(
+                "test-api-key",
+                "https://api.cohere.com",
+                new CohereProperties.Embedding(model, 1024, null, null)
+        );
     }
 }

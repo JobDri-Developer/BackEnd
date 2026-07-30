@@ -17,5 +17,11 @@ public interface AnalysisAsyncTaskRepository extends JpaRepository<AnalysisAsync
             Collection<TaskStatus> statuses
     );
 
+    List<AnalysisAsyncTask> findByUserIdAndMockApplyIdInAndStatusIn(
+            Long userId,
+            Collection<Long> mockApplyIds,
+            Collection<TaskStatus> statuses
+    );
+
     List<AnalysisAsyncTask> findByStatusIn(Collection<TaskStatus> statuses);
 }

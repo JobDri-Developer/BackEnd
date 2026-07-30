@@ -1,5 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.service.async;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
@@ -12,6 +14,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPayload;
+import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
@@ -43,6 +46,8 @@ public class AnalysisWorkerBridgeService {
     private final AnalysisService analysisService;
     private final UserService userService;
     private final WorkerTaskResultService workerTaskResultService;
+    private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
+    private final ObjectMapper objectMapper;
 
     @Transactional
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
@@ -109,10 +114,13 @@ public class AnalysisWorkerBridgeService {
             );
         }
         reserveCreditIfNeeded(task);
+        if (task.getExecutionContextSnapshot() != null) {
+            return readContextSnapshot(task);
+        }
+
         User user = userService.getUser(userId);
         AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApplyId);
-
-        return new AnalysisWorkerContextResponse(
+        AnalysisWorkerContextResponse context = new AnalysisWorkerContextResponse(
                 userId,
                 mockApplyId,
                 payload.jobPosting().getCompany().getName(),
@@ -123,8 +131,14 @@ public class AnalysisWorkerBridgeService {
                 payload.jobPosting().getDetailClassification().getMiddleClassification().getClassification().getBigName(),
                 payload.jobPosting().getDetailClassification().getMiddleClassification().getMiddleName(),
                 payload.jobPosting().getDetailClassification().getDetailName(),
-                toQuestionItems(payload.questions())
+                toQuestionItems(payload.questions()),
+                payload.similarJobPostings()
         );
+        task.captureExecutionSnapshot(
+                writeContextSnapshot(context),
+                analysisInputFingerprintProvider.create(payload)
+        );
+        return context;
     }
 
     @Transactional
@@ -169,9 +183,20 @@ public class AnalysisWorkerBridgeService {
         }
 
         User user = userService.getUser(request.userId());
-        AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, request.mockApplyId());
+        AnalysisWorkerContextResponse contextSnapshot = readContextSnapshot(task);
+        AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(
+                user,
+                request.mockApplyId(),
+                contextSnapshot.similarJobPostings()
+        );
         AnalysisLlmResponse llmResponse = request.llmResponse();
-        AnalysisResponse response = analysisService.finalizeAnalysis(user, request.mockApplyId(), payload, llmResponse);
+        AnalysisResponse response = analysisService.finalizeAnalysis(
+                user,
+                request.mockApplyId(),
+                payload,
+                llmResponse,
+                task.getInputFingerprintSnapshot()
+        );
         analysisAsyncTaskService.updateWorkerMetadata(taskId, request.workerId(), request.queueLatencyMillis());
         confirmCreditIfNeeded(task);
         analysisAsyncTaskService.markSuccess(taskId, response);
@@ -217,6 +242,34 @@ public class AnalysisWorkerBridgeService {
                         question.getLimit()
                 ))
                 .toList();
+    }
+
+    private String writeContextSnapshot(AnalysisWorkerContextResponse context) {
+        try {
+            return objectMapper.writeValueAsString(context);
+        } catch (JsonProcessingException exception) {
+            throw new GeneralException(
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "자소서 분석 worker 컨텍스트 snapshot 저장에 실패했습니다."
+            );
+        }
+    }
+
+    private AnalysisWorkerContextResponse readContextSnapshot(AnalysisAsyncTask task) {
+        if (task.getExecutionContextSnapshot() == null || task.getInputFingerprintSnapshot() == null) {
+            throw new GeneralException(
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "자소서 분석 worker 실행 snapshot이 존재하지 않습니다. taskId=" + task.getTaskId()
+            );
+        }
+        try {
+            return objectMapper.readValue(task.getExecutionContextSnapshot(), AnalysisWorkerContextResponse.class);
+        } catch (JsonProcessingException exception) {
+            throw new GeneralException(
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "자소서 분석 worker 컨텍스트 snapshot을 읽을 수 없습니다. taskId=" + task.getTaskId()
+            );
+        }
     }
 
     private AnalysisAsyncTask getTask(String taskId) {

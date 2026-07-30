@@ -19,6 +19,15 @@ CREATE TABLE IF NOT EXISTS mock_question_embeddings (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS job_posting_embeddings (
+    id BIGSERIAL PRIMARY KEY,
+    job_posting_id BIGINT NOT NULL UNIQUE REFERENCES job_postings(id) ON DELETE CASCADE,
+    embedding_model VARCHAR(100) NOT NULL,
+    embedding vector(1024) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_job_postings_company_detail
     ON job_postings (company_id, detail_classification_id);
 
@@ -34,11 +43,20 @@ CREATE INDEX IF NOT EXISTS idx_mock_job_posting_embeddings_corpus
 CREATE INDEX IF NOT EXISTS idx_mock_question_embeddings_corpus
     ON mock_question_embeddings (corpus_id);
 
+CREATE INDEX IF NOT EXISTS idx_job_posting_embeddings_job_posting
+    ON job_posting_embeddings (job_posting_id);
+
 CREATE INDEX IF NOT EXISTS idx_mock_job_posting_embeddings_hnsw
     ON mock_job_posting_embeddings USING hnsw (embedding vector_cosine_ops);
 
 CREATE INDEX IF NOT EXISTS idx_mock_question_embeddings_hnsw
     ON mock_question_embeddings USING hnsw (embedding vector_cosine_ops);
+
+CREATE INDEX IF NOT EXISTS idx_job_posting_embeddings_hnsw
+    ON job_posting_embeddings USING hnsw (embedding vector_cosine_ops);
+
+CREATE INDEX IF NOT EXISTS idx_analysis_async_tasks_user_mock_apply_status
+    ON analysis_async_tasks (user_id, mock_apply_id, status);
 
 ALTER TABLE IF EXISTS analyses
     ADD COLUMN IF NOT EXISTS missing_keywords TEXT NOT NULL DEFAULT '[]';
@@ -84,6 +102,12 @@ ALTER TABLE IF EXISTS analysis_async_tasks
 
 ALTER TABLE IF EXISTS analysis_async_tasks
     ADD COLUMN IF NOT EXISTS estimated_remaining_seconds INTEGER;
+
+ALTER TABLE IF EXISTS analysis_async_tasks
+    ADD COLUMN IF NOT EXISTS execution_context_snapshot TEXT;
+
+ALTER TABLE IF EXISTS analysis_async_tasks
+    ADD COLUMN IF NOT EXISTS input_fingerprint_snapshot VARCHAR(64);
 
 ALTER TABLE IF EXISTS job_posting_async_tasks
     ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN NOT NULL DEFAULT FALSE;

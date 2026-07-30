@@ -11,6 +11,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnalysisResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
@@ -20,6 +21,7 @@ import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisReposito
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.JobCategoryEvaluationCriteriaProvider;
+import com.jobdri.jobdri_api.domain.analysis.service.retrieval.JobPostingRagContextAssembler;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
@@ -84,6 +86,7 @@ public class AnalysisService {
     private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
     private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
     private final CorpusRetrievalService corpusRetrievalService;
+    private final JobPostingRagContextAssembler jobPostingRagContextAssembler;
 
     @Transactional
     @AuditLogEvent(action = "ANALYSIS_RUN", targetType = "MOCK_APPLY", targetId = "#arg1")
@@ -137,6 +140,19 @@ public class AnalysisService {
 
     @Transactional(readOnly = true)
     public AnalysisExecutionPayload prepareAnalysisExecution(User user, Long mockApplyId) {
+        return prepareAnalysisExecution(
+                user,
+                mockApplyId,
+                jobPostingRagContextAssembler.assemble(getOwnedMockApply(user, mockApplyId).getJobPosting().getId())
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public AnalysisExecutionPayload prepareAnalysisExecution(
+            User user,
+            Long mockApplyId,
+            List<SimilarJobPostingContext> similarJobPostings
+    ) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         List<Question> answeredQuestions = questions.stream()
@@ -164,7 +180,8 @@ public class AnalysisService {
                 List.copyOf(questions),
                 List.copyOf(answeredQuestions),
                 evaluationCriteria,
-                retrieveAnalysisReferences(mockApply.getJobPosting(), answeredQuestions)
+                retrieveAnalysisReferences(mockApply.getJobPosting(), answeredQuestions),
+                similarJobPostings
         );
     }
 
@@ -179,7 +196,23 @@ public class AnalysisService {
             AnalysisExecutionPayload payload,
             AnalysisLlmResponse llmResponse
     ) {
-        String inputFingerprint = analysisInputFingerprintProvider.create(payload);
+        return finalizeAnalysis(
+                user,
+                mockApplyId,
+                payload,
+                llmResponse,
+                analysisInputFingerprintProvider.create(payload)
+        );
+    }
+
+    @Transactional
+    public AnalysisResponse finalizeAnalysis(
+            User user,
+            Long mockApplyId,
+            AnalysisExecutionPayload payload,
+            AnalysisLlmResponse llmResponse,
+            String inputFingerprint
+    ) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         validateRequiredScores(llmResponse);

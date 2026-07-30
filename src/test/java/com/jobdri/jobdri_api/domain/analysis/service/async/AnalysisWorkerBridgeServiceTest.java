@@ -1,12 +1,16 @@
 package com.jobdri.jobdri_api.domain.analysis.service.async;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPayload;
+import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
@@ -21,12 +25,14 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -34,6 +40,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -54,6 +61,12 @@ class AnalysisWorkerBridgeServiceTest {
 
     @Mock
     private WorkerTaskResultService workerTaskResultService;
+
+    @Mock
+    private AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
+
+    @Spy
+    private ObjectMapper objectMapper = new ObjectMapper();
 
     @InjectMocks
     private AnalysisWorkerBridgeService analysisWorkerBridgeService;
@@ -133,23 +146,37 @@ class AnalysisWorkerBridgeServiceTest {
         when(jobPosting.getDetailClassification().getMiddleClassification().getMiddleName()).thenReturn("서버");
         when(jobPosting.getDetailClassification().getMiddleClassification().getClassification().getBigName()).thenReturn("개발");
 
+        SimilarJobPostingContext similarContext = new SimilarJobPostingContext(
+                31L,
+                "유사 회사",
+                "유사 공고",
+                "서버 개발자",
+                "API 개발",
+                "Java",
+                "AWS",
+                1,
+                0.91
+        );
         AnalysisExecutionPayload payload = new AnalysisExecutionPayload(
                 1L,
                 10L,
                 jobPosting,
                 List.of(),
-                List.of()
+                List.of(),
+                null,
+                null,
+                List.of(similarContext)
         );
 
         when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.prepareAnalysisExecution(user, 10L)).thenReturn(payload);
-
-        analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
+        var context = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
 
         verify(analysisService).deductAnalysisCredit(user, "analysisTaskId=" + task.getTaskId());
         verify(analysisAsyncTaskService).markCreditReserved(task.getTaskId(), "analysisTaskId=" + task.getTaskId());
         verify(analysisService).prepareAnalysisExecution(user, 10L);
+        assertThat(context.similarJobPostings()).containsExactly(similarContext);
     }
 
     @Test
@@ -188,6 +215,68 @@ class AnalysisWorkerBridgeServiceTest {
         verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
         verify(analysisAsyncTaskService, never()).markCreditReserved(eq(task.getTaskId()), anyString());
         verify(analysisService).prepareAnalysisExecution(user, 10L);
+    }
+
+    @Test
+    @DisplayName("완료 시 최초 worker context snapshot과 fingerprint를 재사용한다")
+    void completeTaskReusesInitialExecutionSnapshot() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        User user = User.signup("테스트 사용자", "analysis-snapshot@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        JobPosting jobPosting = mock(JobPosting.class, org.mockito.Answers.RETURNS_DEEP_STUBS);
+        Company company = mock(Company.class);
+        when(company.getName()).thenReturn("잡드리");
+        when(jobPosting.getCompany()).thenReturn(company);
+        when(jobPosting.getTask()).thenReturn("백엔드 개발");
+        when(jobPosting.getRequirement()).thenReturn("Spring");
+        when(jobPosting.getPreferred()).thenReturn("RabbitMQ");
+        when(jobPosting.getDetailClassification().getDetailName()).thenReturn("백엔드");
+        when(jobPosting.getDetailClassification().getMiddleClassification().getMiddleName()).thenReturn("서버");
+        when(jobPosting.getDetailClassification().getMiddleClassification().getClassification().getBigName()).thenReturn("개발");
+        AnalysisExecutionPayload initialPayload = new AnalysisExecutionPayload(
+                1L, 10L, jobPosting, List.of(), List.of(), null, null, List.of()
+        );
+        SimilarJobPostingContext laterContext = new SimilarJobPostingContext(
+                31L, "유사 회사", "유사 공고", "서버 개발자", "API 개발", "Java", "AWS", 1, 0.91
+        );
+        AnalysisExecutionPayload completionPayload = new AnalysisExecutionPayload(
+                1L, 10L, jobPosting, List.of(), List.of(), null, null, List.of()
+        );
+        AnalysisLlmResponse llmResponse = mock(AnalysisLlmResponse.class);
+        AnalysisResponse analysisResponse = mock(AnalysisResponse.class);
+        AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
+                1L, 10L, llmResponse, "worker-1", 10L
+        );
+
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(userService.getUser(1L)).thenReturn(user);
+        AnalysisExecutionPayload changedRetrievalPayload = new AnalysisExecutionPayload(
+                1L, 10L, jobPosting, List.of(), List.of(), null, null, List.of(laterContext)
+        );
+        when(analysisService.prepareAnalysisExecution(user, 10L))
+                .thenReturn(initialPayload, changedRetrievalPayload);
+        when(analysisInputFingerprintProvider.create(initialPayload)).thenReturn("initial-fingerprint");
+        when(analysisService.prepareAnalysisExecution(user, 10L, List.of())).thenReturn(completionPayload);
+        when(analysisService.finalizeAnalysis(
+                user,
+                10L,
+                completionPayload,
+                llmResponse,
+                "initial-fingerprint"
+        )).thenReturn(analysisResponse);
+
+        analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
+        analysisWorkerBridgeService.completeTask(task.getTaskId(), request);
+
+        verify(analysisService, times(1)).prepareAnalysisExecution(user, 10L);
+        verify(analysisService).prepareAnalysisExecution(user, 10L, List.of());
+        verify(analysisService).finalizeAnalysis(
+                user,
+                10L,
+                completionPayload,
+                llmResponse,
+                "initial-fingerprint"
+        );
     }
 
     @Test
