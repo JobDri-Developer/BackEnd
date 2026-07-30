@@ -344,7 +344,9 @@ class MockApplyServiceTest {
         MockApply inProgress = mockApplyRepository.save(MockApply.create(user, backendPosting, ApplyType.ACTUAL));
         inProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
         inProgress.updateDisplayName("카카오 백엔드 지원 연습");
-        analysisAsyncTaskRepository.save(AnalysisAsyncTask.pending(user.getId(), inProgress.getId(), 3));
+        AnalysisAsyncTask pendingTask = analysisAsyncTaskRepository.save(
+                AnalysisAsyncTask.pending(user.getId(), inProgress.getId(), 3)
+        );
         MockApply runningInProgress = mockApplyRepository.save(MockApply.create(user, backendPosting, ApplyType.MOCK));
         runningInProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
         AnalysisAsyncTask runningTask = AnalysisAsyncTask.pending(user.getId(), runningInProgress.getId(), 3);
@@ -378,6 +380,7 @@ class MockApplyServiceTest {
         MockApplyHomeItemResponse pendingItem = response.inProgress().get(1);
         assertThat(runningItem.mockApplyId()).isEqualTo(runningInProgress.getId());
         assertThat(runningItem.analysisInProgress()).isTrue();
+        assertThat(runningItem.taskId()).isEqualTo(runningTask.getTaskId());
         assertThat(pendingItem.mockApplyId()).isEqualTo(inProgress.getId());
         assertThat(pendingItem.jobPostingId()).isEqualTo(backendPosting.getId());
         assertThat(pendingItem.displayName()).isEqualTo("카카오 백엔드 지원 연습");
@@ -391,6 +394,7 @@ class MockApplyServiceTest {
         assertThat(pendingItem.applyType()).isEqualTo(ApplyType.ACTUAL);
         assertThat(pendingItem.score()).isNull();
         assertThat(pendingItem.analysisInProgress()).isTrue();
+        assertThat(pendingItem.taskId()).isEqualTo(pendingTask.getTaskId());
         assertThat(pendingItem.resumePath()).isEqualTo("/mock-applies/" + inProgress.getId() + "/answers");
         assertThat(response.completed().getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
                 .containsExactly(completedSecond.getId(), completedFirst.getId());
@@ -403,8 +407,65 @@ class MockApplyServiceTest {
         assertThat(response.completed().getContent().get(0).displayName()).isNull();
         assertThat(response.completed().getContent().get(0).score()).isEqualTo(81);
         assertThat(response.completed().getContent().get(0).analysisInProgress()).isFalse();
+        assertThat(response.completed().getContent().get(0).taskId()).isNull();
         assertThat(response.completed().getContent().get(0).applyType()).isEqualTo(ApplyType.ACTUAL);
         assertThat(response.completed().getContent().get(0).resumePath()).isEqualTo("/mock-applies/" + completedSecond.getId() + "/analysis");
+    }
+
+    @Test
+    @DisplayName("홈 화면 분석 진행 상태는 활성 작업만 표시하고 중복 활성 작업은 최신 작업을 선택한다")
+    void getMyMockAppliesUsesNewestActiveAnalysisTaskOnly() {
+        User user = saveUser("home-active-task@example.com");
+        JobPosting posting = saveJobPosting(user, "백엔드 개발");
+        LocalDateTime baseTime = LocalDateTime.of(2026, 1, 1, 12, 0);
+
+        MockApply noTask = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK));
+        noTask.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        MockApply failedTaskApply = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK));
+        failedTaskApply.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        AnalysisAsyncTask failedTask = AnalysisAsyncTask.pending(user.getId(), failedTaskApply.getId(), 0);
+        failedTask.markFailed(AnalysisAsyncTask.FailureReason.OPENAI_TIMEOUT, "timeout", 0);
+        analysisAsyncTaskRepository.save(failedTask);
+        MockApply cancelledTaskApply = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK));
+        cancelledTaskApply.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        AnalysisAsyncTask cancelledTask = AnalysisAsyncTask.pending(user.getId(), cancelledTaskApply.getId(), 0);
+        cancelledTask.requestCancel();
+        analysisAsyncTaskRepository.save(cancelledTask);
+        MockApply duplicateActiveTaskApply = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK));
+        duplicateActiveTaskApply.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        AnalysisAsyncTask oldActiveTask = analysisAsyncTaskRepository.save(
+                AnalysisAsyncTask.pending(user.getId(), duplicateActiveTaskApply.getId(), 0)
+        );
+        AnalysisAsyncTask newestActiveTask = analysisAsyncTaskRepository.save(
+                AnalysisAsyncTask.pending(user.getId(), duplicateActiveTaskApply.getId(), 0)
+        );
+
+        ReflectionTestUtils.setField(noTask, "createdAt", baseTime);
+        ReflectionTestUtils.setField(failedTaskApply, "createdAt", baseTime.plusMinutes(1));
+        ReflectionTestUtils.setField(cancelledTaskApply, "createdAt", baseTime.plusMinutes(2));
+        ReflectionTestUtils.setField(duplicateActiveTaskApply, "createdAt", baseTime.plusMinutes(3));
+        ReflectionTestUtils.setField(oldActiveTask, "createdAt", baseTime);
+        ReflectionTestUtils.setField(newestActiveTask, "createdAt", baseTime.plusMinutes(1));
+        mockApplyRepository.saveAndFlush(noTask);
+        mockApplyRepository.saveAndFlush(failedTaskApply);
+        mockApplyRepository.saveAndFlush(cancelledTaskApply);
+        mockApplyRepository.saveAndFlush(duplicateActiveTaskApply);
+        analysisAsyncTaskRepository.saveAndFlush(oldActiveTask);
+        analysisAsyncTaskRepository.saveAndFlush(newestActiveTask);
+
+        MockApplyHomeResponse response = mockApplyService.getMyMockApplies(user, 0, 9);
+
+        assertThat(response.inProgress()).hasSize(4);
+        MockApplyHomeItemResponse duplicateActiveTaskItem = response.inProgress().get(0);
+        assertThat(duplicateActiveTaskItem.mockApplyId()).isEqualTo(duplicateActiveTaskApply.getId());
+        assertThat(duplicateActiveTaskItem.analysisInProgress()).isTrue();
+        assertThat(duplicateActiveTaskItem.taskId()).isEqualTo(newestActiveTask.getTaskId());
+        assertThat(response.inProgress())
+                .filteredOn(item -> !item.mockApplyId().equals(duplicateActiveTaskApply.getId()))
+                .allSatisfy(item -> {
+                    assertThat(item.analysisInProgress()).isFalse();
+                    assertThat(item.taskId()).isNull();
+                });
     }
 
     @Test

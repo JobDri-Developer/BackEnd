@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.mockapply.service;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
@@ -47,9 +48,10 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.SQLException;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @Service
@@ -312,22 +314,23 @@ public class MockApplyService {
     }
 
     private List<MockApplyHomeItemResponse> toHomeItems(Long userId, List<MockApply> mockApplies) {
-        Set<Long> activeAnalysisMockApplyIds = findActiveAnalysisMockApplyIds(userId, mockApplies);
+        Map<Long, String> activeAnalysisTaskIds = findActiveAnalysisTaskIds(userId, mockApplies);
         return mockApplies.stream()
                 .map(mockApply -> MockApplyHomeItemResponse.from(
                         mockApply,
-                        activeAnalysisMockApplyIds.contains(mockApply.getId())
+                        activeAnalysisTaskIds.containsKey(mockApply.getId()),
+                        activeAnalysisTaskIds.get(mockApply.getId())
                 ))
                 .toList();
     }
 
-    private Set<Long> findActiveAnalysisMockApplyIds(Long userId, List<MockApply> mockApplies) {
+    private Map<Long, String> findActiveAnalysisTaskIds(Long userId, List<MockApply> mockApplies) {
         List<Long> mockApplyIds = mockApplies.stream()
                 .filter(mockApply -> mockApply.getStatus() != MockApplyStatus.COMPLETED)
                 .map(MockApply::getId)
                 .toList();
         if (mockApplyIds.isEmpty()) {
-            return Set.of();
+            return Map.of();
         }
         return analysisAsyncTaskRepository.findByUserIdAndMockApplyIdInAndStatusIn(
                         userId,
@@ -335,8 +338,17 @@ public class MockApplyService {
                         List.of(TaskStatus.PENDING, TaskStatus.RUNNING)
                 )
                 .stream()
-                .map(task -> task.getMockApplyId())
-                .collect(Collectors.toSet());
+                .sorted(Comparator
+                        .comparing(
+                                AnalysisAsyncTask::getCreatedAt,
+                                Comparator.nullsLast(Comparator.reverseOrder())
+                        )
+                        .thenComparing(AnalysisAsyncTask::getTaskId, Comparator.nullsLast(Comparator.reverseOrder())))
+                .collect(Collectors.toMap(
+                        task -> task.getMockApplyId(),
+                        task -> task.getTaskId(),
+                        (first, ignored) -> first
+                ));
     }
 
     @Transactional

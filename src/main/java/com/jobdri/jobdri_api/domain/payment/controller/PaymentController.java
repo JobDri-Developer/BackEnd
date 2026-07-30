@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.payment.controller;
 import com.jobdri.jobdri_api.domain.payment.dto.request.CouponRedeemRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.request.PortOnePaymentCompleteRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.*;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
@@ -15,6 +16,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -73,6 +75,28 @@ public class PaymentController {
                 throw e;
             }
         }
+        return ResponseEntity.ok().build();
+    }
+
+    @Operation(summary = "포트원 결제 완료 검증", description = "포트원 V2 결제 완료 후 paymentId를 서버에서 조회 검증하고 크레딧을 충전합니다.")
+    @PostMapping("/portone/complete")
+    public ApiResponse<PaymentConfirmResponse> completePortOne(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @Valid @RequestBody PortOnePaymentCompleteRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "결제가 완료되었습니다.",
+                paymentService.completePortOne(userDetails.getUser(), request)
+        );
+    }
+
+    @Operation(summary = "포트원 결제 웹훅", description = "포트원 V2 서버가 호출하는 결제 웹훅입니다. PAID일 때만 크레딧을 충전합니다.")
+    @PostMapping("/portone/webhook")
+    public ResponseEntity<Void> portOneWebhook(
+            @RequestBody String rawBody,
+            @RequestHeader HttpHeaders headers
+    ) {
+        paymentService.handlePortOneWebhook(rawBody, headers);
         return ResponseEntity.ok().build();
     }
 
