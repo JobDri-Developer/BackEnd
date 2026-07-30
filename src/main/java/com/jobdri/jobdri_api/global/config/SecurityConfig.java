@@ -100,6 +100,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/internal/worker/**").permitAll()
                 .requestMatchers("/api/payments/toss/callback").permitAll()
+                .requestMatchers("/api/payments/portone/webhook").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
         );

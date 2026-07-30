@@ -1,5 +1,11 @@
 package com.jobdri.jobdri_api.domain.payment.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePaymentResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePrepareData;
+import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneWebhookPayload;
+import com.jobdri.jobdri_api.domain.payment.dto.request.PortOnePaymentCompleteRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
@@ -10,6 +16,7 @@ import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
+import com.jobdri.jobdri_api.domain.payment.entity.PaymentProviderType;
 import com.jobdri.jobdri_api.domain.payment.entity.TossPayStatus;
 import com.jobdri.jobdri_api.domain.payment.repository.CreditTransactionRepository;
 import com.jobdri.jobdri_api.domain.payment.repository.PaymentRepository;
@@ -21,6 +28,7 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.logging.LoggingContext;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,6 +53,9 @@ public class PaymentService {
     private final PaymentTransactionService paymentTransactionService;
     private final TossPaymentClient tossPaymentClient;
     private final TossPayClient tossPayClient;
+    private final PortOneClient portOneClient;
+    private final PortOneWebhookVerifier portOneWebhookVerifier;
+    private final ObjectMapper objectMapper;
 
     public List<CreditPlanResponse> getPlans() {
         return Arrays.stream(CreditPlan.values())
@@ -63,8 +74,17 @@ public class PaymentService {
         )) {
             log.info("Starting payment preparation");
         }
+        PaymentProviderType provider = PaymentProviderType.require(request.provider());
+        if (provider == PaymentProviderType.PORTONE) {
+            return preparePortOne(validatedUser, plan);
+        }
         String orderId = "jobdri-" + UUID.randomUUID();
-        Payment payment = paymentTransactionService.createPendingPayment(validatedUser.getId(), plan, orderId);
+        Payment payment = paymentTransactionService.createPendingPayment(
+                validatedUser.getId(),
+                plan,
+                orderId,
+                PaymentProviderType.TOSS_PAY_DIRECT
+        );
         TossPayCreateResponse tossPayResponse;
         try {
             tossPayResponse = tossPayClient.createPayment(
@@ -107,6 +127,32 @@ public class PaymentService {
         }
 
         return PaymentPrepareResponse.of(payment, validatedUser.getEmail());
+    }
+
+    private PaymentPrepareResponse preparePortOne(User validatedUser, CreditPlan plan) {
+        PortOnePrepareData prepareData = portOneClient.prepareData();
+        String orderId = "jobdri-" + UUID.randomUUID();
+        Payment payment = paymentTransactionService.createPendingPayment(
+                validatedUser.getId(),
+                plan,
+                orderId,
+                PaymentProviderType.PORTONE
+        );
+        payment = paymentTransactionService.attachPortOnePayment(validatedUser.getId(), payment.getOrderId());
+        try (var ignored = LoggingContext.with(
+                "payment.portone.prepare.completed",
+                null,
+                PaymentLogMasking.paymentContext(payment.getOrderId(), null, validatedUser.getId(), plan.getCode(), plan.getPrice())
+        )) {
+            log.info("PortOne payment preparation completed");
+        }
+        return PaymentPrepareResponse.portOne(
+                payment,
+                validatedUser.getEmail(),
+                prepareData.storeId(),
+                prepareData.channelKey(),
+                prepareData.redirectUrl()
+        );
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -172,6 +218,44 @@ public class PaymentService {
     public PaymentOrderStatusResponse getOrderStatus(User user, String orderId) {
         User validatedUser = userService.validateUser(user);
         return paymentTransactionService.getOwnedOrderStatus(validatedUser.getId(), orderId);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public PaymentConfirmResponse completePortOne(User user, PortOnePaymentCompleteRequest request) {
+        User validatedUser = userService.validateUser(user);
+        PortOnePaymentResponse response = portOneClient.getPayment(request.paymentId());
+        return paymentTransactionService.applyPortOnePayment(
+                validatedUser.getId(),
+                response,
+                portOneClient.storeId()
+        );
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public void handlePortOneWebhook(String rawBody, HttpHeaders headers) {
+        portOneWebhookVerifier.verify(rawBody, headers);
+        PortOneWebhookPayload payload = parsePortOneWebhook(rawBody);
+        if (payload.data() == null || payload.data().paymentId() == null || payload.data().paymentId().isBlank()) {
+            return;
+        }
+        try {
+            PortOnePaymentResponse response = portOneClient.getPayment(payload.data().paymentId());
+            paymentTransactionService.applyPortOneWebhookPayment(response, portOneClient.storeId());
+        } catch (GeneralException e) {
+            if (e.getCode() == GeneralErrorCode.PAYMENT_NOT_FOUND
+                    || e.getCode() == GeneralErrorCode.PAYMENT_CONFIRM_FAILED
+                    || e.getCode() == GeneralErrorCode.INVALID_PARAMETER) {
+                try (var ignored = LoggingContext.with(
+                        "payment.portone.webhook.ignored",
+                        e.getCode(),
+                        PaymentLogMasking.paymentContext(payload.data().paymentId(), null, null)
+                )) {
+                    log.warn("PortOne webhook ignored: {}", e.getMessage());
+                }
+                return;
+            }
+            throw e;
+        }
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -276,6 +360,14 @@ public class PaymentService {
                     response.method(),
                     easyPayProvider
             );
+        }
+    }
+
+    private PortOneWebhookPayload parsePortOneWebhook(String rawBody) {
+        try {
+            return objectMapper.readValue(rawBody, PortOneWebhookPayload.class);
+        } catch (JsonProcessingException e) {
+            throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "포트원 웹훅 JSON 형식이 잘못되었습니다.", e);
         }
     }
 

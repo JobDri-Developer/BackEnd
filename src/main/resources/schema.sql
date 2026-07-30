@@ -134,6 +134,18 @@ ALTER TABLE IF EXISTS payments
     ADD COLUMN IF NOT EXISTS toss_status VARCHAR(50);
 
 ALTER TABLE IF EXISTS payments
+    ADD COLUMN IF NOT EXISTS provider VARCHAR(30);
+
+ALTER TABLE IF EXISTS payments
+    ADD COLUMN IF NOT EXISTS external_payment_id VARCHAR(255);
+
+ALTER TABLE IF EXISTS payments
+    ADD COLUMN IF NOT EXISTS external_transaction_id VARCHAR(255);
+
+ALTER TABLE IF EXISTS payments
+    ADD COLUMN IF NOT EXISTS external_status VARCHAR(50);
+
+ALTER TABLE IF EXISTS payments
     ADD COLUMN IF NOT EXISTS callback_received_at TIMESTAMP;
 
 ALTER TABLE IF EXISTS payments
@@ -142,3 +154,7 @@ ALTER TABLE IF EXISTS payments
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_pay_token_unique
     ON payments (pay_token)
     WHERE pay_token IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_external_payment_id_unique
+    ON payments (external_payment_id)
+    WHERE external_payment_id IS NOT NULL;

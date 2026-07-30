@@ -182,6 +182,14 @@ payment:
     return-url: ${TOSS_PAY_RETURN_URL:}
     cancel-url: ${TOSS_PAY_CANCEL_URL:}
     result-callback-url: ${TOSS_PAY_RESULT_CALLBACK_URL:}
+  portone:
+    enabled: ${PORTONE_ENABLED:false}
+    api-base-url: ${PORTONE_API_BASE_URL:https://api.portone.io}
+    store-id: ${PORTONE_STORE_ID:}
+    channel-key: ${PORTONE_CHANNEL_KEY:}
+    api-secret: ${PORTONE_API_SECRET:}
+    redirect-url: ${PORTONE_REDIRECT_URL:https://jobdri.com/credit/payment-result}
+    webhook-secret: ${PORTONE_WEBHOOK_SECRET:}
 
 job-posting:
   ingest:

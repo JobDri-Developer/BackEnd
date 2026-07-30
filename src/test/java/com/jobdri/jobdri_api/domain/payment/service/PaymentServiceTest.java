@@ -1,7 +1,11 @@
 package com.jobdri.jobdri_api.domain.payment.service;
 
+import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneAmount;
+import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePaymentResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePrepareData;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.request.PortOnePaymentCompleteRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentPrepareResponse;
@@ -13,6 +17,7 @@ import com.jobdri.jobdri_api.domain.payment.controller.PaymentController;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
+import com.jobdri.jobdri_api.domain.payment.entity.PaymentProviderType;
 import com.jobdri.jobdri_api.domain.payment.entity.PaymentStatus;
 import com.jobdri.jobdri_api.domain.payment.entity.TossPayStatus;
 import com.jobdri.jobdri_api.domain.payment.repository.CreditTransactionRepository;
@@ -25,9 +30,15 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
@@ -64,6 +75,9 @@ class PaymentServiceTest {
     @MockitoBean
     private TossPayClient tossPayClient;
 
+    @MockitoBean
+    private PortOneClient portOneClient;
+
     @Test
     @DisplayName("크레딧 플랜 목록을 조회한다")
     void getPlans() {
@@ -91,9 +105,11 @@ class PaymentServiceTest {
         assertThat(response.orderName()).isEqualTo("JobDri 크레딧 5회권");
         assertThat(response.amount()).isEqualTo(11500);
         assertThat(response.creditAmount()).isEqualTo(5);
+        assertThat(response.provider()).isEqualTo(PaymentProviderType.TOSS_PAY_DIRECT);
         assertThat(response.checkoutPage()).startsWith("https://pay.toss.im/checkout/");
         Payment payment = paymentRepository.findByOrderId(response.orderId()).orElseThrow();
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.PENDING);
+        assertThat(payment.getProviderOrDefault()).isEqualTo(PaymentProviderType.TOSS_PAY_DIRECT);
         assertThat(payment.getPayToken()).startsWith("pay-token-");
         assertThat(payment.getCheckoutPage()).isEqualTo(response.checkoutPage());
     }
@@ -613,6 +629,186 @@ class PaymentServiceTest {
     }
 
     @Test
+    @DisplayName("포트원 결제 준비 시 SDK 공개 파라미터만 반환한다")
+    void preparePortOneReturnsPublicSdkParameters() {
+        User user = saveUser("payment-portone-prepare@example.com");
+        mockPortOnePrepareData();
+
+        PaymentPrepareResponse response = paymentService.prepare(
+                user,
+                new PaymentPrepareRequest("ONE_TIME", "PORTONE")
+        );
+
+        assertThat(response.provider()).isEqualTo(PaymentProviderType.PORTONE);
+        assertThat(response.portOneStoreId()).isEqualTo("store-test");
+        assertThat(response.portOneChannelKey()).isEqualTo("channel-key-test");
+        assertThat(response.currency()).isEqualTo("KRW");
+        assertThat(response.redirectUrl()).isEqualTo("http://localhost:3000/credit/payment-result");
+        assertThat(response.checkoutPage()).isNull();
+        Payment payment = paymentRepository.findByOrderId(response.orderId()).orElseThrow();
+        assertThat(payment.getProviderOrDefault()).isEqualTo(PaymentProviderType.PORTONE);
+        assertThat(payment.getExternalPaymentId()).isEqualTo(response.orderId());
+    }
+
+    @Test
+    @DisplayName("포트원 PAID 결제 검증 성공 시 크레딧을 지급한다")
+    void completePortOneChargesCreditWhenPaid() {
+        User user = saveUser("payment-portone-paid@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+
+        PaymentConfirmResponse response = paymentService.completePortOne(
+                user,
+                new PortOnePaymentCompleteRequest(prepared.orderId())
+        );
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.COMPLETED);
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(payment.getExternalStatus()).isEqualTo("PAID");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("포트원 결제 금액이 일치하지 않으면 크레딧을 지급하지 않는다")
+    void completePortOneRejectsAmountMismatch() {
+        User user = saveUser("payment-portone-amount-mismatch@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", 1000);
+
+        assertThatThrownBy(() -> paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId())))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.PAYMENT_AMOUNT_MISMATCH);
+
+        assertPaymentPendingWithoutCreditCharge(user, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("포트원 FAILED 상태에서는 크레딧을 지급하지 않는다")
+    void completePortOneDoesNotChargeWhenFailed() {
+        User user = saveUser("payment-portone-failed@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "FAILED", prepared.amount());
+
+        paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+
+        assertPaymentFailedWithoutCreditCharge(user, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("포트원 CANCELLED 상태에서는 크레딧을 지급하지 않는다")
+    void completePortOneDoesNotChargeWhenCancelled() {
+        User user = saveUser("payment-portone-cancelled@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "CANCELLED", prepared.amount());
+
+        paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+
+        assertPaymentFailedWithoutCreditCharge(user, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("다른 사용자의 포트원 결제 완료 요청은 거부한다")
+    void completePortOneRejectsOtherUserPayment() {
+        User owner = saveUser("payment-portone-owner@example.com");
+        User other = saveUser("payment-portone-other@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(owner);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+
+        assertThatThrownBy(() -> paymentService.completePortOne(other, new PortOnePaymentCompleteRequest(prepared.orderId())))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.FORBIDDEN);
+
+        assertPaymentPendingWithoutCreditCharge(owner, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("포트원 결제 완료 요청을 중복 호출해도 크레딧은 한 번만 지급된다")
+    void completePortOneIsIdempotent() {
+        User user = saveUser("payment-portone-idempotent@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+
+        paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+        paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("포트원 complete와 webhook이 동시에 처리되어도 크레딧은 한 번만 지급된다")
+    void portOneCompleteAndWebhookConcurrentlyChargeOnlyOnce() throws Exception {
+        User user = saveUser("payment-portone-concurrent@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+        String rawBody = portOneWebhookBody(prepared.orderId());
+        HttpHeaders headers = signedWebhookHeaders(rawBody);
+
+        List<Result> results = runConcurrently(2, () -> {
+            try {
+                if (Thread.currentThread().getName().endsWith("1")) {
+                    paymentController.portOneWebhook(rawBody, headers);
+                } else {
+                    paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+                }
+                return Result.ok();
+            } catch (Exception e) {
+                return Result.failure(e);
+            }
+        });
+
+        assertThat(results).filteredOn(Result::success).hasSize(2);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("포트원 위조 웹훅은 거부한다")
+    void portOneWebhookRejectsInvalidSignature() {
+        String rawBody = portOneWebhookBody("jobdri-forged");
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("webhook-id", "webhook-id");
+        headers.add("webhook-timestamp", String.valueOf(Instant.now().getEpochSecond()));
+        headers.add("webhook-signature", "v1,invalid");
+
+        assertThatThrownBy(() -> paymentController.portOneWebhook(rawBody, headers))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
+    }
+
+    @Test
+    @DisplayName("포트원 웹훅 재수신 시 크레딧은 한 번만 지급된다")
+    void portOneWebhookIsIdempotent() {
+        User user = saveUser("payment-portone-webhook-idempotent@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+        String rawBody = portOneWebhookBody(prepared.orderId());
+        HttpHeaders headers = signedWebhookHeaders(rawBody);
+
+        paymentController.portOneWebhook(rawBody, headers);
+        paymentController.portOneWebhook(rawBody, headers);
+
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(1);
+    }
+
+    @Test
     @DisplayName("결제 주문 상태 조회는 소유자의 주문만 반환한다")
     void getOrderStatus() {
         User user = saveUser("payment-status-owner@example.com");
@@ -642,6 +838,65 @@ class PaymentServiceTest {
 
     private User saveUser(String email) {
         return userRepository.save(User.signup("테스트 사용자", email, "encoded-password"));
+    }
+
+    private PaymentPrepareResponse preparePortOne(User user) {
+        mockPortOnePrepareData();
+        return paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME", "PORTONE"));
+    }
+
+    private void mockPortOnePrepareData() {
+        when(portOneClient.prepareData())
+                .thenReturn(new PortOnePrepareData(
+                        "store-test",
+                        "channel-key-test",
+                        "http://localhost:3000/credit/payment-result"
+                ));
+        when(portOneClient.storeId()).thenReturn("store-test");
+    }
+
+    private void mockPortOnePayment(PaymentPrepareResponse prepared, String status, int amount) {
+        when(portOneClient.getPayment(prepared.orderId()))
+                .thenReturn(portOnePayment(prepared.orderId(), status, amount));
+    }
+
+    private PortOnePaymentResponse portOnePayment(String paymentId, String status, int amount) {
+        return new PortOnePaymentResponse(
+                paymentId,
+                "transaction-" + paymentId,
+                status,
+                "store-test",
+                "KRW",
+                new PortOneAmount(amount)
+        );
+    }
+
+    private String portOneWebhookBody(String paymentId) {
+        return """
+                {"type":"Transaction.Paid","timestamp":"2026-07-30T10:00:00.000Z","data":{"paymentId":"%s","storeId":"store-test","transactionId":"transaction-%s"}}
+                """.formatted(paymentId, paymentId).trim();
+    }
+
+    private HttpHeaders signedWebhookHeaders(String rawBody) {
+        String webhookId = "webhook-id-" + rawBody.hashCode();
+        String timestamp = String.valueOf(Instant.now().getEpochSecond());
+        HttpHeaders headers = new HttpHeaders();
+        headers.add("webhook-id", webhookId);
+        headers.add("webhook-timestamp", timestamp);
+        headers.add("webhook-signature", "v1," + signPortOneWebhook(webhookId, timestamp, rawBody));
+        return headers;
+    }
+
+    private String signPortOneWebhook(String webhookId, String timestamp, String rawBody) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec("test-webhook-secret".getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return Base64.getEncoder().encodeToString(
+                    mac.doFinal((webhookId + "." + timestamp + "." + rawBody).getBytes(StandardCharsets.UTF_8))
+            );
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private void mockTossPayCreateSuccess() {
