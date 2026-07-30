@@ -51,6 +51,7 @@ import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -344,6 +345,11 @@ class MockApplyServiceTest {
         inProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
         inProgress.updateDisplayName("카카오 백엔드 지원 연습");
         analysisAsyncTaskRepository.save(AnalysisAsyncTask.pending(user.getId(), inProgress.getId(), 3));
+        MockApply runningInProgress = mockApplyRepository.save(MockApply.create(user, backendPosting, ApplyType.MOCK));
+        runningInProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        AnalysisAsyncTask runningTask = AnalysisAsyncTask.pending(user.getId(), runningInProgress.getId(), 3);
+        runningTask.markRunning("worker-1", 0, Instant.now());
+        analysisAsyncTaskRepository.save(runningTask);
         MockApply completedFirst = mockApplyRepository.save(MockApply.create(user, dataPosting, ApplyType.MOCK));
         completedFirst.updateStatus(MockApplyStatus.COMPLETED);
         MockApply completedSecond = mockApplyRepository.save(MockApply.create(user, dataPosting, ApplyType.ACTUAL));
@@ -356,30 +362,36 @@ class MockApplyServiceTest {
 
         LocalDateTime baseTime = LocalDateTime.of(2026, 1, 1, 12, 0);
         ReflectionTestUtils.setField(inProgress, "createdAt", baseTime);
+        ReflectionTestUtils.setField(runningInProgress, "createdAt", baseTime.plusSeconds(30));
         ReflectionTestUtils.setField(completedFirst, "createdAt", baseTime.plusMinutes(1));
         ReflectionTestUtils.setField(completedSecond, "createdAt", baseTime.plusMinutes(2));
         mockApplyRepository.saveAndFlush(inProgress);
+        mockApplyRepository.saveAndFlush(runningInProgress);
         mockApplyRepository.saveAndFlush(completedFirst);
         mockApplyRepository.saveAndFlush(completedSecond);
 
         MockApplyHomeResponse response = mockApplyService.getMyMockApplies(user, 0, 9);
 
-        assertThat(response.inProgress()).hasSize(1);
+        assertThat(response.inProgress()).hasSize(2);
         assertThat(response.completed().getContent()).hasSize(2);
-        assertThat(response.inProgress().get(0).mockApplyId()).isEqualTo(inProgress.getId());
-        assertThat(response.inProgress().get(0).jobPostingId()).isEqualTo(backendPosting.getId());
-        assertThat(response.inProgress().get(0).displayName()).isEqualTo("카카오 백엔드 지원 연습");
-        assertThat(response.inProgress().get(0).sequence()).isEqualTo(1);
-        assertThat(response.inProgress().get(0).status()).isEqualTo(MockApplyStatus.ANSWER_WRITE);
-        assertThat(response.inProgress().get(0).companyName()).isEqualTo("테스트 기업");
-        assertThat(response.inProgress().get(0).detailClassificationName()).isEqualTo("백엔드 개발");
-        assertThat(response.inProgress().get(0).jobTitle()).isEqualTo("백엔드 개발");
-        assertThat(response.inProgress().get(0).profileColor()).isEqualTo(JobPostingProfileColor.BLUE);
-        assertThat(response.inProgress().get(0).createdAt()).isEqualTo(baseTime);
-        assertThat(response.inProgress().get(0).applyType()).isEqualTo(ApplyType.ACTUAL);
-        assertThat(response.inProgress().get(0).score()).isNull();
-        assertThat(response.inProgress().get(0).analysisInProgress()).isTrue();
-        assertThat(response.inProgress().get(0).resumePath()).isEqualTo("/mock-applies/" + inProgress.getId() + "/answers");
+        MockApplyHomeItemResponse runningItem = response.inProgress().get(0);
+        MockApplyHomeItemResponse pendingItem = response.inProgress().get(1);
+        assertThat(runningItem.mockApplyId()).isEqualTo(runningInProgress.getId());
+        assertThat(runningItem.analysisInProgress()).isTrue();
+        assertThat(pendingItem.mockApplyId()).isEqualTo(inProgress.getId());
+        assertThat(pendingItem.jobPostingId()).isEqualTo(backendPosting.getId());
+        assertThat(pendingItem.displayName()).isEqualTo("카카오 백엔드 지원 연습");
+        assertThat(pendingItem.sequence()).isEqualTo(1);
+        assertThat(pendingItem.status()).isEqualTo(MockApplyStatus.ANSWER_WRITE);
+        assertThat(pendingItem.companyName()).isEqualTo("테스트 기업");
+        assertThat(pendingItem.detailClassificationName()).isEqualTo("백엔드 개발");
+        assertThat(pendingItem.jobTitle()).isEqualTo("백엔드 개발");
+        assertThat(pendingItem.profileColor()).isEqualTo(JobPostingProfileColor.BLUE);
+        assertThat(pendingItem.createdAt()).isEqualTo(baseTime);
+        assertThat(pendingItem.applyType()).isEqualTo(ApplyType.ACTUAL);
+        assertThat(pendingItem.score()).isNull();
+        assertThat(pendingItem.analysisInProgress()).isTrue();
+        assertThat(pendingItem.resumePath()).isEqualTo("/mock-applies/" + inProgress.getId() + "/answers");
         assertThat(response.completed().getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
                 .containsExactly(completedSecond.getId(), completedFirst.getId());
         assertThat(response.completed().getTotalElements()).isEqualTo(2);
