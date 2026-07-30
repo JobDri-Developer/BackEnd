@@ -8,6 +8,7 @@ import com.pgvector.PGvector;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
@@ -57,6 +58,7 @@ public class CorpusRetrievalService {
     private final CorpusEmbeddingClient corpusEmbeddingClient;
     private final DataSource dataSource;
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RetrievalContext retrieveForAnalysis(JobPosting jobPosting, List<Question> questions) {
         String jdQuery = buildAnalysisJobPostingQuery(jobPosting);
         String questionQuery = buildAnalysisQuestionQuery(jobPosting, questions);

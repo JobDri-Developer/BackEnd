@@ -1011,6 +1011,7 @@ class AnalysisServiceTest {
         assertThat(payload.jobCategoryEvaluationCriteria()).isNotNull();
         assertThat(payload.jobCategoryEvaluationCriteria().jobCategoryMiddle()).isEqualTo("AI·개발·데이터");
         assertThat(payload.similarJobPostings()).containsExactly(similarContext);
+        verify(corpusRetrievalService, times(1)).retrieveForAnalysis(any(), any());
         verify(jobPostingRagContextAssembler).assemble(jobPosting.getId());
     }
 
@@ -1024,6 +1025,22 @@ class AnalysisServiceTest {
         AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApply.getId());
 
         assertThat(payload.jobCategoryEvaluationCriteria()).isNull();
+    }
+
+    @Test
+    @DisplayName("Curated Corpus retrieval 실패 시 빈 context로 분석 준비를 계속한다")
+    void prepareAnalysisExecutionFailsOpenWhenCorpusRetrievalFails() {
+        User user = saveUser("analysis-corpus-fail-open@example.com");
+        MockApply mockApply = saveMockApply(user);
+        saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        when(corpusRetrievalService.retrieveForAnalysis(any(), any()))
+                .thenThrow(new IllegalStateException("corpus unavailable"));
+
+        AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApply.getId());
+
+        assertThat(payload.retrievalContext().jobPostingReferences()).isEmpty();
+        assertThat(payload.retrievalContext().questionReferences()).isEmpty();
+        verify(corpusRetrievalService, times(1)).retrieveForAnalysis(any(), any());
     }
 
     @Test

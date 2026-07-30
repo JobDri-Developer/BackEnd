@@ -7,6 +7,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerContextResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.worker.CorpusReferenceContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
@@ -132,6 +133,7 @@ public class AnalysisWorkerBridgeService {
                 payload.jobPosting().getDetailClassification().getMiddleClassification().getMiddleName(),
                 payload.jobPosting().getDetailClassification().getDetailName(),
                 toQuestionItems(payload.questions()),
+                CorpusReferenceContext.from(payload.retrievalContext()),
                 payload.similarJobPostings()
         );
         task.captureExecutionSnapshot(

@@ -117,15 +117,7 @@ public class AnalysisService {
     public void validateAnalysisRequest(User user, Long mockApplyId) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
-        boolean hasAnsweredQuestion = questions.stream()
-                .anyMatch(question -> StringUtils.hasText(question.getAnswer()));
-
-        if (!hasAnsweredQuestion) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "분석할 자소서 답변이 1개 이상 필요합니다."
-            );
-        }
+        answeredQuestionsOrThrow(questions);
     }
 
     @Transactional
@@ -140,10 +132,16 @@ public class AnalysisService {
 
     @Transactional(readOnly = true)
     public AnalysisExecutionPayload prepareAnalysisExecution(User user, Long mockApplyId) {
+        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
+        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        List<Question> answeredQuestions = answeredQuestionsOrThrow(questions);
         return prepareAnalysisExecution(
                 user,
-                mockApplyId,
-                jobPostingRagContextAssembler.assemble(getOwnedMockApply(user, mockApplyId).getJobPosting().getId())
+                mockApply,
+                questions,
+                answeredQuestions,
+                retrieveAnalysisReferences(mockApply.getJobPosting(), answeredQuestions),
+                jobPostingRagContextAssembler.assemble(mockApply.getJobPosting().getId())
         );
     }
 
@@ -155,17 +153,25 @@ public class AnalysisService {
     ) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
-        List<Question> answeredQuestions = questions.stream()
-                .filter(question -> StringUtils.hasText(question.getAnswer()))
-                .toList();
+        List<Question> answeredQuestions = answeredQuestionsOrThrow(questions);
+        return prepareAnalysisExecution(
+                user,
+                mockApply,
+                questions,
+                answeredQuestions,
+                new RetrievalContext(List.of(), List.of()),
+                similarJobPostings
+        );
+    }
 
-        if (answeredQuestions.isEmpty()) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "분석할 자소서 답변이 1개 이상 필요합니다."
-            );
-        }
-
+    private AnalysisExecutionPayload prepareAnalysisExecution(
+            User user,
+            MockApply mockApply,
+            List<Question> questions,
+            List<Question> answeredQuestions,
+            RetrievalContext retrievalContext,
+            List<SimilarJobPostingContext> similarJobPostings
+    ) {
         // Initialize hierarchy before leaving the read transaction so detached payload can be used safely.
         mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName();
         mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getClassification().getBigName();
@@ -175,14 +181,27 @@ public class AnalysisService {
 
         return new AnalysisExecutionPayload(
                 user.getId(),
-                mockApplyId,
+                mockApply.getId(),
                 mockApply.getJobPosting(),
                 List.copyOf(questions),
                 List.copyOf(answeredQuestions),
                 evaluationCriteria,
-                retrieveAnalysisReferences(mockApply.getJobPosting(), answeredQuestions),
+                retrievalContext,
                 similarJobPostings
         );
+    }
+
+    private List<Question> answeredQuestionsOrThrow(List<Question> questions) {
+        List<Question> answeredQuestions = questions.stream()
+                .filter(question -> StringUtils.hasText(question.getAnswer()))
+                .toList();
+        if (answeredQuestions.isEmpty()) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "분석할 자소서 답변이 1개 이상 필요합니다."
+            );
+        }
+        return answeredQuestions;
     }
 
     public AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
@@ -339,8 +358,8 @@ public class AnalysisService {
         try {
             return corpusRetrievalService.retrieveForAnalysis(jobPosting, answeredQuestions);
         } catch (Exception exception) {
-            log.warn("자소서 분석 fingerprint용 retrieval 실패. fallback without references. message={}", exception.getMessage());
-            log.debug("analysis fingerprint retrieval exception", exception);
+            log.warn("자소서 분석 Curated Corpus retrieval 실패. fallback without references. message={}", exception.getMessage());
+            log.debug("analysis Curated Corpus retrieval exception", exception);
             return new RetrievalContext(List.of(), List.of());
         }
     }
