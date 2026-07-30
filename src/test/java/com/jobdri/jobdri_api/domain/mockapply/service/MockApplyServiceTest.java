@@ -1,9 +1,11 @@
 package com.jobdri.jobdri_api.domain.mockapply.service;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
+import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
+import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
@@ -72,6 +74,9 @@ class MockApplyServiceTest {
 
     @Autowired
     private AnalysisRepository analysisRepository;
+
+    @Autowired
+    private AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
 
     @Autowired
     private QuestionAnalysisRepository questionAnalysisRepository;
@@ -338,6 +343,7 @@ class MockApplyServiceTest {
         MockApply inProgress = mockApplyRepository.save(MockApply.create(user, backendPosting, ApplyType.ACTUAL));
         inProgress.updateStatus(MockApplyStatus.ANSWER_WRITE);
         inProgress.updateDisplayName("카카오 백엔드 지원 연습");
+        analysisAsyncTaskRepository.save(AnalysisAsyncTask.pending(user.getId(), inProgress.getId(), 3));
         MockApply completedFirst = mockApplyRepository.save(MockApply.create(user, dataPosting, ApplyType.MOCK));
         completedFirst.updateStatus(MockApplyStatus.COMPLETED);
         MockApply completedSecond = mockApplyRepository.save(MockApply.create(user, dataPosting, ApplyType.ACTUAL));
@@ -372,6 +378,7 @@ class MockApplyServiceTest {
         assertThat(response.inProgress().get(0).createdAt()).isEqualTo(baseTime);
         assertThat(response.inProgress().get(0).applyType()).isEqualTo(ApplyType.ACTUAL);
         assertThat(response.inProgress().get(0).score()).isNull();
+        assertThat(response.inProgress().get(0).analysisInProgress()).isTrue();
         assertThat(response.inProgress().get(0).resumePath()).isEqualTo("/mock-applies/" + inProgress.getId() + "/answers");
         assertThat(response.completed().getContent()).extracting(MockApplyHomeItemResponse::mockApplyId)
                 .containsExactly(completedSecond.getId(), completedFirst.getId());
@@ -383,6 +390,7 @@ class MockApplyServiceTest {
         assertThat(response.completed().getContent().get(0).profileColor()).isEqualTo(JobPostingProfileColor.GREEN);
         assertThat(response.completed().getContent().get(0).displayName()).isNull();
         assertThat(response.completed().getContent().get(0).score()).isEqualTo(81);
+        assertThat(response.completed().getContent().get(0).analysisInProgress()).isFalse();
         assertThat(response.completed().getContent().get(0).applyType()).isEqualTo(ApplyType.ACTUAL);
         assertThat(response.completed().getContent().get(0).resumePath()).isEqualTo("/mock-applies/" + completedSecond.getId() + "/analysis");
     }

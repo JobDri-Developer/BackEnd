@@ -22,9 +22,10 @@ public record MockApplyHomeItemResponse(
         JobPostingProfileColor profileColor,
         LocalDateTime createdAt,
         ApplyType applyType,
-        Integer score
+        Integer score,
+        boolean analysisInProgress
 ) {
-    public static MockApplyHomeItemResponse from(MockApply mockApply) {
+    public static MockApplyHomeItemResponse from(MockApply mockApply, boolean analysisInProgress) {
         JobPosting jobPosting = mockApply.getJobPosting();
         String detailClassificationName = jobPosting.getDetailClassification().getDetailName();
         Analysis analysis = mockApply.getAnalysis();
@@ -42,7 +43,8 @@ public record MockApplyHomeItemResponse(
                 jobPosting.getProfileColor(),
                 mockApply.getCreatedAt(),
                 mockApply.getApplyType(),
-                analysis == null ? null : analysis.getScore()
+                analysis == null ? null : analysis.getScore(),
+                analysisInProgress
         );
     }
 

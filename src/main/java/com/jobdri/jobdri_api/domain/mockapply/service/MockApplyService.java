@@ -1,6 +1,8 @@
 package com.jobdri.jobdri_api.domain.mockapply.service;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
@@ -36,6 +38,7 @@ import com.jobdri.jobdri_api.global.pagination.PaginationPolicy;
 import lombok.RequiredArgsConstructor;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -46,6 +49,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.sql.SQLException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -72,6 +77,7 @@ public class MockApplyService {
     private final UserService userService;
     private final MockApplyPersistenceService mockApplyPersistenceService;
     private final MockApplySequenceService mockApplySequenceService;
+    private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
@@ -222,11 +228,9 @@ public class MockApplyService {
 
     public MockApplyHomeResponse getMyMockApplies(User user, int page, int size) {
         User validatedUser = userService.validateUser(user);
-        List<MockApplyHomeItemResponse> inProgressItems = mockApplyRepository
-                .findAllByUserIdAndStatusNotOrderByCreatedAtDescIdDesc(validatedUser.getId(), MockApplyStatus.COMPLETED)
-                .stream()
-                .map(MockApplyHomeItemResponse::from)
-                .toList();
+        List<MockApply> inProgressMockApplies = mockApplyRepository
+                .findAllByUserIdAndStatusNotOrderByCreatedAtDescIdDesc(validatedUser.getId(), MockApplyStatus.COMPLETED);
+        List<MockApplyHomeItemResponse> inProgressItems = toHomeItems(validatedUser.getId(), inProgressMockApplies);
         Pageable pageable = PageRequest.of(
                 Math.max(page, 0),
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
@@ -237,7 +241,7 @@ public class MockApplyService {
         );
         Page<MockApplyHomeItemResponse> completedItems = mockApplyRepository
                 .findAllByUserIdAndStatus(validatedUser.getId(), MockApplyStatus.COMPLETED, pageable)
-                .map(MockApplyHomeItemResponse::from);
+                .map(mockApply -> MockApplyHomeItemResponse.from(mockApply, false));
 
         return new MockApplyHomeResponse(
                 inProgressItems,
@@ -256,9 +260,8 @@ public class MockApplyService {
                 )
         );
 
-        return mockApplyRepository.findAllByUserId(validatedUser.getId(), pageable)
-                .map(MockApplyHomeItemResponse::from)
-                .getContent();
+        List<MockApply> mockApplies = mockApplyRepository.findAllByUserId(validatedUser.getId(), pageable).getContent();
+        return toHomeItems(validatedUser.getId(), mockApplies);
     }
 
     public Page<MockApplyHomeItemResponse> getCompletedMockApplies(
@@ -285,7 +288,7 @@ public class MockApplyService {
                         maxScoreExclusive(resolvedFilter),
                         pageable
                 )
-                .map(MockApplyHomeItemResponse::from);
+                .map(mockApply -> MockApplyHomeItemResponse.from(mockApply, false));
     }
 
     public Page<MockApplyHomeItemResponse> searchMyMockApplies(User user, String query, int page, int size) {
@@ -300,8 +303,40 @@ public class MockApplyService {
                 )
         );
 
-        return mockApplyRepository.searchByUserId(validatedUser.getId(), normalizedQuery, pageable)
-                .map(MockApplyHomeItemResponse::from);
+        Page<MockApply> mockApplyPage = mockApplyRepository.searchByUserId(validatedUser.getId(), normalizedQuery, pageable);
+        return new PageImpl<>(
+                toHomeItems(validatedUser.getId(), mockApplyPage.getContent()),
+                pageable,
+                mockApplyPage.getTotalElements()
+        );
+    }
+
+    private List<MockApplyHomeItemResponse> toHomeItems(Long userId, List<MockApply> mockApplies) {
+        Set<Long> activeAnalysisMockApplyIds = findActiveAnalysisMockApplyIds(userId, mockApplies);
+        return mockApplies.stream()
+                .map(mockApply -> MockApplyHomeItemResponse.from(
+                        mockApply,
+                        activeAnalysisMockApplyIds.contains(mockApply.getId())
+                ))
+                .toList();
+    }
+
+    private Set<Long> findActiveAnalysisMockApplyIds(Long userId, List<MockApply> mockApplies) {
+        List<Long> mockApplyIds = mockApplies.stream()
+                .filter(mockApply -> mockApply.getStatus() != MockApplyStatus.COMPLETED)
+                .map(MockApply::getId)
+                .toList();
+        if (mockApplyIds.isEmpty()) {
+            return Set.of();
+        }
+        return analysisAsyncTaskRepository.findByUserIdAndMockApplyIdInAndStatusIn(
+                        userId,
+                        mockApplyIds,
+                        List.of(TaskStatus.PENDING, TaskStatus.RUNNING)
+                )
+                .stream()
+                .map(task -> task.getMockApplyId())
+                .collect(Collectors.toSet());
     }
 
     @Transactional
