@@ -6,6 +6,7 @@ import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import java.util.List;
 
 public record AnalysisPromptInput(
+        String caseId,
         String companyName,
         String jobName,
         String mainTasks,
@@ -13,8 +14,20 @@ public record AnalysisPromptInput(
         String preferences,
         List<QuestionAnswer> questions
 ) {
+    public AnalysisPromptInput(
+            String companyName,
+            String jobName,
+            String mainTasks,
+            String qualifications,
+            String preferences,
+            List<QuestionAnswer> questions
+    ) {
+        this(null, companyName, jobName, mainTasks, qualifications, preferences, questions);
+    }
+
     public static AnalysisPromptInput from(JobPosting jobPosting, List<Question> questions) {
         return new AnalysisPromptInput(
+                null,
                 jobPosting != null && jobPosting.getCompany() != null ? jobPosting.getCompany().getName() : "",
                 jobPosting != null && jobPosting.getDetailClassification() != null
                         ? jobPosting.getDetailClassification().getDetailName()

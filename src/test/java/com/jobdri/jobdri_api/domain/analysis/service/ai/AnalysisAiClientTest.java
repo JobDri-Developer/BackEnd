@@ -9,6 +9,12 @@ import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse.RejectionCode;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotProperties;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotCase;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotReviewStatus;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSearchService;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSource;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.SelectedFewShotCase;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
@@ -25,16 +31,23 @@ import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class AnalysisAiClientTest {
 
+    private final FewShotSearchService fewShotSearchService = mock(FewShotSearchService.class);
+    private final FewShotProperties fewShotProperties = new FewShotProperties();
     private final AnalysisAiClient analysisAiClient = new AnalysisAiClient(
             mock(OpenAIClient.class),
             mock(CorpusRetrievalService.class),
             mock(LlmConcurrencyLimiter.class),
             new FewShotPromptProvider(),
+            fewShotSearchService,
+            fewShotProperties,
             mock(AsyncMetricsRecorder.class),
             new ObjectMapper()
     );
@@ -297,6 +310,80 @@ class AnalysisAiClientTest {
     }
 
     @Test
+    @DisplayName("dynamic few-shot이 활성화되면 선택된 예시만 single-pass 프롬프트에 포함한다")
+    void buildPromptUsesSelectedFewShotsWhenDynamicSelectionEnabled() {
+        fewShotProperties.setDynamicSelectionEnabled(true);
+        FewShotCase selectedCase = new FewShotCase(
+                "FS-DYNAMIC-1",
+                FewShotSource.CURATED,
+                FewShotReviewStatus.APPROVED,
+                true,
+                0,
+                "백엔드 개발",
+                "Backend Engineer",
+                List.of("API 개발"),
+                List.of("Spring Boot"),
+                "직무 경험",
+                "API를 개발했습니다.",
+                "{\"questionAnalyses\":[]}",
+                List.of("api"),
+                "fewshot-test-v1",
+                "## 예시 Z: 동적 선택 예시\n출력 중 문장/누락 관련 필드:\n{}"
+        );
+        when(fewShotSearchService.searchRelevantFewShots(any(), eq(fewShotProperties.getSearch().getTopK())))
+                .thenReturn(List.of(new SelectedFewShotCase(selectedCase, 0.91, "test")));
+
+        String prompt = analysisAiClient.buildPrompt(
+                mockJobPosting(),
+                List.of(mockQuestion()),
+                new RetrievalContext(List.of(), List.of()),
+                null
+        );
+
+        assertThat(prompt)
+                .contains("## 예시 Z: 동적 선택 예시")
+                .doesNotContain("## 예시 A: 좋은 근거가 있으면 보완 문장이 0개일 수 있음");
+        verify(fewShotSearchService).searchRelevantFewShots(
+                any(),
+                eq(fewShotProperties.getSearch().getTopK())
+        );
+    }
+
+    @Test
+    @DisplayName("dynamic few-shot 검색 결과가 비어 있으면 고정 예시로 fallback한다")
+    void buildPromptFallsBackToFixedFewShotsWhenDynamicSelectionIsEmpty() {
+        fewShotProperties.setDynamicSelectionEnabled(true);
+        when(fewShotSearchService.searchRelevantFewShots(any(), eq(fewShotProperties.getSearch().getTopK())))
+                .thenReturn(List.of());
+
+        String prompt = analysisAiClient.buildPrompt(
+                mockJobPosting(),
+                List.of(mockQuestion()),
+                new RetrievalContext(List.of(), List.of()),
+                null
+        );
+
+        assertThat(prompt).contains("## 예시 A: 좋은 근거가 있으면 보완 문장이 0개일 수 있음");
+    }
+
+    @Test
+    @DisplayName("dynamic few-shot 검색이 실패하면 고정 예시로 fallback한다")
+    void buildPromptFallsBackToFixedFewShotsWhenDynamicSelectionFails() {
+        fewShotProperties.setDynamicSelectionEnabled(true);
+        when(fewShotSearchService.searchRelevantFewShots(any(), eq(fewShotProperties.getSearch().getTopK())))
+                .thenThrow(new IllegalStateException("search failed"));
+
+        String prompt = analysisAiClient.buildPrompt(
+                mockJobPosting(),
+                List.of(mockQuestion()),
+                new RetrievalContext(List.of(), List.of()),
+                null
+        );
+
+        assertThat(prompt).contains("## 예시 A: 좋은 근거가 있으면 보완 문장이 0개일 수 있음");
+    }
+
+    @Test
     @DisplayName("1차 후보 프롬프트는 점수와 improvement 없이 후보 판정 규칙만 포함한다")
     void buildCandidatePromptIncludesCandidateRulesOnly() {
         String prompt = analysisAiClient.buildCandidatePrompt(
@@ -334,11 +421,49 @@ class AnalysisAiClientTest {
                 .contains("실제 업무 또는 프로젝트 수행 경험, 업무 전 과정을 수행한 경험은 strengthCandidates가 될 수 있다.")
                 .contains("수치로 표현되지 않더라도 확인 가능한 결과는 strengthCandidates가 될 수 있다.")
                 .contains("자격 취득 자체가 아니라 직무와 연결되는 실습·적용 경험은 strengthCandidates가 될 수 있다.")
+                .contains("[소제목 처리 규칙]")
+                .contains("한 줄 전체가 대괄호로 감싸진 형식")
+                .contains("소제목은 sentenceType을 분류하지 않고 strengthCandidates 또는 analysisCandidates에 넣지 않는다.")
+                .contains("소제목은 바로 뒤 문단의 주제와 흐름을 이해하는 보조 문맥으로만 사용")
                 .contains("[strengthCandidates Positive Examples]")
                 .contains("포토샵과 일러스트로 상세페이지를 제작")
                 .contains("라이노와 Fusion360으로 제품을 설계")
                 .contains("급여 정산표를 만들어 함수로 자동 비교")
                 .contains("5만 원 시재 차이 원인을 거래 자료 대조로 추적");
+    }
+
+    @Test
+    @DisplayName("단일 패스 프롬프트는 대괄호 소제목을 평가와 첨삭 대상에서 제외한다")
+    void buildSinglePassPromptExcludesBracketedSubheadingsFromEvaluation() {
+        String prompt = analysisAiClient.buildPrompt(
+                mockJobPosting(),
+                List.of(mockQuestion()),
+                new RetrievalContext(List.of(), List.of()),
+                null
+        );
+
+        assertThat(prompt)
+                .contains("[소제목 처리 규칙]")
+                .contains("본문 문장이 아니라 소제목이다.")
+                .contains("questionAnalyses의 sentence로 반환하지 않는다.")
+                .contains("keyStrengths의 quote 또는 keyWeaknesses의 근거로 반환하지 않는다.")
+                .contains("실제 평가는 본문 문장을 기준으로 한다.")
+                .contains("소제목 문구 자체를 별도 첨삭 대상으로 만들지 않는다.");
+    }
+
+    @Test
+    @DisplayName("2차 검토 프롬프트는 잘못 유입된 대괄호 소제목 후보를 거절한다")
+    void buildFinalPromptRejectsBracketedSubheadingCandidate() {
+        String prompt = analysisAiClient.buildFinalPrompt(
+                promptInput(),
+                new RetrievalContext(List.of(), List.of()),
+                null,
+                new AnalysisCandidateResponse(List.of(), List.of(), List.of())
+        );
+
+        assertThat(prompt)
+                .contains("한 줄 전체가 대괄호로 감싸진 소제목")
+                .contains("NOT_ACTIONABLE로 거절한다.");
     }
 
     @Test
@@ -485,6 +610,73 @@ class AnalysisAiClientTest {
     }
 
     @Test
+    @DisplayName("후보 sanitizer는 독립된 대괄호 소제목을 강점과 분석 후보에서 제외한다")
+    void sanitizeCandidatesExcludesBracketedSubheadings() {
+        AnalysisPromptInput input = subheadingPromptInput();
+        AnalysisCandidateResponse sanitized = analysisAiClient.sanitizeCandidates(
+                input,
+                new AnalysisCandidateResponse(
+                        List.of(
+                                strengthCandidate("[문제를 해결한 경험]"),
+                                strengthCandidate("Spring Boot API를 개발했습니다.")
+                        ),
+                        List.of(
+                                candidate("subheading", "[문제를 해결한 경험]"),
+                                candidate("body", "Spring Boot API를 개발했습니다.")
+                        ),
+                        List.of()
+                )
+        );
+
+        assertThat(sanitized.strengthCandidates()).extracting("quote")
+                .containsExactly("Spring Boot API를 개발했습니다.");
+        assertThat(sanitized.analysisCandidates()).extracting("sentence")
+                .containsExactly("Spring Boot API를 개발했습니다.");
+    }
+
+    @Test
+    @DisplayName("single-pass 결과는 독립된 대괄호 소제목을 강점과 문장 분석에서 제외한다")
+    void sanitizeSinglePassSubheadingsExcludesBracketedHeadings() {
+        AnalysisLlmResponse sanitized = analysisAiClient.sanitizeSinglePassSubheadings(
+                subheadingPromptInput(),
+                new AnalysisLlmResponse(
+                        80,
+                        70,
+                        60,
+                        "피드백",
+                        List.of(
+                                new AnalysisLlmResponse.HighlightItem("소제목", "[문제를 해결한 경험]"),
+                                new AnalysisLlmResponse.HighlightItem("본문", "Spring Boot API를 개발했습니다.")
+                        ),
+                        List.of(new AnalysisLlmResponse.HighlightItem("소제목 약점", "[문제를 해결한 경험]")),
+                        List.of(),
+                        List.of(
+                                new AnalysisLlmResponse.QuestionAnalysisItem(
+                                        1L,
+                                        "[문제를 해결한 경험]",
+                                        "mentioned",
+                                        "구체성이 부족합니다.",
+                                        null
+                                ),
+                                new AnalysisLlmResponse.QuestionAnalysisItem(
+                                        1L,
+                                        "Spring Boot API를 개발했습니다.",
+                                        "mentioned",
+                                        "결과가 부족합니다.",
+                                        null
+                                )
+                        )
+                )
+        );
+
+        assertThat(sanitized.keyStrengths()).extracting("quote")
+                .containsExactly("Spring Boot API를 개발했습니다.");
+        assertThat(sanitized.keyWeaknesses()).isEmpty();
+        assertThat(sanitized.questionAnalyses()).extracting("sentence")
+                .containsExactly("Spring Boot API를 개발했습니다.");
+    }
+
+    @Test
     @DisplayName("2차 프롬프트는 검증된 후보만 입력하고 새 questionAnalysis 추가를 금지한다")
     void buildFinalPromptUsesSanitizedCandidatesOnly() {
         AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
@@ -575,9 +767,35 @@ class AnalysisAiClientTest {
                 .contains("NO_CORRECTION_NEEDED")
                 .contains("KEEP_BEST_CANDIDATE")
                 .contains("단순히 첫 번째 후보를 선택하지 않는다.")
+                .contains("후보가 한 줄 전체가 대괄호로 감싸진 소제목이다.")
                 .contains("problemClarity, jobRelevance, evidenceGap, improvementUsefulness, fabricationConfidence를 1~5로 내부 평가한다.")
                 .contains("status는 MENTIONED 또는 FABRICATED만 사용한다.")
                 .contains("안전한 교체 문장을 만들 수 없으면 null이다.");
+    }
+
+    @Test
+    @DisplayName("재검증은 대괄호 소제목 후보를 복원하지 않는다")
+    void applyRecheckResponseDoesNotRecoverBracketedSubheading() {
+        AnalysisCandidateResponse candidates = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(candidate("subheading", "[문제를 해결한 경험]")),
+                List.of()
+        );
+        CandidateReviewResponse review = rejectedReview("subheading");
+        CandidateRecheckResponse recheck = validMentionedRecheck("subheading", builder -> {
+            builder.reason = "문제를 해결한 경험이라는 소제목에는 지원자의 행동과 결과가 드러나지 않습니다.";
+            builder.improvement = "문제를 해결한 경험에서 원인을 분석하고 결과를 정리했습니다.";
+        });
+
+        CandidateReviewResponse result = analysisAiClient.applyRecheckResponse(
+                subheadingPromptInput(),
+                candidates,
+                review,
+                recheck
+        );
+
+        assertThat(result.decisions()).hasSize(1);
+        assertThat(result.decisions().getFirst().accepted()).isFalse();
     }
 
     @Test
@@ -1338,6 +1556,21 @@ class AnalysisAiClientTest {
                         1L,
                         "직무 경험을 작성해주세요.",
                         "Spring Boot API를 개발했습니다. 장애 대응 경험이 있습니다."
+                ))
+        );
+    }
+
+    private AnalysisPromptInput subheadingPromptInput() {
+        return new AnalysisPromptInput(
+                "잡드리",
+                "백엔드 개발",
+                "API 개발",
+                "Spring Boot 경험 및 장애 대응 경험",
+                "대용량 트래픽 경험",
+                List.of(new AnalysisPromptInput.QuestionAnswer(
+                        1L,
+                        "직무 경험을 작성해주세요.",
+                        "[문제를 해결한 경험]\nSpring Boot API를 개발했습니다."
                 ))
         );
     }

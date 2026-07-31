@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.analysis.service.core;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.FewShotPromptProvider;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotProperties;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedQuestionReference;
@@ -23,6 +24,7 @@ class AnalysisInputFingerprintProviderTest {
     private final AnalysisInputFingerprintProvider provider = new AnalysisInputFingerprintProvider(
             new ObjectMapper(),
             fewShotPromptProvider,
+            new FewShotProperties(),
             new CohereProperties(null, null, null),
             "gpt-4o-mini",
             false,
