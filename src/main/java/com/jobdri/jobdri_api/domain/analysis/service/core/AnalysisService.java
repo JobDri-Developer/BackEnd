@@ -45,6 +45,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -234,13 +235,18 @@ public class AnalysisService {
     ) {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        VerifiedAnswerSnapshot answerSnapshot = verifyAnswerSnapshot(questions, payload.answerSnapshots());
         validateRequiredScores(llmResponse);
         int jobFit = validateScore("jobFit", llmResponse.jobFit());
         int impact = validateScore("impact", llmResponse.impact());
         int completeness = validateScore("completeness", llmResponse.completeness());
         List<AnalysisHighlightResponse> keyStrengths = buildHighlights(llmResponse.keyStrengths());
         List<AnalysisHighlightResponse> keyWeaknesses = buildNonOverlappingHighlights(llmResponse.keyWeaknesses(), keyStrengths);
-        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(mockApply.getJobPosting(), llmResponse);
+        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(
+                mockApply.getJobPosting(),
+                answerSnapshot.combinedAnswers(),
+                llmResponse
+        );
         replaceExistingAnalysis(mockApply);
 
         Analysis analysis = analysisRepository.save(Analysis.create(
@@ -259,7 +265,7 @@ public class AnalysisService {
         List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(
                 analysis,
                 questions,
-                payload.answeredQuestions(),
+                answerSnapshot.answerByQuestionId(),
                 llmResponse
         );
         questionAnalysisRepository.saveAll(questionAnalyses);
@@ -391,6 +397,37 @@ public class AnalysisService {
         analysisRepository.flush();
     }
 
+    private VerifiedAnswerSnapshot verifyAnswerSnapshot(
+            List<Question> databaseQuestions,
+            List<AnalysisExecutionPayload.AnswerSnapshot> payloadSnapshots
+    ) {
+        String databaseFingerprint = analysisInputFingerprintProvider
+                .createAnswerFingerprintFromQuestions(databaseQuestions);
+        String payloadFingerprint = analysisInputFingerprintProvider
+                .createAnswerFingerprint(payloadSnapshots);
+        if (!databaseFingerprint.equals(payloadFingerprint)) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "분석 실행 이후 자소서 답변이 변경되어 결과를 저장할 수 없습니다."
+            );
+        }
+
+        List<AnalysisExecutionPayload.AnswerSnapshot> immutableSnapshots = List.copyOf(payloadSnapshots);
+        Map<Long, String> answerByQuestionId = new LinkedHashMap<>();
+        for (AnalysisExecutionPayload.AnswerSnapshot snapshot : immutableSnapshots) {
+            if (snapshot == null || snapshot.questionId() == null || !StringUtils.hasText(snapshot.answer())) {
+                continue;
+            }
+            if (answerByQuestionId.putIfAbsent(snapshot.questionId(), snapshot.answer()) != null) {
+                throw new GeneralException(
+                        GeneralErrorCode.INVALID_PARAMETER,
+                        "분석 답변 snapshot에 중복된 questionId가 있습니다. questionId=" + snapshot.questionId()
+                );
+            }
+        }
+        return new VerifiedAnswerSnapshot(immutableSnapshots, Map.copyOf(answerByQuestionId));
+    }
+
     private AnalysisResponse reuseExistingAnalysisIfSameInput(User user, Long mockApplyId, String inputFingerprint) {
         return analysisRepository.findByMockApplyId(mockApplyId)
                 .filter(analysis -> inputFingerprint.equals(analysis.getInputFingerprint()))
@@ -402,20 +439,31 @@ public class AnalysisService {
         return "mockApplyId=" + mockApplyId + ":fingerprint=" + inputFingerprint;
     }
 
+    private record VerifiedAnswerSnapshot(
+            List<AnalysisExecutionPayload.AnswerSnapshot> answers,
+            Map<Long, String> answerByQuestionId
+    ) {
+        private String combinedAnswers() {
+            return answers.stream()
+                    .map(AnalysisExecutionPayload.AnswerSnapshot::answer)
+                    .filter(StringUtils::hasText)
+                    .collect(Collectors.joining("\n"));
+        }
+    }
+
     private List<QuestionAnalysis> buildQuestionAnalyses(
             Analysis analysis,
             List<Question> questions,
-            List<Question> answeredQuestions,
+            Map<Long, String> answerByQuestionId,
             AnalysisLlmResponse llmResponse
     ) {
         Map<Long, Question> questionMap = questions.stream()
                 .collect(Collectors.toMap(Question::getId, Function.identity()));
-        Map<Long, String> answerByQuestionId = answeredQuestions.stream()
-                .collect(Collectors.toMap(Question::getId, Question::getAnswer));
         List<QuestionAnalysis> result = new ArrayList<>();
         Map<Long, Integer> analysisCountByQuestionId = new HashMap<>();
         Map<Long, Integer> nextSearchIndexByQuestionId = new HashMap<>();
         Set<String> seenSentences = new HashSet<>();
+        Set<Long> fabricatedQuestionIds = new HashSet<>();
         Set<String> keyStrengthQuotes = normalizedKeyStrengthQuotes(llmResponse);
 
         if (llmResponse.questionAnalyses() == null) {
@@ -437,9 +485,11 @@ public class AnalysisService {
                 continue;
             }
             QuestionAnalysisStatus status = parseStatus(item.status());
-            if (status == null
-                    || status == QuestionAnalysisStatus.MISSING
-                    || status == QuestionAnalysisStatus.PROVEN) {
+            if (status == null || status == QuestionAnalysisStatus.MISSING) {
+                continue;
+            }
+            if (status == QuestionAnalysisStatus.PROVEN
+                    && !AnalysisSanitizationRules.hasValidProvenReason(item.reason())) {
                 continue;
             }
             if (status == QuestionAnalysisStatus.FABRICATED
@@ -451,7 +501,8 @@ public class AnalysisService {
                 continue;
             }
             String sentence = item.sentence();
-            if (keyStrengthQuotes.contains(normalizeKeyword(sentence))) {
+            if (status != QuestionAnalysisStatus.PROVEN
+                    && keyStrengthQuotes.contains(normalizeKeyword(sentence))) {
                 continue;
             }
             String dedupeKey = question.getId() + ":" + sentence.trim();
@@ -464,6 +515,10 @@ public class AnalysisService {
                     nextSearchIndexByQuestionId.getOrDefault(question.getId(), 0)
             );
             if (start < 0) {
+                continue;
+            }
+            if (status == QuestionAnalysisStatus.FABRICATED
+                    && !fabricatedQuestionIds.add(question.getId())) {
                 continue;
             }
             nextSearchIndexByQuestionId.put(question.getId(), start + sentence.length());
@@ -591,7 +646,11 @@ public class AnalysisService {
         );
     }
 
-    private List<MissingKeywordResponse> buildMissingKeywords(JobPosting jobPosting, AnalysisLlmResponse llmResponse) {
+    private List<MissingKeywordResponse> buildMissingKeywords(
+            JobPosting jobPosting,
+            String combinedAnswers,
+            AnalysisLlmResponse llmResponse
+    ) {
         if (llmResponse == null || llmResponse.missingKeywords() == null) {
             return List.of();
         }
@@ -619,6 +678,9 @@ public class AnalysisService {
                     jobPosting == null ? "" : jobPosting.getTask(),
                     jobPosting == null ? "" : jobPosting.getRequirement()
             )) {
+                continue;
+            }
+            if (AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(keyword, combinedAnswers)) {
                 continue;
             }
 

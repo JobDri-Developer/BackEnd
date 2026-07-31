@@ -89,6 +89,29 @@ public final class AnalysisSanitizationRules {
         return false;
     }
 
+    public static boolean isMissingKeywordMentionedInAnswers(String keyword, String answers) {
+        if (!StringUtils.hasText(keyword) || !StringUtils.hasText(answers)) {
+            return false;
+        }
+        if (containsNormalized(answers, keyword)) {
+            return true;
+        }
+
+        Set<String> keywordTokens = coreTokens(keyword);
+        Set<String> answerTokens = coreTokens(answers);
+        if (keywordTokens.isEmpty() || answerTokens.isEmpty()) {
+            return false;
+        }
+
+        long matchCount = keywordTokens.stream()
+                .filter(answerTokens::contains)
+                .count();
+        if (keywordTokens.size() == 1) {
+            return matchCount == 1;
+        }
+        return (double) matchCount / keywordTokens.size() >= MIN_KEYWORD_TOKEN_MATCH_RATIO;
+    }
+
     public static boolean hasMissingKeywordCoreTokens(String keyword) {
         return !coreTokens(keyword).isEmpty();
     }
@@ -129,6 +152,10 @@ public final class AnalysisSanitizationRules {
             }
         }
         return false;
+    }
+
+    public static boolean hasValidProvenReason(String reason) {
+        return StringUtils.hasText(reason) && !isContradictoryProvenReason(reason);
     }
 
     public static boolean isPositiveMentionedReason(String reason) {
@@ -218,7 +245,7 @@ public final class AnalysisSanitizationRules {
             return token == null ? "" : token;
         }
         String result = token;
-        String[] suffixes = {"으로", "에서", "하며", "하고", "하는", "까지", "부터", "에게", "보다",
+        String[] suffixes = {"했습니다", "았습니다", "었습니다", "으로", "에서", "하며", "하고", "하는", "까지", "부터", "에게", "보다",
                 "은", "는", "이", "가", "을", "를", "와", "과", "의", "에", "로", "한"};
         boolean changed;
         do {

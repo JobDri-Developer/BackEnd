@@ -175,7 +175,7 @@ class EvaluationAnalysisBatchServiceTest {
     }
 
     @Test
-    @DisplayName("평가 결과도 운영과 동일하게 PROVEN/FABRICATED 상태 필터를 적용하고 raw/final 비교 정보를 남긴다")
+    @DisplayName("평가 결과도 운영과 동일하게 유효한 PROVEN/FABRICATED를 보존하고 raw/final 비교 정보를 남긴다")
     void runKeepsRawAndAppliesFinalStatusFilter() throws Exception {
         AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
         ObjectMapper objectMapper = new ObjectMapper();
@@ -244,10 +244,60 @@ class EvaluationAnalysisBatchServiceTest {
                 .contains("\"status\":\"proven\"")
                 .contains("\"status\":\"fabricated\"");
         assertThat(row.get("aiQuestionAnalysesJson"))
+                .contains("\"status\":\"proven\"")
                 .contains("\"status\":\"mentioned\"")
                 .contains("\"status\":\"fabricated\"")
-                .doesNotContain("\"status\":\"proven\"")
                 .doesNotContain("네 번째 문장입니다.");
+    }
+
+    @Test
+    @DisplayName("평가 저장 경로도 reason이 null 또는 빈 PROVEN을 제외한다")
+    void runSkipsProvenWithMissingReason() throws Exception {
+        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
+                analysisAiClient,
+                new JobCategoryEvaluationCriteriaProvider(objectMapper),
+                objectMapper
+        );
+        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
+                .thenReturn(result(new AnalysisLlmResponse(
+                        80,
+                        70,
+                        60,
+                        "PROVEN reason 필수 검증",
+                        List.of(
+                                new AnalysisLlmResponse.QuestionAnalysisItem(
+                                        1L,
+                                        "첫 번째 성과입니다.",
+                                        "proven",
+                                        null,
+                                        null
+                                ),
+                                new AnalysisLlmResponse.QuestionAnalysisItem(
+                                        1L,
+                                        "두 번째 성과입니다.",
+                                        "proven",
+                                        "   ",
+                                        null
+                                )
+                        )
+                )));
+        Path input = tempDir.resolve("evaluation_missing_proven_reason.csv");
+        Path output = tempDir.resolve("evaluation_missing_proven_reason_results.csv");
+        Files.writeString(
+                input,
+                "caseId,jobCategoryMiddle,jobCategorySmall,mainTasks,qualifications,preferences,question,answer\n"
+                        + "EV-PROVEN-REASON,AI·개발·데이터,백엔드,API 개발,Spring Boot 경험,,성과를 쓰세요,첫 번째 성과입니다. 두 번째 성과입니다.\n",
+                StandardCharsets.UTF_8
+        );
+
+        service.run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("aiQuestionAnalysesJson"))
+                .doesNotContain("첫 번째 성과입니다.")
+                .doesNotContain("두 번째 성과입니다.");
     }
 
     @Test
@@ -452,8 +502,10 @@ class EvaluationAnalysisBatchServiceTest {
         assertThat(row.get("candidateCount")).isEqualTo("2");
         assertThat(row.get("candidateMissingKeywordCount")).isEqualTo("2");
         assertThat(row.get("missingKeywordCandidateCount")).isEqualTo("2");
-        assertThat(row.get("finalMissingKeywordCount")).isEqualTo("2");
-        assertThat(row.get("aiMissingKeywordsJson")).contains("Spring Boot 경험").contains("API 개발");
+        assertThat(row.get("finalMissingKeywordCount")).isEqualTo("0");
+        assertThat(row.get("aiMissingKeywordsJson"))
+                .doesNotContain("Spring Boot 경험")
+                .doesNotContain("API 개발");
         assertThat(row.get("acceptedCandidateCount")).isEqualTo("1");
         assertThat(row.get("rejectedCandidateCount")).isEqualTo("1");
         assertThat(row.get("rejectionCodeCounts")).contains("NOT_ACTIONABLE");

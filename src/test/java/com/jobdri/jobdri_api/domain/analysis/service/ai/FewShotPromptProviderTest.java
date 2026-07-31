@@ -26,10 +26,11 @@ class FewShotPromptProviderTest {
         assertThat(EXAMPLE_HEADER_PATTERN.matcher(prompt).results().count()).isEqualTo(4);
         assertThat(prompt)
                 .contains("\"keyStrengths\"")
+                .contains("\"status\": \"proven\"")
                 .contains("\"status\": \"mentioned\"")
                 .contains("\"status\": \"fabricated\"")
                 .contains("\"missingKeywords\"")
-                .contains("\"questionAnalyses\": []")
+                .contains("문항을 대표하는 긍정 근거이므로 questionAnalyses에는 proven으로 포함한다.")
                 .contains("예시의 분석 개수, 상태 비율, 문장 표현, 점수를 실제 입력에 복사하지 않는다.");
         assertThat(prompt).doesNotContain("\"jobFit\"");
         assertThat(prompt).doesNotContain("\"impact\"");
@@ -55,10 +56,10 @@ class FewShotPromptProviderTest {
                 List.of("Spring Boot"),
                 "직무 경험",
                 "API를 개발했습니다.",
-                "{\"questionAnalyses\":[]}",
+                "{\"questionAnalyses\":[{\"questionId\":1,\"sentence\":\"API를 개발했습니다.\",\"status\":\"proven\",\"reason\":\"API 개발 경험이 구체적으로 드러납니다.\",\"improvement\":null}]}",
                 List.of("api"),
                 "fewshot-test-v1",
-                "## 예시 Z: 선택 예시\n출력 중 문장/누락 관련 필드:\n{}"
+                "## 예시 Z: 선택 예시\n출력 중 문장/누락 관련 필드:\n{\"questionAnalyses\":[{\"questionId\":1,\"sentence\":\"API를 개발했습니다.\",\"status\":\"proven\",\"reason\":\"API 개발 경험이 구체적으로 드러납니다.\",\"improvement\":null}]}"
         );
 
         String prompt = provider.buildPromptBlock(List.of(new SelectedFewShotCase(selectedCase, 0.9, "test")));
@@ -66,6 +67,8 @@ class FewShotPromptProviderTest {
         assertThat(prompt)
                 .contains("[# Few-shot examples]")
                 .contains("## 예시 Z: 선택 예시")
+                .contains("\"sentence\":\"API를 개발했습니다.\"")
+                .contains("\"status\":\"proven\"")
                 .doesNotContain("## 예시 A:")
                 .doesNotContain("## 예시 B:");
     }

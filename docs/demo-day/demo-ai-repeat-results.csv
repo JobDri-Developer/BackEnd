@@ -1,0 +1,4 @@
+run,requestId,proven,mentioned,missing,fabricated,score,jobFit,impact,completeness,note
+1,req_bf4838f926b847139ef844971fd4cb3e,4,3,1,1,73,75,70,70,"서버 가중합 반올림 및 검증 적용 후 Redis MISSING 1개, 문항별 FABRICATED 1개"
+2,req_a8787cea501341cfb51cc7e424e5017e,5,2,1,1,72,75,70,65,"서버 가중합 반올림 및 검증 적용 후 Redis MISSING 1개, 문항별 FABRICATED 1개"
+3,req_4b0fefc6b9c6483badaf32382adda344,5,2,1,1,72,75,70,65,"서버 가중합 반올림 및 검증 적용 후 Redis MISSING 1개, 문항별 FABRICATED 1개"
