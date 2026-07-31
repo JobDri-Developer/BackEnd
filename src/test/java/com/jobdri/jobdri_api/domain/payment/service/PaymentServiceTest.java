@@ -56,6 +56,7 @@ import static org.mockito.Mockito.when;
 class PaymentServiceTest {
 
     private static final String TEST_PORTONE_WEBHOOK_SECRET = "whsec_dGVzdC13ZWJob29rLXNlY3JldA==";
+    private static final String ORDER_ID_PATTERN = "^jobdri-[0-9a-f]{32}$";
 
     @Autowired
     private PaymentService paymentService;
@@ -104,8 +105,7 @@ class PaymentServiceTest {
 
         PaymentPrepareResponse response = paymentService.prepare(user, new PaymentPrepareRequest("FIVE_TIMES"));
 
-        assertThat(response.orderId()).startsWith("jobdri-");
-        assertThat(response.orderId()).hasSizeLessThanOrEqualTo(40);
+        assertThat(response.orderId()).matches(ORDER_ID_PATTERN);
         assertThat(response.orderName()).isEqualTo("JobDri 크레딧 5회권");
         assertThat(response.amount()).isEqualTo(11500);
         assertThat(response.creditAmount()).isEqualTo(5);
@@ -644,8 +644,7 @@ class PaymentServiceTest {
         );
 
         assertThat(response.provider()).isEqualTo(PaymentProviderType.PORTONE);
-        assertThat(response.orderId()).startsWith("jobdri-");
-        assertThat(response.orderId()).hasSizeLessThanOrEqualTo(40);
+        assertThat(response.orderId()).matches(ORDER_ID_PATTERN);
         assertThat(response.portOneStoreId()).isEqualTo("store-test");
         assertThat(response.portOneChannelKey()).isEqualTo("channel-key-test");
         assertThat(response.currency()).isEqualTo("KRW");
