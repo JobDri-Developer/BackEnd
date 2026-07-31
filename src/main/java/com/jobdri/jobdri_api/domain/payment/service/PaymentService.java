@@ -46,6 +46,7 @@ public class PaymentService {
 
     private static final String EXPECTED_PAYMENT_METHOD = "간편결제";
     private static final String EXPECTED_EASY_PAY_PROVIDER = "토스페이";
+    private static final String ORDER_ID_PREFIX = "jobdri-";
 
     private final UserService userService;
     private final PaymentRepository paymentRepository;
@@ -78,7 +79,7 @@ public class PaymentService {
         if (provider == PaymentProviderType.PORTONE) {
             return preparePortOne(validatedUser, plan);
         }
-        String orderId = "jobdri-" + UUID.randomUUID();
+        String orderId = generateOrderId();
         Payment payment = paymentTransactionService.createPendingPayment(
                 validatedUser.getId(),
                 plan,
@@ -131,7 +132,7 @@ public class PaymentService {
 
     private PaymentPrepareResponse preparePortOne(User validatedUser, CreditPlan plan) {
         PortOnePrepareData prepareData = portOneClient.prepareData();
-        String orderId = "jobdri-" + UUID.randomUUID();
+        String orderId = generateOrderId();
         Payment payment = paymentTransactionService.createPortOnePendingPayment(
                 validatedUser.getId(),
                 plan,
@@ -151,6 +152,10 @@ public class PaymentService {
                 prepareData.channelKey(),
                 prepareData.redirectUrl()
         );
+    }
+
+    private String generateOrderId() {
+        return ORDER_ID_PREFIX + UUID.randomUUID().toString().replace("-", "");
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
