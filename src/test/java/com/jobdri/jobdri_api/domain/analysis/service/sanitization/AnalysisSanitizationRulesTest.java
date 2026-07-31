@@ -49,6 +49,14 @@ class AnalysisSanitizationRulesTest {
         assertThat(AnalysisSanitizationRules.hasFabricatedDirectConflictReason(
                 "팀 프로젝트와 개인의 역할이 혼재되어 있습니다."
         )).isFalse();
+        assertThat(AnalysisSanitizationRules.hasFabricatedDirectConflictEvidence(
+                "모든 과정을 혼자 수행한 개인 프로젝트였습니다.",
+                "실제 프로젝트는 총 5명이 함께 진행한 팀 프로젝트였습니다."
+        )).isTrue();
+        assertThat(AnalysisSanitizationRules.hasFabricatedDirectConflictEvidence(
+                "팀 프로젝트에 참여했습니다.",
+                "콘텐츠 제작 역할을 담당했습니다."
+        )).isFalse();
     }
 
     @Test
@@ -78,6 +86,18 @@ class AnalysisSanitizationRulesTest {
                 "API 응답 속도를 개선했습니다.",
                 answer,
                 "입사 후 API 운영 안정화에 기여하겠습니다.",
+                false
+        )).isEmpty();
+        assertThat(AnalysisSanitizationRules.normalizeImprovement(
+                "API 응답 속도를 개선했습니다.",
+                answer,
+                "구체적인 성과 수치를 추가하면 좋습니다.",
+                false
+        )).isEmpty();
+        assertThat(AnalysisSanitizationRules.normalizeImprovement(
+                "API 응답 속도를 개선했습니다.",
+                answer,
+                "성과가 드러나도록 수정할 수 있습니다.",
                 false
         )).isEmpty();
     }

@@ -26,7 +26,8 @@ public final class AnalysisSanitizationRules {
             "구체적으로 서술합니다", "명확히 설명합니다", "명확히 서술합니다",
             "추가해 보", "추가하면 좋", "설명해 보", "구체적으로 작성", "구체적으로 설명",
             "강조하겠", "추가하겠", "명확히 작성", "작성할 수 있", "설명할 수 있",
-            "보완하겠", "드러내겠", "제시하겠"
+            "보완하겠", "드러내겠", "제시하겠", "추가할 수 있", "수정할 수 있",
+            "수정하는 방향", "강조하는 방향"
     };
     private static final String[] CONTRADICTORY_PROVEN_REASON_TERMS = {
             "근거가 부족", "성과가 부족", "수치가 부족", "구체성이 부족", "보완이 필요",
@@ -183,6 +184,17 @@ public final class AnalysisSanitizationRules {
             }
         }
         return containsTeamAndIndividualProjectConflict(normalized);
+    }
+
+    public static boolean hasFabricatedDirectConflictEvidence(String sentence, String reason) {
+        if (!StringUtils.hasText(reason)) {
+            return false;
+        }
+        if (hasFabricatedDirectConflictReason(reason)) {
+            return true;
+        }
+        return StringUtils.hasText(sentence)
+                && hasFabricatedDirectConflictReason(sentence + " " + reason);
     }
 
     private static boolean containsTeamAndIndividualProjectConflict(String normalizedReason) {

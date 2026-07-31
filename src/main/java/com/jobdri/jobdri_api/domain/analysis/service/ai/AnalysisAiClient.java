@@ -1297,7 +1297,10 @@ public class AnalysisAiClient {
                 continue;
             }
             if (status == QuestionAnalysisStatus.FABRICATED
-                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictReason(candidate.reasonBasis())) {
+                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictEvidence(
+                            candidate.sentence(),
+                            candidate.reasonBasis()
+                    )) {
                 continue;
             }
             if (!StringUtils.hasText(candidate.candidateId())) {
@@ -1818,7 +1821,10 @@ public class AnalysisAiClient {
                 continue;
             }
             if (status == QuestionAnalysisStatus.FABRICATED
-                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictReason(decision.reason())) {
+                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictEvidence(
+                            candidate.sentence(),
+                            decision.reason()
+                    )) {
                 continue;
             }
             String answer = answerByQuestionId.get(candidate.questionId());
@@ -2114,7 +2120,10 @@ public class AnalysisAiClient {
             return null;
         }
         if (status == QuestionAnalysisStatus.FABRICATED
-                && !AnalysisSanitizationRules.hasFabricatedDirectConflictReason(decision.reason())) {
+                && !AnalysisSanitizationRules.hasFabricatedDirectConflictEvidence(
+                        candidate.sentence(),
+                        decision.reason()
+                )) {
             return null;
         }
         String improvement = AnalysisSanitizationRules.normalizeImprovement(

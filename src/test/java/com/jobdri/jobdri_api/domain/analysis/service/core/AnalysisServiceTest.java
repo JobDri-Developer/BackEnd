@@ -643,7 +643,11 @@ class AnalysisServiceTest {
     void analyzeKeepsTwoValidQuestionAnalyses() {
         User user = saveUser("analysis-two-valid-items@example.com");
         MockApply mockApply = saveMockApply(user);
-        Question question = saveQuestion(mockApply, "성과 경험", "첫 번째 문장입니다. 두 번째 문장입니다.");
+        Question question = saveQuestion(
+                mockApply,
+                "성과 경험",
+                "첫 번째 문장입니다. 모든 과정을 혼자 수행한 개인 프로젝트였습니다."
+        );
         when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
                 80,
                 80,
@@ -659,9 +663,9 @@ class AnalysisServiceTest {
                         ),
                         new AnalysisLlmResponse.QuestionAnalysisItem(
                                 question.getId(),
-                                "두 번째 문장입니다.",
+                                "모든 과정을 혼자 수행한 개인 프로젝트였습니다.",
                                 "fabricated",
-                                "팀 프로젝트로 진행했으나 개인 프로젝트라고 주장함",
+                                "실제 프로젝트는 총 5명이 함께 진행한 팀 프로젝트였습니다.",
                                 null
                         )
                 )
