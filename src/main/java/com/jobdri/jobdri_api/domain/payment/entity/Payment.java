@@ -197,6 +197,18 @@ public class Payment extends BaseEntity {
         this.lastStatusCheckedAt = LocalDateTime.now();
     }
 
+    public void refundByTossPay(String tossStatus) {
+        this.tossStatus = tossStatus;
+        this.status = PaymentStatus.REFUNDED;
+        this.lastStatusCheckedAt = LocalDateTime.now();
+    }
+
+    public void refundByPortOne(String externalStatus) {
+        this.externalStatus = externalStatus;
+        this.status = PaymentStatus.REFUNDED;
+        this.lastStatusCheckedAt = LocalDateTime.now();
+    }
+
     public void markStatusChecked(String tossStatus) {
         this.tossStatus = tossStatus;
         this.lastStatusCheckedAt = LocalDateTime.now();

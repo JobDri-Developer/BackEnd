@@ -1,5 +1,7 @@
 package com.jobdri.jobdri_api.domain.payment.service;
 
+import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancelRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancelResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePaymentResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePrepareData;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -10,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -121,6 +124,46 @@ public class PortOneClient {
             }
         }
         throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "포트원 결제 단건 조회 중 오류가 발생했습니다.");
+    }
+
+    public PortOneCancelResponse cancelPayment(String paymentId, int amount, String reason) {
+        ensureConfigured();
+        ensureRequestValue(paymentId, "paymentId");
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(paymentId, null, amount);
+        try (var ignored = LoggingContext.with("payment.portone.refund.external_called", null, paymentContext)) {
+            log.info("Calling PortOne cancel payment API");
+        }
+        try {
+            PortOneCancelResponse response = restClient
+                    .post()
+                    .uri("/payments/{paymentId}/cancel", paymentId)
+                    .header(HttpHeaders.AUTHORIZATION, "PortOne " + apiSecret)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new PortOneCancelRequest(storeId, amount, reason))
+                    .retrieve()
+                    .body(PortOneCancelResponse.class);
+            if (response == null) {
+                throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "포트원 결제 취소 응답이 비어 있습니다.");
+            }
+            try (var ignored = LoggingContext.with("payment.portone.refund.external_succeeded", null, paymentContext)) {
+                log.info("PortOne cancel payment API succeeded");
+            }
+            return response;
+        } catch (GeneralException e) {
+            throw e;
+        } catch (HttpStatusCodeException e) {
+            if (e.getStatusCode().is5xxServerError()) {
+                throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "포트원 결제 취소가 일시적으로 실패했습니다.", e);
+            }
+            throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "포트원 결제 취소 실패", e);
+        } catch (ResourceAccessException e) {
+            if (TossHttpClientSupport.isTimeoutException(e)) {
+                throw new GeneralException(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, "포트원 결제 취소 응답이 지연되고 있습니다.", e);
+            }
+            throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "포트원 결제 취소 중 통신 오류가 발생했습니다.", e);
+        } catch (RestClientException e) {
+            throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "포트원 결제 취소 중 오류가 발생했습니다.", e);
+        }
     }
 
     private void ensureCreatePaymentConfigured() {

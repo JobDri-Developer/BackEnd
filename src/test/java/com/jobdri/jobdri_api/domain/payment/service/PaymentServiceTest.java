@@ -1,15 +1,20 @@
 package com.jobdri.jobdri_api.domain.payment.service;
 
+import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancelResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancellation;
 import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneAmount;
 import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePaymentResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePrepareData;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentRefundRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PortOnePaymentCompleteRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentPrepareResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentRefundResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayCreateResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayRefundResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.toss.TossEasyPayInfo;
 import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
@@ -49,6 +54,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
@@ -750,6 +758,106 @@ class PaymentServiceTest {
     }
 
     @Test
+    @DisplayName("관리자는 포트원 완료 결제를 전액 환불하고 지급 크레딧을 회수한다")
+    void refundPortOnePayment() {
+        User admin = saveAdmin("payment-portone-refund-admin@example.com");
+        User user = saveUser("payment-portone-refund-user@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+        paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        mockPortOneCancel(payment, "테스트 환불");
+
+        PaymentRefundResponse response = paymentService.refund(
+                admin,
+                payment.getId(),
+                new PaymentRefundRequest("테스트 환불")
+        );
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(response.creditBalance()).isEqualTo(1);
+        assertThat(paymentRepository.findById(payment.getId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.USE
+        )).anySatisfy(transaction ->
+                assertThat(transaction.getReferenceId()).isEqualTo("PAYMENT_REFUND:PORTONE:" + prepared.orderId())
+        );
+    }
+
+    @Test
+    @DisplayName("포트원 환불 중복 요청은 외부 취소와 크레딧 회수를 한 번만 수행한다")
+    void refundPortOnePaymentIsIdempotent() {
+        User admin = saveAdmin("payment-portone-refund-idempotent-admin@example.com");
+        User user = saveUser("payment-portone-refund-idempotent-user@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+        paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        mockPortOneCancel(payment, "테스트 환불");
+
+        paymentService.refund(admin, payment.getId(), new PaymentRefundRequest("테스트 환불"));
+        paymentService.refund(admin, payment.getId(), new PaymentRefundRequest("테스트 환불"));
+
+        verify(portOneClient, times(1)).cancelPayment(prepared.orderId(), prepared.amount(), "테스트 환불");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.USE
+        )).filteredOn(transaction -> transaction.getReferenceId().equals("PAYMENT_REFUND:PORTONE:" + prepared.orderId()))
+                .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("환불할 크레딧 잔액이 부족하면 외부 환불을 호출하지 않는다")
+    void refundRejectsWhenCreditAlreadySpent() {
+        User admin = saveAdmin("payment-portone-refund-insufficient-admin@example.com");
+        User user = saveUser("payment-portone-refund-insufficient-user@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+        paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        User chargedUser = userRepository.findById(user.getId()).orElseThrow();
+        chargedUser.decreaseCredit(2);
+        userRepository.saveAndFlush(chargedUser);
+
+        assertThatThrownBy(() -> paymentService.refund(admin, payment.getId(), new PaymentRefundRequest("테스트 환불")))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INSUFFICIENT_CREDIT);
+
+        verify(portOneClient, never()).cancelPayment(anyString(), anyInt(), anyString());
+        assertThat(paymentRepository.findById(payment.getId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+    }
+
+    @Test
+    @DisplayName("관리자는 토스페이 직접 연동 완료 결제를 전액 환불하고 지급 크레딧을 회수한다")
+    void refundTossPayDirectPayment() {
+        User admin = saveAdmin("payment-tosspay-refund-admin@example.com");
+        User user = saveUser("payment-tosspay-refund-user@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+        paymentService.handleTossPayCallback(tossPayCompleteCallback(prepared));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        String refundNo = "jobdri-refund-" + payment.getId();
+        when(tossPayClient.refundPayment(
+                savedPayToken(prepared),
+                prepared.orderId(),
+                refundNo,
+                prepared.amount(),
+                "관리자 결제 환불"
+        )).thenReturn(tossPayRefundResponse(savedPayToken(prepared), refundNo, prepared.amount()));
+
+        PaymentRefundResponse response = paymentService.refund(admin, payment.getId(), new PaymentRefundRequest(null));
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(response.creditBalance()).isEqualTo(1);
+        assertThat(paymentRepository.findById(payment.getId()).orElseThrow().getTossStatus()).isEqualTo("REFUND_SUCCESS");
+    }
+
+    @Test
     @DisplayName("포트원 complete와 webhook이 동시에 처리되어도 크레딧은 한 번만 지급된다")
     void portOneCompleteAndWebhookConcurrentlyChargeOnlyOnce() throws Exception {
         User user = saveUser("payment-portone-concurrent@example.com");
@@ -891,6 +999,12 @@ class PaymentServiceTest {
         return userRepository.save(User.signup("테스트 사용자", email, "encoded-password"));
     }
 
+    private User saveAdmin(String email) {
+        User admin = saveUser(email);
+        admin.promoteToAdmin();
+        return userRepository.saveAndFlush(admin);
+    }
+
     private PaymentPrepareResponse preparePortOne(User user) {
         mockPortOnePrepareData();
         return paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME", "PORTONE"));
@@ -920,6 +1034,11 @@ class PaymentServiceTest {
                 "KRW",
                 new PortOneAmount(amount)
         );
+    }
+
+    private void mockPortOneCancel(Payment payment, String reason) {
+        when(portOneClient.cancelPayment(payment.getExternalPaymentId(), payment.getPrice(), reason))
+                .thenReturn(new PortOneCancelResponse(new PortOneCancellation("cancel-" + payment.getOrderId(), "SUCCEEDED")));
     }
 
     private String portOneWebhookBody(String paymentId) {
@@ -993,6 +1112,20 @@ class PaymentServiceTest {
                 "CARD",
                 amount,
                 0,
+                amount
+        );
+    }
+
+    private TossPayRefundResponse tossPayRefundResponse(String payToken, String refundNo, int amount) {
+        return new TossPayRefundResponse(
+                0,
+                null,
+                "성공",
+                refundNo,
+                payToken,
+                "refund-transaction-id",
+                "REFUND_SUCCESS",
+                amount,
                 amount
         );
     }

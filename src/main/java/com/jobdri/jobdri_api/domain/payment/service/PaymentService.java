@@ -8,19 +8,23 @@ import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneWebhookPayload;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PortOnePaymentCompleteRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentRefundRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.*;
 import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayCreateResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayRefundResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
 import com.jobdri.jobdri_api.domain.payment.entity.PaymentProviderType;
+import com.jobdri.jobdri_api.domain.payment.entity.PaymentStatus;
 import com.jobdri.jobdri_api.domain.payment.entity.TossPayStatus;
 import com.jobdri.jobdri_api.domain.payment.repository.CreditTransactionRepository;
 import com.jobdri.jobdri_api.domain.payment.repository.PaymentRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.domain.user.entity.UserRole;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.BaseErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -47,11 +51,14 @@ public class PaymentService {
     private static final String EXPECTED_PAYMENT_METHOD = "간편결제";
     private static final String EXPECTED_EASY_PAY_PROVIDER = "토스페이";
     private static final String ORDER_ID_PREFIX = "jobdri-";
+    private static final String DEFAULT_REFUND_REASON = "관리자 결제 환불";
+    private static final String TOSS_PAY_REFUND_STATUS = "REFUND_SUCCESS";
 
     private final UserService userService;
     private final PaymentRepository paymentRepository;
     private final CreditTransactionRepository creditTransactionRepository;
     private final PaymentTransactionService paymentTransactionService;
+    private final CreditService creditService;
     private final TossPaymentClient tossPaymentClient;
     private final TossPayClient tossPayClient;
     private final PortOneClient portOneClient;
@@ -221,6 +228,36 @@ public class PaymentService {
     public PaymentOrderStatusResponse getOrderStatus(User user, String orderId) {
         User validatedUser = userService.validateUser(user);
         return paymentTransactionService.getOwnedOrderStatus(validatedUser.getId(), orderId);
+    }
+
+    @Transactional
+    public PaymentRefundResponse refund(User user, Long paymentId, PaymentRefundRequest request) {
+        User admin = userService.validateUser(user);
+        if (admin.getRole() != UserRole.ADMIN) {
+            throw new GeneralException(GeneralErrorCode.FORBIDDEN, "결제 환불은 관리자만 처리할 수 있습니다.");
+        }
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.PAYMENT_NOT_FOUND,
+                        "결제 정보를 찾을 수 없습니다. paymentId=" + paymentId
+                ));
+        User paymentUser = userService.getUser(payment.getUser().getId());
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            return PaymentRefundResponse.of(payment, paymentUser.getCredit());
+        }
+        if (payment.getStatus() != PaymentStatus.COMPLETED) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "완료된 결제만 환불할 수 있습니다.");
+        }
+
+        String reason = normalizeRefundReason(request == null ? null : request.reason());
+        int creditBalance = creditService.use(
+                paymentUser,
+                payment.getCreditAmount(),
+                "결제 환불 크레딧 회수",
+                refundCreditReferenceId(payment)
+        );
+        refundExternalPayment(payment, reason);
+        return PaymentRefundResponse.of(payment, creditBalance);
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -404,6 +441,65 @@ public class PaymentService {
         } catch (IllegalArgumentException e) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "지원하지 않는 토스페이 상태입니다.", e);
         }
+    }
+
+    private void refundExternalPayment(Payment payment, String reason) {
+        if (payment.isProvider(PaymentProviderType.PORTONE)) {
+            refundPortOnePayment(payment, reason);
+            return;
+        }
+        refundTossPayPayment(payment, reason);
+    }
+
+    private void refundPortOnePayment(Payment payment, String reason) {
+        if (isBlank(payment.getExternalPaymentId())) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "포트원 paymentId가 없는 결제는 환불할 수 없습니다.");
+        }
+        portOneClient.cancelPayment(payment.getExternalPaymentId(), payment.getPrice(), reason);
+        payment.refundByPortOne("CANCELLED");
+    }
+
+    private void refundTossPayPayment(Payment payment, String reason) {
+        if (isBlank(payment.getPayToken())) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "토스페이 payToken이 없는 결제는 환불할 수 없습니다.");
+        }
+        String refundNo = tossPayRefundNo(payment);
+        TossPayRefundResponse response = tossPayClient.refundPayment(
+                payment.getPayToken(),
+                payment.getOrderId(),
+                refundNo,
+                payment.getPrice(),
+                reason
+        );
+        validateTossPayRefundResponse(response, payment, refundNo);
+        payment.refundByTossPay(response.payStatus());
+    }
+
+    private void validateTossPayRefundResponse(TossPayRefundResponse response, Payment payment, String refundNo) {
+        if (response == null
+                || !response.successful()
+                || !refundNo.equals(response.refundNo())
+                || !payment.getPayToken().equals(response.payToken())
+                || !TOSS_PAY_REFUND_STATUS.equals(response.payStatus())
+                || response.refundedAmount() == null
+                || response.refundedAmount() != payment.getPrice()) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "토스페이 환불 응답 검증에 실패했습니다.");
+        }
+    }
+
+    private String refundCreditReferenceId(Payment payment) {
+        return "PAYMENT_REFUND:" + payment.getProviderOrDefault() + ":" + payment.getOrderId();
+    }
+
+    private String tossPayRefundNo(Payment payment) {
+        return "jobdri-refund-" + payment.getId();
+    }
+
+    private String normalizeRefundReason(String reason) {
+        if (isBlank(reason)) {
+            return DEFAULT_REFUND_REASON;
+        }
+        return reason.length() > 255 ? reason.substring(0, 255) : reason;
     }
 
     public boolean shouldAcknowledgeTossPayCallbackFailure(Exception exception) {
