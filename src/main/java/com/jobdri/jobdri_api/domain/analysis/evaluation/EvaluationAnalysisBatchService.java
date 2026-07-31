@@ -222,6 +222,12 @@ public class EvaluationAnalysisBatchService {
             )) {
                 continue;
             }
+            if (AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(
+                    keyword,
+                    evaluationCase.answer()
+            )) {
+                continue;
+            }
 
             String dedupeKey = normalizeKeyword(keyword);
             if (!seenKeywords.add(dedupeKey)) {
@@ -253,6 +259,7 @@ public class EvaluationAnalysisBatchService {
         Map<Long, Integer> analysisCountByQuestionId = new HashMap<>();
         Map<Long, Integer> nextSearchIndexByQuestionId = new HashMap<>();
         Set<String> seenSentences = new HashSet<>();
+        Set<Long> fabricatedQuestionIds = new HashSet<>();
         Set<String> keyStrengthQuotes = normalizedKeyStrengthQuotes(llmResponse);
 
         for (AnalysisLlmResponse.QuestionAnalysisItem item : llmResponse.questionAnalyses()) {
@@ -264,9 +271,11 @@ public class EvaluationAnalysisBatchService {
             }
 
             QuestionAnalysisStatus status = parseStatus(item.status());
-            if (status == null
-                    || status == QuestionAnalysisStatus.MISSING
-                    || status == QuestionAnalysisStatus.PROVEN) {
+            if (status == null || status == QuestionAnalysisStatus.MISSING) {
+                continue;
+            }
+            if (status == QuestionAnalysisStatus.PROVEN
+                    && !AnalysisSanitizationRules.hasValidProvenReason(item.reason())) {
                 continue;
             }
             if (status == QuestionAnalysisStatus.FABRICATED
@@ -280,7 +289,8 @@ public class EvaluationAnalysisBatchService {
             }
 
             String sentence = item.sentence();
-            if (keyStrengthQuotes.contains(normalizeKeyword(sentence))) {
+            if (status != QuestionAnalysisStatus.PROVEN
+                    && keyStrengthQuotes.contains(normalizeKeyword(sentence))) {
                 continue;
             }
             String dedupeKey = item.questionId() + ":" + sentence.trim();
@@ -294,6 +304,10 @@ public class EvaluationAnalysisBatchService {
                     nextSearchIndexByQuestionId.getOrDefault(item.questionId(), 0)
             );
             if (start < 0) {
+                continue;
+            }
+            if (status == QuestionAnalysisStatus.FABRICATED
+                    && !fabricatedQuestionIds.add(item.questionId())) {
                 continue;
             }
 

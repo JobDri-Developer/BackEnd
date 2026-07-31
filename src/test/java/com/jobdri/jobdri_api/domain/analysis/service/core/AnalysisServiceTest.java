@@ -180,6 +180,99 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("데모 픽스처의 PROVEN, MENTIONED, MISSING, FABRICATED 결과를 저장하고 조회한다")
+    void analyzeStoresAndReadsAllDemoStatuses() {
+        User user = saveUser("analysis-demo-all-statuses@example.com");
+        JobPosting jobPosting = saveJobPosting(
+                user,
+                "Spring Boot REST API 개발, 관계형 데이터베이스 쿼리 최적화, Redis 기반 캐시 또는 세션 관리",
+                "Java와 Spring Boot 프로젝트 경험, 문제 분석 및 해결 경험",
+                "비동기 처리 경험"
+        );
+        MockApply mockApply = mockApplyRepository.save(MockApply.create(user, jobPosting, ApplyType.ACTUAL));
+        String provenSentence = "실행 계획을 분석해 복합 인덱스를 적용했고 평균 응답 시간을 1.8초에서 0.6초로 줄였습니다.";
+        String mentionedSentence = "여러 백엔드 프로젝트를 수행하며 문제 해결 역량을 길렀습니다.";
+        String fabricatedSentence = "같은 JobBoard 프로젝트는 시작부터 종료까지 2026년 1월부터 6월까지 진행했으며, 저를 포함한 5명의 팀원이 역할을 나누었습니다.";
+        Question provenQuestion = saveQuestion(mockApply, "직무 경험", provenSentence);
+        Question mentionedQuestion = saveQuestion(
+                mockApply,
+                "문제 해결 경험",
+                "서비스 장애가 발생했을 때 모니터링 대시보드의 지표와 로그를 살펴보고 원인을 찾아 대응했습니다. "
+                        + mentionedSentence
+        );
+        Question fabricatedQuestion = saveQuestion(
+                mockApply,
+                "협업 경험",
+                "JobBoard 프로젝트는 시작부터 종료까지 2026년 1월부터 3월까지 진행했으며, "
+                        + "기획·개발·테스트 전 과정을 저 혼자 맡아 다른 참여자는 없었습니다. "
+                        + fabricatedSentence
+        );
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                72,
+                74,
+                76,
+                "구체적인 성과가 있으나 일부 근거와 요건 보완이 필요합니다.",
+                List.of(new AnalysisLlmResponse.HighlightItem("성능 개선 근거가 구체적입니다.", provenSentence)),
+                List.of(new AnalysisLlmResponse.HighlightItem(
+                        "핵심 운영 경험이 드러나지 않습니다.",
+                        "Redis 기반 캐시 또는 세션 관리"
+                )),
+                List.of(new AnalysisLlmResponse.MissingKeywordItem(
+                        "Redis 기반 캐시 또는 세션 관리",
+                        "mainTask"
+                )),
+                List.of(
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                provenQuestion.getId(),
+                                provenSentence,
+                                "PROVEN",
+                                "쿼리 최적화 행동과 수치 결과가 구체적으로 드러납니다.",
+                                null
+                        ),
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                mentionedQuestion.getId(),
+                                mentionedSentence,
+                                "mentioned",
+                                "관련 경험은 언급했지만 본인의 행동과 결과가 드러나지 않습니다.",
+                                null
+                        ),
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                fabricatedQuestion.getId(),
+                                fabricatedSentence,
+                                "fabricated",
+                                "같은 프로젝트의 기간과 팀 구성 진술이 앞 문장과 직접 충돌합니다.",
+                                null
+                        )
+                )
+        ));
+
+        AnalysisResponse saved = analysisService.analyze(user, mockApply.getId());
+        entityManager.clear();
+        AnalysisResponse response = analysisService.getAnalysis(user, mockApply.getId());
+
+        assertThat(saved.score()).isBetween(65, 78);
+        var analyses = response.questions().stream()
+                .flatMap(question -> question.analyses().stream())
+                .toList();
+        assertThat(analyses)
+                .extracting("status")
+                .containsExactlyInAnyOrder("proven", "mentioned", "fabricated");
+        assertThat(analyses)
+                .filteredOn(item -> "proven".equals(item.status()))
+                .extracting("improvement")
+                .containsExactly("");
+        for (var question : response.questions()) {
+            for (var item : question.analyses()) {
+                assertThat(question.answer().substring(item.start(), item.end())).isEqualTo(item.sentence());
+            }
+        }
+        assertThat(response.missingKeywords()).hasSize(1);
+        assertThat(response.missingKeywords().getFirst().keyword())
+                .isEqualTo("Redis 기반 캐시 또는 세션 관리");
+        assertThat(response.missingKeywords().getFirst().source().value()).isEqualTo("mainTask");
+    }
+
+    @Test
     @DisplayName("총점은 하위 점수 가중합으로 계산한다")
     void analyzeCalculatesScoreFromDimensionScores() {
         User user = saveUser("analysis-score-calculation@example.com");
@@ -438,7 +531,42 @@ class AnalysisServiceTest {
     }
 
     @Test
-    @DisplayName("PROVEN questionAnalysis는 최종 결과에서 제외한다")
+    @DisplayName("PROVEN reason이 null 또는 빈 문자열이면 저장하지 않는다")
+    void analyzeSkipsProvenWithMissingReason() {
+        User user = saveUser("analysis-proven-missing-reason@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question nullReasonQuestion = saveQuestion(mockApply, "첫 성과 경험", "API 응답 시간을 30% 단축했습니다.");
+        Question blankReasonQuestion = saveQuestion(mockApply, "둘째 성과 경험", "배포 오류율을 5%에서 1%로 낮췄습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                80,
+                80,
+                "PROVEN reason 필수 검증입니다.",
+                List.of(
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                nullReasonQuestion.getId(),
+                                "API 응답 시간을 30% 단축했습니다.",
+                                "proven",
+                                null,
+                                null
+                        ),
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                blankReasonQuestion.getId(),
+                                "배포 오류율을 5%에서 1%로 낮췄습니다.",
+                                "proven",
+                                "   ",
+                                null
+                        )
+                )
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions()).allSatisfy(question -> assertThat(question.analyses()).isEmpty());
+    }
+
+    @Test
+    @DisplayName("유효한 PROVEN questionAnalysis는 개선문을 비우고 최종 결과에 포함한다")
     void analyzeRemovesImprovementForProvenStatus() {
         User user = saveUser("analysis-proven-improvement-empty@example.com");
         MockApply mockApply = saveMockApply(user);
@@ -459,11 +587,13 @@ class AnalysisServiceTest {
 
         AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
 
-        assertThat(response.questions().get(0).analyses()).isEmpty();
+        assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).status()).isEqualTo("proven");
+        assertThat(response.questions().get(0).analyses().get(0).improvement()).isEmpty();
     }
 
     @Test
-    @DisplayName("PROVEN reason이 긍정 문맥이어도 questionAnalyses에서는 제외한다")
+    @DisplayName("PROVEN reason이 긍정 문맥이면 questionAnalyses에 포함한다")
     void analyzeKeepsValidProvenReasonWithPositiveNeedContext() {
         User user = saveUser("analysis-valid-proven-need-context@example.com");
         MockApply mockApply = saveMockApply(user);
@@ -484,7 +614,9 @@ class AnalysisServiceTest {
 
         AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
 
-        assertThat(response.questions().get(0).analyses()).isEmpty();
+        assertThat(response.questions().get(0).analyses()).hasSize(1);
+        assertThat(response.questions().get(0).analyses().get(0).status()).isEqualTo("proven");
+        assertThat(response.questions().get(0).analyses().get(0).improvement()).isEmpty();
     }
 
     @Test
@@ -541,6 +673,53 @@ class AnalysisServiceTest {
         assertThat(response.questions().get(0).analyses())
                 .extracting("status")
                 .containsExactly("mentioned", "fabricated");
+    }
+
+    @Test
+    @DisplayName("같은 문항의 직접 충돌은 대표 FABRICATED 한 개만 저장한다")
+    void analyzeKeepsOneFabricatedPerQuestion() {
+        User user = saveUser("analysis-one-fabricated-per-question@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(
+                mockApply,
+                "프로젝트 설명",
+                "프로젝트를 혼자 진행했습니다. 같은 프로젝트를 5명이 진행했습니다. 결과를 공유했습니다."
+        );
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                70,
+                70,
+                70,
+                "중복 모순 검증입니다.",
+                List.of(
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "프로젝트를 혼자 진행했습니다.",
+                                "fabricated",
+                                "5명이 진행했다는 뒤 문장과 직접 충돌합니다.",
+                                null
+                        ),
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "같은 프로젝트를 5명이 진행했습니다.",
+                                "fabricated",
+                                "혼자 진행했다는 앞 문장과 직접 충돌합니다.",
+                                null
+                        ),
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                question.getId(),
+                                "결과를 공유했습니다.",
+                                "mentioned",
+                                "공유 대상과 방식이 구체적으로 드러나지 않습니다.",
+                                null
+                        )
+                )
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions().getFirst().analyses())
+                .extracting("status")
+                .containsExactly("fabricated", "mentioned");
     }
 
     @Test
@@ -827,7 +1006,7 @@ class AnalysisServiceTest {
 
         assertThat(response.questions().get(0).analyses())
                 .extracting("status")
-                .containsExactly("mentioned", "fabricated");
+                .containsExactly("proven", "mentioned", "fabricated");
     }
 
     @Test
@@ -1025,6 +1204,40 @@ class AnalysisServiceTest {
         AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApply.getId());
 
         assertThat(payload.jobCategoryEvaluationCriteria()).isNull();
+    }
+
+    @Test
+    @DisplayName("분석 실행 뒤 DB 답변이 바뀌면 최초 답변 snapshot과 달라 결과 저장을 중단한다")
+    void finalizeAnalysisRejectsChangedDatabaseAnswer() {
+        User user = saveUser("analysis-answer-snapshot-mismatch@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApply.getId());
+        jdbcTemplate.update(
+                "update questions set answer = ? where id = ?",
+                "완료 전에 답변을 변경했습니다.",
+                question.getId()
+        );
+        entityManager.clear();
+        AnalysisLlmResponse llmResponse = new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "답변 snapshot 검증",
+                List.of()
+        );
+
+        assertThatThrownBy(() -> analysisService.finalizeAnalysis(
+                user,
+                mockApply.getId(),
+                payload,
+                llmResponse,
+                "initial-fingerprint"
+        ))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
+        assertThat(analysisRepository.findByMockApplyId(mockApply.getId())).isEmpty();
     }
 
     @Test
@@ -1346,9 +1559,11 @@ class AnalysisServiceTest {
         assertThat(second.analysisId()).isNotEqualTo(first.analysisId());
         assertThat(second.score()).isEqualTo(90);
         assertThat(second.feedback()).isEqualTo("두 번째 분석");
-        assertThat(second.questions().get(0).analyses()).isEmpty();
+        assertThat(second.questions().get(0).analyses()).hasSize(1);
+        assertThat(second.questions().get(0).analyses().get(0).status()).isEqualTo("proven");
+        assertThat(second.questions().get(0).analyses().get(0).improvement()).isEmpty();
         assertThat(analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow().getScore()).isEqualTo(90);
-        assertThat(questionAnalysisRepository.findAllByAnalysisId(second.analysisId())).isEmpty();
+        assertThat(questionAnalysisRepository.findAllByAnalysisId(second.analysisId())).hasSize(1);
         assertThat(questionAnalysisRepository.findAllByAnalysisId(first.analysisId())).isEmpty();
         assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(initialCredit - 2);
         assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(

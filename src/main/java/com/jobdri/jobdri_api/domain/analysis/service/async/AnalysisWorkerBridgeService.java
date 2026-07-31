@@ -190,7 +190,13 @@ public class AnalysisWorkerBridgeService {
                 user,
                 request.mockApplyId(),
                 contextSnapshot.similarJobPostings()
-        );
+        ).withAnswerSnapshots(contextSnapshot.questions().stream()
+                .filter(question -> question.answer() != null && !question.answer().isBlank())
+                .map(question -> new AnalysisExecutionPayload.AnswerSnapshot(
+                        question.questionId(),
+                        question.answer()
+                ))
+                .toList());
         AnalysisLlmResponse llmResponse = request.llmResponse();
         AnalysisResponse response = analysisService.finalizeAnalysis(
                 user,

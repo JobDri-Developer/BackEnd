@@ -8,6 +8,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStor
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
+import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.InOrder;
 import org.mockito.Mock;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -248,12 +250,17 @@ class AnalysisWorkerBridgeServiceTest {
         when(jobPosting.getDetailClassification().getDetailName()).thenReturn("백엔드");
         when(jobPosting.getDetailClassification().getMiddleClassification().getMiddleName()).thenReturn("서버");
         when(jobPosting.getDetailClassification().getMiddleClassification().getClassification().getBigName()).thenReturn("개발");
+        Question initialQuestion = mock(Question.class);
+        when(initialQuestion.getId()).thenReturn(101L);
+        when(initialQuestion.getContent()).thenReturn("직무 경험");
+        when(initialQuestion.getAnswer()).thenReturn("최초 답변입니다.");
+        when(initialQuestion.getLimit()).thenReturn(700);
         AnalysisExecutionPayload initialPayload = new AnalysisExecutionPayload(
                 1L,
                 10L,
                 jobPosting,
-                List.of(),
-                List.of(),
+                List.of(initialQuestion),
+                List.of(initialQuestion),
                 null,
                 new RetrievalContext(
                         List.of(new RetrievedJobPostingReference(
@@ -272,8 +279,18 @@ class AnalysisWorkerBridgeServiceTest {
         SimilarJobPostingContext laterContext = new SimilarJobPostingContext(
                 31L, "유사 회사", "유사 공고", "서버 개발자", "API 개발", "Java", "AWS", 1, 0.91
         );
+        Question changedQuestion = mock(Question.class);
+        when(changedQuestion.getId()).thenReturn(101L);
+        when(changedQuestion.getAnswer()).thenReturn("완료 전에 변경된 답변입니다.");
         AnalysisExecutionPayload completionPayload = new AnalysisExecutionPayload(
-                1L, 10L, jobPosting, List.of(), List.of(), null, null, List.of()
+                1L,
+                10L,
+                jobPosting,
+                List.of(changedQuestion),
+                List.of(changedQuestion),
+                null,
+                null,
+                List.of()
         );
         AnalysisLlmResponse llmResponse = mock(AnalysisLlmResponse.class);
         AnalysisResponse analysisResponse = mock(AnalysisResponse.class);
@@ -290,13 +307,8 @@ class AnalysisWorkerBridgeServiceTest {
                 .thenReturn(initialPayload, changedRetrievalPayload);
         when(analysisInputFingerprintProvider.create(initialPayload)).thenReturn("initial-fingerprint");
         when(analysisService.prepareAnalysisExecution(user, 10L, List.of())).thenReturn(completionPayload);
-        when(analysisService.finalizeAnalysis(
-                user,
-                10L,
-                completionPayload,
-                llmResponse,
-                "initial-fingerprint"
-        )).thenReturn(analysisResponse);
+        when(analysisService.finalizeAnalysis(eq(user), eq(10L), any(), eq(llmResponse), eq("initial-fingerprint")))
+                .thenReturn(analysisResponse);
 
         var initialContext = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
         var retriedContext = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
@@ -307,13 +319,18 @@ class AnalysisWorkerBridgeServiceTest {
         assertThat(retriedContext.corpusReferences().getFirst().corpusId()).isEqualTo(11L);
         verify(analysisService, times(1)).prepareAnalysisExecution(user, 10L);
         verify(analysisService).prepareAnalysisExecution(user, 10L, List.of());
+        ArgumentCaptor<AnalysisExecutionPayload> payloadCaptor = ArgumentCaptor.forClass(AnalysisExecutionPayload.class);
         verify(analysisService).finalizeAnalysis(
-                user,
-                10L,
-                completionPayload,
-                llmResponse,
-                "initial-fingerprint"
+                eq(user),
+                eq(10L),
+                payloadCaptor.capture(),
+                eq(llmResponse),
+                eq("initial-fingerprint")
         );
+        assertThat(payloadCaptor.getValue().answerSnapshots())
+                .containsExactly(new AnalysisExecutionPayload.AnswerSnapshot(101L, "최초 답변입니다."));
+        assertThat(payloadCaptor.getValue().answeredQuestions().getFirst().getAnswer())
+                .isEqualTo("완료 전에 변경된 답변입니다.");
     }
 
     @Test
