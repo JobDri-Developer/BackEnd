@@ -9,6 +9,12 @@ import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse.RejectionCode;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotProperties;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotCase;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotReviewStatus;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSearchService;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSource;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.SelectedFewShotCase;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
@@ -30,11 +36,15 @@ import static org.mockito.Mockito.when;
 
 class AnalysisAiClientTest {
 
+    private final FewShotSearchService fewShotSearchService = mock(FewShotSearchService.class);
+    private final FewShotProperties fewShotProperties = new FewShotProperties();
     private final AnalysisAiClient analysisAiClient = new AnalysisAiClient(
             mock(OpenAIClient.class),
             mock(CorpusRetrievalService.class),
             mock(LlmConcurrencyLimiter.class),
             new FewShotPromptProvider(),
+            fewShotSearchService,
+            fewShotProperties,
             mock(AsyncMetricsRecorder.class),
             new ObjectMapper()
     );
@@ -297,6 +307,42 @@ class AnalysisAiClientTest {
     }
 
     @Test
+    @DisplayName("dynamic few-shot이 활성화되면 선택된 예시만 single-pass 프롬프트에 포함한다")
+    void buildPromptUsesSelectedFewShotsWhenDynamicSelectionEnabled() {
+        fewShotProperties.setDynamicSelectionEnabled(true);
+        FewShotCase selectedCase = new FewShotCase(
+                "FS-DYNAMIC-1",
+                FewShotSource.CURATED,
+                FewShotReviewStatus.APPROVED,
+                true,
+                0,
+                "백엔드 개발",
+                "Backend Engineer",
+                List.of("API 개발"),
+                List.of("Spring Boot"),
+                "직무 경험",
+                "API를 개발했습니다.",
+                "{\"questionAnalyses\":[]}",
+                List.of("api"),
+                "fewshot-test-v1",
+                "## 예시 Z: 동적 선택 예시\n출력 중 문장/누락 관련 필드:\n{}"
+        );
+        when(fewShotSearchService.searchRelevantFewShots(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.anyInt()))
+                .thenReturn(List.of(new SelectedFewShotCase(selectedCase, 0.91, "test")));
+
+        String prompt = analysisAiClient.buildPrompt(
+                mockJobPosting(),
+                List.of(mockQuestion()),
+                new RetrievalContext(List.of(), List.of()),
+                null
+        );
+
+        assertThat(prompt)
+                .contains("## 예시 Z: 동적 선택 예시")
+                .doesNotContain("## 예시 A: 좋은 근거가 있으면 보완 문장이 0개일 수 있음");
+    }
+
+    @Test
     @DisplayName("1차 후보 프롬프트는 점수와 improvement 없이 후보 판정 규칙만 포함한다")
     void buildCandidatePromptIncludesCandidateRulesOnly() {
         String prompt = analysisAiClient.buildCandidatePrompt(
@@ -334,11 +380,49 @@ class AnalysisAiClientTest {
                 .contains("실제 업무 또는 프로젝트 수행 경험, 업무 전 과정을 수행한 경험은 strengthCandidates가 될 수 있다.")
                 .contains("수치로 표현되지 않더라도 확인 가능한 결과는 strengthCandidates가 될 수 있다.")
                 .contains("자격 취득 자체가 아니라 직무와 연결되는 실습·적용 경험은 strengthCandidates가 될 수 있다.")
+                .contains("[소제목 처리 규칙]")
+                .contains("한 줄 전체가 대괄호로 감싸진 형식")
+                .contains("소제목은 sentenceType을 분류하지 않고 strengthCandidates 또는 analysisCandidates에 넣지 않는다.")
+                .contains("소제목은 바로 뒤 문단의 주제와 흐름을 이해하는 보조 문맥으로만 사용")
                 .contains("[strengthCandidates Positive Examples]")
                 .contains("포토샵과 일러스트로 상세페이지를 제작")
                 .contains("라이노와 Fusion360으로 제품을 설계")
                 .contains("급여 정산표를 만들어 함수로 자동 비교")
                 .contains("5만 원 시재 차이 원인을 거래 자료 대조로 추적");
+    }
+
+    @Test
+    @DisplayName("단일 패스 프롬프트는 대괄호 소제목을 평가와 첨삭 대상에서 제외한다")
+    void buildSinglePassPromptExcludesBracketedSubheadingsFromEvaluation() {
+        String prompt = analysisAiClient.buildPrompt(
+                mockJobPosting(),
+                List.of(mockQuestion()),
+                new RetrievalContext(List.of(), List.of()),
+                null
+        );
+
+        assertThat(prompt)
+                .contains("[소제목 처리 규칙]")
+                .contains("본문 문장이 아니라 소제목이다.")
+                .contains("questionAnalyses의 sentence로 반환하지 않는다.")
+                .contains("keyStrengths의 quote 또는 keyWeaknesses의 근거로 반환하지 않는다.")
+                .contains("실제 평가는 본문 문장을 기준으로 한다.")
+                .contains("소제목 문구 자체를 별도 첨삭 대상으로 만들지 않는다.");
+    }
+
+    @Test
+    @DisplayName("2차 검토 프롬프트는 잘못 유입된 대괄호 소제목 후보를 거절한다")
+    void buildFinalPromptRejectsBracketedSubheadingCandidate() {
+        String prompt = analysisAiClient.buildFinalPrompt(
+                promptInput(),
+                new RetrievalContext(List.of(), List.of()),
+                null,
+                new AnalysisCandidateResponse(List.of(), List.of(), List.of())
+        );
+
+        assertThat(prompt)
+                .contains("한 줄 전체가 대괄호로 감싸진 소제목")
+                .contains("NOT_ACTIONABLE로 거절한다.");
     }
 
     @Test
