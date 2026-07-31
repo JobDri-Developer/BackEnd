@@ -35,6 +35,23 @@ class AnalysisSanitizationRulesTest {
     }
 
     @Test
+    @DisplayName("FABRICATED reason은 명시적 충돌 표현과 팀·개인 프로젝트의 대조를 인정한다")
+    void detectsFabricatedReasonByConflictMeaning() {
+        assertThat(AnalysisSanitizationRules.hasFabricatedDirectConflictReason(
+                "팀 프로젝트로 진행했으나 개인 프로젝트라고 주장함"
+        )).isTrue();
+        assertThat(AnalysisSanitizationRules.hasFabricatedDirectConflictReason(
+                "앞뒤 설명이 불일치합니다."
+        )).isTrue();
+        assertThat(AnalysisSanitizationRules.hasFabricatedDirectConflictReason(
+                "팀 프로젝트 경험을 설명했습니다."
+        )).isFalse();
+        assertThat(AnalysisSanitizationRules.hasFabricatedDirectConflictReason(
+                "팀 프로젝트와 개인의 역할이 혼재되어 있습니다."
+        )).isFalse();
+    }
+
+    @Test
     @DisplayName("unsafe improvement를 제거한다")
     void removesUnsafeImprovement() {
         String answer = "API 응답 속도를 개선했습니다. 장애 로그를 분석했습니다.";

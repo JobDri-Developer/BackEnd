@@ -661,7 +661,7 @@ class AnalysisServiceTest {
                                 question.getId(),
                                 "두 번째 문장입니다.",
                                 "fabricated",
-                                "확인된 사실과 직접 충돌합니다.",
+                                "팀 프로젝트로 진행했으나 개인 프로젝트라고 주장함",
                                 null
                         )
                 )

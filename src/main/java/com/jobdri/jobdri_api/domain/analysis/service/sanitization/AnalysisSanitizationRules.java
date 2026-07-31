@@ -39,7 +39,8 @@ public final class AnalysisSanitizationRules {
     private static final String[] FABRICATED_DIRECT_CONFLICT_TERMS = {
             "직접 충돌", "명시적 사실과 충돌", "사실과 충돌", "조건과 충돌", "요건과 충돌",
             "서로 충돌", "상충", "하지 않았다고", "수행하지 않았다고", "경험이 없다고",
-            "없다고 밝혔", "실제로 하지 않았"
+            "없다고 밝혔", "실제로 하지 않았", "모순", "불일치", "일치하지 않", "앞뒤가 맞지",
+            "다르게 서술"
     };
     private static final Set<String> STOP_WORDS = Set.of(
             "경험", "역량", "업무", "관련", "가능", "보유", "필수", "우대", "자격", "요건",
@@ -181,7 +182,16 @@ public final class AnalysisSanitizationRules {
                 return true;
             }
         }
-        return false;
+        return containsTeamAndIndividualProjectConflict(normalized);
+    }
+
+    private static boolean containsTeamAndIndividualProjectConflict(String normalizedReason) {
+        boolean teamClaim = normalizedReason.contains(normalize("팀 프로젝트"))
+                || normalizedReason.contains(normalize("팀으로 진행"));
+        boolean individualClaim = normalizedReason.contains(normalize("개인 프로젝트"))
+                || normalizedReason.contains(normalize("혼자 수행"))
+                || normalizedReason.contains(normalize("혼자 진행"));
+        return teamClaim && individualClaim;
     }
 
     public static boolean isStructuredQualificationKeyword(String keyword) {
