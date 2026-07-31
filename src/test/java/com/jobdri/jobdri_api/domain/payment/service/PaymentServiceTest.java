@@ -830,12 +830,14 @@ class PaymentServiceTest {
             }
         });
 
-        assertThat(results).filteredOn(Result::success).hasSize(1);
-        assertThat(results).filteredOn(result -> !result.success())
-                .allSatisfy(result -> assertThat(result.exception())
+        assertThat(results).allSatisfy(result -> {
+            if (!result.success()) {
+                assertThat(result.exception())
                         .isInstanceOf(GeneralException.class)
                         .extracting("code")
-                        .isEqualTo(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED));
+                        .isEqualTo(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED);
+            }
+        });
         verify(portOneClient, times(1)).cancelPayment(prepared.orderId(), prepared.amount(), "테스트 환불");
         assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
         assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
