@@ -15,13 +15,21 @@ class JobPostingLineBreakFormatterTest {
                 "잡드리",
                 "백엔드 개발자",
                 "API 개발",
-                "Spring Boot 경험, JPA 사용 경험",
-                "AWS 경험; Redis 경험",
+                "Spring Boot 경험, JPA 사용 경험. AWS 경험.",
+                "ROAS, CAC 지표 이해. Meta, Google 광고 운영 경험.",
                 "요약"
         );
 
-        assertThat(response.requirements()).isEqualTo("Spring Boot 경험\nJPA 사용 경험\n");
-        assertThat(response.preferredQualifications()).isEqualTo("AWS 경험\nRedis 경험\n");
+        assertThat(response.requirements()).isEqualTo("Spring Boot 경험, JPA 사용 경험.\nAWS 경험.\n");
+        assertThat(response.preferredQualifications())
+                .isEqualTo("ROAS, CAC 지표 이해.\nMeta, Google 광고 운영 경험.\n");
+    }
+
+    @Test
+    @DisplayName("쉼표로 연결된 병렬 표현은 항목으로 분리하지 않는다")
+    void appendLineBreakAfterLastLineKeepsCommaSeparatedPhrase() {
+        assertThat(JobPostingLineBreakFormatter.appendLineBreakAfterLastLine("개발자, PM과 협업 경험. CRM 마케팅, 제휴 업무 경험."))
+                .isEqualTo("개발자, PM과 협업 경험.\nCRM 마케팅, 제휴 업무 경험.\n");
     }
 
     @Test

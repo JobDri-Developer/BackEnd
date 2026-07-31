@@ -29,6 +29,9 @@ final class JobPostingLineBreakFormatter {
                 "\\s+(?=(?:[-*•·ㆍ]\\s+|\\d+[.)]\\s+))",
                 "\n"
         );
-        return lineSeparatedByMarkers.split("\\s*[,;，、]\\s*|\\n");
+        String lineSeparatedBySentences = lineSeparatedByMarkers
+                .replaceAll("(?<=[!?。！？])\\s+(?=\\S)", "\n")
+                .replaceAll("(?<=[^0-9]\\.)\\s+(?=\\S)", "\n");
+        return lineSeparatedBySentences.split("\\n");
     }
 }
