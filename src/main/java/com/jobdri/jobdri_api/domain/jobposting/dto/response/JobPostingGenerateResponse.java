@@ -9,4 +9,8 @@ public record JobPostingGenerateResponse(
         String preferredQualifications,
         String summary
 ) {
+    public JobPostingGenerateResponse {
+        requirements = JobPostingLineBreakFormatter.appendLineBreakAfterLastLine(requirements);
+        preferredQualifications = JobPostingLineBreakFormatter.appendLineBreakAfterLastLine(preferredQualifications);
+    }
 }

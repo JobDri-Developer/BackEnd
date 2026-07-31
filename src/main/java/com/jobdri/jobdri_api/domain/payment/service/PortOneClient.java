@@ -145,6 +145,9 @@ public class PortOneClient {
             if (response == null) {
                 throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "포트원 결제 취소 응답이 비어 있습니다.");
             }
+            if (response.cancellation() == null || !"SUCCEEDED".equals(response.cancellation().status())) {
+                throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "포트원 결제 취소 응답 검증에 실패했습니다.");
+            }
             try (var ignored = LoggingContext.with("payment.portone.refund.external_succeeded", null, paymentContext)) {
                 log.info("PortOne cancel payment API succeeded");
             }

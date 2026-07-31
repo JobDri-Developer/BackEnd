@@ -777,6 +777,7 @@ class PaymentServiceTest {
         assertThat(response.status()).isEqualTo(PaymentStatus.REFUNDED);
         assertThat(response.creditBalance()).isEqualTo(1);
         assertThat(paymentRepository.findById(payment.getId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(paymentRepository.findById(payment.getId()).orElseThrow().getRefundReason()).isEqualTo("테스트 환불");
         assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
         assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
                 user.getId(),
@@ -807,6 +808,71 @@ class PaymentServiceTest {
                 CreditTransactionType.USE
         )).filteredOn(transaction -> transaction.getReferenceId().equals("PAYMENT_REFUND:PORTONE:" + prepared.orderId()))
                 .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("포트원 환불 중복 동시 요청은 외부 취소와 크레딧 회수를 한 번만 수행한다")
+    void refundPortOnePaymentConcurrentlyIsIdempotent() throws Exception {
+        User admin = saveAdmin("payment-portone-refund-concurrent-admin@example.com");
+        User user = saveUser("payment-portone-refund-concurrent-user@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+        paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        mockPortOneCancel(payment, "테스트 환불");
+
+        List<Result> results = runConcurrently(2, () -> {
+            try {
+                paymentService.refund(admin, payment.getId(), new PaymentRefundRequest("테스트 환불"));
+                return Result.ok();
+            } catch (Exception e) {
+                return Result.failure(e);
+            }
+        });
+
+        assertThat(results).filteredOn(Result::success).hasSize(1);
+        assertThat(results).filteredOn(result -> !result.success())
+                .allSatisfy(result -> assertThat(result.exception())
+                        .isInstanceOf(GeneralException.class)
+                        .extracting("code")
+                        .isEqualTo(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED));
+        verify(portOneClient, times(1)).cancelPayment(prepared.orderId(), prepared.amount(), "테스트 환불");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.USE
+        )).filteredOn(transaction -> transaction.getReferenceId().equals("PAYMENT_REFUND:PORTONE:" + prepared.orderId()))
+                .hasSize(1);
+    }
+
+    @Test
+    @DisplayName("포트원 환불 외부 실패는 결제 완료 상태와 크레딧을 유지해 재시도 가능하게 한다")
+    void refundPortOnePaymentCanRetryAfterExternalFailure() {
+        User admin = saveAdmin("payment-portone-refund-retry-admin@example.com");
+        User user = saveUser("payment-portone-refund-retry-user@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+        paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        when(portOneClient.cancelPayment(prepared.orderId(), prepared.amount(), "테스트 환불"))
+                .thenThrow(new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "portone 5xx"))
+                .thenReturn(new PortOneCancelResponse(new PortOneCancellation("cancel-" + prepared.orderId(), "SUCCEEDED", prepared.amount())));
+
+        assertThatThrownBy(() -> paymentService.refund(admin, payment.getId(), new PaymentRefundRequest("테스트 환불")))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.SERVICE_UNAVAILABLE);
+
+        Payment afterFailure = paymentRepository.findById(payment.getId()).orElseThrow();
+        assertThat(afterFailure.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(afterFailure.getRefundReason()).isNull();
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+
+        paymentService.refund(admin, payment.getId(), new PaymentRefundRequest("테스트 환불"));
+
+        assertThat(paymentRepository.findById(payment.getId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        verify(portOneClient, times(2)).cancelPayment(prepared.orderId(), prepared.amount(), "테스트 환불");
     }
 
     @Test
@@ -855,6 +921,57 @@ class PaymentServiceTest {
         assertThat(response.status()).isEqualTo(PaymentStatus.REFUNDED);
         assertThat(response.creditBalance()).isEqualTo(1);
         assertThat(paymentRepository.findById(payment.getId()).orElseThrow().getTossStatus()).isEqualTo("REFUND_SUCCESS");
+        assertThat(paymentRepository.findById(payment.getId()).orElseThrow().getRefundReason()).isEqualTo("관리자 결제 환불");
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.USE
+        )).anySatisfy(transaction ->
+                assertThat(transaction.getReferenceId()).isEqualTo("PAYMENT_REFUND:TOSS_PAY_DIRECT:" + prepared.orderId())
+        );
+    }
+
+    @Test
+    @DisplayName("토스페이 환불 외부 실패는 결제 완료 상태와 크레딧을 유지해 재시도 가능하게 한다")
+    void refundTossPayDirectPaymentCanRetryAfterExternalFailure() {
+        User admin = saveAdmin("payment-tosspay-refund-retry-admin@example.com");
+        User user = saveUser("payment-tosspay-refund-retry-user@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+        paymentService.handleTossPayCallback(tossPayCompleteCallback(prepared));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        String refundNo = "jobdri-refund-" + payment.getId();
+        when(tossPayClient.refundPayment(
+                savedPayToken(prepared),
+                prepared.orderId(),
+                refundNo,
+                prepared.amount(),
+                "테스트 환불"
+        ))
+                .thenThrow(new GeneralException(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, "timeout"))
+                .thenReturn(tossPayRefundResponse(savedPayToken(prepared), refundNo, prepared.amount()));
+
+        assertThatThrownBy(() -> paymentService.refund(admin, payment.getId(), new PaymentRefundRequest("테스트 환불")))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT);
+
+        Payment afterFailure = paymentRepository.findById(payment.getId()).orElseThrow();
+        assertThat(afterFailure.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(afterFailure.getRefundReason()).isNull();
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+
+        paymentService.refund(admin, payment.getId(), new PaymentRefundRequest("테스트 환불"));
+
+        assertThat(paymentRepository.findById(payment.getId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        verify(tossPayClient, times(2)).refundPayment(
+                savedPayToken(prepared),
+                prepared.orderId(),
+                refundNo,
+                prepared.amount(),
+                "테스트 환불"
+        );
     }
 
     @Test
@@ -1038,7 +1155,11 @@ class PaymentServiceTest {
 
     private void mockPortOneCancel(Payment payment, String reason) {
         when(portOneClient.cancelPayment(payment.getExternalPaymentId(), payment.getPrice(), reason))
-                .thenReturn(new PortOneCancelResponse(new PortOneCancellation("cancel-" + payment.getOrderId(), "SUCCEEDED")));
+                .thenReturn(new PortOneCancelResponse(new PortOneCancellation(
+                        "cancel-" + payment.getOrderId(),
+                        "SUCCEEDED",
+                        payment.getPrice()
+                )));
     }
 
     private String portOneWebhookBody(String paymentId) {
