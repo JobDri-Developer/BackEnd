@@ -8,20 +8,27 @@ import static org.assertj.core.api.Assertions.assertThat;
 class JobPostingLineBreakFormatterTest {
 
     @Test
-    @DisplayName("자격 요건과 우대 사항 응답은 마지막 줄 끝에도 줄바꿈 문자를 포함한다")
+    @DisplayName("자격 요건과 우대 사항 응답은 항목마다 줄바꿈 문자를 포함한다")
     void appendLineBreakAfterLastLine() {
         JobPostingGenerateResponse response = new JobPostingGenerateResponse(
                 "백엔드 개발자 채용",
                 "잡드리",
                 "백엔드 개발자",
                 "API 개발",
-                "Spring Boot 경험\nJPA 사용 경험",
-                "AWS 경험\r\nRedis 경험",
+                "Spring Boot 경험, JPA 사용 경험",
+                "AWS 경험; Redis 경험",
                 "요약"
         );
 
         assertThat(response.requirements()).isEqualTo("Spring Boot 경험\nJPA 사용 경험\n");
         assertThat(response.preferredQualifications()).isEqualTo("AWS 경험\nRedis 경험\n");
+    }
+
+    @Test
+    @DisplayName("불릿과 번호 항목도 각각 줄바꿈한다")
+    void appendLineBreakAfterBulletAndNumberedItems() {
+        assertThat(JobPostingLineBreakFormatter.appendLineBreakAfterLastLine("- Java 경험 - Spring 경험 1. AWS 경험 2. Redis 경험"))
+                .isEqualTo("- Java 경험\n- Spring 경험\n1. AWS 경험\n2. Redis 경험\n");
     }
 
     @Test
