@@ -58,6 +58,7 @@ public class AnalysisAiClient {
     private static final int MAX_REFERENCE_SECTION_LENGTH = 3000;
     private static final int MAX_REFERENCE_FIELD_LENGTH = 300;
     private static final int MAX_CRITERIA_ITEMS = 5;
+    private static final int MAX_CANDIDATES_PER_QUESTION = 3;
     private static final int RECHECK_MIN_PROBLEM_CLARITY = 4;
     private static final int RECHECK_MIN_JOB_RELEVANCE = 4;
     private static final int RECHECK_MIN_IMPROVEMENT_USEFULNESS = 4;
@@ -640,8 +641,8 @@ public class AnalysisAiClient {
                 reasoning, analysis 같은 별도 필드를 추가하지 않는다.
 
                 [1차 출력 필드]
-                - strengthCandidates: 충분히 구체적이고 mainTask 또는 qualification과 직접 연결된 좋은 문장 후보. 없으면 [].
-                - analysisCandidates: 실제 첨삭이 필요한 명확한 문장 후보. status는 MENTIONED 또는 FABRICATED만 사용. 최대 3개.
+                - strengthCandidates: 충분히 구체적이고 mainTask 또는 qualification과 직접 연결된 최종 PROVEN 문장 후보. 없으면 [].
+                - analysisCandidates: 실제 첨삭이 필요한 명확한 문장 후보. status는 MENTIONED 또는 FABRICATED만 사용. 문항별 최대 3개.
                 - missingKeywordCandidates: sentence가 없는 누락 역량 후보. 없으면 [].
                 - 점수 필드, feedback, improvement, keyWeaknesses는 1차 출력에 존재하지 않는다.
                 - analysisCandidates.candidateId는 각 후보마다 고유한 문자열로 반드시 채운다.
@@ -663,10 +664,11 @@ public class AnalysisAiClient {
                 7. 보완이 필요한 문장만 analysisCandidates로 분류한다.
                 8. 실제 충돌이 있는 경우에만 FABRICATED를 사용한다.
                 9. 누락 요구사항은 sentence가 아니라 missingKeywordCandidates로 분리한다.
-                10. 대표 1개만 기계적으로 고르지 말고, 독립적인 문제가 있으면 최대 3개까지 반환한다.
+                10. 대표 1개만 기계적으로 고르지 말고, 독립적인 평가 근거가 있으면 문항별 1~3개를 반환한다.
 
                 [1차 후보 규칙]
                 - 후보 수보다 정확도를 우선한다.
+                - 후보 개수 제한은 전체 답변 합계가 아니라 questionId별로 독립 적용한다.
                 - 애매한 문장은 후보로 만들지 않는다.
                 - 각 문장을 앞뒤 문맥과 함께 판단한다.
                 - 문장 자체 또는 주변 문맥에 충분한 근거가 있으면 제외한다.
@@ -679,6 +681,7 @@ public class AnalysisAiClient {
                 - sentence와 quote는 해당 answer에 실제 포함된 정확한 부분 문자열만 사용한다.
                 - preference-only 후보는 strengthCandidates, analysisCandidates, missingKeywordCandidates에서 제외한다.
                 - 충분히 좋은 문장은 analysisCandidates에 넣지 않는다.
+                - strengthCandidates로 검증된 문장은 서버가 status=PROVEN, improvement=null인 questionAnalyses로 변환한다.
                 - 포부/계획 문장에는 과거 성과 수치나 Before-After를 요구하지 않는다.
                 - 지원동기는 수치 부족으로 분류하지 않는다.
                 - MISSING은 analysisCandidates에 넣지 않고 missingKeywordCandidates로만 분리한다.
@@ -824,7 +827,8 @@ public class AnalysisAiClient {
                 - strengths: 검증된 strengthCandidates 범위 안에서 최종 keyStrengths 후보를 반환한다.
                 - missingKeywords: 검증된 missingKeywordCandidates 범위 안에서 최종 missingKeywords 후보를 반환한다.
                 - jobFit, impact, completeness, feedback을 함께 반환한다.
-                - 기존 최종 AnalysisLlmResponse를 직접 만들지 않는다. 서버가 accepted decision만 최종 questionAnalyses로 변환한다.
+                - 기존 최종 AnalysisLlmResponse를 직접 만들지 않는다. 서버가 검증된 strengths는 PROVEN으로, accepted decision은 MENTIONED 또는 FABRICATED로 최종 questionAnalyses에 변환한다.
+                - 최종 questionAnalyses 개수 제한은 전체 합계가 아니라 questionId별 1~3개로 적용한다.
 
                 [rejectionCode 허용값]
                 - ALREADY_SPECIFIC
@@ -1152,9 +1156,9 @@ public class AnalysisAiClient {
                 [출력 전 자체 검증]
                 - JSON 외 텍스트, 마크다운, 코드블럭을 출력하지 않는다.
                 - questionAnalyses의 questionId는 입력된 questionId 중 하나만 사용한다.
-                - questionAnalyses의 status는 proven, mentioned, missing, fabricated 중 하나만 사용한다.
+                - questionAnalyses의 status는 proven, mentioned, fabricated 중 하나만 사용한다.
                 - sentence는 answer에 포함된 정확한 substring만 사용한다.
-                - missing 상태를 questionAnalyses에 넣기 위해 원문에 없는 sentence를 만들지 않는다.
+                - missing은 questionAnalyses에 넣지 않고 missingKeywords로만 반환한다.
                 - keyStrengths와 keyWeaknesses는 각각 최대 3개이며, 없으면 []로 출력한다.
                 - keyStrengths의 quote는 answer에 실제 포함된 substring만 사용한다.
                 - keyWeaknesses에서 missingKeywords를 다루는 항목의 quote는 실제 JD 문구만 사용한다.
@@ -1243,6 +1247,7 @@ public class AnalysisAiClient {
         }
         List<AnalysisCandidateResponse.StrengthCandidate> result = new ArrayList<>();
         Set<String> seen = new HashSet<>();
+        Map<Long, Integer> countByQuestionId = new HashMap<>();
         for (AnalysisCandidateResponse.StrengthCandidate candidate : candidates.strengthCandidates()) {
             if (candidate == null || candidate.questionId() == null || !StringUtils.hasText(candidate.quote())) {
                 continue;
@@ -1257,10 +1262,12 @@ public class AnalysisAiClient {
             if (!seen.add(dedupeKey)) {
                 continue;
             }
-            result.add(candidate);
-            if (result.size() >= 3) {
-                break;
+            int currentCount = countByQuestionId.getOrDefault(candidate.questionId(), 0);
+            if (currentCount >= MAX_CANDIDATES_PER_QUESTION) {
+                continue;
             }
+            result.add(candidate);
+            countByQuestionId.put(candidate.questionId(), currentCount + 1);
         }
         return result;
     }
@@ -1274,6 +1281,7 @@ public class AnalysisAiClient {
         }
         List<AnalysisCandidateResponse.AnalysisCandidate> result = new ArrayList<>();
         Set<String> seen = new HashSet<>();
+        Map<Long, Integer> countByQuestionId = new HashMap<>();
         for (AnalysisCandidateResponse.AnalysisCandidate candidate : candidates.analysisCandidates()) {
             if (candidate == null || candidate.questionId() == null || !StringUtils.hasText(candidate.sentence())) {
                 continue;
@@ -1299,6 +1307,10 @@ public class AnalysisAiClient {
             if (!seen.add(dedupeKey)) {
                 continue;
             }
+            int currentCount = countByQuestionId.getOrDefault(candidate.questionId(), 0);
+            if (currentCount >= MAX_CANDIDATES_PER_QUESTION) {
+                continue;
+            }
             result.add(new AnalysisCandidateResponse.AnalysisCandidate(
                     candidate.candidateId().trim(),
                     candidate.questionId(),
@@ -1312,9 +1324,7 @@ public class AnalysisAiClient {
                     candidate.issueType(),
                     candidate.reasonBasis()
             ));
-            if (result.size() >= 3) {
-                break;
-            }
+            countByQuestionId.put(candidate.questionId(), currentCount + 1);
         }
         return result;
     }
@@ -1715,7 +1725,7 @@ public class AnalysisAiClient {
             AnalysisCandidateResponse sanitizedCandidates,
             CandidateReviewResponse reviewResponse
     ) {
-        if (reviewResponse == null || reviewResponse.decisions() == null || sanitizedCandidates == null) {
+        if (reviewResponse == null || sanitizedCandidates == null) {
             return List.of();
         }
         Map<String, AnalysisCandidateResponse.AnalysisCandidate> candidateById = sanitizedCandidates.analysisCandidates().stream()
@@ -1729,8 +1739,59 @@ public class AnalysisAiClient {
                 .collect(Collectors.toMap(AnalysisPromptInput.QuestionAnswer::questionId, AnalysisPromptInput.QuestionAnswer::answer));
 
         List<AnalysisLlmResponse.QuestionAnalysisItem> result = new ArrayList<>();
+        Map<Long, Integer> countByQuestionId = new HashMap<>();
+        Set<String> seenSentences = new HashSet<>();
+
+        Map<String, String> reviewedStrengthReasonByQuote = reviewResponse.strengths() == null
+                ? Map.of()
+                : reviewResponse.strengths().stream()
+                        .filter(strength -> strength != null && StringUtils.hasText(strength.quote()))
+                        .collect(Collectors.toMap(
+                                strength -> normalize(strength.quote()),
+                                strength -> defaultString(strength.title()).trim(),
+                                (left, right) -> left
+                        ));
+        for (AnalysisCandidateResponse.StrengthCandidate strength : sanitizedCandidates.strengthCandidates()) {
+            if (strength == null || strength.questionId() == null || !StringUtils.hasText(strength.quote())) {
+                continue;
+            }
+            String normalizedQuote = normalize(strength.quote());
+            if (!reviewedStrengthReasonByQuote.containsKey(normalizedQuote)) {
+                continue;
+            }
+            String answer = answerByQuestionId.get(strength.questionId());
+            if (!containsExact(answer, strength.quote()) || isBracketedSubheading(answer, strength.quote())) {
+                continue;
+            }
+            int currentCount = countByQuestionId.getOrDefault(strength.questionId(), 0);
+            if (currentCount >= MAX_CANDIDATES_PER_QUESTION) {
+                continue;
+            }
+            String reason = AnalysisSanitizationRules.hasValidProvenReason(strength.reasonBasis())
+                    ? strength.reasonBasis().trim()
+                    : reviewedStrengthReasonByQuote.get(normalizedQuote);
+            if (!AnalysisSanitizationRules.hasValidProvenReason(reason)) {
+                continue;
+            }
+            String dedupeKey = strength.questionId() + ":" + normalizedQuote;
+            if (!seenSentences.add(dedupeKey)) {
+                continue;
+            }
+            result.add(new AnalysisLlmResponse.QuestionAnalysisItem(
+                    strength.questionId(),
+                    strength.quote(),
+                    QuestionAnalysisStatus.PROVEN.name().toLowerCase(),
+                    reason,
+                    null
+            ));
+            countByQuestionId.put(strength.questionId(), currentCount + 1);
+        }
+
         Set<String> seenCandidateIds = new HashSet<>();
-        for (CandidateReviewResponse.CandidateDecision decision : reviewResponse.decisions()) {
+        List<CandidateReviewResponse.CandidateDecision> decisions = reviewResponse.decisions() == null
+                ? List.of()
+                : reviewResponse.decisions();
+        for (CandidateReviewResponse.CandidateDecision decision : decisions) {
             if (decision == null || !StringUtils.hasText(decision.candidateId())) {
                 continue;
             }
@@ -1765,6 +1826,14 @@ public class AnalysisAiClient {
                     || isBracketedSubheading(answer, candidate.sentence())) {
                 continue;
             }
+            int currentCount = countByQuestionId.getOrDefault(candidate.questionId(), 0);
+            if (currentCount >= MAX_CANDIDATES_PER_QUESTION) {
+                continue;
+            }
+            String dedupeKey = candidate.questionId() + ":" + normalize(candidate.sentence());
+            if (!seenSentences.add(dedupeKey)) {
+                continue;
+            }
             String improvement = AnalysisSanitizationRules.normalizeImprovement(
                     candidate.sentence(),
                     answer,
@@ -1778,9 +1847,7 @@ public class AnalysisAiClient {
                     decision.reason().trim(),
                     StringUtils.hasText(improvement) ? improvement : null
             ));
-            if (result.size() >= 3) {
-                break;
-            }
+            countByQuestionId.put(candidate.questionId(), currentCount + 1);
         }
         return result;
     }
@@ -2094,7 +2161,8 @@ public class AnalysisAiClient {
                 .filter(candidate -> isPrimarySource(candidate.relatedSource()))
                 .map(candidate -> normalize(candidate.quote()))
                 .collect(Collectors.toSet());
-        Set<String> analysisSentences = questionAnalyses.stream()
+        Set<String> nonProvenAnalysisSentences = questionAnalyses.stream()
+                .filter(item -> !QuestionAnalysisStatus.PROVEN.name().equalsIgnoreCase(defaultString(item.status())))
                 .map(item -> normalize(item.sentence()))
                 .collect(Collectors.toSet());
         List<AnalysisLlmResponse.HighlightItem> result = new ArrayList<>();
@@ -2104,7 +2172,9 @@ public class AnalysisAiClient {
                 continue;
             }
             String normalizedQuote = normalize(strength.quote());
-            if (!allowedQuotes.contains(normalizedQuote) || analysisSentences.contains(normalizedQuote) || !seen.add(normalizedQuote)) {
+            if (!allowedQuotes.contains(normalizedQuote)
+                    || nonProvenAnalysisSentences.contains(normalizedQuote)
+                    || !seen.add(normalizedQuote)) {
                 continue;
             }
             result.add(new AnalysisLlmResponse.HighlightItem(strength.title().trim(), strength.quote().trim()));

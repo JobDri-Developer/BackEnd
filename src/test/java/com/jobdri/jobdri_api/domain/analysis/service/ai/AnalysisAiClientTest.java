@@ -324,10 +324,10 @@ class AnalysisAiClientTest {
                 List.of("Spring Boot"),
                 "직무 경험",
                 "API를 개발했습니다.",
-                "{\"questionAnalyses\":[]}",
+                "{\"questionAnalyses\":[{\"questionId\":1,\"sentence\":\"API를 개발했습니다.\",\"status\":\"proven\",\"reason\":\"API 개발 경험이 구체적으로 드러납니다.\",\"improvement\":null}]}",
                 List.of("api"),
                 "fewshot-test-v1",
-                "## 예시 Z: 동적 선택 예시\n출력 중 문장/누락 관련 필드:\n{}"
+                "## 예시 Z: 동적 선택 예시\n출력 중 문장/누락 관련 필드:\n{\"questionAnalyses\":[{\"questionId\":1,\"sentence\":\"API를 개발했습니다.\",\"status\":\"proven\",\"reason\":\"API 개발 경험이 구체적으로 드러납니다.\",\"improvement\":null}]}"
         );
         when(fewShotSearchService.searchRelevantFewShots(any(), eq(fewShotProperties.getSearch().getTopK())))
                 .thenReturn(List.of(new SelectedFewShotCase(selectedCase, 0.91, "test")));
@@ -341,6 +341,8 @@ class AnalysisAiClientTest {
 
         assertThat(prompt)
                 .contains("## 예시 Z: 동적 선택 예시")
+                .contains("\"sentence\":\"API를 개발했습니다.\"")
+                .contains("\"status\":\"proven\"")
                 .doesNotContain("## 예시 A: 구체적인 행동과 결과가 있으면 proven");
         verify(fewShotSearchService).searchRelevantFewShots(
                 any(),
@@ -399,9 +401,11 @@ class AnalysisAiClientTest {
                 .contains("sentenceType: EXPERIENCE, PLAN, MOTIVATION, COMPETENCY")
                 .contains("preference만 근거인 후보는 제외한다.")
                 .contains("충분한 문장은 strengthCandidates로 분류한다.")
+                .contains("status=PROVEN, improvement=null인 questionAnalyses로 변환한다.")
                 .contains("보완이 필요한 문장만 analysisCandidates로 분류한다.")
                 .contains("MISSING은 analysisCandidates에 넣지 않고 missingKeywordCandidates로만 분리한다.")
-                .contains("독립적인 문제가 있으면 최대 3개까지 반환한다.")
+                .contains("문항별 1~3개를 반환한다.")
+                .contains("후보 개수 제한은 전체 답변 합계가 아니라 questionId별로 독립 적용한다.")
                 .contains("내부 판단 과정이나 chain-of-thought를 출력하지 않는다.")
                 .contains("점수 필드, feedback, improvement, keyWeaknesses는 1차 출력에 존재하지 않는다.")
                 .contains("[missingKeywordCandidates 생성 규칙]")
@@ -462,7 +466,9 @@ class AnalysisAiClientTest {
 
         assertThat(prompt)
                 .contains("한 줄 전체가 대괄호로 감싸진 소제목")
-                .contains("NOT_ACTIONABLE로 거절한다.");
+                .contains("NOT_ACTIONABLE로 거절한다.")
+                .contains("검증된 strengths는 PROVEN으로")
+                .contains("questionId별 1~3개로 적용한다.");
     }
 
     @Test
@@ -606,6 +612,45 @@ class AnalysisAiClientTest {
                 .containsExactly("장애 대응 경험이 있습니다.", "Spring Boot API를 개발했습니다.");
         assertThat(sanitized.missingKeywordCandidates()).extracting("keyword")
                 .containsExactly("API 개발 경험");
+    }
+
+    @Test
+    @DisplayName("후보 sanitizer는 3개 제한을 전체 합계가 아닌 문항별로 적용한다")
+    void sanitizeCandidatesAppliesLimitPerQuestion() {
+        AnalysisPromptInput input = new AnalysisPromptInput(
+                "잡드리",
+                "백엔드 개발",
+                "API 개발",
+                "Spring Boot 경험",
+                "",
+                List.of(
+                        new AnalysisPromptInput.QuestionAnswer(1L, "첫 문항", "첫 문장입니다. 둘째 문장입니다. 셋째 문장입니다."),
+                        new AnalysisPromptInput.QuestionAnswer(2L, "둘째 문항", "넷째 문장입니다.")
+                )
+        );
+        AnalysisCandidateResponse sanitized = analysisAiClient.sanitizeCandidates(
+                input,
+                new AnalysisCandidateResponse(
+                        List.of(
+                                strengthCandidate(1L, "첫 문장입니다."),
+                                strengthCandidate(1L, "둘째 문장입니다."),
+                                strengthCandidate(1L, "셋째 문장입니다."),
+                                strengthCandidate(2L, "넷째 문장입니다.")
+                        ),
+                        List.of(
+                                candidate(1L, "candidate-1", "첫 문장입니다."),
+                                candidate(1L, "candidate-2", "둘째 문장입니다."),
+                                candidate(1L, "candidate-3", "셋째 문장입니다."),
+                                candidate(2L, "candidate-4", "넷째 문장입니다.")
+                        ),
+                        List.of()
+                )
+        );
+
+        assertThat(sanitized.strengthCandidates()).hasSize(4);
+        assertThat(sanitized.strengthCandidates()).filteredOn(item -> item.questionId().equals(2L)).hasSize(1);
+        assertThat(sanitized.analysisCandidates()).hasSize(4);
+        assertThat(sanitized.analysisCandidates()).filteredOn(item -> item.questionId().equals(2L)).hasSize(1);
     }
 
     @Test
@@ -889,13 +934,60 @@ class AnalysisAiClientTest {
                 )
         );
 
-        assertThat(response.questionAnalyses()).hasSize(1);
-        assertThat(response.questionAnalyses().getFirst().sentence()).isEqualTo("장애 대응 경험이 있습니다.");
-        assertThat(response.questionAnalyses().getFirst().improvement()).isNull();
+        assertThat(response.questionAnalyses()).hasSize(2);
+        assertThat(response.questionAnalyses()).extracting("sentence")
+                .containsExactly("Spring Boot API를 개발했습니다.", "장애 대응 경험이 있습니다.");
+        assertThat(response.questionAnalyses()).extracting("status")
+                .containsExactly("proven", "mentioned");
+        assertThat(response.questionAnalyses()).extracting("improvement")
+                .containsOnlyNulls();
         assertThat(response.keyStrengths()).extracting("quote")
                 .containsExactly("Spring Boot API를 개발했습니다.");
         assertThat(response.missingKeywords()).extracting("keyword")
                 .containsExactly("장애 대응 경험");
+    }
+
+    @Test
+    @DisplayName("2차 강점 후보는 문항별 최대 3개의 PROVEN 분석으로 변환한다")
+    void buildFinalResponseConvertsStrengthsToPerQuestionProvenAnalyses() {
+        AnalysisPromptInput input = new AnalysisPromptInput(
+                "잡드리",
+                "백엔드 개발",
+                "API 개발",
+                "Spring Boot 경험",
+                "",
+                List.of(
+                        new AnalysisPromptInput.QuestionAnswer(1L, "첫 문항", "첫 강점입니다. 둘째 강점입니다. 셋째 강점입니다. 넷째 강점입니다."),
+                        new AnalysisPromptInput.QuestionAnswer(2L, "둘째 문항", "다섯째 강점입니다. 여섯째 강점입니다.")
+                )
+        );
+        List<AnalysisCandidateResponse.StrengthCandidate> strengths = List.of(
+                strengthCandidate(1L, "첫 강점입니다."),
+                strengthCandidate(1L, "둘째 강점입니다."),
+                strengthCandidate(1L, "셋째 강점입니다."),
+                strengthCandidate(1L, "넷째 강점입니다."),
+                strengthCandidate(2L, "다섯째 강점입니다."),
+                strengthCandidate(2L, "여섯째 강점입니다.")
+        );
+        List<CandidateReviewResponse.FinalStrengthCandidate> reviewedStrengths = strengths.stream()
+                .map(strength -> new CandidateReviewResponse.FinalStrengthCandidate(
+                        "구체적인 직무 강점입니다.",
+                        strength.quote(),
+                        strength.relatedSource()
+                ))
+                .toList();
+
+        AnalysisLlmResponse response = analysisAiClient.buildFinalResponse(
+                input,
+                new AnalysisCandidateResponse(strengths, List.of(), List.of()),
+                new CandidateReviewResponse(List.of(), reviewedStrengths, List.of(), 80, 70, 60, "피드백")
+        );
+
+        assertThat(response.questionAnalyses()).hasSize(5);
+        assertThat(response.questionAnalyses()).filteredOn(item -> item.questionId().equals(1L)).hasSize(3);
+        assertThat(response.questionAnalyses()).filteredOn(item -> item.questionId().equals(2L)).hasSize(2);
+        assertThat(response.questionAnalyses()).extracting("status").containsOnly("proven");
+        assertThat(response.questionAnalyses()).extracting("improvement").containsOnlyNulls();
     }
 
     @Test
@@ -1575,9 +1667,13 @@ class AnalysisAiClientTest {
     }
 
     private AnalysisCandidateResponse.AnalysisCandidate candidate(String candidateId, String sentence) {
+        return candidate(1L, candidateId, sentence);
+    }
+
+    private AnalysisCandidateResponse.AnalysisCandidate candidate(Long questionId, String candidateId, String sentence) {
         return new AnalysisCandidateResponse.AnalysisCandidate(
                 candidateId,
-                1L,
+                questionId,
                 sentence,
                 "",
                 "",
@@ -1591,8 +1687,12 @@ class AnalysisAiClientTest {
     }
 
     private AnalysisCandidateResponse.StrengthCandidate strengthCandidate(String quote) {
+        return strengthCandidate(1L, quote);
+    }
+
+    private AnalysisCandidateResponse.StrengthCandidate strengthCandidate(Long questionId, String quote) {
         return new AnalysisCandidateResponse.StrengthCandidate(
-                1L,
+                questionId,
                 quote,
                 "MAIN_TASK",
                 "API 개발",

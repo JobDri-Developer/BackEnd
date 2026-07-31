@@ -18,6 +18,7 @@ import org.springframework.util.StringUtils;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -78,6 +79,22 @@ public class AnalysisInputFingerprintProvider {
         fingerprintSource.put("answeredQuestions", answeredQuestionFingerprintSource(payload.answeredQuestions()));
         fingerprintSource.put("jobCategoryEvaluationCriteria", payload.jobCategoryEvaluationCriteria());
         return sha256Hex(writeFingerprintSource(fingerprintSource));
+    }
+
+    public String createAnswerFingerprint(List<AnalysisExecutionPayload.AnswerSnapshot> answerSnapshots) {
+        List<AnalysisExecutionPayload.AnswerSnapshot> orderedSnapshots = answerSnapshots == null
+                ? List.of()
+                : answerSnapshots.stream()
+                        .sorted(Comparator.comparing(AnalysisExecutionPayload.AnswerSnapshot::questionId))
+                        .toList();
+        Map<String, Object> fingerprintSource = new LinkedHashMap<>();
+        fingerprintSource.put("schemaVersion", "analysis-answer-fingerprint-v1");
+        fingerprintSource.put("answers", orderedSnapshots);
+        return sha256Hex(writeFingerprintSource(fingerprintSource));
+    }
+
+    public String createAnswerFingerprintFromQuestions(List<Question> questions) {
+        return createAnswerFingerprint(AnalysisExecutionPayload.snapshotAnswers(questions));
     }
 
     private Map<String, Object> retrievalPolicy() {

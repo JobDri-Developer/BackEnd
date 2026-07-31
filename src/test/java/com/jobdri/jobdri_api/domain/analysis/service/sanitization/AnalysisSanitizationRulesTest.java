@@ -131,7 +131,7 @@ class AnalysisSanitizationRulesTest {
         assertThat(AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(
                 "기획자·프론트엔드 개발자와의 기능 설계 협업 및 Git 기반 코드 리뷰",
                 answers
-        )).isTrue();
+        )).isFalse();
         assertThat(AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(
                 "문제의 원인을 분석하고 해결 방안을 적용한 경험",
                 answers

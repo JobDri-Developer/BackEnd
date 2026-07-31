@@ -56,10 +56,10 @@ class FewShotPromptProviderTest {
                 List.of("Spring Boot"),
                 "직무 경험",
                 "API를 개발했습니다.",
-                "{\"questionAnalyses\":[]}",
+                "{\"questionAnalyses\":[{\"questionId\":1,\"sentence\":\"API를 개발했습니다.\",\"status\":\"proven\",\"reason\":\"API 개발 경험이 구체적으로 드러납니다.\",\"improvement\":null}]}",
                 List.of("api"),
                 "fewshot-test-v1",
-                "## 예시 Z: 선택 예시\n출력 중 문장/누락 관련 필드:\n{}"
+                "## 예시 Z: 선택 예시\n출력 중 문장/누락 관련 필드:\n{\"questionAnalyses\":[{\"questionId\":1,\"sentence\":\"API를 개발했습니다.\",\"status\":\"proven\",\"reason\":\"API 개발 경험이 구체적으로 드러납니다.\",\"improvement\":null}]}"
         );
 
         String prompt = provider.buildPromptBlock(List.of(new SelectedFewShotCase(selectedCase, 0.9, "test")));
@@ -67,6 +67,8 @@ class FewShotPromptProviderTest {
         assertThat(prompt)
                 .contains("[# Few-shot examples]")
                 .contains("## 예시 Z: 선택 예시")
+                .contains("\"sentence\":\"API를 개발했습니다.\"")
+                .contains("\"status\":\"proven\"")
                 .doesNotContain("## 예시 A:")
                 .doesNotContain("## 예시 B:");
     }

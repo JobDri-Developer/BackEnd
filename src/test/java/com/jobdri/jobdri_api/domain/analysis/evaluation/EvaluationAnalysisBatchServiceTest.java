@@ -251,6 +251,56 @@ class EvaluationAnalysisBatchServiceTest {
     }
 
     @Test
+    @DisplayName("평가 저장 경로도 reason이 null 또는 빈 PROVEN을 제외한다")
+    void runSkipsProvenWithMissingReason() throws Exception {
+        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
+                analysisAiClient,
+                new JobCategoryEvaluationCriteriaProvider(objectMapper),
+                objectMapper
+        );
+        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
+                .thenReturn(result(new AnalysisLlmResponse(
+                        80,
+                        70,
+                        60,
+                        "PROVEN reason 필수 검증",
+                        List.of(
+                                new AnalysisLlmResponse.QuestionAnalysisItem(
+                                        1L,
+                                        "첫 번째 성과입니다.",
+                                        "proven",
+                                        null,
+                                        null
+                                ),
+                                new AnalysisLlmResponse.QuestionAnalysisItem(
+                                        1L,
+                                        "두 번째 성과입니다.",
+                                        "proven",
+                                        "   ",
+                                        null
+                                )
+                        )
+                )));
+        Path input = tempDir.resolve("evaluation_missing_proven_reason.csv");
+        Path output = tempDir.resolve("evaluation_missing_proven_reason_results.csv");
+        Files.writeString(
+                input,
+                "caseId,jobCategoryMiddle,jobCategorySmall,mainTasks,qualifications,preferences,question,answer\n"
+                        + "EV-PROVEN-REASON,AI·개발·데이터,백엔드,API 개발,Spring Boot 경험,,성과를 쓰세요,첫 번째 성과입니다. 두 번째 성과입니다.\n",
+                StandardCharsets.UTF_8
+        );
+
+        service.run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("aiQuestionAnalysesJson"))
+                .doesNotContain("첫 번째 성과입니다.")
+                .doesNotContain("두 번째 성과입니다.");
+    }
+
+    @Test
     @DisplayName("없는 직무 중분류는 보조 기준 없이 분석한다")
     void runOmitsCriteriaWhenMiddleNameNotFound() throws Exception {
         AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);

@@ -275,7 +275,7 @@ public class EvaluationAnalysisBatchService {
                 continue;
             }
             if (status == QuestionAnalysisStatus.PROVEN
-                    && AnalysisSanitizationRules.isContradictoryProvenReason(item.reason())) {
+                    && !AnalysisSanitizationRules.hasValidProvenReason(item.reason())) {
                 continue;
             }
             if (status == QuestionAnalysisStatus.FABRICATED

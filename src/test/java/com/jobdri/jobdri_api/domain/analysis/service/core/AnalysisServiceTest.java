@@ -531,6 +531,41 @@ class AnalysisServiceTest {
     }
 
     @Test
+    @DisplayName("PROVEN reason이 null 또는 빈 문자열이면 저장하지 않는다")
+    void analyzeSkipsProvenWithMissingReason() {
+        User user = saveUser("analysis-proven-missing-reason@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question nullReasonQuestion = saveQuestion(mockApply, "첫 성과 경험", "API 응답 시간을 30% 단축했습니다.");
+        Question blankReasonQuestion = saveQuestion(mockApply, "둘째 성과 경험", "배포 오류율을 5%에서 1%로 낮췄습니다.");
+        when(analysisAiClient.analyze(any(), any())).thenReturn(new AnalysisLlmResponse(
+                80,
+                80,
+                80,
+                "PROVEN reason 필수 검증입니다.",
+                List.of(
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                nullReasonQuestion.getId(),
+                                "API 응답 시간을 30% 단축했습니다.",
+                                "proven",
+                                null,
+                                null
+                        ),
+                        new AnalysisLlmResponse.QuestionAnalysisItem(
+                                blankReasonQuestion.getId(),
+                                "배포 오류율을 5%에서 1%로 낮췄습니다.",
+                                "proven",
+                                "   ",
+                                null
+                        )
+                )
+        ));
+
+        AnalysisResponse response = analysisService.analyze(user, mockApply.getId());
+
+        assertThat(response.questions()).allSatisfy(question -> assertThat(question.analyses()).isEmpty());
+    }
+
+    @Test
     @DisplayName("유효한 PROVEN questionAnalysis는 개선문을 비우고 최종 결과에 포함한다")
     void analyzeRemovesImprovementForProvenStatus() {
         User user = saveUser("analysis-proven-improvement-empty@example.com");
@@ -1169,6 +1204,40 @@ class AnalysisServiceTest {
         AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApply.getId());
 
         assertThat(payload.jobCategoryEvaluationCriteria()).isNull();
+    }
+
+    @Test
+    @DisplayName("분석 실행 뒤 DB 답변이 바뀌면 최초 답변 snapshot과 달라 결과 저장을 중단한다")
+    void finalizeAnalysisRejectsChangedDatabaseAnswer() {
+        User user = saveUser("analysis-answer-snapshot-mismatch@example.com");
+        MockApply mockApply = saveMockApply(user);
+        Question question = saveQuestion(mockApply, "지원 직무 경험", "Spring Boot API를 개발했습니다.");
+        AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApply.getId());
+        jdbcTemplate.update(
+                "update questions set answer = ? where id = ?",
+                "완료 전에 답변을 변경했습니다.",
+                question.getId()
+        );
+        entityManager.clear();
+        AnalysisLlmResponse llmResponse = new AnalysisLlmResponse(
+                80,
+                70,
+                60,
+                "답변 snapshot 검증",
+                List.of()
+        );
+
+        assertThatThrownBy(() -> analysisService.finalizeAnalysis(
+                user,
+                mockApply.getId(),
+                payload,
+                llmResponse,
+                "initial-fingerprint"
+        ))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
+        assertThat(analysisRepository.findByMockApplyId(mockApply.getId())).isEmpty();
     }
 
     @Test

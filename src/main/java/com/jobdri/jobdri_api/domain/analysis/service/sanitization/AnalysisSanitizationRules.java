@@ -109,8 +109,7 @@ public final class AnalysisSanitizationRules {
         if (keywordTokens.size() == 1) {
             return matchCount == 1;
         }
-        return matchCount >= 3
-                || (double) matchCount / keywordTokens.size() >= MIN_KEYWORD_TOKEN_MATCH_RATIO;
+        return (double) matchCount / keywordTokens.size() >= MIN_KEYWORD_TOKEN_MATCH_RATIO;
     }
 
     public static boolean hasMissingKeywordCoreTokens(String keyword) {
@@ -153,6 +152,10 @@ public final class AnalysisSanitizationRules {
             }
         }
         return false;
+    }
+
+    public static boolean hasValidProvenReason(String reason) {
+        return StringUtils.hasText(reason) && !isContradictoryProvenReason(reason);
     }
 
     public static boolean isPositiveMentionedReason(String reason) {
