@@ -105,6 +105,7 @@ class PaymentServiceTest {
         PaymentPrepareResponse response = paymentService.prepare(user, new PaymentPrepareRequest("FIVE_TIMES"));
 
         assertThat(response.orderId()).startsWith("jobdri-");
+        assertThat(response.orderId()).hasSizeLessThanOrEqualTo(40);
         assertThat(response.orderName()).isEqualTo("JobDri 크레딧 5회권");
         assertThat(response.amount()).isEqualTo(11500);
         assertThat(response.creditAmount()).isEqualTo(5);
@@ -643,6 +644,8 @@ class PaymentServiceTest {
         );
 
         assertThat(response.provider()).isEqualTo(PaymentProviderType.PORTONE);
+        assertThat(response.orderId()).startsWith("jobdri-");
+        assertThat(response.orderId()).hasSizeLessThanOrEqualTo(40);
         assertThat(response.portOneStoreId()).isEqualTo("store-test");
         assertThat(response.portOneChannelKey()).isEqualTo("channel-key-test");
         assertThat(response.currency()).isEqualTo("KRW");
