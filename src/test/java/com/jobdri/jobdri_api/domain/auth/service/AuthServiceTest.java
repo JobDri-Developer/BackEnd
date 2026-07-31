@@ -1,8 +1,11 @@
 package com.jobdri.jobdri_api.domain.auth.service;
 
+import com.jobdri.jobdri_api.domain.audit.service.AuditLogService;
+import com.jobdri.jobdri_api.domain.auth.dto.request.LoginRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.PasswordResetConfirmationRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.PasswordResetEmailRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.ReissueTokenRequest;
+import com.jobdri.jobdri_api.domain.auth.dto.response.LoginResponse;
 import com.jobdri.jobdri_api.domain.user.entity.SocialType;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
@@ -25,12 +28,14 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -62,6 +67,9 @@ class AuthServiceTest {
     private StringRedisTemplate redisTemplate;
 
     @Mock
+    private AuditLogService auditLogService;
+
+    @Mock
     private ValueOperations<String, String> valueOperations;
 
     private AuthService authService;
@@ -75,7 +83,69 @@ class AuthServiceTest {
                 jwtUtil,
                 emailService,
                 asyncEmailSender,
-                redisTemplate
+                redisTemplate,
+                auditLogService
+        );
+    }
+
+    @Test
+    @DisplayName("로컬 로그인 성공 시 refresh token 저장 후 로그인 성공 audit 로그를 남긴다")
+    void loginStoresRefreshTokenAndRecordsAuditLog() {
+        User user = localUser(1L, "local@example.com");
+        when(userRepository.findByEmail("local@example.com")).thenReturn(Optional.of(user));
+        when(passwordEncoder.matches("password123", "encoded-password")).thenReturn(true);
+        when(jwtUtil.createAccessToken(user.getEmail(), user.getId(), user.getRole())).thenReturn("access-token");
+        when(jwtUtil.createRefreshToken(user.getEmail())).thenReturn("refresh-token");
+        when(jwtUtil.getRefreshTokenTime()).thenReturn(604_800_000L);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+
+        LoginResponse response = authService.login(new LoginRequest("local@example.com", "password123"));
+
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        assertThat(response.refreshToken()).isEqualTo("refresh-token");
+        verify(valueOperations).set(
+                "RefreshToken:1",
+                "refresh-token",
+                604_800_000L,
+                TimeUnit.MILLISECONDS
+        );
+        verify(auditLogService).record(
+                eq(user),
+                eq("LOGIN_SUCCESS"),
+                eq("USER"),
+                eq(1L),
+                isNull(),
+                eq(Map.of("loginMethod", "LOCAL"))
+        );
+    }
+
+    @Test
+    @DisplayName("소셜 로그인 토큰 발급도 Google 로그인 성공 audit 로그를 남긴다")
+    void issueTokensRecordsGoogleLoginAuditLog() {
+        User user = User.createSocialUser(
+                "구글 사용자",
+                "google@example.com",
+                "encoded-password",
+                SocialType.GOOGLE,
+                "google-id"
+        );
+        ReflectionTestUtils.setField(user, "id", 2L);
+        when(jwtUtil.createAccessToken(user.getEmail(), user.getId(), user.getRole())).thenReturn("google-access-token");
+        when(jwtUtil.createRefreshToken(user.getEmail())).thenReturn("google-refresh-token");
+        when(jwtUtil.getRefreshTokenTime()).thenReturn(604_800_000L);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+
+        LoginResponse response = authService.issueTokens(user);
+
+        assertThat(response.accessToken()).isEqualTo("google-access-token");
+        assertThat(response.refreshToken()).isEqualTo("google-refresh-token");
+        verify(auditLogService).record(
+                eq(user),
+                eq("LOGIN_SUCCESS"),
+                eq("USER"),
+                eq(2L),
+                isNull(),
+                eq(Map.of("loginMethod", "GOOGLE"))
         );
     }
 
