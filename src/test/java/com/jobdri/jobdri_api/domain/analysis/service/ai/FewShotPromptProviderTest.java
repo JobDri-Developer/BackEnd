@@ -26,10 +26,11 @@ class FewShotPromptProviderTest {
         assertThat(EXAMPLE_HEADER_PATTERN.matcher(prompt).results().count()).isEqualTo(4);
         assertThat(prompt)
                 .contains("\"keyStrengths\"")
+                .contains("\"status\": \"proven\"")
                 .contains("\"status\": \"mentioned\"")
                 .contains("\"status\": \"fabricated\"")
                 .contains("\"missingKeywords\"")
-                .contains("\"questionAnalyses\": []")
+                .contains("문항을 대표하는 긍정 근거이므로 questionAnalyses에는 proven으로 포함한다.")
                 .contains("예시의 분석 개수, 상태 비율, 문장 표현, 점수를 실제 입력에 복사하지 않는다.");
         assertThat(prompt).doesNotContain("\"jobFit\"");
         assertThat(prompt).doesNotContain("\"impact\"");

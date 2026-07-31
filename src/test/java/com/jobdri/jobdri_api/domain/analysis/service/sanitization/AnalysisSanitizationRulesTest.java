@@ -112,4 +112,33 @@ class AnalysisSanitizationRulesTest {
                 "고객 데이터 분석"
         )).isFalse();
     }
+
+    @Test
+    @DisplayName("답변에 핵심 내용이 이미 있으면 missingKeyword 후보로 보지 않는다")
+    void detectsMissingKeywordAlreadyMentionedInAnswers() {
+        String answers = "PostgreSQL 실행 계획을 분석해 쿼리를 최적화했습니다. "
+                + "Git을 활용해 동료와 협업했고 코드 리뷰를 주고받았습니다. "
+                + "모니터링 지표와 로그로 장애 원인을 분석하고 해결 방안을 적용했습니다.";
+
+        assertThat(AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(
+                "PostgreSQL 등 관계형 데이터베이스 설계와 쿼리 최적화",
+                answers
+        )).isTrue();
+        assertThat(AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(
+                "Git을 활용해 협업하고 코드 리뷰를 주고받은 경험",
+                answers
+        )).isTrue();
+        assertThat(AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(
+                "기획자·프론트엔드 개발자와의 기능 설계 협업 및 Git 기반 코드 리뷰",
+                answers
+        )).isTrue();
+        assertThat(AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(
+                "문제의 원인을 분석하고 해결 방안을 적용한 경험",
+                answers
+        )).isTrue();
+        assertThat(AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(
+                "Redis 기반 캐시 또는 세션 관리 기능 설계 및 운영",
+                answers
+        )).isFalse();
+    }
 }

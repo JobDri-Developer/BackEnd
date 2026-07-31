@@ -237,7 +237,7 @@ class AnalysisAiClientTest {
                 .contains("jobFit: 실제 JD와 실제 답변 전체를 기준으로 독립 산정한 0~100 정수")
                 .contains("impact: 실제 JD와 실제 답변 전체를 기준으로 독립 산정한 0~100 정수")
                 .contains("completeness: 실제 JD와 실제 답변 전체를 기준으로 독립 산정한 0~100 정수")
-                .contains("questionAnalyses: 실제 첨삭이 필요한 문장에 따라 0~3개")
+                .contains("questionAnalyses: 비어 있지 않은 문항마다 대표 평가 문장을 1~3개")
                 .contains("improvement: 안전한 개선문을 만들 수 없으면 null")
                 .contains("[문장 유형 구분]")
                 .contains("경험/성과")
@@ -255,7 +255,7 @@ class AnalysisAiClientTest {
                 .contains("실제 입력 JD의 주요 업무, 자격 요건 원문에 존재하지만 자소서에 충분히 드러나지 않은 경험형 역량만 추출한다.")
                 .contains("유사 JD 검색 결과, 직무별 보조 평가 기준, few-shot 예시, 모델의 일반 지식에서 키워드를 생성하지 않는다.")
                 .contains("자격증, 면허, 어학성적, 학위, 전공, 경력 연차, 근무 가능 여부")
-                .contains("좋은 문장은 questionAnalyses에 넣지 않고 keyStrengths로 반환한다.")
+                .contains("충분히 좋은 대표 문장은 proven으로 questionAnalyses에 반환할 수 있다.")
                 .contains("개선이 필요하지 않으면 improvement는 null로 반환한다.")
                 .contains("원문 정보만으로 개선문을 만들 수 없으면 improvement는 null로 반환한다.")
                 .contains("원문과 실질적으로 동일한 문장을 improvement로 반환하지 않는다.")
@@ -282,20 +282,19 @@ class AnalysisAiClientTest {
 
         assertThat(prompt)
                 .contains("[Few-shot 예시]")
-                .contains("questionAnalyses\": []")
+                .contains("status\": \"proven\"")
                 .contains("status\": \"mentioned\"")
                 .contains("status\": \"fabricated\"")
-                .contains("충분히 구체적이므로 questionAnalyses에는 포함하지 않는다.")
+                .contains("문항을 대표하는 긍정 근거이므로 questionAnalyses에는 proven으로 포함한다.")
                 .contains("예시의 분석 개수, 상태 비율, 문장 표현, 점수를 실제 입력에 복사하지 않는다.")
-                .contains("questionAnalyses는 실제 첨삭이 필요한 문장에 따라 0~3개가 될 수 있다.")
-                .contains("항상 1개를 반환할 필요가 없다.")
+                .contains("questionAnalyses는 비어 있지 않은 문항마다 대표 평가 문장을 1~3개 반환한다.")
                 .contains("Few-shot 출력에는 전체 점수를 포함하지 않는다.")
                 .contains("포부/계획 문장의 reason에는 \"성과 수치가 부족\"")
                 .contains("preference가 없다는 이유만으로 mentioned를 생성하지 않는다.")
-                .contains("questionAnalyses의 허용 status는 mentioned, fabricated뿐이다.")
-                .contains("PROVEN은 questionAnalyses에 반환하지 않는다.")
+                .contains("questionAnalyses의 허용 status는 proven, mentioned, fabricated다.")
+                .contains("proven 문장의 improvement는 null로 반환한다.")
                 .contains("MISSING은 sentence가 없으므로 questionAnalyses에 넣지 않고 missingKeywords로만 반환한다.")
-                .contains("실제로 독립적인 문제 문장이 여러 개라면 대표 1개만 선택하지 말고 최대 3개까지 반환한다.")
+                .contains("실제로 독립적인 평가 문장이 여러 개라면 대표 1개만 선택하지 말고 최대 3개까지 반환한다.")
                 .contains("내부 판단 과정이나 chain-of-thought를 응답에 출력하지 않는다.")
                 .contains("원문이 과거 경험이면 개선문도 과거 경험을 유지한다.")
                 .contains("원문이 포부이면 개선문도 포부를 유지한다.")
@@ -342,7 +341,7 @@ class AnalysisAiClientTest {
 
         assertThat(prompt)
                 .contains("## 예시 Z: 동적 선택 예시")
-                .doesNotContain("## 예시 A: 좋은 근거가 있으면 보완 문장이 0개일 수 있음");
+                .doesNotContain("## 예시 A: 구체적인 행동과 결과가 있으면 proven");
         verify(fewShotSearchService).searchRelevantFewShots(
                 any(),
                 eq(fewShotProperties.getSearch().getTopK())
@@ -363,7 +362,7 @@ class AnalysisAiClientTest {
                 null
         );
 
-        assertThat(prompt).contains("## 예시 A: 좋은 근거가 있으면 보완 문장이 0개일 수 있음");
+        assertThat(prompt).contains("## 예시 A: 구체적인 행동과 결과가 있으면 proven");
     }
 
     @Test
@@ -380,7 +379,7 @@ class AnalysisAiClientTest {
                 null
         );
 
-        assertThat(prompt).contains("## 예시 A: 좋은 근거가 있으면 보완 문장이 0개일 수 있음");
+        assertThat(prompt).contains("## 예시 A: 구체적인 행동과 결과가 있으면 proven");
     }
 
     @Test

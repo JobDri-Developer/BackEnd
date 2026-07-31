@@ -72,7 +72,7 @@ public class AnalysisAiClient {
             - keyStrengths: 없으면 []
             - keyWeaknesses: 없으면 []
             - missingKeywords: 없으면 []
-            - questionAnalyses: 실제 첨삭이 필요한 문장에 따라 0~3개
+            - questionAnalyses: 비어 있지 않은 문항마다 대표 평가 문장을 1~3개
             - improvement: 안전한 개선문을 만들 수 없으면 null
             - 프롬프트 안에 특정 점수 숫자 조합을 JSON 예시로 넣지 않는다.
             - 0, 50, 70, 100 같은 임의 점수도 출력 예시로 사용하지 않는다.
@@ -89,8 +89,8 @@ public class AnalysisAiClient {
             2. mainTask와 qualification 중 직접 관련된 요구사항을 찾는다.
             3. preference만 근거인 경우 첨삭 대상에서 제외한다.
             4. 문장 유형에 맞는 평가 기준만 적용한다.
-            5. 실제로 첨삭이 필요한 문장인지 판단한다.
-            6. mentioned 또는 fabricated 상태를 결정한다.
+            5. 문항을 대표해 평가할 문장인지 판단한다.
+            6. proven, mentioned 또는 fabricated 상태를 결정한다.
             7. reason이 status 및 문장 유형과 일치하는지 확인한다.
             8. 원문 사실만으로 안전한 improvement를 작성할 수 있는지 확인한다.
             9. 새 경험, 수치, 기술, 계획, 시제 변경, 메타 조언이 없는지 재검사한다.
@@ -186,14 +186,15 @@ public class AnalysisAiClient {
             """;
     private static final String STATUS_AND_WRITING_RULES = """
             [status 판정 기준]
-            - questionAnalyses의 허용 status는 mentioned, fabricated뿐이다.
+            - questionAnalyses의 허용 status는 proven, mentioned, fabricated다.
+            - proven: JD와 관련된 구체적인 행동, 근거 또는 결과가 충분히 드러난 문장
             - mentioned: 관련 경험이나 의도는 있으나 구체성이 부족한 문장
             - missing: 해당 역량이나 요건을 자기소개서에서 전혀 다루지 않음
             - fabricated: JD 또는 답변 내부의 명시적 사실과 직접 충돌하거나, 지원자가 실제로 하지 않았다고 밝힌 경험을 한 것처럼 주장한 경우
 
             [status 중요 규칙]
-            - PROVEN은 questionAnalyses에 반환하지 않는다.
-            - 충분히 좋은 문장은 questionAnalyses에 넣지 않고 keyStrengths로 반환한다.
+            - 충분히 좋은 대표 문장은 proven으로 questionAnalyses에 반환할 수 있다.
+            - proven 문장의 improvement는 null로 반환한다.
             - MISSING은 sentence가 없으므로 questionAnalyses에 넣지 않고 missingKeywords로만 반환한다.
             - 직접적인 증거가 부족해도 관련 경험이 있으면 mentioned로 분류한다.
             - missing은 관련 언급이 전혀 없을 때만 사용한다.
@@ -207,14 +208,12 @@ public class AnalysisAiClient {
             - 원문에 없는 문장을 생성하지 않는다.
             - sentence를 요약하거나 수정하지 않는다.
             - 원문 매칭이 불확실하면 questionAnalyses에 포함하지 않는다.
-            - 좋은 문장은 questionAnalyses에 넣지 않고 keyStrengths로 반환한다.
-            - questionAnalyses는 실제 첨삭이 필요한 문장만 반환한다.
-            - questionAnalyses는 문항당 0~3개 반환한다.
-            - 항상 1개를 반환할 필요가 없다.
-            - 실제로 보완이 필요한 문장만 문항당 최대 3개 반환한다.
-            - 실제로 독립적인 문제 문장이 여러 개라면 대표 1개만 선택하지 말고 최대 3개까지 반환한다.
+            - answer가 비어 있지 않은 모든 문항은 가장 평가 가치가 큰 실제 문장을 최소 1개 반환한다.
+            - questionAnalyses는 비어 있지 않은 문항마다 1~3개 반환한다.
+            - 구체적인 강점 문장은 proven, 보완이 필요한 문장은 mentioned 또는 fabricated로 반환한다.
+            - 실제로 독립적인 평가 문장이 여러 개라면 대표 1개만 선택하지 말고 최대 3개까지 반환한다.
             - 동일한 문제를 반복하는 문장은 하나만 선택한다.
-            - 보완할 문장이 없으면 빈 배열 []을 반환한다.
+            - answer가 비어 있는 문항만 분석을 반환하지 않는다.
             - 동일하거나 거의 동일한 문장을 중복 반환하지 않는다.
             - start/end index는 출력하지 않는다. 서버가 Java String character index 기준으로 계산한다.
             - missing은 원문에 해당 문장이 없을 수 있으므로 sentence를 임의로 만들지 않는다.
@@ -254,7 +253,8 @@ public class AnalysisAiClient {
             - 충분히 구체적인 좋은 문장은 keyStrengths 후보로 사용한다.
             - keyStrengths는 mainTask 또는 qualification과 직접 연결된 근거를 우선한다.
             - preference만 충족하는 문장은 핵심 강점으로 과대평가하지 않는다.
-            - keyStrengths와 questionAnalyses에 같은 quote/sentence를 동시에 넣지 않는다.
+            - proven 문장은 keyStrengths의 quote와 questionAnalyses의 sentence에 함께 사용할 수 있다.
+            - mentioned 또는 fabricated 문장은 keyStrengths와 중복하지 않는다.
             - keyWeaknesses의 첫 항목들은 missingKeywords와 같은 누락 요건을 다룬다.
             - missingKeywords 기반 keyWeaknesses의 quote는 JD의 주요 업무, 자격 요건, 우대 사항에 실제 포함된 표현을 사용한다.
             - missingKeywords가 없으면 keyWeaknesses는 questionAnalyses의 보완 대상 문장 quote를 우선 사용한다.

@@ -240,7 +240,15 @@ public class AnalysisService {
         int completeness = validateScore("completeness", llmResponse.completeness());
         List<AnalysisHighlightResponse> keyStrengths = buildHighlights(llmResponse.keyStrengths());
         List<AnalysisHighlightResponse> keyWeaknesses = buildNonOverlappingHighlights(llmResponse.keyWeaknesses(), keyStrengths);
-        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(mockApply.getJobPosting(), llmResponse);
+        String combinedAnswers = payload.answeredQuestions().stream()
+                .map(Question::getAnswer)
+                .filter(StringUtils::hasText)
+                .collect(Collectors.joining("\n"));
+        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(
+                mockApply.getJobPosting(),
+                combinedAnswers,
+                llmResponse
+        );
         replaceExistingAnalysis(mockApply);
 
         Analysis analysis = analysisRepository.save(Analysis.create(
@@ -416,6 +424,7 @@ public class AnalysisService {
         Map<Long, Integer> analysisCountByQuestionId = new HashMap<>();
         Map<Long, Integer> nextSearchIndexByQuestionId = new HashMap<>();
         Set<String> seenSentences = new HashSet<>();
+        Set<Long> fabricatedQuestionIds = new HashSet<>();
         Set<String> keyStrengthQuotes = normalizedKeyStrengthQuotes(llmResponse);
 
         if (llmResponse.questionAnalyses() == null) {
@@ -437,9 +446,11 @@ public class AnalysisService {
                 continue;
             }
             QuestionAnalysisStatus status = parseStatus(item.status());
-            if (status == null
-                    || status == QuestionAnalysisStatus.MISSING
-                    || status == QuestionAnalysisStatus.PROVEN) {
+            if (status == null || status == QuestionAnalysisStatus.MISSING) {
+                continue;
+            }
+            if (status == QuestionAnalysisStatus.PROVEN
+                    && AnalysisSanitizationRules.isContradictoryProvenReason(item.reason())) {
                 continue;
             }
             if (status == QuestionAnalysisStatus.FABRICATED
@@ -451,7 +462,8 @@ public class AnalysisService {
                 continue;
             }
             String sentence = item.sentence();
-            if (keyStrengthQuotes.contains(normalizeKeyword(sentence))) {
+            if (status != QuestionAnalysisStatus.PROVEN
+                    && keyStrengthQuotes.contains(normalizeKeyword(sentence))) {
                 continue;
             }
             String dedupeKey = question.getId() + ":" + sentence.trim();
@@ -464,6 +476,10 @@ public class AnalysisService {
                     nextSearchIndexByQuestionId.getOrDefault(question.getId(), 0)
             );
             if (start < 0) {
+                continue;
+            }
+            if (status == QuestionAnalysisStatus.FABRICATED
+                    && !fabricatedQuestionIds.add(question.getId())) {
                 continue;
             }
             nextSearchIndexByQuestionId.put(question.getId(), start + sentence.length());
@@ -591,7 +607,11 @@ public class AnalysisService {
         );
     }
 
-    private List<MissingKeywordResponse> buildMissingKeywords(JobPosting jobPosting, AnalysisLlmResponse llmResponse) {
+    private List<MissingKeywordResponse> buildMissingKeywords(
+            JobPosting jobPosting,
+            String combinedAnswers,
+            AnalysisLlmResponse llmResponse
+    ) {
         if (llmResponse == null || llmResponse.missingKeywords() == null) {
             return List.of();
         }
@@ -619,6 +639,9 @@ public class AnalysisService {
                     jobPosting == null ? "" : jobPosting.getTask(),
                     jobPosting == null ? "" : jobPosting.getRequirement()
             )) {
+                continue;
+            }
+            if (AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(keyword, combinedAnswers)) {
                 continue;
             }
 

@@ -175,7 +175,7 @@ class EvaluationAnalysisBatchServiceTest {
     }
 
     @Test
-    @DisplayName("평가 결과도 운영과 동일하게 PROVEN/FABRICATED 상태 필터를 적용하고 raw/final 비교 정보를 남긴다")
+    @DisplayName("평가 결과도 운영과 동일하게 유효한 PROVEN/FABRICATED를 보존하고 raw/final 비교 정보를 남긴다")
     void runKeepsRawAndAppliesFinalStatusFilter() throws Exception {
         AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
         ObjectMapper objectMapper = new ObjectMapper();
@@ -244,9 +244,9 @@ class EvaluationAnalysisBatchServiceTest {
                 .contains("\"status\":\"proven\"")
                 .contains("\"status\":\"fabricated\"");
         assertThat(row.get("aiQuestionAnalysesJson"))
+                .contains("\"status\":\"proven\"")
                 .contains("\"status\":\"mentioned\"")
                 .contains("\"status\":\"fabricated\"")
-                .doesNotContain("\"status\":\"proven\"")
                 .doesNotContain("네 번째 문장입니다.");
     }
 
@@ -452,8 +452,10 @@ class EvaluationAnalysisBatchServiceTest {
         assertThat(row.get("candidateCount")).isEqualTo("2");
         assertThat(row.get("candidateMissingKeywordCount")).isEqualTo("2");
         assertThat(row.get("missingKeywordCandidateCount")).isEqualTo("2");
-        assertThat(row.get("finalMissingKeywordCount")).isEqualTo("2");
-        assertThat(row.get("aiMissingKeywordsJson")).contains("Spring Boot 경험").contains("API 개발");
+        assertThat(row.get("finalMissingKeywordCount")).isEqualTo("0");
+        assertThat(row.get("aiMissingKeywordsJson"))
+                .doesNotContain("Spring Boot 경험")
+                .doesNotContain("API 개발");
         assertThat(row.get("acceptedCandidateCount")).isEqualTo("1");
         assertThat(row.get("rejectedCandidateCount")).isEqualTo("1");
         assertThat(row.get("rejectionCodeCounts")).contains("NOT_ACTIONABLE");
