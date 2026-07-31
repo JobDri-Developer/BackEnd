@@ -279,7 +279,10 @@ public class EvaluationAnalysisBatchService {
                 continue;
             }
             if (status == QuestionAnalysisStatus.FABRICATED
-                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictReason(item.reason())) {
+                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictEvidence(
+                            item.sentence(),
+                            item.reason()
+                    )) {
                 continue;
             }
 

@@ -493,7 +493,10 @@ public class AnalysisService {
                 continue;
             }
             if (status == QuestionAnalysisStatus.FABRICATED
-                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictReason(item.reason())) {
+                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictEvidence(
+                            item.sentence(),
+                            item.reason()
+                    )) {
                 continue;
             }
             int currentCount = analysisCountByQuestionId.getOrDefault(question.getId(), 0);
