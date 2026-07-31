@@ -449,6 +449,7 @@ public class AnalysisAiClient {
                 buildPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria),
                 AnalysisLlmResponse.class
         );
+        response = sanitizeSinglePassSubheadings(promptInput, response);
         return AnalysisAiCallResult.singlePass(response, elapsedMillis(startedAt));
     }
 
@@ -1016,6 +1017,7 @@ public class AnalysisAiClient {
                 [NO_CORRECTION_NEEDED 판단 기준]
                 - 모든 후보 문장이 이미 충분히 구체적이다.
                 - 후보가 단순 문체 선호 차이이거나 질문 의도와 무관하다.
+                - 후보가 한 줄 전체가 대괄호로 감싸진 소제목이다.
                 - 다짐/포부 문장을 성과 부족으로 잘못 평가했다.
                 - 자격증, 학력, 기술명 등 단순 정량 키워드 부재만 문제 삼았다.
                 - 안전하고 실질적인 개선문을 만들 수 없고 reason도 사용자에게 도움이 되지 않는다.
@@ -1246,7 +1248,9 @@ public class AnalysisAiClient {
                 continue;
             }
             String answer = answerByQuestionId.get(candidate.questionId());
-            if (!containsExact(answer, candidate.quote()) || !isPrimarySource(candidate.relatedSource())) {
+            if (!containsExact(answer, candidate.quote())
+                    || isBracketedSubheading(answer, candidate.quote())
+                    || !isPrimarySource(candidate.relatedSource())) {
                 continue;
             }
             String dedupeKey = candidate.questionId() + ":" + normalize(candidate.quote());
@@ -1275,7 +1279,9 @@ public class AnalysisAiClient {
                 continue;
             }
             String answer = answerByQuestionId.get(candidate.questionId());
-            if (!containsExact(answer, candidate.sentence()) || !isPrimarySource(candidate.relatedSource())) {
+            if (!containsExact(answer, candidate.sentence())
+                    || isBracketedSubheading(answer, candidate.sentence())
+                    || !isPrimarySource(candidate.relatedSource())) {
                 continue;
             }
             QuestionAnalysisStatus status = parseQuestionAnalysisStatus(candidate.status());
@@ -1500,6 +1506,14 @@ public class AnalysisAiClient {
     ) {
         if (candidate == null) {
             return Optional.of(RecheckValidationFailureReason.UNKNOWN_CANDIDATE);
+        }
+        String answer = promptInput.questions().stream()
+                .filter(question -> Objects.equals(question.questionId(), candidate.questionId()))
+                .map(AnalysisPromptInput.QuestionAnswer::answer)
+                .findFirst()
+                .orElse(null);
+        if (isBracketedSubheading(answer, candidate.sentence())) {
+            return Optional.of(RecheckValidationFailureReason.SUBHEADING);
         }
         if (!validRecheckScore(response.problemClarity()) || response.problemClarity() < RECHECK_MIN_PROBLEM_CLARITY) {
             return Optional.of(RecheckValidationFailureReason.LOW_PROBLEM_CLARITY);
@@ -1747,7 +1761,8 @@ public class AnalysisAiClient {
                 continue;
             }
             String answer = answerByQuestionId.get(candidate.questionId());
-            if (!containsExact(answer, candidate.sentence())) {
+            if (!containsExact(answer, candidate.sentence())
+                    || isBracketedSubheading(answer, candidate.sentence())) {
                 continue;
             }
             String improvement = AnalysisSanitizationRules.normalizeImprovement(
@@ -2022,7 +2037,9 @@ public class AnalysisAiClient {
         if (status != QuestionAnalysisStatus.MENTIONED && status != QuestionAnalysisStatus.FABRICATED) {
             return null;
         }
-        if (!StringUtils.hasText(decision.reason()) || !containsExact(answer, candidate.sentence())) {
+        if (!StringUtils.hasText(decision.reason())
+                || !containsExact(answer, candidate.sentence())
+                || isBracketedSubheading(answer, candidate.sentence())) {
             return null;
         }
         if (status == QuestionAnalysisStatus.MENTIONED
@@ -2408,6 +2425,66 @@ public class AnalysisAiClient {
                 && source.contains(part);
     }
 
+    AnalysisLlmResponse sanitizeSinglePassSubheadings(
+            AnalysisPromptInput promptInput,
+            AnalysisLlmResponse response
+    ) {
+        if (response == null || promptInput == null || promptInput.questions() == null) {
+            return response;
+        }
+        Map<Long, String> answerByQuestionId = promptInput.questions().stream()
+                .collect(Collectors.toMap(
+                        AnalysisPromptInput.QuestionAnswer::questionId,
+                        AnalysisPromptInput.QuestionAnswer::answer
+                ));
+        List<String> answers = new ArrayList<>(answerByQuestionId.values());
+        List<AnalysisLlmResponse.HighlightItem> keyStrengths = response.keyStrengths() == null
+                ? null
+                : response.keyStrengths().stream()
+                .filter(item -> item != null && !isBracketedSubheadingInAnyAnswer(answers, item.quote()))
+                .toList();
+        List<AnalysisLlmResponse.HighlightItem> keyWeaknesses = response.keyWeaknesses() == null
+                ? null
+                : response.keyWeaknesses().stream()
+                .filter(item -> item != null && !isBracketedSubheadingInAnyAnswer(answers, item.quote()))
+                .toList();
+        List<AnalysisLlmResponse.QuestionAnalysisItem> questionAnalyses = response.questionAnalyses() == null
+                ? null
+                : response.questionAnalyses().stream()
+                .filter(item -> item != null
+                        && !isBracketedSubheading(answerByQuestionId.get(item.questionId()), item.sentence()))
+                .toList();
+        return new AnalysisLlmResponse(
+                response.jobFit(),
+                response.impact(),
+                response.completeness(),
+                response.feedback(),
+                keyStrengths,
+                keyWeaknesses,
+                response.missingKeywords(),
+                questionAnalyses
+        );
+    }
+
+    private boolean isBracketedSubheadingInAnyAnswer(List<String> answers, String candidateText) {
+        return answers.stream().anyMatch(answer -> isBracketedSubheading(answer, candidateText));
+    }
+
+    private boolean isBracketedSubheading(String answer, String candidateText) {
+        if (!StringUtils.hasText(answer) || !StringUtils.hasText(candidateText)) {
+            return false;
+        }
+        String trimmedCandidate = candidateText.trim();
+        if (trimmedCandidate.indexOf('\n') >= 0
+                || trimmedCandidate.indexOf('\r') >= 0
+                || !trimmedCandidate.startsWith("[")
+                || !trimmedCandidate.endsWith("]")
+                || trimmedCandidate.length() <= 2) {
+            return false;
+        }
+        return answer.lines().map(String::trim).anyMatch(trimmedCandidate::equals);
+    }
+
     private QuestionAnalysisStatus parseQuestionAnalysisStatus(String status) {
         if (!StringUtils.hasText(status)) {
             return null;
@@ -2474,6 +2551,7 @@ public class AnalysisAiClient {
 
     private enum RecheckValidationFailureReason {
         UNKNOWN_CANDIDATE,
+        SUBHEADING,
         LOW_PROBLEM_CLARITY,
         LOW_JOB_RELEVANCE,
         LOW_EVIDENCE_GAP,
