@@ -12,6 +12,10 @@ import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationC
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotProperties;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSearchQuery;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSearchService;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.SelectedFewShotCase;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.MissingKeywordSanitizer;
@@ -216,6 +220,14 @@ public class AnalysisAiClient {
             - missing은 원문에 해당 문장이 없을 수 있으므로 sentence를 임의로 만들지 않는다.
             - missing은 questionAnalyses에 억지로 넣지 않는다.
 
+            [소제목 처리 규칙]
+            - 답변에서 한 줄 전체가 대괄호로 감싸진 형식(예: [문제를 기회로 바꾼 경험])은 본문 문장이 아니라 소제목이다.
+            - 소제목 자체를 EXPERIENCE, PLAN, MOTIVATION, COMPETENCY 문장으로 분류하거나 questionAnalyses의 sentence로 반환하지 않는다.
+            - 소제목 자체를 keyStrengths의 quote 또는 keyWeaknesses의 근거로 반환하지 않는다.
+            - 소제목에 행동, 역할, 방법, 성과가 없다는 이유로 구체성이 부족하다고 판단하거나 점수를 감점하지 않는다.
+            - 소제목은 바로 뒤 문단의 주제와 흐름을 이해하는 보조 맥락으로만 사용하고, 실제 평가는 본문 문장을 기준으로 한다.
+            - 소제목이 문단 내용을 요약하는 표현인지 여부는 문단 이해에만 참고하며, 소제목 문구 자체를 별도 첨삭 대상으로 만들지 않는다.
+
             [missingKeywords 규칙]
             - 실제 입력 JD의 주요 업무, 자격 요건 원문에 존재하지만 자소서에 충분히 드러나지 않은 경험형 역량만 추출한다.
             - 유사 JD 검색 결과, 직무별 보조 평가 기준, few-shot 예시, 모델의 일반 지식에서 키워드를 생성하지 않는다.
@@ -283,6 +295,8 @@ public class AnalysisAiClient {
     private final CorpusRetrievalService corpusRetrievalService;
     private final LlmConcurrencyLimiter llmConcurrencyLimiter;
     private final FewShotPromptProvider fewShotPromptProvider;
+    private final FewShotSearchService fewShotSearchService;
+    private final FewShotProperties fewShotProperties;
     private final AsyncMetricsRecorder asyncMetricsRecorder;
     private final ObjectMapper objectMapper;
 
@@ -435,6 +449,7 @@ public class AnalysisAiClient {
                 buildPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria),
                 AnalysisLlmResponse.class
         );
+        response = sanitizeSinglePassSubheadings(promptInput, response);
         return AnalysisAiCallResult.singlePass(response, elapsedMillis(startedAt));
     }
 
@@ -671,6 +686,14 @@ public class AnalysisAiClient {
                 - status 다양성이나 개수를 채우기 위해 후보를 만들지 않는다.
                 - improvement를 생성하지 않는다.
 
+                [소제목 처리 규칙]
+                - 답변에서 한 줄 전체가 대괄호로 감싸진 형식(예: [문제를 기회로 바꾼 경험])은 본문 문장이 아니라 소제목이다.
+                - 소제목은 sentenceType을 분류하지 않고 strengthCandidates 또는 analysisCandidates에 넣지 않는다.
+                - 소제목에 행동, 역할, 방법, 결과가 없다는 이유로 LACK_OF_ACTION, LACK_OF_METHOD, LACK_OF_RESULT, LACK_OF_ROLE 후보를 만들지 않는다.
+                - 소제목 자체의 구체성을 평가하거나 점수 근거로 사용하지 않는다.
+                - 소제목은 바로 뒤 문단의 주제와 흐름을 이해하는 보조 문맥으로만 사용하고, 후보 판정은 본문 문장을 기준으로 한다.
+                - 소제목이 문단을 요약하는지는 문단 이해에만 참고하며, 소제목 문구 자체를 첨삭 후보로 만들지 않는다.
+
                 [strengthCandidates 생성 규칙]
                 - 반드시 수치 성과가 있어야만 strengthCandidates가 되는 것은 아니다.
                 - JD와 직접 연결된다면 구체적인 도구·기술 사용 경험은 strengthCandidates가 될 수 있다.
@@ -842,6 +865,7 @@ public class AnalysisAiClient {
                 - 단순 문체 선호 차이이거나 후보 분석이 자기소개서 질문 의도와 무관할 때 제거한다.
                 - 다짐이나 포부 문장을 성과 문장처럼 잘못 평가한 경우 제거한다.
                 - 자격증, 학력, 기술명 등 단순 정량 키워드가 없다는 이유만으로 문제 삼은 경우 제거한다.
+                - 한 줄 전체가 대괄호로 감싸진 소제목을 본문 문장처럼 평가한 후보는 NOT_ACTIONABLE로 거절한다.
                 - 수정안이 원문보다 실질적으로 개선되지 않으면 accepted=true로 두더라도 improvement는 null로 둔다.
 
                 [decision 정합성]
@@ -993,6 +1017,7 @@ public class AnalysisAiClient {
                 [NO_CORRECTION_NEEDED 판단 기준]
                 - 모든 후보 문장이 이미 충분히 구체적이다.
                 - 후보가 단순 문체 선호 차이이거나 질문 의도와 무관하다.
+                - 후보가 한 줄 전체가 대괄호로 감싸진 소제목이다.
                 - 다짐/포부 문장을 성과 부족으로 잘못 평가했다.
                 - 자격증, 학력, 기술명 등 단순 정량 키워드 부재만 문제 삼았다.
                 - 안전하고 실질적인 개선문을 만들 수 없고 reason도 사용자에게 도움이 되지 않는다.
@@ -1074,6 +1099,7 @@ public class AnalysisAiClient {
         String similarJobPostingText = formatJobPostingReferences(referenceContext.jobPostingReferences());
         String similarQuestionText = formatQuestionReferences(referenceContext.questionReferences());
         String jobCategoryCriteriaSection = formatJobCategoryEvaluationCriteriaSection(jobCategoryEvaluationCriteria);
+        String fewShotPromptBlock = resolveFewShotPromptBlock(promptInput);
 
         return """
                 [시스템 지시]
@@ -1137,13 +1163,14 @@ public class AnalysisAiClient {
                 - improvement가 지시문이 아닌 완성된 한국어 평서문인지 확인한다.
                 - 원문에 없는 경험, 기술, 도구명, 인원수, 금액, 성과 수치를 만들지 않았는지 확인한다.
                 - fabricated를 단순 근거 부족에 사용하지 않았는지 확인한다.
+                - 한 줄 전체가 대괄호로 감싸진 소제목을 questionAnalyses 또는 keyStrengths에 포함하지 않았는지 확인한다.
                 - jobFit, impact, completeness는 0~100 정수로 출력한다.
                 - 총점 score는 서버가 jobFit 50%%, impact 30%%, completeness 20%%로 계산하므로 출력하지 않는다.
                 """.formatted(
                 OUTPUT_SCHEMA,
                 EVALUATION_CRITERIA,
                 STATUS_AND_WRITING_RULES.formatted(AnalysisImprovementRules.bannedPhrasesText()),
-                fewShotPromptProvider.getPrompt(),
+                fewShotPromptBlock,
                 defaultString(promptInput.companyName()),
                 defaultString(promptInput.jobName()),
                 defaultString(promptInput.mainTasks()),
@@ -1154,6 +1181,45 @@ public class AnalysisAiClient {
                 jobCategoryCriteriaSection,
                 questionText
         );
+    }
+
+    private String resolveFewShotPromptBlock(AnalysisPromptInput promptInput) {
+        if (fewShotSearchService == null || fewShotProperties == null || !fewShotProperties.isDynamicSelectionEnabled()) {
+            return fewShotPromptProvider.getPrompt();
+        }
+        try {
+            List<SelectedFewShotCase> selectedFewShots = fewShotSearchService.searchRelevantFewShots(
+                    FewShotSearchQuery.from(promptInput),
+                    fewShotProperties.getSearch().getTopK()
+            );
+            if (selectedFewShots.isEmpty()) {
+                log.warn(
+                        "dynamic few-shot selection returned empty result. fallback=fixed, caseId={}, datasetVersion={}",
+                        promptInput.caseId(),
+                        fewShotProperties.getDatasetVersion()
+                );
+                return fewShotPromptProvider.getPrompt();
+            }
+            log.debug(
+                    "dynamic few-shot prompt selected. caseId={}, selectedIds={}, sources={}, scores={}, datasetVersion={}",
+                    promptInput.caseId(),
+                    selectedFewShots.stream().map(item -> item.fewShotCase().id()).toList(),
+                    selectedFewShots.stream().map(item -> item.fewShotCase().source()).toList(),
+                    selectedFewShots.stream().map(item -> "%.4f".formatted(item.score())).toList(),
+                    fewShotProperties.getDatasetVersion()
+            );
+            return fewShotPromptProvider.buildPromptBlock(selectedFewShots);
+        } catch (Exception e) {
+            log.warn(
+                    "dynamic few-shot selection failed. fallback=fixed, caseId={}, datasetVersion={}, reason={}, message={}",
+                    promptInput.caseId(),
+                    fewShotProperties.getDatasetVersion(),
+                    e.getClass().getSimpleName(),
+                    e.getMessage()
+            );
+            log.debug("dynamic few-shot selection exception", e);
+            return fewShotPromptProvider.getPrompt();
+        }
     }
 
     AnalysisCandidateResponse sanitizeCandidates(
@@ -1182,7 +1248,9 @@ public class AnalysisAiClient {
                 continue;
             }
             String answer = answerByQuestionId.get(candidate.questionId());
-            if (!containsExact(answer, candidate.quote()) || !isPrimarySource(candidate.relatedSource())) {
+            if (!containsExact(answer, candidate.quote())
+                    || isBracketedSubheading(answer, candidate.quote())
+                    || !isPrimarySource(candidate.relatedSource())) {
                 continue;
             }
             String dedupeKey = candidate.questionId() + ":" + normalize(candidate.quote());
@@ -1211,7 +1279,9 @@ public class AnalysisAiClient {
                 continue;
             }
             String answer = answerByQuestionId.get(candidate.questionId());
-            if (!containsExact(answer, candidate.sentence()) || !isPrimarySource(candidate.relatedSource())) {
+            if (!containsExact(answer, candidate.sentence())
+                    || isBracketedSubheading(answer, candidate.sentence())
+                    || !isPrimarySource(candidate.relatedSource())) {
                 continue;
             }
             QuestionAnalysisStatus status = parseQuestionAnalysisStatus(candidate.status());
@@ -1436,6 +1506,14 @@ public class AnalysisAiClient {
     ) {
         if (candidate == null) {
             return Optional.of(RecheckValidationFailureReason.UNKNOWN_CANDIDATE);
+        }
+        String answer = promptInput.questions().stream()
+                .filter(question -> Objects.equals(question.questionId(), candidate.questionId()))
+                .map(AnalysisPromptInput.QuestionAnswer::answer)
+                .findFirst()
+                .orElse(null);
+        if (isBracketedSubheading(answer, candidate.sentence())) {
+            return Optional.of(RecheckValidationFailureReason.SUBHEADING);
         }
         if (!validRecheckScore(response.problemClarity()) || response.problemClarity() < RECHECK_MIN_PROBLEM_CLARITY) {
             return Optional.of(RecheckValidationFailureReason.LOW_PROBLEM_CLARITY);
@@ -1683,7 +1761,8 @@ public class AnalysisAiClient {
                 continue;
             }
             String answer = answerByQuestionId.get(candidate.questionId());
-            if (!containsExact(answer, candidate.sentence())) {
+            if (!containsExact(answer, candidate.sentence())
+                    || isBracketedSubheading(answer, candidate.sentence())) {
                 continue;
             }
             String improvement = AnalysisSanitizationRules.normalizeImprovement(
@@ -1958,7 +2037,9 @@ public class AnalysisAiClient {
         if (status != QuestionAnalysisStatus.MENTIONED && status != QuestionAnalysisStatus.FABRICATED) {
             return null;
         }
-        if (!StringUtils.hasText(decision.reason()) || !containsExact(answer, candidate.sentence())) {
+        if (!StringUtils.hasText(decision.reason())
+                || !containsExact(answer, candidate.sentence())
+                || isBracketedSubheading(answer, candidate.sentence())) {
             return null;
         }
         if (status == QuestionAnalysisStatus.MENTIONED
@@ -2344,6 +2425,66 @@ public class AnalysisAiClient {
                 && source.contains(part);
     }
 
+    AnalysisLlmResponse sanitizeSinglePassSubheadings(
+            AnalysisPromptInput promptInput,
+            AnalysisLlmResponse response
+    ) {
+        if (response == null || promptInput == null || promptInput.questions() == null) {
+            return response;
+        }
+        Map<Long, String> answerByQuestionId = promptInput.questions().stream()
+                .collect(Collectors.toMap(
+                        AnalysisPromptInput.QuestionAnswer::questionId,
+                        AnalysisPromptInput.QuestionAnswer::answer
+                ));
+        List<String> answers = new ArrayList<>(answerByQuestionId.values());
+        List<AnalysisLlmResponse.HighlightItem> keyStrengths = response.keyStrengths() == null
+                ? null
+                : response.keyStrengths().stream()
+                .filter(item -> item != null && !isBracketedSubheadingInAnyAnswer(answers, item.quote()))
+                .toList();
+        List<AnalysisLlmResponse.HighlightItem> keyWeaknesses = response.keyWeaknesses() == null
+                ? null
+                : response.keyWeaknesses().stream()
+                .filter(item -> item != null && !isBracketedSubheadingInAnyAnswer(answers, item.quote()))
+                .toList();
+        List<AnalysisLlmResponse.QuestionAnalysisItem> questionAnalyses = response.questionAnalyses() == null
+                ? null
+                : response.questionAnalyses().stream()
+                .filter(item -> item != null
+                        && !isBracketedSubheading(answerByQuestionId.get(item.questionId()), item.sentence()))
+                .toList();
+        return new AnalysisLlmResponse(
+                response.jobFit(),
+                response.impact(),
+                response.completeness(),
+                response.feedback(),
+                keyStrengths,
+                keyWeaknesses,
+                response.missingKeywords(),
+                questionAnalyses
+        );
+    }
+
+    private boolean isBracketedSubheadingInAnyAnswer(List<String> answers, String candidateText) {
+        return answers.stream().anyMatch(answer -> isBracketedSubheading(answer, candidateText));
+    }
+
+    private boolean isBracketedSubheading(String answer, String candidateText) {
+        if (!StringUtils.hasText(answer) || !StringUtils.hasText(candidateText)) {
+            return false;
+        }
+        String trimmedCandidate = candidateText.trim();
+        if (trimmedCandidate.indexOf('\n') >= 0
+                || trimmedCandidate.indexOf('\r') >= 0
+                || !trimmedCandidate.startsWith("[")
+                || !trimmedCandidate.endsWith("]")
+                || trimmedCandidate.length() <= 2) {
+            return false;
+        }
+        return answer.lines().map(String::trim).anyMatch(trimmedCandidate::equals);
+    }
+
     private QuestionAnalysisStatus parseQuestionAnalysisStatus(String status) {
         if (!StringUtils.hasText(status)) {
             return null;
@@ -2410,6 +2551,7 @@ public class AnalysisAiClient {
 
     private enum RecheckValidationFailureReason {
         UNKNOWN_CANDIDATE,
+        SUBHEADING,
         LOW_PROBLEM_CLARITY,
         LOW_JOB_RELEVANCE,
         LOW_EVIDENCE_GAP,

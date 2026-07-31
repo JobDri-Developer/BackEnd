@@ -7,6 +7,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.worker.CorpusReferenceContext;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.FewShotPromptProvider;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotProperties;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.global.cohere.CohereProperties;
@@ -31,6 +32,7 @@ public class AnalysisInputFingerprintProvider {
 
     private final ObjectMapper objectMapper;
     private final FewShotPromptProvider fewShotPromptProvider;
+    private final FewShotProperties fewShotProperties;
     private final String analysisModel;
     private final boolean twoPassEnabled;
     private final String analysisMode;
@@ -41,6 +43,7 @@ public class AnalysisInputFingerprintProvider {
     public AnalysisInputFingerprintProvider(
             ObjectMapper objectMapper,
             FewShotPromptProvider fewShotPromptProvider,
+            FewShotProperties fewShotProperties,
             CohereProperties cohereProperties,
             @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}") String analysisModel,
             @Value("${analysis.two-pass.enabled:false}") boolean twoPassEnabled,
@@ -50,6 +53,7 @@ public class AnalysisInputFingerprintProvider {
     ) {
         this.objectMapper = objectMapper;
         this.fewShotPromptProvider = fewShotPromptProvider;
+        this.fewShotProperties = fewShotProperties;
         this.analysisModel = analysisModel;
         this.twoPassEnabled = twoPassEnabled;
         this.analysisMode = analysisMode;
@@ -66,6 +70,7 @@ public class AnalysisInputFingerprintProvider {
         fingerprintSource.put("analysisModel", analysisModel);
         fingerprintSource.put("temperature", ANALYSIS_TEMPERATURE);
         fingerprintSource.put("fewShotPrompt", fewShotPromptProvider.getPrompt());
+        fingerprintSource.put("fewShotPolicy", fewShotPolicy());
         fingerprintSource.put("retrievalPolicy", retrievalPolicy());
         fingerprintSource.put("retrievalContext", retrievalContextFingerprintSource(payload.retrievalContext()));
         fingerprintSource.put("similarJobPostings", similarJobPostingFingerprintSource(payload.similarJobPostings()));
@@ -83,6 +88,16 @@ public class AnalysisInputFingerprintProvider {
         retrievalPolicy.put("jobPostingQueryTemplate", CorpusRetrievalService.ANALYSIS_JOB_POSTING_QUERY_TEMPLATE);
         retrievalPolicy.put("questionQueryTemplate", CorpusRetrievalService.ANALYSIS_QUESTION_QUERY_TEMPLATE);
         return retrievalPolicy;
+    }
+
+    private Map<String, Object> fewShotPolicy() {
+        Map<String, Object> fewShotPolicy = new LinkedHashMap<>();
+        fewShotPolicy.put("dynamicSelectionEnabled", fewShotProperties.isDynamicSelectionEnabled());
+        fewShotPolicy.put("datasetVersion", fewShotProperties.getDatasetVersion());
+        fewShotPolicy.put("topK", fewShotProperties.getSearch().getTopK());
+        fewShotPolicy.put("candidateLimit", fewShotProperties.getSearch().getCandidateLimit());
+        fewShotPolicy.put("reviewedEvaluationEnabled", fewShotProperties.getSource().isReviewedEvaluationEnabled());
+        return fewShotPolicy;
     }
 
     private Map<String, Object> retrievalContextFingerprintSource(RetrievalContext retrievalContext) {

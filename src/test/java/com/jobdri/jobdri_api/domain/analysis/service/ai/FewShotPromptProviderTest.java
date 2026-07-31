@@ -1,8 +1,13 @@
 package com.jobdri.jobdri_api.domain.analysis.service.ai;
 
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotCase;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotReviewStatus;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSource;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.SelectedFewShotCase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
 import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,5 +37,44 @@ class FewShotPromptProviderTest {
         assertThat(prompt).doesNotContain("weaknessType");
         assertThat(prompt).doesNotContain("dimension");
         assertThat(prompt).doesNotContain("relatedRequirement");
+    }
+
+    @Test
+    @DisplayName("선택된 few-shot이 있으면 해당 예시만 기존 형식으로 조립한다")
+    void buildsPromptBlockFromSelectedFewShots() {
+        FewShotPromptProvider provider = new FewShotPromptProvider();
+        FewShotCase selectedCase = new FewShotCase(
+                "FS-TEST",
+                FewShotSource.CURATED,
+                FewShotReviewStatus.APPROVED,
+                true,
+                0,
+                "백엔드 개발",
+                "Backend Engineer",
+                List.of("API 개발"),
+                List.of("Spring Boot"),
+                "직무 경험",
+                "API를 개발했습니다.",
+                "{\"questionAnalyses\":[]}",
+                List.of("api"),
+                "fewshot-test-v1",
+                "## 예시 Z: 선택 예시\n출력 중 문장/누락 관련 필드:\n{}"
+        );
+
+        String prompt = provider.buildPromptBlock(List.of(new SelectedFewShotCase(selectedCase, 0.9, "test")));
+
+        assertThat(prompt)
+                .contains("[# Few-shot examples]")
+                .contains("## 예시 Z: 선택 예시")
+                .doesNotContain("## 예시 A:")
+                .doesNotContain("## 예시 B:");
+    }
+
+    @Test
+    @DisplayName("선택된 few-shot이 없으면 기존 전체 블록으로 fallback한다")
+    void fallsBackToFixedPromptWhenSelectedFewShotsEmpty() {
+        FewShotPromptProvider provider = new FewShotPromptProvider();
+
+        assertThat(provider.buildPromptBlock(List.of())).isEqualTo(provider.getPrompt());
     }
 }
