@@ -159,6 +159,27 @@ openai:
   model:
     job-posting-extractor: ${OPENAI_JOB_POSTING_MODEL:gpt-4o-mini}
 
+analysis:
+  few-shot:
+    dynamic-selection-enabled: ${ANALYSIS_FEW_SHOT_DYNAMIC_SELECTION_ENABLED:false}
+    dataset-version: ${ANALYSIS_FEW_SHOT_DATASET_VERSION:fewshot-static-v1}
+    curated-resource: ${ANALYSIS_FEW_SHOT_CURATED_RESOURCE:analysis/fewshot/curated-fewshot-cases.json}
+    reviewed-evaluation-resource: ${ANALYSIS_FEW_SHOT_REVIEWED_EVALUATION_RESOURCE:analysis/fewshot/reviewed-fewshot-cases.json}
+    reviewed-evaluation-csv-path: ${ANALYSIS_FEW_SHOT_REVIEWED_EVALUATION_CSV_PATH:}
+    fallback-enabled: ${ANALYSIS_FEW_SHOT_FALLBACK_ENABLED:true}
+    cache-enabled: ${ANALYSIS_FEW_SHOT_CACHE_ENABLED:true}
+    cache-ttl: ${ANALYSIS_FEW_SHOT_CACHE_TTL:30m}
+    source:
+      fixed-enabled: ${ANALYSIS_FEW_SHOT_FIXED_ENABLED:true}
+      curated-enabled: ${ANALYSIS_FEW_SHOT_CURATED_ENABLED:true}
+      reviewed-evaluation-enabled: ${ANALYSIS_FEW_SHOT_REVIEWED_EVALUATION_ENABLED:false}
+      reviewed-production-enabled: ${ANALYSIS_FEW_SHOT_REVIEWED_PRODUCTION_ENABLED:false}
+    search:
+      candidate-limit: ${ANALYSIS_FEW_SHOT_CANDIDATE_LIMIT:30}
+      top-k: ${ANALYSIS_FEW_SHOT_TOP_K:5}
+      min-rerank-score: ${ANALYSIS_FEW_SHOT_MIN_RERANK_SCORE:-1.0}
+      diversity-enabled: ${ANALYSIS_FEW_SHOT_DIVERSITY_ENABLED:true}
+
 cohere:
   api-key: ${COHERE_API_KEY:}
   base-url: ${COHERE_BASE_URL:https://api.cohere.com}

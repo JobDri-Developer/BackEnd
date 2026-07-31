@@ -107,6 +107,7 @@ public class EvaluationAnalysisBatchService {
 
     private EvaluationAnalysisResult analyzeCase(EvaluationAnalysisCase evaluationCase) {
         AnalysisPromptInput promptInput = new AnalysisPromptInput(
+                evaluationCase.caseId(),
                 "평가용 회사",
                 evaluationCase.jobCategorySmall(),
                 evaluationCase.mainTasks(),
