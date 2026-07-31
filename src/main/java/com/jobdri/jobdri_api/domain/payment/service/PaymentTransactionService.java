@@ -89,7 +89,7 @@ public class PaymentTransactionService {
         Payment payment = getOwnedPaymentForUpdate(userId, request.orderId());
         validateAmount(payment, request.amount());
 
-        if (payment.getStatus() == PaymentStatus.COMPLETED) {
+        if (payment.getStatus() == PaymentStatus.COMPLETED || payment.getStatus() == PaymentStatus.REFUNDED) {
             if (!payment.hasPaymentKey(request.paymentKey())) {
                 throw new GeneralException(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED, "이미 처리된 결제입니다.");
             }
@@ -117,7 +117,7 @@ public class PaymentTransactionService {
         if (!payment.hasPaymentKey(request.paymentKey())) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "결제 승인 정보가 일치하지 않습니다.");
         }
-        if (payment.getStatus() == PaymentStatus.COMPLETED) {
+        if (payment.getStatus() == PaymentStatus.COMPLETED || payment.getStatus() == PaymentStatus.REFUNDED) {
             return PaymentConfirmResponse.of(payment, userService.getUser(userId).getCredit());
         }
         if (payment.getStatus() != PaymentStatus.PROCESSING) {
@@ -144,6 +144,9 @@ public class PaymentTransactionService {
                 ));
         validateTossPayStatus(payment, payToken, amount);
 
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
+        }
         if (payment.getStatus() == PaymentStatus.COMPLETED) {
             if (tossPayStatus == TossPayStatus.PAY_CANCEL) {
                 payment.updateTossStatus(tossPayStatus.name());
@@ -204,6 +207,9 @@ public class PaymentTransactionService {
         validatePortOnePayment(payment, response, expectedStoreId);
 
         PortOnePaymentStatus portOneStatus = PortOnePaymentStatus.from(response.status());
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
+        }
         if (payment.getStatus() == PaymentStatus.COMPLETED) {
             payment.updatePortOneStatus(response.status(), response.transactionId());
             return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());

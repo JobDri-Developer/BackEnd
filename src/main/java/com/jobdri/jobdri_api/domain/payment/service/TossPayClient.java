@@ -2,6 +2,8 @@ package com.jobdri.jobdri_api.domain.payment.service;
 
 import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayCreateRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayCreateResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayRefundRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayRefundResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
@@ -138,6 +140,50 @@ public class TossPayClient {
         }
     }
 
+    public TossPayRefundResponse refundPayment(
+            String payToken,
+            String orderNo,
+            String refundNo,
+            int amount,
+            String reason
+    ) {
+        ensureRefundConfigured(payToken, orderNo, refundNo);
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderNo, payToken, amount);
+        try (var ignored = LoggingContext.with("payment.tosspay.refund.external_called", null, paymentContext)) {
+            log.info("Calling Toss Pay refund API");
+        }
+        try {
+            TossPayRefundResponse response = restClient
+                    .post()
+                    .uri("/api/v2/refunds")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(new TossPayRefundRequest(apiKey, payToken, orderNo, refundNo, reason, amount, true))
+                    .retrieve()
+                    .body(TossPayRefundResponse.class);
+            if (response == null || !response.successful()) {
+                throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "토스페이 환불 응답 검증에 실패했습니다.");
+            }
+            try (var ignored = LoggingContext.with("payment.tosspay.refund.external_succeeded", null, paymentContext)) {
+                log.info("Toss Pay refund API succeeded");
+            }
+            return response;
+        } catch (GeneralException e) {
+            throw e;
+        } catch (HttpStatusCodeException e) {
+            if (e.getStatusCode().is5xxServerError()) {
+                throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "토스페이 환불이 일시적으로 실패했습니다.", e);
+            }
+            throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "토스페이 환불 실패", e);
+        } catch (ResourceAccessException e) {
+            if (TossHttpClientSupport.isTimeoutException(e)) {
+                throw new GeneralException(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, "토스페이 환불 응답이 지연되고 있습니다.", e);
+            }
+            throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "토스페이 환불 중 통신 오류가 발생했습니다.", e);
+        } catch (RestClientException e) {
+            throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "토스페이 환불 중 오류가 발생했습니다.", e);
+        }
+    }
+
     private void ensureCreatePaymentConfigured() {
         ensureApiKeyConfigured();
         ensureConfiguredValue(returnUrl, "payment.toss-pay.return-url");
@@ -149,6 +195,11 @@ public class TossPayClient {
         ensureApiKeyConfigured();
         ensureRequestValue(payToken, "payToken");
         ensureRequestValue(orderNo, "orderNo");
+    }
+
+    private void ensureRefundConfigured(String payToken, String orderNo, String refundNo) {
+        ensureStatusQueryConfigured(payToken, orderNo);
+        ensureRequestValue(refundNo, "refundNo");
     }
 
     private void ensureApiKeyConfigured() {
