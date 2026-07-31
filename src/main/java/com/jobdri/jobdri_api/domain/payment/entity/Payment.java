@@ -54,6 +54,9 @@ public class Payment extends BaseEntity {
     @Column(length = 50)
     private String externalStatus;
 
+    @Column(length = 255)
+    private String refundReason;
+
     @Column(nullable = false)
     private String planCode;
 
@@ -195,6 +198,40 @@ public class Payment extends BaseEntity {
         this.status = PaymentStatus.UNKNOWN;
         this.callbackReceivedAt = LocalDateTime.now();
         this.lastStatusCheckedAt = LocalDateTime.now();
+    }
+
+    public void startRefund(String refundReason) {
+        this.refundReason = refundReason;
+    }
+
+    public void clearRefundReason() {
+        this.refundReason = null;
+    }
+
+    public boolean isRefundInProgress() {
+        return this.refundReason != null && this.status == PaymentStatus.COMPLETED;
+    }
+
+    public void refundByTossPay(String tossStatus, String refundReason) {
+        validateRefundableStatus();
+        this.tossStatus = tossStatus;
+        this.refundReason = refundReason;
+        this.status = PaymentStatus.REFUNDED;
+        this.lastStatusCheckedAt = LocalDateTime.now();
+    }
+
+    public void refundByPortOne(String externalStatus, String refundReason) {
+        validateRefundableStatus();
+        this.externalStatus = externalStatus;
+        this.refundReason = refundReason;
+        this.status = PaymentStatus.REFUNDED;
+        this.lastStatusCheckedAt = LocalDateTime.now();
+    }
+
+    private void validateRefundableStatus() {
+        if (this.status != PaymentStatus.COMPLETED) {
+            throw new IllegalStateException("완료된 결제만 환불 상태로 변경할 수 있습니다.");
+        }
     }
 
     public void markStatusChecked(String tossStatus) {

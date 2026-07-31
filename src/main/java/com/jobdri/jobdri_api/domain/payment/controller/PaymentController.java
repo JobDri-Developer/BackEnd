@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.payment.controller;
 import com.jobdri.jobdri_api.domain.payment.dto.request.CouponRedeemRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentRefundRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PortOnePaymentCompleteRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.*;
@@ -109,6 +110,19 @@ public class PaymentController {
         return ApiResponse.onSuccess(
                 "결제 주문 상태 조회에 성공했습니다.",
                 paymentService.getOrderStatus(userDetails.getUser(), orderId)
+        );
+    }
+
+    @Operation(summary = "결제 환불", description = "관리자가 완료된 결제를 전액 환불하고 지급된 크레딧을 회수합니다.")
+    @PostMapping("/{paymentId}/refund")
+    public ApiResponse<PaymentRefundResponse> refund(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long paymentId,
+            @RequestBody(required = false) PaymentRefundRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "결제 환불이 완료되었습니다.",
+                paymentService.refund(userDetails.getUser(), paymentId, request)
         );
     }
 

@@ -4,6 +4,7 @@ import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePaymentResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentOrderStatusResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentRefundResponse;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
 import com.jobdri.jobdri_api.domain.payment.entity.PaymentProviderType;
@@ -89,7 +90,7 @@ public class PaymentTransactionService {
         Payment payment = getOwnedPaymentForUpdate(userId, request.orderId());
         validateAmount(payment, request.amount());
 
-        if (payment.getStatus() == PaymentStatus.COMPLETED) {
+        if (payment.getStatus() == PaymentStatus.COMPLETED || payment.getStatus() == PaymentStatus.REFUNDED) {
             if (!payment.hasPaymentKey(request.paymentKey())) {
                 throw new GeneralException(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED, "이미 처리된 결제입니다.");
             }
@@ -117,7 +118,7 @@ public class PaymentTransactionService {
         if (!payment.hasPaymentKey(request.paymentKey())) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "결제 승인 정보가 일치하지 않습니다.");
         }
-        if (payment.getStatus() == PaymentStatus.COMPLETED) {
+        if (payment.getStatus() == PaymentStatus.COMPLETED || payment.getStatus() == PaymentStatus.REFUNDED) {
             return PaymentConfirmResponse.of(payment, userService.getUser(userId).getCredit());
         }
         if (payment.getStatus() != PaymentStatus.PROCESSING) {
@@ -136,6 +137,78 @@ public class PaymentTransactionService {
     }
 
     @Transactional
+    public PaymentRefundStart startRefund(Long paymentId, String reason) {
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.PAYMENT_NOT_FOUND,
+                        "결제 정보를 찾을 수 없습니다. paymentId=" + paymentId
+                ));
+        User user = userService.getUser(payment.getUser().getId());
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            return PaymentRefundStart.alreadyRefunded(payment, user.getCredit());
+        }
+        if (payment.getStatus() != PaymentStatus.COMPLETED) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "완료된 결제만 환불할 수 있습니다.");
+        }
+        if (payment.isRefundInProgress()) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED, "환불 처리가 진행 중입니다.");
+        }
+        if (user.getCredit() < payment.getCreditAmount()) {
+            throw new GeneralException(GeneralErrorCode.INSUFFICIENT_CREDIT, "환불할 크레딧 잔액이 부족합니다.");
+        }
+        payment.startRefund(reason);
+        return PaymentRefundStart.pending(payment, user.getCredit());
+    }
+
+    @Transactional
+    public PaymentRefundResponse completeRefund(
+            Long paymentId,
+            PaymentProviderType provider,
+            String externalStatus,
+            String reason
+    ) {
+        Payment payment = paymentRepository.findByIdForUpdate(paymentId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.PAYMENT_NOT_FOUND,
+                        "결제 정보를 찾을 수 없습니다. paymentId=" + paymentId
+                ));
+        User user = userService.getUser(payment.getUser().getId());
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            return PaymentRefundResponse.of(payment, user.getCredit());
+        }
+        if (payment.getStatus() != PaymentStatus.COMPLETED) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "완료된 결제만 환불할 수 있습니다.");
+        }
+        if (!payment.isProvider(provider)) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "환불 요청 결제수단이 일치하지 않습니다.");
+        }
+        if (provider == PaymentProviderType.PORTONE) {
+            payment.refundByPortOne(externalStatus, reason);
+        } else if (provider == PaymentProviderType.TOSS_PAY_DIRECT) {
+            payment.refundByTossPay(externalStatus, reason);
+        } else {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "지원하지 않는 결제수단입니다.");
+        }
+        int creditBalance = creditService.use(
+                user,
+                payment.getCreditAmount(),
+                "결제 환불 크레딧 회수",
+                refundCreditReferenceId(payment)
+        );
+        return PaymentRefundResponse.of(payment, creditBalance);
+    }
+
+    @Transactional
+    public void markRefundRetryable(Long paymentId, String reason) {
+        paymentRepository.findByIdForUpdate(paymentId).ifPresent(payment -> {
+            if (payment.getStatus() == PaymentStatus.COMPLETED
+                    && reason.equals(payment.getRefundReason())) {
+                payment.clearRefundReason();
+            }
+        });
+    }
+
+    @Transactional
     public PaymentConfirmResponse applyTossPayStatus(String orderId, String payToken, TossPayStatus tossPayStatus, int amount) {
         Payment payment = paymentRepository.findByOrderIdForUpdate(orderId)
                 .orElseThrow(() -> new GeneralException(
@@ -144,6 +217,9 @@ public class PaymentTransactionService {
                 ));
         validateTossPayStatus(payment, payToken, amount);
 
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
+        }
         if (payment.getStatus() == PaymentStatus.COMPLETED) {
             if (tossPayStatus == TossPayStatus.PAY_CANCEL) {
                 payment.updateTossStatus(tossPayStatus.name());
@@ -204,6 +280,9 @@ public class PaymentTransactionService {
         validatePortOnePayment(payment, response, expectedStoreId);
 
         PortOnePaymentStatus portOneStatus = PortOnePaymentStatus.from(response.status());
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
+        }
         if (payment.getStatus() == PaymentStatus.COMPLETED) {
             payment.updatePortOneStatus(response.status(), response.transactionId());
             return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
@@ -334,6 +413,44 @@ public class PaymentTransactionService {
         }
     }
 
+    private String refundCreditReferenceId(Payment payment) {
+        return "PAYMENT_REFUND:" + payment.getProviderOrDefault() + ":" + payment.getOrderId();
+    }
+
     public record PaymentConfirmationStart(Payment payment, boolean alreadyCompleted) {
+    }
+
+    public record PaymentRefundStart(
+            Long paymentId,
+            String orderId,
+            PaymentProviderType provider,
+            String payToken,
+            String externalPaymentId,
+            int amount,
+            int creditAmount,
+            boolean alreadyRefunded,
+            int creditBalance
+    ) {
+        static PaymentRefundStart pending(Payment payment, int creditBalance) {
+            return from(payment, false, creditBalance);
+        }
+
+        static PaymentRefundStart alreadyRefunded(Payment payment, int creditBalance) {
+            return from(payment, true, creditBalance);
+        }
+
+        private static PaymentRefundStart from(Payment payment, boolean alreadyRefunded, int creditBalance) {
+            return new PaymentRefundStart(
+                    payment.getId(),
+                    payment.getOrderId(),
+                    payment.getProviderOrDefault(),
+                    payment.getPayToken(),
+                    payment.getExternalPaymentId(),
+                    payment.getPrice(),
+                    payment.getCreditAmount(),
+                    alreadyRefunded,
+                    creditBalance
+            );
+        }
     }
 }

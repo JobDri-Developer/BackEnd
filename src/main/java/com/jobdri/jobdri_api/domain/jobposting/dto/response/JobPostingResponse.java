@@ -44,8 +44,8 @@ public class JobPostingResponse {
                 .detailClassificationId(jobPosting.getDetailClassification().getId())
                 .detailClassificationName(jobPosting.getDetailClassification().getDetailName())
                 .task(jobPosting.getTask())
-                .requirement(jobPosting.getRequirement())
-                .preferred(jobPosting.getPreferred())
+                .requirement(JobPostingLineBreakFormatter.appendLineBreakAfterLastLine(jobPosting.getRequirement()))
+                .preferred(JobPostingLineBreakFormatter.appendLineBreakAfterLastLine(jobPosting.getPreferred()))
                 .createdAt(jobPosting.getCreatedAt())
                 .updatedAt(jobPosting.getUpdatedAt())
                 .build();
