@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.auth.service;
 
+import com.jobdri.jobdri_api.domain.audit.service.AuditLogService;
 import com.jobdri.jobdri_api.domain.auth.dto.request.LoginRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.LogoutRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.PasswordResetConfirmationRequest;
@@ -17,6 +18,7 @@ import com.jobdri.jobdri_api.global.jwt.JwtUtil;
 import com.jobdri.jobdri_api.global.logging.LoggingMdcKeys;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -30,9 +32,11 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class AuthService {
 
@@ -54,6 +58,7 @@ public class AuthService {
     private final EmailService emailService;
     private final AsyncEmailSender asyncEmailSender;
     private final StringRedisTemplate redisTemplate;
+    private final AuditLogService auditLogService;
 
     @Transactional
     public void signup(SignupRequest request) {
@@ -98,6 +103,7 @@ public class AuthService {
         String refreshTokenValue = jwtUtil.createRefreshToken(user.getEmail());
 
         saveRefreshToken(user.getId(), refreshTokenValue);
+        recordLoginSuccess(user);
 
         return LoginResponse.builder()
                 .accessToken(accessToken)
@@ -259,6 +265,21 @@ public class AuthService {
                 jwtUtil.getRefreshTokenTime(),
                 TimeUnit.MILLISECONDS
         );
+    }
+
+    private void recordLoginSuccess(User user) {
+        try {
+            auditLogService.record(
+                    user,
+                    "LOGIN_SUCCESS",
+                    "USER",
+                    user.getId(),
+                    null,
+                    Map.of("loginMethod", user.getSocialType().name())
+            );
+        } catch (RuntimeException e) {
+            log.warn("Login success audit log recording failed. userId={}", user.getId(), e);
+        }
     }
 
     private String getRefreshTokenKey(Long userId) {

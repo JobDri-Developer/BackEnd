@@ -5,12 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.audit.entity.AuditLog;
 import com.jobdri.jobdri_api.domain.audit.repository.AuditLogRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.logging.LoggingContext;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
@@ -29,8 +31,9 @@ public class AuditLogService {
 
     private final AuditLogRepository auditLogRepository;
     private final ObjectMapper objectMapper;
+    private final UserRepository userRepository;
 
-    @Transactional
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(
             User user,
             String action,
@@ -41,7 +44,7 @@ public class AuditLogService {
     ) {
         HttpServletRequest request = currentRequest();
         AuditLog auditLog = auditLogRepository.save(AuditLog.create(
-                user,
+                resolveVisibleUser(user),
                 action,
                 targetType,
                 targetId,
@@ -51,6 +54,13 @@ public class AuditLogService {
                 truncate(resolveUserAgent(request), MAX_USER_AGENT_LENGTH)
         ));
         writeAuditTrail(auditLog);
+    }
+
+    private User resolveVisibleUser(User user) {
+        if (user == null || user.getId() == null) {
+            return null;
+        }
+        return userRepository.findById(user.getId()).orElse(null);
     }
 
     private HttpServletRequest currentRequest() {
