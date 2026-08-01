@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.auth.service;
 
+import com.jobdri.jobdri_api.domain.audit.repository.AuditLogRepository;
 import com.jobdri.jobdri_api.domain.audit.service.AuditLogService;
 import com.jobdri.jobdri_api.domain.auth.dto.request.LoginRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.PasswordResetConfirmationRequest;
@@ -18,6 +19,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -25,6 +28,8 @@ import org.slf4j.MDC;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -34,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -326,5 +332,64 @@ class AuthServiceTest {
         User user = User.signup("테스트 사용자", email, "encoded-password");
         ReflectionTestUtils.setField(user, "id", id);
         return user;
+    }
+}
+
+@SpringBootTest
+@ActiveProfiles("test")
+class AuthServiceAuditFailureIntegrationTest {
+
+    @Autowired
+    private AuthService authService;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @MockitoBean
+    private PasswordEncoder passwordEncoder;
+
+    @MockitoBean
+    private JwtUtil jwtUtil;
+
+    @MockitoBean
+    private EmailService emailService;
+
+    @MockitoBean
+    private AsyncEmailSender asyncEmailSender;
+
+    @MockitoBean
+    private StringRedisTemplate redisTemplate;
+
+    @MockitoBean
+    private AuditLogRepository auditLogRepository;
+
+    @Test
+    @DisplayName("로그인 성공 audit 저장이 실패해도 토큰 발급은 커밋된다")
+    void loginCommitsWhenAuditRecordingFails() {
+        User user = userRepository.save(User.signup(
+                "통합 테스트 사용자",
+                "audit-failure-login@example.com",
+                "encoded-password"
+        ));
+        @SuppressWarnings("unchecked")
+        ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
+        when(passwordEncoder.matches("password123", "encoded-password")).thenReturn(true);
+        when(jwtUtil.createAccessToken(user.getEmail(), user.getId(), user.getRole())).thenReturn("access-token");
+        when(jwtUtil.createRefreshToken(user.getEmail())).thenReturn("refresh-token");
+        when(jwtUtil.getRefreshTokenTime()).thenReturn(604_800_000L);
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(auditLogRepository.save(any())).thenThrow(new RuntimeException("audit insert failed"));
+
+        LoginResponse response = authService.login(new LoginRequest(user.getEmail(), "password123"));
+
+        assertThat(response.accessToken()).isEqualTo("access-token");
+        assertThat(response.refreshToken()).isEqualTo("refresh-token");
+        verify(valueOperations).set(
+                "RefreshToken:" + user.getId(),
+                "refresh-token",
+                604_800_000L,
+                TimeUnit.MILLISECONDS
+        );
+        verify(auditLogRepository).save(any());
     }
 }
