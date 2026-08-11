@@ -3,6 +3,8 @@ package com.jobdri.jobdri_api.domain.payment.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.payment.gateway.PaymentGateway;
+import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentQuery;
+import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentSnapshot;
 import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPrepareCommand;
 import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPrepareResult;
 import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancelResponse;
@@ -151,13 +153,20 @@ public class PaymentService {
     }
 
     private PaymentPrepareResponse preparePortOne(User validatedUser, CreditPlan plan) {
-        PortOnePrepareData prepareData = portOneClient.prepareData();
         String orderId = generateOrderId();
         Payment payment = paymentTransactionService.createPortOnePendingPayment(
                 validatedUser.getId(),
                 plan,
                 orderId
         );
+        GatewayPrepareResult prepareResult = resolveGateway(PaymentProviderType.PORTONE).prepare(new GatewayPrepareCommand(
+                PaymentProviderType.PORTONE,
+                payment.getOrderId(),
+                payment.getContent(),
+                payment.getPrice(),
+                payment.getCreditAmount(),
+                validatedUser.getEmail()
+        ));
         try (var ignored = LoggingContext.with(
                 "payment.portone.prepare.completed",
                 null,
@@ -168,9 +177,9 @@ public class PaymentService {
         return PaymentPrepareResponse.portOne(
                 payment,
                 validatedUser.getEmail(),
-                prepareData.storeId(),
-                prepareData.channelKey(),
-                prepareData.redirectUrl()
+                prepareResult.storeId(),
+                prepareResult.channelKey(),
+                prepareResult.redirectUrl()
         );
     }
 
@@ -279,10 +288,12 @@ public class PaymentService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PaymentConfirmResponse completePortOne(User user, PortOnePaymentCompleteRequest request) {
         User validatedUser = userService.validateUser(user);
-        PortOnePaymentResponse response = portOneClient.getPayment(request.paymentId());
+        GatewayPaymentSnapshot paymentSnapshot = resolveGateway(PaymentProviderType.PORTONE).fetch(
+                new GatewayPaymentQuery(null, request.paymentId(), null)
+        );
         return paymentTransactionService.applyPortOnePayment(
                 validatedUser.getId(),
-                response,
+                paymentSnapshot,
                 portOneClient.storeId()
         );
     }

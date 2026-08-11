@@ -11,6 +11,8 @@ public record GatewayPaymentSnapshot(
         String externalPaymentId,
         String externalTransactionId,
         String externalStatus,
+        String storeId,
+        String currency,
         Integer amount
 ) {
 }
