@@ -1,5 +1,7 @@
 package com.jobdri.jobdri_api.domain.payment.entity;
 
+import com.jobdri.jobdri_api.domain.payment.type.PaymentProviderType;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentStatus;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.global.entity.BaseEntity;
 import jakarta.persistence.*;

@@ -1,7 +1,7 @@
 package com.jobdri.jobdri_api.domain.payment.dto.response;
 
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
-import com.jobdri.jobdri_api.domain.payment.entity.PaymentStatus;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentStatus;
 
 public record PaymentConfirmResponse(
         Long paymentId,

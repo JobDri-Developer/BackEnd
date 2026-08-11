@@ -1,16 +1,16 @@
 package com.jobdri.jobdri_api.domain.payment.gateway;
 
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayRefundResponse;
-import com.jobdri.jobdri_api.domain.payment.entity.TossPayStatus;
-import com.jobdri.jobdri_api.domain.payment.entity.PaymentProviderType;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayConfirmCommand;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentQuery;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentSnapshot;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPrepareCommand;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPrepareResult;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayRefundCommand;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayRefundResult;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayRefundStatus;
+import com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayRefundResponse;
+import com.jobdri.jobdri_api.domain.payment.type.TossPayStatus;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentProviderType;
+import com.jobdri.jobdri_api.domain.payment.gateway.command.GatewayConfirmCommand;
+import com.jobdri.jobdri_api.domain.payment.gateway.query.GatewayPaymentQuery;
+import com.jobdri.jobdri_api.domain.payment.gateway.result.GatewayPaymentSnapshot;
+import com.jobdri.jobdri_api.domain.payment.gateway.command.GatewayPrepareCommand;
+import com.jobdri.jobdri_api.domain.payment.gateway.result.GatewayPrepareResult;
+import com.jobdri.jobdri_api.domain.payment.gateway.command.GatewayRefundCommand;
+import com.jobdri.jobdri_api.domain.payment.gateway.result.GatewayRefundResult;
+import com.jobdri.jobdri_api.domain.payment.gateway.type.GatewayRefundStatus;
 import com.jobdri.jobdri_api.domain.payment.service.TossPayClient;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;

@@ -1,17 +1,17 @@
 package com.jobdri.jobdri_api.domain.payment.service;
 
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePaymentResponse;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentStatus;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentSnapshot;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOnePaymentResponse;
+import com.jobdri.jobdri_api.domain.payment.gateway.type.GatewayPaymentStatus;
+import com.jobdri.jobdri_api.domain.payment.gateway.result.GatewayPaymentSnapshot;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentOrderStatusResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentRefundResponse;
-import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
+import com.jobdri.jobdri_api.domain.payment.type.CreditPlan;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
-import com.jobdri.jobdri_api.domain.payment.entity.PaymentProviderType;
-import com.jobdri.jobdri_api.domain.payment.entity.PaymentStatus;
-import com.jobdri.jobdri_api.domain.payment.entity.TossPayStatus;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentProviderType;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentStatus;
+import com.jobdri.jobdri_api.domain.payment.type.TossPayStatus;
 import com.jobdri.jobdri_api.domain.payment.repository.PaymentRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;

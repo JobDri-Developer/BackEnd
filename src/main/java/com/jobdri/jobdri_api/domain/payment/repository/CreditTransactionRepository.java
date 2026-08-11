@@ -1,7 +1,7 @@
 package com.jobdri.jobdri_api.domain.payment.repository;
 
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransaction;
-import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
+import com.jobdri.jobdri_api.domain.payment.type.CreditTransactionType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;

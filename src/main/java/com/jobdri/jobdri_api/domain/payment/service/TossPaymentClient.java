@@ -1,7 +1,7 @@
 package com.jobdri.jobdri_api.domain.payment.service;
 
-import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmRequest;
-import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.toss.TossPaymentConfirmRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.external.toss.TossPaymentConfirmResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.logging.LoggingContext;
