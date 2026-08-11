@@ -6,7 +6,8 @@ import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionSelectionSaveRe
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnswerResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionSelectionResponse;
-import com.jobdri.jobdri_api.domain.analysis.service.question.QuestionService;
+import com.jobdri.jobdri_api.domain.analysis.service.question.QuestionCommandService;
+import com.jobdri.jobdri_api.domain.analysis.service.question.QuestionQueryService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import io.swagger.v3.oas.annotations.Operation;
@@ -32,7 +33,8 @@ import java.util.List;
 @Tag(name = "Question", description = "자소서 문항 선택 및 답변 저장 API")
 public class QuestionController {
 
-    private final QuestionService questionService;
+    private final QuestionQueryService questionQueryService;
+    private final QuestionCommandService questionCommandService;
 
     @Operation(summary = "문항 후보 목록 조회", description = "문항 선택 화면에서 사용할 기본 문항 후보와 선택 여부를 조회합니다.")
     @GetMapping("/candidates")
@@ -42,7 +44,7 @@ public class QuestionController {
     ) {
         return ApiResponse.onSuccess(
                 "문항 후보 목록 조회에 성공했습니다.",
-                questionService.getQuestionCandidates(userDetails.getUser(), mockApplyId)
+                questionQueryService.getQuestionCandidates(userDetails.getUser(), mockApplyId)
         );
     }
 
@@ -55,7 +57,7 @@ public class QuestionController {
     ) {
         return ApiResponse.onSuccess(
                 "직접 추가 문항 후보가 생성되었습니다.",
-                questionService.addCustomQuestionCandidate(userDetails.getUser(), mockApplyId, request)
+                questionCommandService.addCustomQuestionCandidate(userDetails.getUser(), mockApplyId, request)
         );
     }
 
@@ -67,7 +69,7 @@ public class QuestionController {
     ) {
         return ApiResponse.onSuccess(
                 "선택 문항 조회에 성공했습니다.",
-                questionService.getSelectedQuestions(userDetails.getUser(), mockApplyId)
+                questionQueryService.getSelectedQuestions(userDetails.getUser(), mockApplyId)
         );
     }
 
@@ -80,7 +82,7 @@ public class QuestionController {
     ) {
         return ApiResponse.onSuccess(
                 "선택 문항이 저장되었습니다.",
-                questionService.saveSelectedQuestions(userDetails.getUser(), mockApplyId, request)
+                questionCommandService.saveSelectedQuestions(userDetails.getUser(), mockApplyId, request)
         );
     }
 
@@ -93,7 +95,7 @@ public class QuestionController {
     ) {
         return ApiResponse.onSuccess(
                 "자소서 답변이 저장되었습니다.",
-                questionService.saveAnswers(userDetails.getUser(), mockApplyId, request)
+                questionCommandService.saveAnswers(userDetails.getUser(), mockApplyId, request)
         );
     }
 
@@ -106,7 +108,7 @@ public class QuestionController {
     ) {
         return ApiResponse.onSuccess(
                 "선택 문항이 삭제되었습니다.",
-                questionService.deleteQuestion(userDetails.getUser(), mockApplyId, questionId)
+                questionCommandService.deleteQuestion(userDetails.getUser(), mockApplyId, questionId)
         );
     }
 }
