@@ -2,7 +2,7 @@ package com.jobdri.jobdri_api.domain.mockapply.service;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
@@ -262,7 +262,7 @@ public class MockApplyService {
         return analysisAsyncTaskRepository.findByUserIdAndMockApplyIdInAndStatusIn(
                         userId,
                         mockApplyIds,
-                        List.of(TaskStatus.PENDING, TaskStatus.RUNNING)
+                        List.of(AnalysisAsyncTaskStatus.PENDING, AnalysisAsyncTaskStatus.RUNNING)
                 )
                 .stream()
                 .sorted(Comparator

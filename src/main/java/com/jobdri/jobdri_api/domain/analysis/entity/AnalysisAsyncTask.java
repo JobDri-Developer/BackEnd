@@ -1,5 +1,8 @@
 package com.jobdri.jobdri_api.domain.analysis.entity;
 
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncCreditStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.global.entity.CreatedAtEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -37,11 +40,11 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "credit_status", nullable = false, length = 20)
-    private CreditStatus creditStatus;
+    private AnalysisAsyncCreditStatus creditStatus;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
-    private TaskStatus status;
+    private AnalysisAsyncTaskStatus status;
 
     @Column(nullable = false, length = 255)
     private String message;
@@ -51,7 +54,7 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
 
     @Enumerated(EnumType.STRING)
     @Column(name = "failure_reason", length = 40)
-    private FailureReason failureReason;
+    private AnalysisAsyncFailureReason failureReason;
 
     @Column(name = "worker_id", length = 100)
     private String workerId;
@@ -103,8 +106,8 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         task.taskId = UUID.randomUUID().toString();
         task.userId = userId;
         task.mockApplyId = mockApplyId;
-        task.creditStatus = CreditStatus.NONE;
-        task.status = TaskStatus.PENDING;
+        task.creditStatus = AnalysisAsyncCreditStatus.NONE;
+        task.status = AnalysisAsyncTaskStatus.PENDING;
         task.message = "자소서 분석 비동기 작업이 접수되었습니다.";
         task.retryCount = 0;
         task.maxRetryCount = Math.max(0, maxRetryCount);
@@ -117,22 +120,22 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
 
     public void markCreditReserved(String creditReferenceId) {
         this.creditReferenceId = creditReferenceId;
-        this.creditStatus = CreditStatus.RESERVED;
+        this.creditStatus = AnalysisAsyncCreditStatus.RESERVED;
     }
 
     public void markCreditConfirmed() {
-        this.creditStatus = CreditStatus.CONFIRMED;
+        this.creditStatus = AnalysisAsyncCreditStatus.CONFIRMED;
     }
 
     public void markCreditReleased() {
-        this.creditStatus = CreditStatus.RELEASED;
+        this.creditStatus = AnalysisAsyncCreditStatus.RELEASED;
     }
 
     public void markRunning(String workerId, int retryCount, Instant messageSubmittedAt) {
         if (isTerminal()) {
             return;
         }
-        this.status = TaskStatus.RUNNING;
+        this.status = AnalysisAsyncTaskStatus.RUNNING;
         this.message = "자소서 분석을 진행 중입니다.";
         this.currentStep = "PREPARING_CONTEXT";
         this.progressPercent = Math.max(resolveProgressPercent(), 10);
@@ -148,10 +151,10 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     }
 
     public void markSuccess() {
-        if (isTerminal()) {
+        if (isTerminal() && !isRecoverablePublishFailure()) {
             return;
         }
-        this.status = TaskStatus.SUCCEEDED;
+        this.status = AnalysisAsyncTaskStatus.SUCCEEDED;
         this.message = "자소서 분석이 완료되었습니다.";
         this.error = null;
         this.failureReason = null;
@@ -161,7 +164,12 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         this.estimatedRemainingSeconds = 0;
     }
 
-    public void markRetryScheduled(FailureReason failureReason, String errorMessage, int retryCount) {
+    public boolean isRecoverablePublishFailure() {
+        return status == AnalysisAsyncTaskStatus.FAILED
+                && failureReason == AnalysisAsyncFailureReason.PUBLISH_FAILED;
+    }
+
+    public void markRetryScheduled(AnalysisAsyncFailureReason failureReason, String errorMessage, int retryCount) {
         if (isTerminal()) {
             return;
         }
@@ -169,7 +177,7 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
             markFailed(failureReason, errorMessage, retryCount);
             return;
         }
-        this.status = TaskStatus.PENDING;
+        this.status = AnalysisAsyncTaskStatus.PENDING;
         this.message = "자소서 분석 재시도를 대기 중입니다.";
         this.currentStep = "VALIDATING_INPUT";
         this.progressPercent = 0;
@@ -179,11 +187,11 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         this.completedAt = null;
     }
 
-    public void markFailed(FailureReason failureReason, String errorMessage, int retryCount) {
+    public void markFailed(AnalysisAsyncFailureReason failureReason, String errorMessage, int retryCount) {
         if (isTerminal()) {
             return;
         }
-        this.status = TaskStatus.FAILED;
+        this.status = AnalysisAsyncTaskStatus.FAILED;
         this.message = "자소서 분석에 실패했습니다.";
         this.failureReason = failureReason;
         this.error = errorMessage;
@@ -194,17 +202,17 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     }
 
     public void requestCancel() {
-        if (status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED) {
+        if (status == AnalysisAsyncTaskStatus.SUCCEEDED || status == AnalysisAsyncTaskStatus.FAILED) {
             return;
         }
         this.cancelRequested = true;
-        if (status == TaskStatus.CANCELLED) {
+        if (status == AnalysisAsyncTaskStatus.CANCELLED) {
             if (cancelledAt == null) {
                 this.cancelledAt = LocalDateTime.now();
             }
             return;
         }
-        this.status = TaskStatus.CANCELLED;
+        this.status = AnalysisAsyncTaskStatus.CANCELLED;
         this.message = "자소서 분석 작업이 취소되었습니다.";
         this.error = null;
         this.failureReason = null;
@@ -232,33 +240,13 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     }
 
     private boolean isTerminal() {
-        return status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED || status == TaskStatus.CANCELLED;
+        return status == AnalysisAsyncTaskStatus.SUCCEEDED
+                || status == AnalysisAsyncTaskStatus.FAILED
+                || status == AnalysisAsyncTaskStatus.CANCELLED;
     }
 
     private int resolveProgressPercent() {
         return progressPercent == null ? 0 : progressPercent;
     }
 
-    public enum TaskStatus {
-        PENDING,
-        RUNNING,
-        SUCCEEDED,
-        FAILED,
-        CANCELLED
-    }
-
-    public enum CreditStatus {
-        NONE,
-        RESERVED,
-        CONFIRMED,
-        RELEASED
-    }
-
-    public enum FailureReason {
-        RATE_LIMIT,
-        QUEUE_TIMEOUT,
-        OPENAI_TIMEOUT,
-        VALIDATION_ERROR,
-        INTERNAL_ERROR
-    }
 }

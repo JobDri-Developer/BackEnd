@@ -1,17 +1,17 @@
 package com.jobdri.jobdri_api.domain.analysis.service.async;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerCompleteRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerResultStoreRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPayload;
+import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
@@ -23,6 +23,7 @@ import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.domain.workerresult.entity.WorkerTaskResult.TaskType;
 import com.jobdri.jobdri_api.domain.workerresult.service.WorkerTaskResultService;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,6 +34,8 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.Optional;
@@ -46,6 +49,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -74,11 +78,23 @@ class AnalysisWorkerBridgeServiceTest {
     @Mock
     private AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
 
+    @Mock
+    private TransactionTemplate transactionTemplate;
+
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
 
     @InjectMocks
     private AnalysisWorkerBridgeService analysisWorkerBridgeService;
+
+    @BeforeEach
+    void setUp() {
+        lenient().when(transactionTemplate.execute(any(TransactionCallback.class)))
+                .thenAnswer(invocation -> {
+                    TransactionCallback<?> callback = invocation.getArgument(0);
+                    return callback.doInTransaction(null);
+                });
+    }
 
     @Test
     @DisplayName("취소된 task의 complete 요청은 결과 저장과 성공 처리를 하지 않는다")
@@ -93,7 +109,7 @@ class AnalysisWorkerBridgeServiceTest {
                 10L
         );
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
 
         assertThatThrownBy(() -> analysisWorkerBridgeService.completeTask(task.getTaskId(), request))
                 .isInstanceOf(GeneralException.class);
@@ -128,7 +144,7 @@ class AnalysisWorkerBridgeServiceTest {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
         task.requestCancel();
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
 
         assertThatThrownBy(() -> analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L))
                 .isInstanceOf(GeneralException.class);
@@ -188,7 +204,7 @@ class AnalysisWorkerBridgeServiceTest {
                 List.of(similarContext)
         );
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.prepareAnalysisExecution(user, 10L)).thenReturn(payload);
         when(analysisCreditService.createAsyncReferenceId(task.getTaskId()))
@@ -239,7 +255,7 @@ class AnalysisWorkerBridgeServiceTest {
                 List.of()
         );
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.prepareAnalysisExecution(user, 10L)).thenReturn(payload);
 
@@ -258,19 +274,19 @@ class AnalysisWorkerBridgeServiceTest {
         User user = User.signup("테스트 사용자", "analysis-worker-refund@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 1L);
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         doAnswer(invocation -> {
             task.markCreditReleased();
             return null;
         }).when(analysisAsyncTaskService).markCreditReleased(task.getTaskId());
         doAnswer(invocation -> {
-            task.markFailed(FailureReason.INTERNAL_ERROR, "error", 1);
+            task.markFailed(AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1);
             return null;
-        }).when(analysisAsyncTaskService).markFailed(task.getTaskId(), FailureReason.INTERNAL_ERROR, "error", 1);
+        }).when(analysisAsyncTaskService).markFailed(task.getTaskId(), AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1);
 
-        analysisWorkerBridgeService.failTask(task.getTaskId(), FailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
-        analysisWorkerBridgeService.failTask(task.getTaskId(), FailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
+        analysisWorkerBridgeService.failTask(task.getTaskId(), AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
+        analysisWorkerBridgeService.failTask(task.getTaskId(), AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
 
         verify(analysisCreditService, times(1)).refund(user, "analysisTaskId=" + task.getTaskId());
         verify(analysisAsyncTaskService, times(1)).markCreditReleased(task.getTaskId());
@@ -340,7 +356,7 @@ class AnalysisWorkerBridgeServiceTest {
                 1L, 10L, llmResponse, "worker-1", 10L
         );
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         AnalysisExecutionPayload changedRetrievalPayload = new AnalysisExecutionPayload(
                 1L, 10L, jobPosting, List.of(), List.of(), null, null, List.of(laterContext)
@@ -381,12 +397,12 @@ class AnalysisWorkerBridgeServiceTest {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
         task.markSuccess();
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
 
         analysisWorkerBridgeService.markRunning(task.getTaskId(), "worker-1", 1, java.time.Instant.now());
         analysisWorkerBridgeService.markRetry(
                 task.getTaskId(),
-                FailureReason.INTERNAL_ERROR,
+                AnalysisAsyncFailureReason.INTERNAL_ERROR,
                 "retry",
                 1,
                 "worker-1",
@@ -394,19 +410,19 @@ class AnalysisWorkerBridgeServiceTest {
         );
 
         verify(analysisAsyncTaskService, never()).markRunning(eq(task.getTaskId()), eq("worker-1"), eq(1), any());
-        verify(analysisAsyncTaskService, never()).markRetryScheduled(eq(task.getTaskId()), eq(FailureReason.INTERNAL_ERROR), eq("retry"), eq(1));
+        verify(analysisAsyncTaskService, never()).markRetryScheduled(eq(task.getTaskId()), eq(AnalysisAsyncFailureReason.INTERNAL_ERROR), eq("retry"), eq(1));
     }
 
     @Test
     @DisplayName("완료 요청의 사용자나 mockApply가 task와 다르면 거부한다")
     void completeTaskRejectsMismatchedIdentity() {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
 
         AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
                 2L,
                 11L,
-                mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class),
+                mock(com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse.class),
                 "worker-1",
                 10L
         );
@@ -424,7 +440,7 @@ class AnalysisWorkerBridgeServiceTest {
         AnalysisWorkerResultStoreRequest request = new AnalysisWorkerResultStoreRequest(
                 1L,
                 10L,
-                mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class)
+                mock(com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse.class)
         );
 
         analysisWorkerBridgeService.storeGeneratedResult(task.getTaskId(), request);
@@ -442,7 +458,7 @@ class AnalysisWorkerBridgeServiceTest {
         AnalysisWorkerResultStoreRequest request = new AnalysisWorkerResultStoreRequest(
                 1L,
                 10L,
-                mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class)
+                mock(com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse.class)
         );
 
         analysisWorkerBridgeService.storeGeneratedResult(task.getTaskId(), request);
@@ -457,9 +473,9 @@ class AnalysisWorkerBridgeServiceTest {
         task.markSuccess();
         User user = User.signup("테스트 사용자", "analysis-complete@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 1L);
-        var llmResponse = mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class);
+        var llmResponse = mock(com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse.class);
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.getAnalysis(user, 10L)).thenReturn(mock(com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse.class));
 
@@ -480,5 +496,49 @@ class AnalysisWorkerBridgeServiceTest {
                 new AnalysisWorkerResultStoreRequest(1L, 10L, llmResponse)
         );
         inOrder.verify(workerTaskResultService).markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, task.getTaskId());
+    }
+
+    @Test
+    @DisplayName("PUBLISH_FAILED 이후 늦게 도착한 complete 요청은 정상 완료로 복구한다")
+    void completeTaskRecoversAfterPublishFailure() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        task.markFailed(AnalysisAsyncFailureReason.PUBLISH_FAILED, "publish failed", 0);
+        User user = User.signup("테스트 사용자", "analysis-recover@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+
+        JobPosting jobPosting = mock(JobPosting.class, org.mockito.Answers.RETURNS_DEEP_STUBS);
+        AnalysisExecutionPayload completionPayload = new AnalysisExecutionPayload(
+                1L,
+                10L,
+                jobPosting,
+                List.of(),
+                List.of()
+        );
+        ReflectionTestUtils.setField(task, "executionContextSnapshot", """
+                {"userId":1,"mockApplyId":10,"companyName":"","jobTitle":"","task":"","requirements":"","preferredQualifications":"","bigClassificationName":"","middleClassificationName":"","detailClassificationName":"","questions":[],"corpusReferences":[],"similarJobPostings":[]}
+                """);
+        ReflectionTestUtils.setField(task, "inputFingerprintSnapshot", "publish-fingerprint");
+
+        AnalysisLlmResponse llmResponse = mock(AnalysisLlmResponse.class);
+        AnalysisResponse response = mock(AnalysisResponse.class);
+        AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
+                1L,
+                10L,
+                llmResponse,
+                "worker-1",
+                15L
+        );
+
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
+        when(userService.getUser(1L)).thenReturn(user);
+        when(analysisService.prepareAnalysisExecution(user, 10L, List.of())).thenReturn(completionPayload);
+        when(analysisService.finalizeAnalysis(user, 10L, completionPayload, llmResponse, "publish-fingerprint"))
+                .thenReturn(response);
+
+        AnalysisResponse completed = analysisWorkerBridgeService.completeTask(task.getTaskId(), request);
+
+        assertThat(completed).isEqualTo(response);
+        verify(analysisAsyncTaskService).markSuccess(task.getTaskId(), response);
+        verify(workerTaskResultService).markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, task.getTaskId());
     }
 }

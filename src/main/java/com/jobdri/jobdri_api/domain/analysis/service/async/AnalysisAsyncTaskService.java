@@ -5,9 +5,9 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusRes
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisProgressStepResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncCreditStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.domain.notification.entity.NotificationTargetType;
 import com.jobdri.jobdri_api.domain.notification.entity.NotificationType;
 import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
@@ -78,7 +78,7 @@ public class AnalysisAsyncTaskService {
         return analysisAsyncTaskRepository.findFirstByUserIdAndMockApplyIdAndStatusInOrderByCreatedAtDesc(
                 userId,
                 mockApplyId,
-                EnumSet.of(TaskStatus.PENDING, TaskStatus.RUNNING)
+                EnumSet.of(AnalysisAsyncTaskStatus.PENDING, AnalysisAsyncTaskStatus.RUNNING)
         );
     }
 
@@ -95,20 +95,22 @@ public class AnalysisAsyncTaskService {
     @Transactional
     public void markSuccess(String taskId, AnalysisResponse result) {
         AnalysisAsyncTask task = getTask(taskId);
-        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+        if (task.getStatus() == AnalysisAsyncTaskStatus.SUCCEEDED) {
             return;
         }
-        if (task.getStatus() == TaskStatus.CANCELLED) {
+        if (task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
                     "취소된 자소서 분석 비동기 작업입니다. taskId=" + taskId
             );
         }
-        if (task.getStatus() == TaskStatus.FAILED) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "이미 실패 처리된 자소서 분석 비동기 작업입니다. taskId=" + taskId
-            );
+        if (task.getStatus() == AnalysisAsyncTaskStatus.FAILED) {
+            if (!task.isRecoverablePublishFailure()) {
+                throw new GeneralException(
+                        GeneralErrorCode.INVALID_PARAMETER,
+                        "이미 실패 처리된 자소서 분석 비동기 작업입니다. taskId=" + taskId
+                );
+            }
         }
         task.markSuccess();
         recordProcessingMetric(task, "succeeded");
@@ -117,7 +119,7 @@ public class AnalysisAsyncTaskService {
     }
 
     @Transactional
-    public void markRetryScheduled(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
+    public void markRetryScheduled(String taskId, AnalysisAsyncFailureReason failureReason, String errorMessage, int retryCount) {
         AnalysisAsyncTask task = getTask(taskId);
         recordProcessingMetric(task, "retry");
         task.markRetryScheduled(failureReason, errorMessage, retryCount);
@@ -125,7 +127,7 @@ public class AnalysisAsyncTaskService {
     }
 
     @Transactional
-    public void markFailed(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
+    public void markFailed(String taskId, AnalysisAsyncFailureReason failureReason, String errorMessage, int retryCount) {
         AnalysisAsyncTask task = getTask(taskId);
         recordProcessingMetric(task, "failed");
         task.markFailed(failureReason, errorMessage, retryCount);
@@ -144,11 +146,11 @@ public class AnalysisAsyncTaskService {
             throw new GeneralException(GeneralErrorCode.FORBIDDEN, "요청한 mockApplyId와 작업 정보가 일치하지 않습니다.");
         }
 
-        TaskStatus previousStatus = task.getStatus();
+        AnalysisAsyncTaskStatus previousStatus = task.getStatus();
         LocalDateTime previousCancelledAt = task.getCancelledAt();
         task.requestCancel();
-        boolean cancelled = task.getStatus() == TaskStatus.CANCELLED;
-        boolean newlyCancelled = previousStatus != TaskStatus.CANCELLED && cancelled;
+        boolean cancelled = task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED;
+        boolean newlyCancelled = previousStatus != AnalysisAsyncTaskStatus.CANCELLED && cancelled;
         if (newlyCancelled) {
             releaseCreditIfNeeded(task);
             recordProcessingMetric(task, "cancelled");
@@ -184,7 +186,7 @@ public class AnalysisAsyncTaskService {
     }
 
     @Transactional(readOnly = true)
-    public CreditStatus getCreditStatus(String taskId) {
+    public AnalysisAsyncCreditStatus getCreditStatus(String taskId) {
         return getTask(taskId).getCreditStatus();
     }
 
@@ -251,12 +253,12 @@ public class AnalysisAsyncTaskService {
                         DEFAULT_ESTIMATED_REMAINING_SECONDS
                 ))
                 .steps(buildSteps(task))
-                .result(task.getStatus() == TaskStatus.SUCCEEDED ? result : null)
+                .result(task.getStatus() == AnalysisAsyncTaskStatus.SUCCEEDED ? result : null)
                 .build();
     }
 
     private void releaseCreditIfNeeded(AnalysisAsyncTask task) {
-        if (task.getCreditStatus() != CreditStatus.RESERVED || task.getCreditReferenceId() == null) {
+        if (task.getCreditStatus() != AnalysisAsyncCreditStatus.RESERVED || task.getCreditReferenceId() == null) {
             return;
         }
         User user = userService.getUser(task.getUserId());
@@ -281,7 +283,7 @@ public class AnalysisAsyncTaskService {
         );
     }
 
-    private AsyncTaskProgressStatus toProgressStatus(TaskStatus status) {
+    private AsyncTaskProgressStatus toProgressStatus(AnalysisAsyncTaskStatus status) {
         return AsyncTaskProgressStatus.valueOf(status.name());
     }
 

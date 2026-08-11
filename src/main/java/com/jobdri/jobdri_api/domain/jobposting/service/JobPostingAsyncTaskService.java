@@ -5,8 +5,8 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatu
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingProgressStepResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
-import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.FailureReason;
-import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.AnalysisAsyncFailureReason;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.domain.notification.entity.NotificationTargetType;
 import com.jobdri.jobdri_api.domain.notification.entity.NotificationType;
 import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
@@ -86,16 +86,16 @@ public class JobPostingAsyncTaskService {
     @Transactional
     public JobPostingIngestResponse markSuccess(String taskId, JobPostingIngestResponse result) {
         JobPostingAsyncTask task = getTaskState(taskId);
-        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+        if (task.getStatus() == AnalysisAsyncTaskStatus.SUCCEEDED) {
             return deserializeResult(task.getResultPayload());
         }
-        if (task.getStatus() == TaskStatus.FAILED) {
+        if (task.getStatus() == AnalysisAsyncTaskStatus.FAILED) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
                     "이미 실패 처리된 채용 공고 비동기 작업입니다. taskId=" + taskId
             );
         }
-        if (task.getStatus() == TaskStatus.CANCELLED) {
+        if (task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
                     "취소된 채용 공고 비동기 작업입니다. taskId=" + taskId
@@ -109,7 +109,7 @@ public class JobPostingAsyncTaskService {
     }
 
     @Transactional
-    public void markRetryScheduled(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
+    public void markRetryScheduled(String taskId, AnalysisAsyncFailureReason failureReason, String errorMessage, int retryCount) {
         JobPostingAsyncTask task = getTaskState(taskId);
         if (isTerminal(task)) {
             return;
@@ -120,7 +120,7 @@ public class JobPostingAsyncTaskService {
     }
 
     @Transactional
-    public void markFailed(String taskId, FailureReason failureReason, String errorMessage, int retryCount) {
+    public void markFailed(String taskId, AnalysisAsyncFailureReason failureReason, String errorMessage, int retryCount) {
         JobPostingAsyncTask task = getTaskState(taskId);
         if (isTerminal(task)) {
             return;
@@ -134,11 +134,11 @@ public class JobPostingAsyncTaskService {
     @Transactional
     public JobPostingAsyncCancelResponse cancelTask(User user, String taskId) {
         JobPostingAsyncTask task = getOwnedTaskState(user, taskId);
-        TaskStatus previousStatus = task.getStatus();
+        AnalysisAsyncTaskStatus previousStatus = task.getStatus();
         LocalDateTime previousCancelledAt = task.getCancelledAt();
         task.requestCancel();
-        boolean cancelled = task.getStatus() == TaskStatus.CANCELLED;
-        boolean newlyCancelled = previousStatus != TaskStatus.CANCELLED && cancelled;
+        boolean cancelled = task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED;
+        boolean newlyCancelled = previousStatus != AnalysisAsyncTaskStatus.CANCELLED && cancelled;
         if (newlyCancelled) {
             recordProcessingMetric(task, "cancelled");
         }
@@ -182,7 +182,7 @@ public class JobPostingAsyncTaskService {
     @Transactional
     public int sweepTimedOutTasks() {
         int expiredCount = 0;
-        for (JobPostingAsyncTask task : jobPostingAsyncTaskRepository.findByStatusIn(EnumSet.of(TaskStatus.PENDING, TaskStatus.RUNNING))) {
+        for (JobPostingAsyncTask task : jobPostingAsyncTaskRepository.findByStatusIn(EnumSet.of(AnalysisAsyncTaskStatus.PENDING, AnalysisAsyncTaskStatus.RUNNING))) {
             if (expireTimedOutTaskIfNeeded(task)) {
                 expiredCount++;
             }
@@ -244,9 +244,9 @@ public class JobPostingAsyncTaskService {
     }
 
     private boolean isTerminal(JobPostingAsyncTask task) {
-        return task.getStatus() == TaskStatus.SUCCEEDED
-                || task.getStatus() == TaskStatus.FAILED
-                || task.getStatus() == TaskStatus.CANCELLED;
+        return task.getStatus() == AnalysisAsyncTaskStatus.SUCCEEDED
+                || task.getStatus() == AnalysisAsyncTaskStatus.FAILED
+                || task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED;
     }
 
     private boolean expireTimedOutTaskIfNeeded(JobPostingAsyncTask task) {
@@ -255,11 +255,11 @@ public class JobPostingAsyncTaskService {
         }
 
         LocalDateTime now = LocalDateTime.now();
-        if (task.getStatus() == TaskStatus.PENDING
+        if (task.getStatus() == AnalysisAsyncTaskStatus.PENDING
                 && isExpired(task.getSubmittedAt(), now, jobPostingQueueProperties.getQueueTimeoutSeconds())) {
             markFailed(
                     task.getTaskId(),
-                    FailureReason.QUEUE_TIMEOUT,
+                    AnalysisAsyncFailureReason.QUEUE_TIMEOUT,
                     "채용 공고 작업이 대기열에서 시간 내 처리되지 않았습니다.",
                     task.getRetryCount()
             );
@@ -267,11 +267,11 @@ public class JobPostingAsyncTaskService {
         }
 
         LocalDateTime lastActivityAt = task.getLastAttemptAt() != null ? task.getLastAttemptAt() : task.getStartedAt();
-        if (task.getStatus() == TaskStatus.RUNNING
+        if (task.getStatus() == AnalysisAsyncTaskStatus.RUNNING
                 && isExpired(lastActivityAt, now, jobPostingQueueProperties.getProcessingTimeoutSeconds())) {
             markFailed(
                     task.getTaskId(),
-                    FailureReason.WORKER_TIMEOUT,
+                    AnalysisAsyncFailureReason.WORKER_TIMEOUT,
                     "채용 공고 작업이 처리 제한 시간을 초과했습니다.",
                     task.getRetryCount()
             );
@@ -312,7 +312,7 @@ public class JobPostingAsyncTaskService {
         );
     }
 
-    private AsyncTaskProgressStatus toProgressStatus(TaskStatus status) {
+    private AsyncTaskProgressStatus toProgressStatus(AnalysisAsyncTaskStatus status) {
         return AsyncTaskProgressStatus.valueOf(status.name());
     }
 

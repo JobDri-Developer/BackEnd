@@ -4,7 +4,8 @@ import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
-import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
+import com.jobdri.jobdri_api.domain.analysis.type.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
@@ -354,7 +355,7 @@ class MockApplyServiceTest {
         MockApply failedTaskApply = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK));
         failedTaskApply.updateStatus(MockApplyStatus.ANSWER_WRITE);
         AnalysisAsyncTask failedTask = AnalysisAsyncTask.pending(user.getId(), failedTaskApply.getId(), 0);
-        failedTask.markFailed(AnalysisAsyncTask.FailureReason.OPENAI_TIMEOUT, "timeout", 0);
+        failedTask.markFailed(AnalysisAsyncFailureReason.OPENAI_TIMEOUT, "timeout", 0);
         analysisAsyncTaskRepository.save(failedTask);
         MockApply cancelledTaskApply = mockApplyRepository.save(MockApply.create(user, posting, ApplyType.MOCK));
         cancelledTaskApply.updateStatus(MockApplyStatus.ANSWER_WRITE);

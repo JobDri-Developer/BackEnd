@@ -3,7 +3,8 @@ package com.jobdri.jobdri_api.domain.analysis.service.core;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisHighlightResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisQuestionResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
@@ -13,7 +14,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnalysisRespon
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
-import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;

@@ -1,0 +1,117 @@
+package com.jobdri.jobdri_api.domain.evaluation.analysis;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.ApplicationArguments;
+import org.springframework.boot.ApplicationRunner;
+import org.springframework.context.annotation.Profile;
+import org.springframework.core.env.Environment;
+import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Arrays;
+import java.util.List;
+
+@Component
+@Profile("analysis-eval")
+@ConditionalOnProperty(
+        prefix = "evaluation.analysis",
+        name = "enabled",
+        havingValue = "true",
+        matchIfMissing = false
+)
+@RequiredArgsConstructor
+@Slf4j
+// 수동 실행 예:
+// ./gradlew bootRun --args='--spring.profiles.active=analysis-eval --evaluation.analysis.enabled=true --evaluation.input=/path/evaluation_cases_검수.csv --evaluation.output=/path/evaluation_ai_results.csv --evaluation.confirm-openai-cost=true'
+public class EvaluationAnalysisRunner implements ApplicationRunner {
+
+    @Value("${evaluation.input:}")
+    private String inputPath;
+
+    @Value("${evaluation.output:}")
+    private String outputPath;
+
+    @Value("${evaluation.confirm-openai-cost:false}")
+    private boolean confirmOpenAiCost;
+
+    @Value("${openai.api.key:}")
+    private String openAiApiKey;
+
+    @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}")
+    private String analysisModel;
+
+    @Value("${evaluation.nlg-judge.enabled:false}")
+    private boolean nlgJudgeEnabled;
+
+    @Value("${evaluation.hybrid-merge.enabled:false}")
+    private boolean hybridMergeEnabled;
+
+    private final EvaluationAnalysisBatchService evaluationAnalysisBatchService;
+    private final EvaluationExitCoordinator evaluationExitCoordinator;
+    private final Environment environment;
+
+    @Override
+    public void run(ApplicationArguments args) throws Exception {
+        log.info("EvaluationAnalysisRunner run entered.");
+        try {
+            validateProfiles();
+            validateExecutionProperties();
+            log.info("EvaluationAnalysisRunner start. enabled=true");
+            log.info("평가용 자소서 분석을 시작합니다. input={}, output={}, model={}", inputPath, outputPath, analysisModel);
+            EvaluationAnalysisBatchService.EvaluationBatchSummary summary =
+                    evaluationAnalysisBatchService.run(Path.of(inputPath), Path.of(outputPath));
+            log.info(
+                    "평가용 자소서 분석이 완료되었습니다. total={}, success={}, failure={}, output={}",
+                    summary.totalCount(),
+                    summary.successCount(),
+                    summary.failureCount(),
+                    summary.outputPath()
+            );
+        } catch (Exception e) {
+            log.error("평가용 자소서 분석 실행에 실패했습니다. message={}", e.getMessage(), e);
+            evaluationExitCoordinator.exit("analysis-evaluation", 1);
+            throw e;
+        }
+        evaluationExitCoordinator.exit("analysis-evaluation", 0);
+    }
+
+    void validateProfiles() {
+        List<String> profiles = Arrays.asList(environment.getActiveProfiles());
+        if (profiles.contains("prod")) {
+            throw new IllegalStateException("analysis-eval must not run with prod profile.");
+        }
+        if (!profiles.contains("analysis-eval")) {
+            throw new IllegalStateException("Evaluation runner requires analysis-eval profile.");
+        }
+    }
+
+    void validateExecutionProperties() {
+        if (nlgJudgeEnabled || hybridMergeEnabled) {
+            throw new IllegalArgumentException(
+                    "evaluation.analysis.enabled는 evaluation.nlg-judge.enabled 또는 evaluation.hybrid-merge.enabled와 동시에 true로 설정할 수 없습니다."
+            );
+        }
+        if (!StringUtils.hasText(inputPath)) {
+            throw new IllegalArgumentException("evaluation.input 값을 지정해야 합니다.");
+        }
+        if (!StringUtils.hasText(outputPath)) {
+            throw new IllegalArgumentException("evaluation.output 값을 지정해야 합니다.");
+        }
+        if (!Files.isRegularFile(Path.of(inputPath))) {
+            throw new IllegalArgumentException("evaluation.input 파일을 찾을 수 없습니다. path=" + inputPath);
+        }
+        if (!StringUtils.hasText(openAiApiKey)) {
+            throw new IllegalArgumentException("OPENAI_API_KEY 또는 openai.api.key 값을 지정해야 합니다.");
+        }
+        if (!confirmOpenAiCost) {
+            throw new IllegalArgumentException(
+                    "외부 OpenAI API 비용 발생을 확인한 뒤 evaluation.confirm-openai-cost=true 값을 지정해야 합니다."
+            );
+        }
+    }
+}

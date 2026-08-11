@@ -1,12 +1,13 @@
 package com.jobdri.jobdri_api.domain.analysis.service.core;
 
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
+import com.jobdri.jobdri_api.domain.analysis.application.port.AnalysisGenerator;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
-import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient;
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
@@ -39,7 +40,7 @@ public class AnalysisService {
     private final QuestionRepository questionRepository;
     private final AnalysisRepository analysisRepository;
     private final JobPostingService jobPostingService;
-    private final AnalysisAiClient analysisAiClient;
+    private final AnalysisGenerator analysisGenerator;
     private final AnalysisCreditService analysisCreditService;
     private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
     private final AnalysisPreparationService analysisPreparationService;
@@ -102,7 +103,7 @@ public class AnalysisService {
     }
 
     public AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
-        return analysisAiClient.analyze(payload);
+        return analysisGenerator.analyze(payload);
     }
 
     @Transactional
