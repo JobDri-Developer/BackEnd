@@ -1,0 +1,34 @@
+package com.jobdri.jobdri_api.domain.evaluation.analysis;
+
+record NlgEvaluationComparisonResult(
+        String sourceResultFile,
+        Integer caseCount,
+        Integer successCount,
+        Integer judgeFailedCount,
+        Double averageRelevance,
+        Double averageProblemValidity,
+        Double averageSentenceTypeConsistency,
+        Double averageReasonCorrectness,
+        Double averageContextAwareness,
+        Double averageFaithfulness,
+        Double averageTenseConsistency,
+        Double averageUsability,
+        Double averageNonMeta,
+        Double averageMeaningPreservation,
+        Double noAnalysisAppropriateness,
+        Double strengthsPrecision,
+        Double strengthsCoverage,
+        Double missingKeywordsPrecision,
+        Double missingKeywordsCoverage,
+        Double overallUsefulness,
+        Double averageJudgeInputTokens,
+        Double averageJudgeOutputTokens,
+        Double averageJudgeLatencyMs,
+        Double averageAnalysisCount,
+        Double metaImprovementRate,
+        Double unsupportedFactRate,
+        Double falsePositiveAnalysisRate,
+        Double fatalErrorRate,
+        String errorCodeCounts
+) {
+}
