@@ -49,6 +49,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.IntFunction;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -66,6 +67,7 @@ class PaymentServiceTest {
 
     private static final String TEST_PORTONE_WEBHOOK_SECRET = "whsec_dGVzdC13ZWJob29rLXNlY3JldA==";
     private static final String ORDER_ID_PATTERN = "^jobdri-[0-9a-f]{32}$";
+    private static final long CONCURRENCY_TEST_TIMEOUT_SECONDS = 10L;
 
     @Autowired
     private PaymentService paymentService;
@@ -1464,16 +1466,36 @@ class PaymentServiceTest {
             var futures = tasks.stream()
                     .map(executor::submit)
                     .toList();
-            ready.await();
+            if (!ready.await(CONCURRENCY_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                cancelAll(futures);
+                throw new AssertionError("Concurrent test setup timed out before all workers became ready.");
+            }
             start.countDown();
 
             List<Result> results = new java.util.ArrayList<>();
+            long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(CONCURRENCY_TEST_TIMEOUT_SECONDS);
             for (var future : futures) {
-                results.add(future.get());
+                long remainingNanos = deadlineNanos - System.nanoTime();
+                if (remainingNanos <= 0) {
+                    cancelAll(futures);
+                    throw new AssertionError("Concurrent test timed out while waiting for worker completion.");
+                }
+                try {
+                    results.add(future.get(remainingNanos, TimeUnit.NANOSECONDS));
+                } catch (TimeoutException e) {
+                    cancelAll(futures);
+                    throw new AssertionError("Concurrent test timed out while waiting for worker completion.", e);
+                }
             }
             return results;
         } finally {
             executor.shutdownNow();
+        }
+    }
+
+    private void cancelAll(List<? extends java.util.concurrent.Future<?>> futures) {
+        for (var future : futures) {
+            future.cancel(true);
         }
     }
 
