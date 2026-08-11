@@ -10,6 +10,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
+import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
@@ -59,6 +60,9 @@ class AnalysisWorkerBridgeServiceTest {
 
     @Mock
     private AnalysisService analysisService;
+
+    @Mock
+    private AnalysisCreditService analysisCreditService;
 
     @Mock
     private UserService userService;
@@ -128,7 +132,7 @@ class AnalysisWorkerBridgeServiceTest {
         assertThatThrownBy(() -> analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L))
                 .isInstanceOf(GeneralException.class);
 
-        verify(analysisService, never()).deductAnalysisCredit(any(), anyString());
+        verify(analysisCreditService, never()).deduct(any(), anyString());
         verify(analysisAsyncTaskService, never()).markCreditReserved(anyString(), anyString());
     }
 
@@ -186,9 +190,12 @@ class AnalysisWorkerBridgeServiceTest {
         when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.prepareAnalysisExecution(user, 10L)).thenReturn(payload);
+        when(analysisCreditService.createAsyncReferenceId(task.getTaskId()))
+                .thenReturn("analysisTaskId=" + task.getTaskId());
         var context = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
 
-        verify(analysisService).deductAnalysisCredit(user, "analysisTaskId=" + task.getTaskId());
+        verify(analysisCreditService).createAsyncReferenceId(task.getTaskId());
+        verify(analysisCreditService).deduct(user, "analysisTaskId=" + task.getTaskId());
         verify(analysisAsyncTaskService).markCreditReserved(task.getTaskId(), "analysisTaskId=" + task.getTaskId());
         verify(analysisService).prepareAnalysisExecution(user, 10L);
         assertThat(context.corpusReferences()).hasSize(1);
@@ -229,7 +236,7 @@ class AnalysisWorkerBridgeServiceTest {
 
         analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
 
-        verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
+        verify(analysisCreditService, never()).deduct(eq(user), anyString());
         verify(analysisAsyncTaskService, never()).markCreditReserved(eq(task.getTaskId()), anyString());
         verify(analysisService).prepareAnalysisExecution(user, 10L);
     }

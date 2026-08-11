@@ -5,7 +5,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStat
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
+import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import lombok.RequiredArgsConstructor;
@@ -25,7 +25,7 @@ public class AnalysisAsyncSweepService {
 
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
     private final AnalysisAsyncTaskService analysisAsyncTaskService;
-    private final AnalysisService analysisService;
+    private final AnalysisCreditService analysisCreditService;
     private final UserService userService;
     private final TransactionTemplate transactionTemplate;
     private final AnalysisQueueProperties analysisQueueProperties;
@@ -98,7 +98,7 @@ public class AnalysisAsyncSweepService {
         }
 
         User user = userService.getUser(task.getUserId());
-        analysisService.refundAnalysisCredit(user, task.getCreditReferenceId());
+        analysisCreditService.refund(user, task.getCreditReferenceId());
         analysisAsyncTaskService.markCreditReleased(task.getTaskId());
     }
 

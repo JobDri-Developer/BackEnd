@@ -17,7 +17,6 @@ import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
-import com.jobdri.jobdri_api.domain.payment.service.CreditService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
@@ -41,7 +40,7 @@ public class AnalysisService {
     private final AnalysisRepository analysisRepository;
     private final JobPostingService jobPostingService;
     private final AnalysisAiClient analysisAiClient;
-    private final CreditService creditService;
+    private final AnalysisCreditService analysisCreditService;
     private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
     private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
     private final CorpusRetrievalService corpusRetrievalService;
@@ -60,14 +59,14 @@ public class AnalysisService {
             return cachedResponse;
         }
 
-        String referenceId = analysisCreditReferenceId(mockApplyId, inputFingerprint);
-        deductAnalysisCredit(user, referenceId);
+        String referenceId = analysisCreditService.createSyncReferenceId(mockApplyId, inputFingerprint);
+        analysisCreditService.deduct(user, referenceId);
 
         try {
             AnalysisLlmResponse llmResponse = executeAnalysis(payload);
             return finalizeAnalysis(user, mockApplyId, payload, llmResponse);
         } catch (RuntimeException e) {
-            refundAnalysisCredit(user, referenceId);
+            analysisCreditService.refund(user, referenceId);
             throw e;
         }
     }
@@ -77,16 +76,6 @@ public class AnalysisService {
         MockApply mockApply = getOwnedMockApply(user, mockApplyId);
         List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
         answeredQuestionsOrThrow(questions);
-    }
-
-    @Transactional
-    public void deductAnalysisCredit(User user, String referenceId) {
-        creditService.use(user, 1, "자소서 분석 크레딧 차감", referenceId);
-    }
-
-    @Transactional
-    public void refundAnalysisCredit(User user, String referenceId) {
-        creditService.refund(user, 1, "자소서 분석 크레딧 환불", referenceId);
     }
 
     @Transactional(readOnly = true)
@@ -287,11 +276,6 @@ public class AnalysisService {
                 .map(analysis -> getAnalysis(user, mockApplyId))
                 .orElse(null);
     }
-
-    private String analysisCreditReferenceId(Long mockApplyId, String inputFingerprint) {
-        return "mockApplyId=" + mockApplyId + ":fingerprint=" + inputFingerprint;
-    }
-
     private MockApply getOwnedMockApply(User user, Long mockApplyId) {
         MockApply mockApply = mockApplyRepository.findById(mockApplyId)
                 .orElseThrow(() -> new GeneralException(
