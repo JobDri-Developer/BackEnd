@@ -2,7 +2,7 @@ package com.jobdri.jobdri_api.domain.analysis.evaluation;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.MissingKeywordSanitizationDecision;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.MissingKeywordSanitizationResult;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.MissingKeywordSanitizer;

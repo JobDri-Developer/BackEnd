@@ -2,8 +2,8 @@ package com.jobdri.jobdri_api.domain.analysis.service.ai;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.criteria.JobCategoryEvaluationCriteria;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.policy.AnalysisPromptPolicy;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotProperties;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSearchQuery;
@@ -402,7 +402,7 @@ public class AnalysisPromptBuilder {
             RetrievalContext referenceContext,
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
             AnalysisCandidateResponse candidates,
-            com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse reviewResponse
+            com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateReviewResponse reviewResponse
     ) {
         String questionText = formatQuestions(promptInput);
         String candidateJson = writeJson(candidates);

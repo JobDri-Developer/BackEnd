@@ -1,4 +1,4 @@
-package com.jobdri.jobdri_api.domain.analysis.dto.criteria;
+package com.jobdri.jobdri_api.domain.analysis.dto.internal.criteria;
 
 import java.util.List;
 

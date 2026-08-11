@@ -3,7 +3,7 @@ package com.jobdri.jobdri_api.domain.analysis.evaluation;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusAdminRunner;
 import com.jobdri.jobdri_api.global.scheduling.AsyncTaskSweepScheduler;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.DefaultApplicationArguments;
 import org.junit.jupiter.api.DisplayName;

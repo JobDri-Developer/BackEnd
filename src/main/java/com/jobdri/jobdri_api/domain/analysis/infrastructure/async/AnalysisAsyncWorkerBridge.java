@@ -2,12 +2,12 @@ package com.jobdri.jobdri_api.domain.analysis.infrastructure.async;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerContextResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.CorpusReferenceContext;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerCompleteRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerContextResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerResultStoreRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.CorpusReferenceContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;

@@ -1,4 +1,4 @@
-package com.jobdri.jobdri_api.domain.analysis.dto.worker;
+package com.jobdri.jobdri_api.domain.analysis.dto.internal.worker;
 
 import com.jobdri.jobdri_api.global.logging.LoggingMdcKeys;
 import lombok.Builder;

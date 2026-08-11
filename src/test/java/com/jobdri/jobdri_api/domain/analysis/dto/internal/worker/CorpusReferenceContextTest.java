@@ -1,4 +1,4 @@
-package com.jobdri.jobdri_api.domain.analysis.dto.worker;
+package com.jobdri.jobdri_api.domain.analysis.dto.internal.worker;
 
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;

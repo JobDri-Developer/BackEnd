@@ -1,11 +1,11 @@
 package com.jobdri.jobdri_api.domain.analysis.service.async;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerCompleteRequest;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisWorkerResultStoreRequest;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerCompleteRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerResultStoreRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
@@ -406,7 +406,7 @@ class AnalysisWorkerBridgeServiceTest {
         AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
                 2L,
                 11L,
-                mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class),
+                mock(com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse.class),
                 "worker-1",
                 10L
         );
@@ -424,7 +424,7 @@ class AnalysisWorkerBridgeServiceTest {
         AnalysisWorkerResultStoreRequest request = new AnalysisWorkerResultStoreRequest(
                 1L,
                 10L,
-                mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class)
+                mock(com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse.class)
         );
 
         analysisWorkerBridgeService.storeGeneratedResult(task.getTaskId(), request);
@@ -442,7 +442,7 @@ class AnalysisWorkerBridgeServiceTest {
         AnalysisWorkerResultStoreRequest request = new AnalysisWorkerResultStoreRequest(
                 1L,
                 10L,
-                mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class)
+                mock(com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse.class)
         );
 
         analysisWorkerBridgeService.storeGeneratedResult(task.getTaskId(), request);
@@ -457,7 +457,7 @@ class AnalysisWorkerBridgeServiceTest {
         task.markSuccess();
         User user = User.signup("테스트 사용자", "analysis-complete@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 1L);
-        var llmResponse = mock(com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse.class);
+        var llmResponse = mock(com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse.class);
 
         when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);

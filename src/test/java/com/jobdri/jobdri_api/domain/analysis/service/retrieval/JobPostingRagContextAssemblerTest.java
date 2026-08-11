@@ -1,6 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.service.retrieval;
 
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingSimilarityResult;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;

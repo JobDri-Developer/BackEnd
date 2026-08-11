@@ -1,9 +1,9 @@
 package com.jobdri.jobdri_api.domain.analysis.evaluation;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisCandidateResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateReviewResponse;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient.AnalysisAiCallResult;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisPromptInput;

@@ -1,13 +1,13 @@
 package com.jobdri.jobdri_api.domain.analysis.service.ai;
 
-import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.criteria.JobCategoryEvaluationCriteria;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateRecheckResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateRecheckResponse.RecheckDecision;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse.RejectionCode;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisCandidateResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateRecheckResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateRecheckResponse.RecheckDecision;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateReviewResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateReviewResponse.RejectionCode;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.infrastructure.ai.OpenAiAnalysisAdapter;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotProperties;

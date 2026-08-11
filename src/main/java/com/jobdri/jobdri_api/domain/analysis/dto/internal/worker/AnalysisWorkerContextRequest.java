@@ -1,4 +1,4 @@
-package com.jobdri.jobdri_api.domain.analysis.dto.worker;
+package com.jobdri.jobdri_api.domain.analysis.dto.internal.worker;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;

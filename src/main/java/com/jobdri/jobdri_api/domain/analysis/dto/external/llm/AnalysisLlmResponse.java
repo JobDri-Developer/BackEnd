@@ -1,4 +1,4 @@
-package com.jobdri.jobdri_api.domain.analysis.dto.llm;
+package com.jobdri.jobdri_api.domain.analysis.dto.external.llm;
 
 import java.util.List;
 

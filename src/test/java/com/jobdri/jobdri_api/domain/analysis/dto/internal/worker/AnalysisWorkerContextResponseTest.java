@@ -1,4 +1,4 @@
-package com.jobdri.jobdri_api.domain.analysis.dto.worker;
+package com.jobdri.jobdri_api.domain.analysis.dto.internal.worker;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
