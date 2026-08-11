@@ -4,8 +4,6 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtensionIn
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtensionIngestResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestResponse;
-import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
-import com.jobdri.jobdri_api.domain.mockapply.service.MockApplyService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -15,8 +13,6 @@ import org.springframework.stereotype.Service;
 public class JobPostingExtensionIngestService {
 
     private final JobPostingIngestService jobPostingIngestService;
-    private final JobPostingService jobPostingService;
-    private final MockApplyService mockApplyService;
 
     public JobPostingExtensionIngestResponse ingest(User user, JobPostingExtensionIngestRequest request) {
         JobPostingIngestResponse ingest = jobPostingIngestService.ingestAndCreate(
@@ -24,22 +20,11 @@ public class JobPostingExtensionIngestService {
                 new JobPostingIngestRequest(request.rawText(), null)
         );
 
-        MockApplyCreateResponse mockApply = null;
-        if (ingest.isSavedToDatabase() && ingest.getSaved() != null) {
-            Long jobPostingId = ingest.getSaved().getJobPostingId();
-            try {
-                mockApply = mockApplyService.createMockApplyFromJobPosting(user, jobPostingId);
-            } catch (RuntimeException e) {
-                jobPostingService.deleteJobPosting(user, jobPostingId);
-                throw e;
-            }
-        }
-
         return JobPostingExtensionIngestResponse.of(
                 request.sourceUrl(),
                 request.sourceSite(),
                 ingest,
-                mockApply
+                null
         );
     }
 }
