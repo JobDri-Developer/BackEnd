@@ -12,7 +12,7 @@ import com.jobdri.jobdri_api.domain.notification.entity.NotificationTargetType;
 import com.jobdri.jobdri_api.domain.notification.entity.NotificationType;
 import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
+import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
@@ -57,7 +57,7 @@ public class AnalysisAsyncTaskService {
     private final NotificationService notificationService;
     private final AsyncMetricsRecorder asyncMetricsRecorder;
     private final AnalysisQueueProperties analysisQueueProperties;
-    private final AnalysisService analysisService;
+    private final AnalysisCreditService analysisCreditService;
     private final UserService userService;
     private final AsyncProgressCalculator asyncProgressCalculator;
 
@@ -260,7 +260,7 @@ public class AnalysisAsyncTaskService {
             return;
         }
         User user = userService.getUser(task.getUserId());
-        analysisService.refundAnalysisCredit(user, task.getCreditReferenceId());
+        analysisCreditService.refund(user, task.getCreditReferenceId());
         task.markCreditReleased();
     }
 

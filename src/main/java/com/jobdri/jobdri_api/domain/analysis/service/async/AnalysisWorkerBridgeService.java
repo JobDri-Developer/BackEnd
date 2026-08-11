@@ -14,6 +14,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureRea
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
+import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
@@ -45,6 +46,7 @@ public class AnalysisWorkerBridgeService {
     private final AnalysisAsyncTaskService analysisAsyncTaskService;
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
     private final AnalysisService analysisService;
+    private final AnalysisCreditService analysisCreditService;
     private final UserService userService;
     private final WorkerTaskResultService workerTaskResultService;
     private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
@@ -306,8 +308,8 @@ public class AnalysisWorkerBridgeService {
         }
 
         User user = userService.getUser(task.getUserId());
-        String creditReferenceId = "analysisTaskId=" + task.getTaskId();
-        analysisService.deductAnalysisCredit(user, creditReferenceId);
+        String creditReferenceId = analysisCreditService.createAsyncReferenceId(task.getTaskId());
+        analysisCreditService.deduct(user, creditReferenceId);
         analysisAsyncTaskService.markCreditReserved(task.getTaskId(), creditReferenceId);
     }
 
@@ -323,7 +325,7 @@ public class AnalysisWorkerBridgeService {
             return;
         }
         User user = userService.getUser(task.getUserId());
-        analysisService.refundAnalysisCredit(user, task.getCreditReferenceId());
+        analysisCreditService.refund(user, task.getCreditReferenceId());
         analysisAsyncTaskService.markCreditReleased(task.getTaskId());
     }
 

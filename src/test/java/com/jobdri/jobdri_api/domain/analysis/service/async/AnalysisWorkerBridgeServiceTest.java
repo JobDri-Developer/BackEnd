@@ -10,6 +10,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
+import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
@@ -44,6 +45,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,6 +61,9 @@ class AnalysisWorkerBridgeServiceTest {
 
     @Mock
     private AnalysisService analysisService;
+
+    @Mock
+    private AnalysisCreditService analysisCreditService;
 
     @Mock
     private UserService userService;
@@ -128,7 +133,7 @@ class AnalysisWorkerBridgeServiceTest {
         assertThatThrownBy(() -> analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L))
                 .isInstanceOf(GeneralException.class);
 
-        verify(analysisService, never()).deductAnalysisCredit(any(), anyString());
+        verify(analysisCreditService, never()).deduct(any(), anyString());
         verify(analysisAsyncTaskService, never()).markCreditReserved(anyString(), anyString());
     }
 
@@ -186,14 +191,25 @@ class AnalysisWorkerBridgeServiceTest {
         when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.prepareAnalysisExecution(user, 10L)).thenReturn(payload);
-        var context = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
+        when(analysisCreditService.createAsyncReferenceId(task.getTaskId()))
+                .thenReturn("analysisTaskId=" + task.getTaskId());
+        when(analysisInputFingerprintProvider.create(payload)).thenReturn("initial-fingerprint");
+        doAnswer(invocation -> {
+            ReflectionTestUtils.invokeMethod(task, "markCreditReserved", invocation.getArgument(1, String.class));
+            return null;
+        }).when(analysisAsyncTaskService).markCreditReserved(eq(task.getTaskId()), anyString());
 
-        verify(analysisService).deductAnalysisCredit(user, "analysisTaskId=" + task.getTaskId());
+        var firstContext = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
+        var secondContext = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
+
+        verify(analysisCreditService).createAsyncReferenceId(task.getTaskId());
+        verify(analysisCreditService).deduct(user, "analysisTaskId=" + task.getTaskId());
         verify(analysisAsyncTaskService).markCreditReserved(task.getTaskId(), "analysisTaskId=" + task.getTaskId());
-        verify(analysisService).prepareAnalysisExecution(user, 10L);
-        assertThat(context.corpusReferences()).hasSize(1);
-        assertThat(context.corpusReferences().getFirst().corpusId()).isEqualTo(11L);
-        assertThat(context.similarJobPostings()).containsExactly(similarContext);
+        verify(analysisService, times(1)).prepareAnalysisExecution(user, 10L);
+        assertThat(firstContext).isEqualTo(secondContext);
+        assertThat(firstContext.corpusReferences()).hasSize(1);
+        assertThat(firstContext.corpusReferences().getFirst().corpusId()).isEqualTo(11L);
+        assertThat(firstContext.similarJobPostings()).containsExactly(similarContext);
     }
 
     @Test
@@ -229,9 +245,35 @@ class AnalysisWorkerBridgeServiceTest {
 
         analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
 
-        verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
+        verify(analysisCreditService, never()).deduct(eq(user), anyString());
         verify(analysisAsyncTaskService, never()).markCreditReserved(eq(task.getTaskId()), anyString());
         verify(analysisService).prepareAnalysisExecution(user, 10L);
+    }
+
+    @Test
+    @DisplayName("실패 처리를 재시도해도 예약된 크레딧 환불은 한 번만 수행한다")
+    void failTaskReleasesReservedCreditOnlyOnce() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        ReflectionTestUtils.invokeMethod(task, "markCreditReserved", "analysisTaskId=" + task.getTaskId());
+        User user = User.signup("테스트 사용자", "analysis-worker-refund@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(userService.getUser(1L)).thenReturn(user);
+        doAnswer(invocation -> {
+            task.markCreditReleased();
+            return null;
+        }).when(analysisAsyncTaskService).markCreditReleased(task.getTaskId());
+        doAnswer(invocation -> {
+            task.markFailed(FailureReason.INTERNAL_ERROR, "error", 1);
+            return null;
+        }).when(analysisAsyncTaskService).markFailed(task.getTaskId(), FailureReason.INTERNAL_ERROR, "error", 1);
+
+        analysisWorkerBridgeService.failTask(task.getTaskId(), FailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
+        analysisWorkerBridgeService.failTask(task.getTaskId(), FailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
+
+        verify(analysisCreditService, times(1)).refund(user, "analysisTaskId=" + task.getTaskId());
+        verify(analysisAsyncTaskService, times(1)).markCreditReleased(task.getTaskId());
     }
 
     @Test

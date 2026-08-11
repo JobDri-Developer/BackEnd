@@ -1,14 +1,22 @@
 package com.jobdri.jobdri_api.domain.analysis.service.async;
 
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncCancelResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncSubmitResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
+import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
+import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -24,6 +32,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -62,7 +71,6 @@ class AnalysisAsyncFacadeServiceTest {
 
         assertThat(response.taskId()).isEqualTo(existingTask.getTaskId());
         assertThat(response.status()).isEqualTo("PENDING");
-        verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
         verify(analysisAsyncProcessor, never()).process(eq(existingTask.getTaskId()), eq(1L), eq(10L), eq(3));
     }
 
@@ -104,7 +112,6 @@ class AnalysisAsyncFacadeServiceTest {
         assertThat(response.cached()).isFalse();
         assertThat(response.resultAvailable()).isFalse();
         verify(analysisAsyncProcessor, times(1)).process(createdTask.getTaskId(), 1L, 10L, 3);
-        verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
     }
 
     @Test
@@ -144,6 +151,109 @@ class AnalysisAsyncFacadeServiceTest {
         assertThat(response.cached()).isFalse();
         assertThat(response.resultAvailable()).isFalse();
         verify(analysisService, never()).hasReusableAnalysis(user, 10L);
+    }
+
+    @Test
+    @DisplayName("성공한 task 상태 조회는 분석 결과를 함께 반환한다")
+    void getTaskReturnsResultWhenSucceeded() {
+        User user = User.signup("테스트 사용자", "analysis-async-status-success@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncStatusResponse status = AnalysisAsyncStatusResponse.builder()
+                .taskId("task-1")
+                .mockApplyId(10L)
+                .status("SUCCEEDED")
+                .message("분석이 완료되었습니다.")
+                .build();
+        AnalysisResponse result = new AnalysisResponse(
+                10L,
+                100L,
+                MockApplyStatus.COMPLETED,
+                1,
+                80,
+                80,
+                80,
+                80,
+                "완료된 분석입니다.",
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of()
+        );
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.getTaskStatus(1L, "task-1")).thenReturn(status);
+        when(analysisService.getAnalysis(user, 10L)).thenReturn(result);
+
+        AnalysisAsyncStatusResponse response = analysisAsyncFacadeService.getTask(user, 10L, "task-1");
+
+        assertThat(response.taskId()).isEqualTo("task-1");
+        assertThat(response.status()).isEqualTo("SUCCEEDED");
+        assertThat(response.result()).isEqualTo(result);
+        verify(analysisService, times(1)).getAnalysis(user, 10L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"RUNNING", "PENDING", "FAILED", "CANCELLED"})
+    @DisplayName("비완료 task 상태 조회는 분석 결과를 조회하지 않는다")
+    void getTaskReturnsStatusWithoutResultWhenNotSucceeded(String taskStatus) {
+        User user = User.signup("테스트 사용자", "analysis-async-status-" + taskStatus.toLowerCase() + "@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncStatusResponse status = AnalysisAsyncStatusResponse.builder()
+                .taskId("task-1")
+                .mockApplyId(10L)
+                .status(taskStatus)
+                .message("분석 상태입니다.")
+                .build();
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.getTaskStatus(1L, "task-1")).thenReturn(status);
+
+        AnalysisAsyncStatusResponse response = analysisAsyncFacadeService.getTask(user, 10L, "task-1");
+
+        assertThat(response).isEqualTo(status);
+        verify(analysisService, never()).getAnalysis(user, 10L);
+    }
+
+    @Test
+    @DisplayName("task 상태 조회 시 요청 mockApplyId가 다르면 예외를 던진다")
+    void getTaskThrowsWhenMockApplyIdDoesNotMatch() {
+        User user = User.signup("테스트 사용자", "analysis-async-status-forbidden@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncStatusResponse status = AnalysisAsyncStatusResponse.builder()
+                .taskId("task-1")
+                .mockApplyId(99L)
+                .status("RUNNING")
+                .message("분석 중입니다.")
+                .build();
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.getTaskStatus(1L, "task-1")).thenReturn(status);
+
+        assertThatThrownBy(() -> analysisAsyncFacadeService.getTask(user, 10L, "task-1"))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.FORBIDDEN);
+        verifyNoInteractions(analysisService);
+    }
+
+    @Test
+    @DisplayName("task 취소는 검증된 사용자 기준으로 task service에 위임한다")
+    void cancelDelegatesToTaskService() {
+        User user = User.signup("테스트 사용자", "analysis-async-cancel@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncCancelResponse cancelResponse = new AnalysisAsyncCancelResponse(
+                "task-1",
+                "CANCELLED",
+                "분석 작업이 취소되었습니다."
+        );
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.cancelTask(1L, 10L, "task-1")).thenReturn(cancelResponse);
+
+        AnalysisAsyncCancelResponse response = analysisAsyncFacadeService.cancel(user, 10L, "task-1");
+
+        assertThat(response).isEqualTo(cancelResponse);
+        verify(analysisAsyncTaskService, times(1)).cancelTask(1L, 10L, "task-1");
     }
 
     @Test
