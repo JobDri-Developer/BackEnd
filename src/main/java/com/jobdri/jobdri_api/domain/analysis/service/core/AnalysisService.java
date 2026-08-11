@@ -8,11 +8,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient;
-import com.jobdri.jobdri_api.domain.analysis.service.ai.JobCategoryEvaluationCriteriaProvider;
-import com.jobdri.jobdri_api.domain.analysis.service.retrieval.JobPostingRagContextAssembler;
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
-import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
-import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
@@ -41,10 +37,8 @@ public class AnalysisService {
     private final JobPostingService jobPostingService;
     private final AnalysisAiClient analysisAiClient;
     private final AnalysisCreditService analysisCreditService;
-    private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
     private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
-    private final CorpusRetrievalService corpusRetrievalService;
-    private final JobPostingRagContextAssembler jobPostingRagContextAssembler;
+    private final AnalysisPreparationService analysisPreparationService;
     private final AnalysisResultPersistenceService analysisResultPersistenceService;
 
     @Transactional
@@ -80,17 +74,7 @@ public class AnalysisService {
 
     @Transactional(readOnly = true)
     public AnalysisExecutionPayload prepareAnalysisExecution(User user, Long mockApplyId) {
-        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
-        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
-        List<Question> answeredQuestions = answeredQuestionsOrThrow(questions);
-        return prepareAnalysisExecution(
-                user,
-                mockApply,
-                questions,
-                answeredQuestions,
-                retrieveAnalysisReferences(mockApply.getJobPosting(), answeredQuestions),
-                jobPostingRagContextAssembler.assemble(mockApply.getJobPosting().getId())
-        );
+        return analysisPreparationService.prepare(user, mockApplyId).toExecutionPayload();
     }
 
     @Transactional(readOnly = true)
@@ -99,44 +83,7 @@ public class AnalysisService {
             Long mockApplyId,
             List<SimilarJobPostingContext> similarJobPostings
     ) {
-        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
-        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
-        List<Question> answeredQuestions = answeredQuestionsOrThrow(questions);
-        return prepareAnalysisExecution(
-                user,
-                mockApply,
-                questions,
-                answeredQuestions,
-                new RetrievalContext(List.of(), List.of()),
-                similarJobPostings
-        );
-    }
-
-    private AnalysisExecutionPayload prepareAnalysisExecution(
-            User user,
-            MockApply mockApply,
-            List<Question> questions,
-            List<Question> answeredQuestions,
-            RetrievalContext retrievalContext,
-            List<SimilarJobPostingContext> similarJobPostings
-    ) {
-        // Initialize hierarchy before leaving the read transaction so detached payload can be used safely.
-        mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName();
-        mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getClassification().getBigName();
-        JobCategoryEvaluationCriteria evaluationCriteria = jobCategoryEvaluationCriteriaProvider
-                .findByMiddleName(mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName())
-                .orElse(null);
-
-        return new AnalysisExecutionPayload(
-                user.getId(),
-                mockApply.getId(),
-                mockApply.getJobPosting(),
-                List.copyOf(questions),
-                List.copyOf(answeredQuestions),
-                evaluationCriteria,
-                retrievalContext,
-                similarJobPostings
-        );
+        return analysisPreparationService.prepare(user, mockApplyId, similarJobPostings).toExecutionPayload();
     }
 
     private List<Question> answeredQuestionsOrThrow(List<Question> questions) {
@@ -244,16 +191,6 @@ public class AnalysisService {
                         + ", sequence="
                         + sequence
         );
-    }
-
-    private RetrievalContext retrieveAnalysisReferences(JobPosting jobPosting, List<Question> answeredQuestions) {
-        try {
-            return corpusRetrievalService.retrieveForAnalysis(jobPosting, answeredQuestions);
-        } catch (Exception exception) {
-            log.warn("자소서 분석 Curated Corpus retrieval 실패. fallback without references. message={}", exception.getMessage());
-            log.debug("analysis Curated Corpus retrieval exception", exception);
-            return new RetrievalContext(List.of(), List.of());
-        }
     }
 
     private MockApply lockOwnedMockApply(User user, Long mockApplyId) {
