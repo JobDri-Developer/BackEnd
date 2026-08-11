@@ -28,7 +28,7 @@ public final class AnalysisImprovementRules {
     private AnalysisImprovementRules() {
     }
 
-    static String bannedPhrasesText() {
+    public static String bannedPhrasesText() {
         return String.join(", ", BANNED_PHRASES);
     }
 
