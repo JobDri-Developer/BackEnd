@@ -228,6 +228,41 @@ public class Payment extends BaseEntity {
         this.lastStatusCheckedAt = LocalDateTime.now();
     }
 
+    public void completeByProviderStatus(String providerStatus, String providerTransactionId) {
+        switch (getProviderOrDefault()) {
+            case TOSS_PAY_DIRECT -> completeByTossPay(providerStatus);
+            case PORTONE -> completeByPortOne(providerStatus, providerTransactionId);
+        }
+    }
+
+    public void failByProviderStatus(String providerStatus, String providerTransactionId) {
+        switch (getProviderOrDefault()) {
+            case TOSS_PAY_DIRECT -> failByTossPay(providerStatus);
+            case PORTONE -> failByPortOne(providerStatus, providerTransactionId);
+        }
+    }
+
+    public void markUnknownByProviderStatus(String providerStatus, String providerTransactionId) {
+        switch (getProviderOrDefault()) {
+            case TOSS_PAY_DIRECT -> updateTossStatus(providerStatus);
+            case PORTONE -> markPortOneUnknown(providerStatus, providerTransactionId);
+        }
+    }
+
+    public void updateProviderStatus(String providerStatus, String providerTransactionId) {
+        switch (getProviderOrDefault()) {
+            case TOSS_PAY_DIRECT -> updateTossStatus(providerStatus);
+            case PORTONE -> updatePortOneStatus(providerStatus, providerTransactionId);
+        }
+    }
+
+    public void refundByProviderStatus(String providerStatus, String refundReason) {
+        switch (getProviderOrDefault()) {
+            case TOSS_PAY_DIRECT -> refundByTossPay(providerStatus, refundReason);
+            case PORTONE -> refundByPortOne(providerStatus, refundReason);
+        }
+    }
+
     private void validateRefundableStatus() {
         if (this.status != PaymentStatus.COMPLETED) {
             throw new IllegalStateException("완료된 결제만 환불 상태로 변경할 수 있습니다.");
