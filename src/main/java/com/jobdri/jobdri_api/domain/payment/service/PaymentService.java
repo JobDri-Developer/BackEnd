@@ -2,6 +2,11 @@ package com.jobdri.jobdri_api.domain.payment.service;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.payment.gateway.PaymentGateway;
+import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentQuery;
+import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentSnapshot;
+import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPrepareCommand;
+import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPrepareResult;
 import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancelResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePaymentResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePrepareData;
@@ -12,7 +17,6 @@ import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentRefundRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.*;
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayCreateResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayRefundResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
@@ -56,6 +60,7 @@ public class PaymentService {
     private final UserService userService;
     private final CreditTransactionRepository creditTransactionRepository;
     private final PaymentTransactionService paymentTransactionService;
+    private final List<PaymentGateway> paymentGateways;
     private final TossPaymentClient tossPaymentClient;
     private final TossPayClient tossPayClient;
     private final PortOneClient portOneClient;
@@ -88,15 +93,18 @@ public class PaymentService {
                 validatedUser.getId(),
                 plan,
                 orderId,
-                PaymentProviderType.TOSS_PAY_DIRECT
+                provider
         );
-        TossPayCreateResponse tossPayResponse;
+        GatewayPrepareResult prepareResult;
         try {
-            tossPayResponse = tossPayClient.createPayment(
+            prepareResult = resolveGateway(provider).prepare(new GatewayPrepareCommand(
+                    provider,
                     payment.getOrderId(),
+                    payment.getContent(),
                     payment.getPrice(),
-                    payment.getContent()
-            );
+                    payment.getCreditAmount(),
+                    validatedUser.getEmail()
+            ));
         } catch (RuntimeException e) {
             if (e instanceof GeneralException generalException
                     && generalException.getCode() == GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT) {
@@ -111,15 +119,15 @@ public class PaymentService {
             payment = paymentTransactionService.completeTossPayCreation(
                     validatedUser.getId(),
                     payment.getOrderId(),
-                    tossPayResponse.payToken(),
-                    tossPayResponse.checkoutPage()
+                    prepareResult.payToken(),
+                    prepareResult.checkoutPage()
             );
         } catch (RuntimeException e) {
             paymentTransactionService.markTossPayCreationUnknown(
                     validatedUser.getId(),
                     payment.getOrderId(),
-                    tossPayResponse.payToken(),
-                    tossPayResponse.checkoutPage()
+                    prepareResult.payToken(),
+                    prepareResult.checkoutPage()
             );
             throw e;
         }
@@ -134,14 +142,31 @@ public class PaymentService {
         return PaymentPrepareResponse.of(payment, validatedUser.getEmail());
     }
 
+    private PaymentGateway resolveGateway(PaymentProviderType provider) {
+        return paymentGateways.stream()
+                .filter(gateway -> gateway.type() == provider)
+                .findFirst()
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.SERVICE_UNAVAILABLE,
+                        "지원하는 결제 게이트웨이를 찾을 수 없습니다. provider=" + provider
+                ));
+    }
+
     private PaymentPrepareResponse preparePortOne(User validatedUser, CreditPlan plan) {
-        PortOnePrepareData prepareData = portOneClient.prepareData();
         String orderId = generateOrderId();
         Payment payment = paymentTransactionService.createPortOnePendingPayment(
                 validatedUser.getId(),
                 plan,
                 orderId
         );
+        GatewayPrepareResult prepareResult = resolveGateway(PaymentProviderType.PORTONE).prepare(new GatewayPrepareCommand(
+                PaymentProviderType.PORTONE,
+                payment.getOrderId(),
+                payment.getContent(),
+                payment.getPrice(),
+                payment.getCreditAmount(),
+                validatedUser.getEmail()
+        ));
         try (var ignored = LoggingContext.with(
                 "payment.portone.prepare.completed",
                 null,
@@ -152,9 +177,9 @@ public class PaymentService {
         return PaymentPrepareResponse.portOne(
                 payment,
                 validatedUser.getEmail(),
-                prepareData.storeId(),
-                prepareData.channelKey(),
-                prepareData.redirectUrl()
+                prepareResult.storeId(),
+                prepareResult.channelKey(),
+                prepareResult.redirectUrl()
         );
     }
 
@@ -263,10 +288,12 @@ public class PaymentService {
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PaymentConfirmResponse completePortOne(User user, PortOnePaymentCompleteRequest request) {
         User validatedUser = userService.validateUser(user);
-        PortOnePaymentResponse response = portOneClient.getPayment(request.paymentId());
+        GatewayPaymentSnapshot paymentSnapshot = resolveGateway(PaymentProviderType.PORTONE).fetch(
+                new GatewayPaymentQuery(null, request.paymentId(), null)
+        );
         return paymentTransactionService.applyPortOnePayment(
                 validatedUser.getId(),
-                response,
+                paymentSnapshot,
                 portOneClient.storeId()
         );
     }
