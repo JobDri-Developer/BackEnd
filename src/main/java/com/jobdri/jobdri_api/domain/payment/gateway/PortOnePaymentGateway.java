@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.payment.gateway;
 
+import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancelResponse;
 import com.jobdri.jobdri_api.domain.payment.entity.PaymentProviderType;
 import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayConfirmCommand;
 import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentQuery;
@@ -9,7 +10,10 @@ import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPrepareCommand;
 import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPrepareResult;
 import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayRefundCommand;
 import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayRefundResult;
+import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayRefundStatus;
 import com.jobdri.jobdri_api.domain.payment.service.PortOneClient;
+import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
+import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -64,7 +68,16 @@ public class PortOnePaymentGateway implements PaymentGateway {
 
     @Override
     public GatewayRefundResult refund(GatewayRefundCommand command) {
-        throw unsupported();
+        if (isBlank(command.externalPaymentId())) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "포트원 paymentId가 없는 결제는 환불할 수 없습니다.");
+        }
+        PortOneCancelResponse response = portOneClient.cancelPayment(
+                command.externalPaymentId(),
+                command.amount(),
+                command.reason()
+        );
+        validateRefundResponse(response, command.amount());
+        return new GatewayRefundResult(type(), GatewayRefundStatus.SUCCEEDED, "CANCELLED");
     }
 
     private GatewayPaymentStatus mapStatus(String externalStatus) {
@@ -81,6 +94,21 @@ public class PortOnePaymentGateway implements PaymentGateway {
     }
 
     private UnsupportedOperationException unsupported() {
-        return new UnsupportedOperationException("PortOnePaymentGateway currently supports prepare and fetch only.");
+        return new UnsupportedOperationException("PortOnePaymentGateway currently supports prepare, fetch, and refund only.");
+    }
+
+    private void validateRefundResponse(PortOneCancelResponse response, int amount) {
+        if (response == null
+                || response.cancellation() == null
+                || isBlank(response.cancellation().id())
+                || !"SUCCEEDED".equals(response.cancellation().status())
+                || response.cancellation().amount() == null
+                || response.cancellation().amount() != amount) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "포트원 결제 취소 응답 검증에 실패했습니다.");
+        }
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }

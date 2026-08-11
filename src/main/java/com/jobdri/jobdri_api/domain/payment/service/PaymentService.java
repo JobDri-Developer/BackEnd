@@ -7,9 +7,9 @@ import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentQuery;
 import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentSnapshot;
 import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPrepareCommand;
 import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPrepareResult;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancelResponse;
+import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayRefundCommand;
+import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayRefundResult;
 import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePaymentResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePrepareData;
 import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneWebhookPayload;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PortOnePaymentCompleteRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
@@ -17,7 +17,6 @@ import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentRefundRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.*;
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayRefundResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
@@ -272,7 +271,15 @@ public class PaymentService {
             );
         }
         try {
-            RefundExternalResult result = refundExternalPayment(start, reason);
+            GatewayRefundResult result = resolveGateway(start.provider()).refund(new GatewayRefundCommand(
+                    start.paymentId(),
+                    start.provider(),
+                    start.orderId(),
+                    start.externalPaymentId(),
+                    start.payToken(),
+                    start.amount(),
+                    reason
+            ));
             return paymentTransactionService.completeRefund(
                     start.paymentId(),
                     start.provider(),
@@ -470,76 +477,6 @@ public class PaymentService {
         }
     }
 
-    private RefundExternalResult refundExternalPayment(
-            PaymentTransactionService.PaymentRefundStart start,
-            String reason
-    ) {
-        return switch (start.provider()) {
-            case PORTONE -> refundPortOnePayment(start, reason);
-            case TOSS_PAY_DIRECT -> refundTossPayPayment(start, reason);
-            default -> throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "지원하지 않는 결제수단입니다.");
-        };
-    }
-
-    private RefundExternalResult refundPortOnePayment(PaymentTransactionService.PaymentRefundStart start, String reason) {
-        if (isBlank(start.externalPaymentId())) {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "포트원 paymentId가 없는 결제는 환불할 수 없습니다.");
-        }
-        PortOneCancelResponse response = portOneClient.cancelPayment(start.externalPaymentId(), start.amount(), reason);
-        validatePortOneRefundResponse(response, start);
-        return new RefundExternalResult("CANCELLED");
-    }
-
-    private RefundExternalResult refundTossPayPayment(PaymentTransactionService.PaymentRefundStart start, String reason) {
-        if (isBlank(start.payToken())) {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "토스페이 payToken이 없는 결제는 환불할 수 없습니다.");
-        }
-        String refundNo = tossPayRefundNo(start.paymentId());
-        TossPayRefundResponse response = tossPayClient.refundPayment(
-                start.payToken(),
-                start.orderId(),
-                refundNo,
-                start.amount(),
-                reason
-        );
-        validateTossPayRefundResponse(response, start, refundNo);
-        return new RefundExternalResult(response.payStatus());
-    }
-
-    private void validatePortOneRefundResponse(
-            PortOneCancelResponse response,
-            PaymentTransactionService.PaymentRefundStart start
-    ) {
-        if (response == null
-                || response.cancellation() == null
-                || isBlank(response.cancellation().id())
-                || !"SUCCEEDED".equals(response.cancellation().status())
-                || response.cancellation().amount() == null
-                || response.cancellation().amount() != start.amount()) {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "포트원 결제 취소 응답 검증에 실패했습니다.");
-        }
-    }
-
-    private void validateTossPayRefundResponse(
-            TossPayRefundResponse response,
-            PaymentTransactionService.PaymentRefundStart start,
-            String refundNo
-    ) {
-        if (response == null
-                || !response.successful()
-                || !refundNo.equals(response.refundNo())
-                || !start.payToken().equals(response.payToken())
-                || !TossPayStatus.REFUND_SUCCESS.name().equals(response.payStatus())
-                || response.refundedAmount() == null
-                || response.refundedAmount() != start.amount()) {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "토스페이 환불 응답 검증에 실패했습니다.");
-        }
-    }
-
-    private String tossPayRefundNo(Long paymentId) {
-        return "jobdri-refund-" + paymentId;
-    }
-
     private String normalizeRefundReason(String reason) {
         if (isBlank(reason)) {
             return DEFAULT_REFUND_REASON;
@@ -559,8 +496,5 @@ public class PaymentService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
-    }
-
-    private record RefundExternalResult(String externalStatus) {
     }
 }
