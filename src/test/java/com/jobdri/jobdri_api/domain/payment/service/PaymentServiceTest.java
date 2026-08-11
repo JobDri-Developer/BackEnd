@@ -20,6 +20,7 @@ import com.jobdri.jobdri_api.domain.payment.dto.toss.TossEasyPayInfo;
 import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.controller.PaymentController;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
+import com.jobdri.jobdri_api.domain.payment.entity.CreditTransaction;
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
 import com.jobdri.jobdri_api.domain.payment.entity.PaymentProviderType;
@@ -35,6 +36,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
@@ -1221,6 +1223,40 @@ class PaymentServiceTest {
     }
 
     @Test
+    @DisplayName("크레딧 거래 내역을 페이지 단위로 최신순 조회한다")
+    void getTransactionsPage() {
+        User user = saveUser("payment-transactions-page@example.com");
+        saveCreditTransaction(user, CreditTransactionType.CHARGE, 1, 2, "첫 충전", "charge-1");
+        saveCreditTransaction(user, CreditTransactionType.USE, -1, 1, "사용", "use-1");
+        saveCreditTransaction(user, CreditTransactionType.COUPON, 1, 2, "쿠폰", "coupon-1");
+
+        Page<?> firstPage = paymentService.getTransactionsPage(user, null, 0, 2);
+        Page<?> secondPage = paymentService.getTransactionsPage(user, null, 1, 2);
+
+        assertThat(firstPage.getTotalElements()).isEqualTo(3);
+        assertThat(firstPage.getContent()).extracting("referenceId")
+                .containsExactly("coupon-1", "use-1");
+        assertThat(secondPage.getContent()).extracting("referenceId")
+                .containsExactly("charge-1");
+    }
+
+    @Test
+    @DisplayName("크레딧 거래 내역 페이지 조회는 타입 필터와 최대 페이지 크기 제한을 적용한다")
+    void getTransactionsPageWithTypeFilter() {
+        User user = saveUser("payment-transactions-page-filter@example.com");
+        saveCreditTransaction(user, CreditTransactionType.CHARGE, 1, 2, "충전 1", "charge-1");
+        saveCreditTransaction(user, CreditTransactionType.CHARGE, 5, 7, "충전 2", "charge-2");
+        saveCreditTransaction(user, CreditTransactionType.USE, -1, 6, "사용", "use-1");
+
+        Page<?> page = paymentService.getTransactionsPage(user, CreditTransactionType.CHARGE, 0, 999);
+
+        assertThat(page.getSize()).isEqualTo(100);
+        assertThat(page.getTotalElements()).isEqualTo(2);
+        assertThat(page.getContent()).extracting("referenceId")
+                .containsExactly("charge-2", "charge-1");
+    }
+
+    @Test
     @DisplayName("결제 주문 상태 조회는 소유자의 주문만 반환한다")
     void getOrderStatus() {
         User user = saveUser("payment-status-owner@example.com");
@@ -1296,6 +1332,24 @@ class PaymentServiceTest {
                         "SUCCEEDED",
                         payment.getPrice()
                 )));
+    }
+
+    private CreditTransaction saveCreditTransaction(
+            User user,
+            CreditTransactionType type,
+            int amount,
+            int balanceAfter,
+            String description,
+            String referenceId
+    ) {
+        return creditTransactionRepository.save(CreditTransaction.create(
+                user,
+                type,
+                amount,
+                balanceAfter,
+                description,
+                referenceId
+        ));
     }
 
     private String portOneWebhookBody(String paymentId) {

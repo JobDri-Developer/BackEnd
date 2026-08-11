@@ -33,8 +33,13 @@ import com.jobdri.jobdri_api.global.apiPayload.code.BaseErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.logging.LoggingContext;
+import com.jobdri.jobdri_api.global.pagination.PaginationPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -51,6 +56,7 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class PaymentService {
 
+    private static final int MAX_PAGE_SIZE = PaginationPolicy.MAX_PAGE_SIZE;
     private static final String EXPECTED_PAYMENT_METHOD = "간편결제";
     private static final String EXPECTED_EASY_PAY_PROVIDER = "토스페이";
     private static final String ORDER_ID_PREFIX = "jobdri-";
@@ -394,6 +400,29 @@ public class PaymentService {
                 .findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(validatedUser.getId(), type).stream()
                 .map(CreditTransactionResponse::from)
                 .toList();
+    }
+
+    public Page<CreditTransactionResponse> getTransactionsPage(
+            User user,
+            CreditTransactionType type,
+            int page,
+            int size
+    ) {
+        User validatedUser = userService.validateUser(user);
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                Sort.by(
+                        Sort.Order.desc("createdAt"),
+                        Sort.Order.desc("id")
+                )
+        );
+        if (type == null) {
+            return creditTransactionRepository.findAllByUserId(validatedUser.getId(), pageable)
+                    .map(CreditTransactionResponse::from);
+        }
+        return creditTransactionRepository.findAllByUserIdAndType(validatedUser.getId(), type, pageable)
+                .map(CreditTransactionResponse::from);
     }
 
     private void validateTossResponse(Long userId, PaymentConfirmRequest request, TossPaymentConfirmResponse response) {
