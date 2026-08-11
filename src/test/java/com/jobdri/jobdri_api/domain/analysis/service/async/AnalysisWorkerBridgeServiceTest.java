@@ -11,7 +11,7 @@ import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPayload;
+import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.company.entity.Company;

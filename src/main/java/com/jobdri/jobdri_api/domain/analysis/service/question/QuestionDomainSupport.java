@@ -16,6 +16,7 @@ public class QuestionDomainSupport {
     private static final int MIN_SELECTION_COUNT = 1;
     private static final int MAX_SELECTION_COUNT = 5;
     private static final int DEFAULT_CHAR_LIMIT = 1000;
+    public static final int MAX_CHAR_LIMIT = 5000;
 
     private final MockApplyRepository mockApplyRepository;
     private final QuestionCandidateCatalogService questionCandidateCatalogService;
@@ -55,12 +56,18 @@ public class QuestionDomainSupport {
         if (charLimit == null) {
             return DEFAULT_CHAR_LIMIT;
         }
+        if (charLimit > MAX_CHAR_LIMIT) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "글자수 제한은 최대 " + MAX_CHAR_LIMIT + "자까지 설정할 수 있습니다."
+            );
+        }
         return charLimit;
     }
 
     public String normalizeAnswer(String answer) {
         if (StringUtils.hasText(answer)) {
-            return answer;
+            return answer.trim();
         }
         return "";
     }

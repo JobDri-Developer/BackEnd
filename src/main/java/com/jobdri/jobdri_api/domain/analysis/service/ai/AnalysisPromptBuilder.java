@@ -753,6 +753,12 @@ public class AnalysisPromptBuilder {
         try {
             return objectMapper.writeValueAsString(value == null ? List.of() : value);
         } catch (JsonProcessingException e) {
+            log.warn(
+                    "Failed to serialize analysis prompt value. fallback=[] valueType={}, value={}",
+                    value == null ? "null" : value.getClass().getName(),
+                    value,
+                    e
+            );
             return "[]";
         }
     }

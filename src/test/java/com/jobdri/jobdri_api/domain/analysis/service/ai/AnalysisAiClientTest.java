@@ -50,12 +50,7 @@ class AnalysisAiClientTest {
             fewShotProperties,
             objectMapper
     );
-    private final OpenAiAnalysisAdapter openAiAnalysisAdapter = new OpenAiAnalysisAdapter(
-            mock(OpenAIClient.class),
-            mock(LlmConcurrencyLimiter.class),
-            mock(AsyncMetricsRecorder.class),
-            analysisResponseParser
-    );
+    private final OpenAiAnalysisAdapter openAiAnalysisAdapter = mock(OpenAiAnalysisAdapter.class);
     private final AnalysisAiClient analysisAiClient = new AnalysisAiClient(
             mock(OpenAIClient.class),
             mock(CorpusRetrievalService.class),

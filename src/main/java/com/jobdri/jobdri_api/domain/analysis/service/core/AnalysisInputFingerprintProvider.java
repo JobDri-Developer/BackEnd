@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.analysis.service.core;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.CorpusReferenceContext;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.SimilarJobPostingContext;

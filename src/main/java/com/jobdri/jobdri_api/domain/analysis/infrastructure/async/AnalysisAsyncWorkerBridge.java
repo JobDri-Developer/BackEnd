@@ -16,7 +16,7 @@ import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncTaskService;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPayload;
+import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
@@ -276,7 +276,8 @@ public class AnalysisAsyncWorkerBridge {
         } catch (JsonProcessingException exception) {
             throw new GeneralException(
                     GeneralErrorCode.INTERNAL_SERVER_ERROR,
-                    "자소서 분석 worker 컨텍스트 snapshot 저장에 실패했습니다."
+                    "자소서 분석 worker 컨텍스트 snapshot 저장에 실패했습니다.",
+                    exception
             );
         }
     }
@@ -293,7 +294,8 @@ public class AnalysisAsyncWorkerBridge {
         } catch (JsonProcessingException exception) {
             throw new GeneralException(
                     GeneralErrorCode.INTERNAL_SERVER_ERROR,
-                    "자소서 분석 worker 컨텍스트 snapshot을 읽을 수 없습니다. taskId=" + task.getTaskId()
+                    "자소서 분석 worker 컨텍스트 snapshot을 읽을 수 없습니다. taskId=" + task.getTaskId(),
+                    exception
             );
         }
     }

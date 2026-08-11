@@ -17,7 +17,7 @@ import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotPropertie
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSearchQuery;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSearchService;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.SelectedFewShotCase;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPayload;
+import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.MissingKeywordSanitizer;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;

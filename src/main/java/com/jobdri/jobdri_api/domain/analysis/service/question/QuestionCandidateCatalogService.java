@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 // 기본 문항 후보와 후보 판별 규칙을 제공한다.
@@ -18,6 +19,9 @@ public class QuestionCandidateCatalogService {
             new QuestionCandidate(4L, "협업 과정에서 갈등을 해결했던 경험을 작성해주세요.", 800),
             new QuestionCandidate(5L, "가장 성취감을 느꼈던 프로젝트와 성과를 작성해주세요.", 1000)
     );
+    private static final Set<String> DEFAULT_CANDIDATE_CONTENTS = DEFAULT_CANDIDATES.stream()
+            .map(QuestionCandidate::content)
+            .collect(Collectors.toUnmodifiableSet());
 
     public List<QuestionCandidateResponse> getDefaultCandidateResponses(Set<String> selectedContents) {
         return DEFAULT_CANDIDATES.stream()
@@ -32,8 +36,7 @@ public class QuestionCandidateCatalogService {
     }
 
     public boolean isCustomQuestion(String content) {
-        return DEFAULT_CANDIDATES.stream()
-                .noneMatch(candidate -> candidate.content().equals(content));
+        return !DEFAULT_CANDIDATE_CONTENTS.contains(content);
     }
 
     public void validateCustomCandidate(String content) {
