@@ -284,8 +284,8 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("토스 직접 승인 중 PAY_COMPLETE 콜백이 동시에 오면 콜백이 PAYMENT_ALREADY_PROCESSED로 실패한다")
-    void confirmAndTossPayCallbackRaceCurrentlyFailsCallbackWithAlreadyProcessed() throws Exception {
+    @DisplayName("토스 직접 승인 중 PAY_COMPLETE 콜백이 동시에 와도 한 번만 충전하고 둘 다 성공 처리한다")
+    void confirmAndTossPayCallbackRaceCompletesIdempotently() throws Exception {
         User user = saveUser("payment-confirm-callback-race@example.com");
         mockTossPayCreateSuccess();
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
@@ -324,19 +324,75 @@ class PaymentServiceTest {
 
         assertThat(results).hasSize(2);
         assertThat(results.get(0).success()).isTrue();
-        assertThat(results.get(1).success()).isFalse();
-        assertThat(results.get(1).exception())
-                .isInstanceOf(GeneralException.class)
-                .extracting("code")
-                .isEqualTo(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED);
+        assertThat(results.get(1).success()).isTrue();
 
         Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
         assertThat(payment.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(payment.getTossStatus()).isEqualTo("PAY_COMPLETE");
         assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
         assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
                 user.getId(),
                 CreditTransactionType.CHARGE
         )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("PROCESSING 상태에서 PAY_CANCEL 콜백이 오면 결제를 실패 처리하고 크레딧을 지급하지 않는다")
+    void tossPayCallbackFailsProcessingPaymentWhenCanceled() {
+        User user = saveUser("payment-callback-processing-cancel@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        payment.markProcessing("payment-key-" + prepared.orderId());
+        paymentRepository.saveAndFlush(payment);
+        mockTossPayStatus(prepared, TossPayStatus.PAY_CANCEL, prepared.amount());
+
+        paymentService.handleTossPayCallback(new TossPayCallbackRequest(
+                "PAY_CANCEL",
+                savedPayToken(prepared),
+                prepared.orderId(),
+                "CARD",
+                prepared.amount(),
+                0,
+                0,
+                null,
+                null
+        ));
+
+        assertPaymentFailedWithoutCreditCharge(user, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("PROCESSING 상태에서 중간 상태 콜백이 오면 PROCESSING을 유지하고 상태만 갱신한다")
+    void tossPayCallbackKeepsProcessingPaymentWhenStatusIsIntermediate() {
+        User user = saveUser("payment-callback-processing-approved@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        payment.markProcessing("payment-key-" + prepared.orderId());
+        paymentRepository.saveAndFlush(payment);
+        mockTossPayStatus(prepared, TossPayStatus.PAY_APPROVED, prepared.amount());
+
+        paymentService.handleTossPayCallback(new TossPayCallbackRequest(
+                "PAY_APPROVED",
+                savedPayToken(prepared),
+                prepared.orderId(),
+                "CARD",
+                prepared.amount(),
+                0,
+                0,
+                null,
+                null
+        ));
+
+        Payment updatedPayment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(updatedPayment.getTossStatus()).isEqualTo("PAY_APPROVED");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).isEmpty();
     }
 
     @Test
@@ -683,8 +739,8 @@ class PaymentServiceTest {
     }
 
     @Test
-    @DisplayName("이미 PROCESSING 상태인 결제의 토스페이 콜백 충돌은 컨트롤러에서 200으로 응답한다")
-    void tossPayCallbackControllerAcknowledgesAlreadyProcessedConflict() {
+    @DisplayName("이미 PROCESSING 상태인 결제의 PAY_COMPLETE 콜백은 컨트롤러에서 성공 처리한다")
+    void tossPayCallbackControllerProcessesProcessingPayment() {
         User user = saveUser("payment-callback-already-processed@example.com");
         mockTossPayCreateSuccess();
         PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
@@ -696,6 +752,9 @@ class PaymentServiceTest {
         var response = paymentController.tossPayCallback(tossPayCompleteCallback(prepared));
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+        Payment updatedPayment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
     }
 
     @Test

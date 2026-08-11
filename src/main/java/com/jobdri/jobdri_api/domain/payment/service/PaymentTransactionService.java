@@ -227,7 +227,7 @@ public class PaymentTransactionService {
             return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
         }
 
-        if (payment.getStatus() == PaymentStatus.FAILED || payment.getStatus() == PaymentStatus.PROCESSING) {
+        if (payment.getStatus() == PaymentStatus.FAILED) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED, "처리할 수 없는 결제 상태입니다.");
         }
 
