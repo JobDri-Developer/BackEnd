@@ -15,6 +15,8 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -30,6 +32,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -189,16 +192,17 @@ class AnalysisAsyncFacadeServiceTest {
         verify(analysisService, times(1)).getAnalysis(user, 10L);
     }
 
-    @Test
-    @DisplayName("진행 중 task 상태 조회는 분석 결과를 조회하지 않는다")
-    void getTaskReturnsStatusWithoutResultWhenInProgress() {
-        User user = User.signup("테스트 사용자", "analysis-async-status-running@example.com", "encoded-password");
+    @ParameterizedTest
+    @ValueSource(strings = {"RUNNING", "PENDING", "FAILED", "CANCELLED"})
+    @DisplayName("비완료 task 상태 조회는 분석 결과를 조회하지 않는다")
+    void getTaskReturnsStatusWithoutResultWhenNotSucceeded(String taskStatus) {
+        User user = User.signup("테스트 사용자", "analysis-async-status-" + taskStatus.toLowerCase() + "@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 1L);
         AnalysisAsyncStatusResponse status = AnalysisAsyncStatusResponse.builder()
                 .taskId("task-1")
                 .mockApplyId(10L)
-                .status("RUNNING")
-                .message("분석 중입니다.")
+                .status(taskStatus)
+                .message("분석 상태입니다.")
                 .build();
 
         when(userService.validateUser(user)).thenReturn(user);
@@ -229,7 +233,7 @@ class AnalysisAsyncFacadeServiceTest {
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")
                 .isEqualTo(GeneralErrorCode.FORBIDDEN);
-        verify(analysisService, never()).getAnalysis(user, 99L);
+        verifyNoInteractions(analysisService);
     }
 
     @Test

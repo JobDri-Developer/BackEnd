@@ -16,6 +16,7 @@ import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.Hibernate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -35,16 +36,12 @@ public class AnalysisPreparationService {
     private final JobPostingRagContextAssembler jobPostingRagContextAssembler;
 
     public AnalysisPreparationResult prepare(User user, Long mockApplyId) {
-        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
-        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
-        List<Question> answeredQuestions = answeredQuestionsOrThrow(questions);
+        PreparedMockApplyContext context = prepareMockApplyContext(user, mockApplyId);
         return prepare(
-                user,
-                mockApply,
-                questions,
-                answeredQuestions,
-                retrieveAnalysisReferences(mockApply.getJobPosting(), answeredQuestions),
-                jobPostingRagContextAssembler.assemble(mockApply.getJobPosting().getId())
+                user.getId(),
+                context,
+                retrieveAnalysisReferences(context.mockApply().getJobPosting(), context.answeredQuestions()),
+                jobPostingRagContextAssembler.assemble(context.mockApply().getJobPosting().getId())
         );
     }
 
@@ -53,44 +50,54 @@ public class AnalysisPreparationService {
             Long mockApplyId,
             List<SimilarJobPostingContext> similarJobPostings
     ) {
-        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
-        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
-        List<Question> answeredQuestions = answeredQuestionsOrThrow(questions);
+        PreparedMockApplyContext context = prepareMockApplyContext(user, mockApplyId);
         return prepare(
-                user,
-                mockApply,
-                questions,
-                answeredQuestions,
+                user.getId(),
+                context,
                 new RetrievalContext(List.of(), List.of()),
                 similarJobPostings
         );
     }
 
     private AnalysisPreparationResult prepare(
-            User user,
-            MockApply mockApply,
-            List<Question> questions,
-            List<Question> answeredQuestions,
+            Long userId,
+            PreparedMockApplyContext context,
             RetrievalContext retrievalContext,
             List<SimilarJobPostingContext> similarJobPostings
     ) {
-        // Initialize hierarchy before leaving the read transaction so detached payload can be used safely.
-        mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName();
-        mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getClassification().getBigName();
+        initializePreparationHierarchy(context.mockApply());
         JobCategoryEvaluationCriteria evaluationCriteria = jobCategoryEvaluationCriteriaProvider
-                .findByMiddleName(mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName())
+                .findByMiddleName(context.mockApply().getJobPosting().getDetailClassification().getMiddleClassification().getMiddleName())
                 .orElse(null);
 
         return new AnalysisPreparationResult(
-                user.getId(),
-                mockApply.getId(),
-                mockApply.getJobPosting(),
-                questions,
-                answeredQuestions,
+                userId,
+                context.mockApply().getId(),
+                context.mockApply().getJobPosting(),
+                context.questions(),
+                context.answeredQuestions(),
                 evaluationCriteria,
                 retrievalContext,
                 similarJobPostings
         );
+    }
+
+    private PreparedMockApplyContext prepareMockApplyContext(User user, Long mockApplyId) {
+        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
+        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        return new PreparedMockApplyContext(
+                mockApply,
+                questions,
+                answeredQuestionsOrThrow(questions)
+        );
+    }
+
+    private void initializePreparationHierarchy(MockApply mockApply) {
+        Hibernate.initialize(mockApply.getJobPosting());
+        Hibernate.initialize(mockApply.getJobPosting().getCompany());
+        Hibernate.initialize(mockApply.getJobPosting().getDetailClassification());
+        Hibernate.initialize(mockApply.getJobPosting().getDetailClassification().getMiddleClassification());
+        Hibernate.initialize(mockApply.getJobPosting().getDetailClassification().getMiddleClassification().getClassification());
     }
 
     private List<Question> answeredQuestionsOrThrow(List<Question> questions) {
@@ -128,5 +135,12 @@ public class AnalysisPreparationService {
         }
 
         return mockApply;
+    }
+
+    private record PreparedMockApplyContext(
+            MockApply mockApply,
+            List<Question> questions,
+            List<Question> answeredQuestions
+    ) {
     }
 }

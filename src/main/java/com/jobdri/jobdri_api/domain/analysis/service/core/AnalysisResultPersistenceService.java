@@ -79,6 +79,11 @@ public class AnalysisResultPersistenceService {
             AnalysisLlmResponse llmResponse,
             String inputFingerprint
     ) {
+        MockApply lockedMockApply = mockApplyRepository.findByIdForUpdate(mockApply.getId())
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
+                        "해당 모의 서류 지원을 찾을 수 없습니다. mockApplyId=" + mockApply.getId()
+                ));
         VerifiedAnswerSnapshot answerSnapshot = verifyAnswerSnapshot(questions, payloadSnapshots);
         validateRequiredScores(llmResponse);
         int jobFit = validateScore("jobFit", llmResponse.jobFit());
@@ -87,14 +92,14 @@ public class AnalysisResultPersistenceService {
         List<AnalysisHighlightResponse> keyStrengths = buildHighlights(llmResponse.keyStrengths());
         List<AnalysisHighlightResponse> keyWeaknesses = buildNonOverlappingHighlights(llmResponse.keyWeaknesses(), keyStrengths);
         List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(
-                mockApply.getJobPosting(),
+                lockedMockApply.getJobPosting(),
                 answerSnapshot.combinedAnswers(),
                 llmResponse
         );
-        replaceExistingAnalysis(mockApply);
+        replaceExistingAnalysis(lockedMockApply);
 
         Analysis analysis = analysisRepository.save(Analysis.create(
-                mockApply,
+                lockedMockApply,
                 calculateScore(jobFit, impact, completeness),
                 jobFit,
                 impact,
@@ -113,9 +118,10 @@ public class AnalysisResultPersistenceService {
                 llmResponse
         );
         questionAnalysisRepository.saveAll(questionAnalyses);
-        mockApply.updateStatus(MockApplyStatus.COMPLETED);
+        lockedMockApply.updateStatus(MockApplyStatus.COMPLETED);
+        mockApplyRepository.flush();
 
-        return toResponse(mockApply, analysis, questions, questionAnalyses, analysisResultPayload(analysis));
+        return toResponse(lockedMockApply, analysis, questions, questionAnalyses, analysisResultPayload(analysis));
     }
 
     @Transactional
@@ -134,7 +140,22 @@ public class AnalysisResultPersistenceService {
                 analysis,
                 questions,
                 questionAnalyses,
-                sanitizeAndPersistAnalysisPayload(analysis)
+                sanitizeAndPersistAnalysisPayload(analysis, true)
+        );
+    }
+
+    @Transactional(readOnly = true)
+    public AnalysisResponse getPersistedAnalysis(MockApply mockApply, Analysis analysis) {
+        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
+        List<QuestionAnalysis> questionAnalyses =
+                questionAnalysisRepository.findAllByAnalysisIdOrderByQuestionIdAscIdAsc(analysis.getId());
+
+        return toResponse(
+                mockApply,
+                analysis,
+                questions,
+                questionAnalyses,
+                sanitizeAndPersistAnalysisPayload(analysis, false)
         );
     }
 
@@ -354,25 +375,25 @@ public class AnalysisResultPersistenceService {
     }
 
     private AnalysisResultPayload analysisResultPayload(Analysis analysis) {
-        List<AnalysisHighlightResponse> keyStrengths =
-                readHighlights(analysis, analysis == null ? null : analysis.getKeyStrengthsJson(), "keyStrengths");
+        List<AnalysisHighlightResponse> keyStrengths = readHighlights(analysis, analysis.getKeyStrengthsJson(), "keyStrengths");
         return new AnalysisResultPayload(
                 keyStrengths,
                 removeOverlappingHighlights(
-                        readHighlights(analysis, analysis == null ? null : analysis.getKeyWeaknessesJson(), "keyWeaknesses"),
+                        readHighlights(analysis, analysis.getKeyWeaknessesJson(), "keyWeaknesses"),
                         keyStrengths
                 ),
                 readMissingKeywords(analysis)
         );
     }
 
-    private AnalysisResultPayload sanitizeAndPersistAnalysisPayload(Analysis analysis) {
+    private AnalysisResultPayload sanitizeAndPersistAnalysisPayload(Analysis analysis, boolean persistIfChanged) {
         AnalysisResultPayload payload = analysisResultPayload(analysis);
-        if (analysis != null) {
-            analysis.updateHighlightsJson(
-                    serializeHighlights(payload.keyStrengths(), "keyStrengths"),
-                    serializeHighlights(payload.keyWeaknesses(), "keyWeaknesses")
-            );
+        String sanitizedKeyStrengthsJson = serializeHighlights(payload.keyStrengths(), "keyStrengths");
+        String sanitizedKeyWeaknessesJson = serializeHighlights(payload.keyWeaknesses(), "keyWeaknesses");
+        if (persistIfChanged
+                && (!sanitizedKeyStrengthsJson.equals(analysis.getKeyStrengthsJson())
+                || !sanitizedKeyWeaknessesJson.equals(analysis.getKeyWeaknessesJson()))) {
+            analysis.updateHighlightsJson(sanitizedKeyStrengthsJson, sanitizedKeyWeaknessesJson);
         }
         return payload;
     }
@@ -486,7 +507,7 @@ public class AnalysisResultPersistenceService {
     }
 
     private List<MissingKeywordResponse> readMissingKeywords(Analysis analysis) {
-        if (analysis == null || !StringUtils.hasText(analysis.getMissingKeywordsJson())) {
+        if (!StringUtils.hasText(analysis.getMissingKeywordsJson())) {
             return List.of();
         }
 

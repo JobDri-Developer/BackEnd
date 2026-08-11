@@ -1,6 +1,5 @@
 package com.jobdri.jobdri_api.domain.analysis.service.core;
 
-import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
 import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
@@ -18,11 +17,15 @@ import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Service
 @Slf4j
@@ -30,6 +33,7 @@ import java.util.List;
 @Transactional(readOnly = true)
 // 자소서 분석 실행 흐름을 조율하는 오케스트레이션 서비스다.
 public class AnalysisService {
+    private static final ConcurrentMap<Long, ReentrantLock> ANALYSIS_LOCKS = new ConcurrentHashMap<>();
 
     private final MockApplyRepository mockApplyRepository;
     private final QuestionRepository questionRepository;
@@ -40,36 +44,47 @@ public class AnalysisService {
     private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
     private final AnalysisPreparationService analysisPreparationService;
     private final AnalysisResultPersistenceService analysisResultPersistenceService;
+    private final ObjectProvider<AnalysisService> selfProvider;
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "ANALYSIS_RUN", targetType = "MOCK_APPLY", targetId = "#arg1")
     public AnalysisResponse analyze(User user, Long mockApplyId) {
-        validateAnalysisRequest(user, mockApplyId);
-        AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
-        String inputFingerprint = analysisInputFingerprintProvider.create(payload);
-        lockOwnedMockApply(user, mockApplyId);
-        AnalysisResponse cachedResponse = reuseExistingAnalysisIfSameInput(user, mockApplyId, inputFingerprint);
-        if (cachedResponse != null) {
-            return cachedResponse;
-        }
-
-        String referenceId = analysisCreditService.createSyncReferenceId(mockApplyId, inputFingerprint);
-        analysisCreditService.deduct(user, referenceId);
-
+        ReentrantLock analysisLock = ANALYSIS_LOCKS.computeIfAbsent(mockApplyId, ignored -> new ReentrantLock());
+        analysisLock.lock();
         try {
-            AnalysisLlmResponse llmResponse = executeAnalysis(payload);
-            return finalizeAnalysis(user, mockApplyId, payload, llmResponse);
-        } catch (RuntimeException e) {
-            analysisCreditService.refund(user, referenceId);
-            throw e;
+            AnalysisService self = selfProvider.getObject();
+            AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
+            String inputFingerprint = analysisInputFingerprintProvider.create(payload);
+            AnalysisResponse cachedResponse = self.lockAndReuseExistingAnalysis(user, mockApplyId, inputFingerprint);
+            if (cachedResponse != null) {
+                return cachedResponse;
+            }
+
+            String referenceId = analysisCreditService.createSyncReferenceId(mockApplyId, inputFingerprint);
+            boolean creditDeducted = false;
+
+            try {
+                AnalysisLlmResponse llmResponse = executeAnalysis(payload);
+                analysisCreditService.deduct(user, referenceId);
+                creditDeducted = true;
+                return self.finalizeAnalysis(user, mockApplyId, payload, llmResponse);
+            } catch (RuntimeException e) {
+                if (creditDeducted) {
+                    analysisCreditService.refund(user, referenceId);
+                }
+                throw e;
+            }
+        } finally {
+            analysisLock.unlock();
+            if (!analysisLock.hasQueuedThreads()) {
+                ANALYSIS_LOCKS.remove(mockApplyId, analysisLock);
+            }
         }
     }
 
     @Transactional(readOnly = true)
     public void validateAnalysisRequest(User user, Long mockApplyId) {
-        MockApply mockApply = getOwnedMockApply(user, mockApplyId);
-        List<Question> questions = questionRepository.findAllByMockApplyIdOrderByIdAsc(mockApply.getId());
-        answeredQuestionsOrThrow(questions);
+        analysisPreparationService.prepare(user, mockApplyId);
     }
 
     @Transactional(readOnly = true)
@@ -86,21 +101,14 @@ public class AnalysisService {
         return analysisPreparationService.prepare(user, mockApplyId, similarJobPostings).toExecutionPayload();
     }
 
-    private List<Question> answeredQuestionsOrThrow(List<Question> questions) {
-        List<Question> answeredQuestions = questions.stream()
-                .filter(question -> StringUtils.hasText(question.getAnswer()))
-                .toList();
-        if (answeredQuestions.isEmpty()) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "분석할 자소서 답변이 1개 이상 필요합니다."
-            );
-        }
-        return answeredQuestions;
-    }
-
     public AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
         return analysisAiClient.analyze(payload);
+    }
+
+    @Transactional
+    public AnalysisResponse lockAndReuseExistingAnalysis(User user, Long mockApplyId, String inputFingerprint) {
+        MockApply mockApply = lockOwnedMockApply(user, mockApplyId);
+        return reuseExistingAnalysisIfSameInput(mockApply, inputFingerprint);
     }
 
     @Transactional
@@ -207,12 +215,13 @@ public class AnalysisService {
         return mockApply;
     }
 
-    private AnalysisResponse reuseExistingAnalysisIfSameInput(User user, Long mockApplyId, String inputFingerprint) {
-        return analysisRepository.findByMockApplyId(mockApplyId)
+    private AnalysisResponse reuseExistingAnalysisIfSameInput(MockApply mockApply, String inputFingerprint) {
+        return analysisRepository.findByMockApplyId(mockApply.getId())
                 .filter(analysis -> inputFingerprint.equals(analysis.getInputFingerprint()))
-                .map(analysis -> getAnalysis(user, mockApplyId))
+                .map(analysis -> analysisResultPersistenceService.getPersistedAnalysis(mockApply, analysis))
                 .orElse(null);
     }
+
     private MockApply getOwnedMockApply(User user, Long mockApplyId) {
         MockApply mockApply = mockApplyRepository.findById(mockApplyId)
                 .orElseThrow(() -> new GeneralException(

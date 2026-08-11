@@ -12,12 +12,10 @@ public class AnalysisCreditService {
 
     private final CreditService creditService;
 
-    @Transactional(readOnly = true)
     public String createSyncReferenceId(Long mockApplyId, String inputFingerprint) {
         return "mockApplyId=" + mockApplyId + ":fingerprint=" + inputFingerprint;
     }
 
-    @Transactional(readOnly = true)
     public String createAsyncReferenceId(String taskId) {
         return "analysisTaskId=" + taskId;
     }
