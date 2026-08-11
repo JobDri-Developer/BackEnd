@@ -7,7 +7,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerC
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
@@ -265,12 +265,12 @@ class AnalysisWorkerBridgeServiceTest {
             return null;
         }).when(analysisAsyncTaskService).markCreditReleased(task.getTaskId());
         doAnswer(invocation -> {
-            task.markFailed(FailureReason.INTERNAL_ERROR, "error", 1);
+            task.markFailed(AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1);
             return null;
-        }).when(analysisAsyncTaskService).markFailed(task.getTaskId(), FailureReason.INTERNAL_ERROR, "error", 1);
+        }).when(analysisAsyncTaskService).markFailed(task.getTaskId(), AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1);
 
-        analysisWorkerBridgeService.failTask(task.getTaskId(), FailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
-        analysisWorkerBridgeService.failTask(task.getTaskId(), FailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
+        analysisWorkerBridgeService.failTask(task.getTaskId(), AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
+        analysisWorkerBridgeService.failTask(task.getTaskId(), AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
 
         verify(analysisCreditService, times(1)).refund(user, "analysisTaskId=" + task.getTaskId());
         verify(analysisAsyncTaskService, times(1)).markCreditReleased(task.getTaskId());
@@ -386,7 +386,7 @@ class AnalysisWorkerBridgeServiceTest {
         analysisWorkerBridgeService.markRunning(task.getTaskId(), "worker-1", 1, java.time.Instant.now());
         analysisWorkerBridgeService.markRetry(
                 task.getTaskId(),
-                FailureReason.INTERNAL_ERROR,
+                AnalysisAsyncFailureReason.INTERNAL_ERROR,
                 "retry",
                 1,
                 "worker-1",
@@ -394,7 +394,7 @@ class AnalysisWorkerBridgeServiceTest {
         );
 
         verify(analysisAsyncTaskService, never()).markRunning(eq(task.getTaskId()), eq("worker-1"), eq(1), any());
-        verify(analysisAsyncTaskService, never()).markRetryScheduled(eq(task.getTaskId()), eq(FailureReason.INTERNAL_ERROR), eq("retry"), eq(1));
+        verify(analysisAsyncTaskService, never()).markRetryScheduled(eq(task.getTaskId()), eq(AnalysisAsyncFailureReason.INTERNAL_ERROR), eq("retry"), eq(1));
     }
 
     @Test

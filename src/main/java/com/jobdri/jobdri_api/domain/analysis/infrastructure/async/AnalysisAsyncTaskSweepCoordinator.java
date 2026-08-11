@@ -1,9 +1,9 @@
 package com.jobdri.jobdri_api.domain.analysis.infrastructure.async;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncCreditStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncTaskService;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisQueueProperties;
@@ -45,7 +45,7 @@ public class AnalysisAsyncTaskSweepCoordinator {
 
     public int sweepTimedOutTasks() {
         int expiredCount = 0;
-        for (AnalysisAsyncTask task : analysisAsyncTaskRepository.findByStatusIn(EnumSet.of(TaskStatus.PENDING, TaskStatus.RUNNING))) {
+        for (AnalysisAsyncTask task : analysisAsyncTaskRepository.findByStatusIn(EnumSet.of(AnalysisAsyncTaskStatus.PENDING, AnalysisAsyncTaskStatus.RUNNING))) {
             try {
                 expiredCount += transactionTemplate.execute(status -> sweepTimedOutTask(task.getTaskId()));
             } catch (RuntimeException e) {
@@ -57,7 +57,7 @@ public class AnalysisAsyncTaskSweepCoordinator {
 
     private int sweepTimedOutTask(String taskId) {
         AnalysisAsyncTask task = analysisAsyncTaskRepository.findById(taskId).orElse(null);
-        if (task == null || task.getStatus() == TaskStatus.SUCCEEDED || task.getStatus() == TaskStatus.FAILED) {
+        if (task == null || task.getStatus() == AnalysisAsyncTaskStatus.SUCCEEDED || task.getStatus() == AnalysisAsyncTaskStatus.FAILED) {
             return 0;
         }
 
@@ -78,19 +78,19 @@ public class AnalysisAsyncTaskSweepCoordinator {
 
     private ExpirationDecision resolveExpiration(AnalysisAsyncTask task) {
         LocalDateTime now = LocalDateTime.now();
-        if (task.getStatus() == TaskStatus.PENDING
+        if (task.getStatus() == AnalysisAsyncTaskStatus.PENDING
                 && isExpired(task.getSubmittedAt(), now, analysisQueueProperties.getQueueTimeoutSeconds())) {
             return new ExpirationDecision(
-                    FailureReason.QUEUE_TIMEOUT,
+                    AnalysisAsyncFailureReason.QUEUE_TIMEOUT,
                     "자소서 분석 작업이 대기열에서 시간 내 처리되지 않았습니다."
             );
         }
 
         LocalDateTime lastActivityAt = task.getLastAttemptAt() != null ? task.getLastAttemptAt() : task.getStartedAt();
-        if (task.getStatus() == TaskStatus.RUNNING
+        if (task.getStatus() == AnalysisAsyncTaskStatus.RUNNING
                 && isExpired(lastActivityAt, now, analysisQueueProperties.getProcessingTimeoutSeconds())) {
             return new ExpirationDecision(
-                    FailureReason.INTERNAL_ERROR,
+                    AnalysisAsyncFailureReason.INTERNAL_ERROR,
                     "자소서 분석 작업이 처리 제한 시간을 초과했습니다."
             );
         }
@@ -106,7 +106,7 @@ public class AnalysisAsyncTaskSweepCoordinator {
     }
 
     private void releaseCreditIfNeeded(AnalysisAsyncTask task) {
-        if (task.getCreditStatus() != CreditStatus.RESERVED || task.getCreditReferenceId() == null) {
+        if (task.getCreditStatus() != AnalysisAsyncCreditStatus.RESERVED || task.getCreditReferenceId() == null) {
             return;
         }
 
@@ -115,6 +115,6 @@ public class AnalysisAsyncTaskSweepCoordinator {
         analysisAsyncTaskService.markCreditReleased(task.getTaskId());
     }
 
-    private record ExpirationDecision(FailureReason failureReason, String errorMessage) {
+    private record ExpirationDecision(AnalysisAsyncFailureReason failureReason, String errorMessage) {
     }
 }

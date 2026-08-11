@@ -11,7 +11,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateReviewRes
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.criteria.JobCategoryEvaluationCriteria;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.infrastructure.ai.OpenAiAnalysisAdapter;
-import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotProperties;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSearchQuery;

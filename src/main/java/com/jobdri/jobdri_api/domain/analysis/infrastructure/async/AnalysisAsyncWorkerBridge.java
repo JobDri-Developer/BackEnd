@@ -9,9 +9,9 @@ import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerC
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.CorpusReferenceContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.CreditStatus;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncCreditStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncTaskService;
@@ -83,7 +83,7 @@ public class AnalysisAsyncWorkerBridge {
     @Transactional
     public void markRetry(
             String taskId,
-            FailureReason failureReason,
+            AnalysisAsyncFailureReason failureReason,
             String errorMessage,
             int retryCount,
             String workerId,
@@ -103,7 +103,7 @@ public class AnalysisAsyncWorkerBridge {
     @Transactional
     public void failTask(
             String taskId,
-            FailureReason failureReason,
+            AnalysisAsyncFailureReason failureReason,
             String errorMessage,
             int retryCount,
             String workerId,
@@ -170,7 +170,7 @@ public class AnalysisAsyncWorkerBridge {
                     "자소서 분석 worker 완료 요청 정보가 작업 정보와 일치하지 않습니다."
             );
         }
-        if (task.getStatus() == TaskStatus.CANCELLED) {
+        if (task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED) {
             workerTaskResultService.markDeliveryFailedIfPresent(
                     TaskType.ANALYSIS_COMPLETE,
                     taskId,
@@ -186,11 +186,11 @@ public class AnalysisAsyncWorkerBridge {
                 taskId,
                 new AnalysisWorkerResultStoreRequest(request.userId(), request.mockApplyId(), request.llmResponse())
         );
-        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+        if (task.getStatus() == AnalysisAsyncTaskStatus.SUCCEEDED) {
             workerTaskResultService.markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, taskId);
             return analysisService.getAnalysis(userService.getUser(request.userId()), request.mockApplyId());
         }
-        if (task.getStatus() == TaskStatus.FAILED) {
+        if (task.getStatus() == AnalysisAsyncTaskStatus.FAILED) {
             workerTaskResultService.markDeliveryFailedIfPresent(
                     TaskType.ANALYSIS_COMPLETE,
                     taskId,
@@ -307,19 +307,19 @@ public class AnalysisAsyncWorkerBridge {
     }
 
     private boolean isTerminal(AnalysisAsyncTask task) {
-        return task.getStatus() == TaskStatus.SUCCEEDED
-                || task.getStatus() == TaskStatus.FAILED
-                || task.getStatus() == TaskStatus.CANCELLED;
+        return task.getStatus() == AnalysisAsyncTaskStatus.SUCCEEDED
+                || task.getStatus() == AnalysisAsyncTaskStatus.FAILED
+                || task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED;
     }
 
     private void rejectIfCancelled(AnalysisAsyncTask task, String message) {
-        if (task.getStatus() == TaskStatus.CANCELLED || task.isCancelRequested()) {
+        if (task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED || task.isCancelRequested()) {
             throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, message);
         }
     }
 
     private void reserveCreditIfNeeded(AnalysisAsyncTask task) {
-        if (task.getCreditStatus() != CreditStatus.NONE) {
+        if (task.getCreditStatus() != AnalysisAsyncCreditStatus.NONE) {
             return;
         }
 
@@ -330,14 +330,14 @@ public class AnalysisAsyncWorkerBridge {
     }
 
     private void confirmCreditIfNeeded(AnalysisAsyncTask task) {
-        if (task.getCreditStatus() != CreditStatus.RESERVED || task.getCreditReferenceId() == null) {
+        if (task.getCreditStatus() != AnalysisAsyncCreditStatus.RESERVED || task.getCreditReferenceId() == null) {
             return;
         }
         analysisAsyncTaskService.markCreditConfirmed(task.getTaskId());
     }
 
     private void releaseCreditIfNeeded(AnalysisAsyncTask task) {
-        if (task.getCreditStatus() != CreditStatus.RESERVED || task.getCreditReferenceId() == null) {
+        if (task.getCreditStatus() != AnalysisAsyncCreditStatus.RESERVED || task.getCreditReferenceId() == null) {
             return;
         }
         User user = userService.getUser(task.getUserId());

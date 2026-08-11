@@ -6,7 +6,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.notification.entity.NotificationTargetType;
 import com.jobdri.jobdri_api.domain.notification.entity.NotificationType;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
-import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.FailureReason;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.AnalysisAsyncFailureReason;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
@@ -120,7 +120,7 @@ class JobPostingAsyncTaskServiceTest {
         var response = jobPostingAsyncTaskService.getTask(task.getTaskId());
 
         assertThat(response.getStatus()).isEqualTo("FAILED");
-        assertThat(response.getFailureReason()).isEqualTo(FailureReason.QUEUE_TIMEOUT.name());
+        assertThat(response.getFailureReason()).isEqualTo(AnalysisAsyncFailureReason.QUEUE_TIMEOUT.name());
     }
 
     @Test
@@ -137,7 +137,7 @@ class JobPostingAsyncTaskServiceTest {
         var response = jobPostingAsyncTaskService.getTask(task.getTaskId());
 
         assertThat(response.getStatus()).isEqualTo("FAILED");
-        assertThat(response.getFailureReason()).isEqualTo(FailureReason.WORKER_TIMEOUT.name());
+        assertThat(response.getFailureReason()).isEqualTo(AnalysisAsyncFailureReason.WORKER_TIMEOUT.name());
     }
 
     @Test
@@ -153,7 +153,7 @@ class JobPostingAsyncTaskServiceTest {
         var response = jobPostingAsyncTaskService.getTask(task.getTaskId());
 
         assertThat(response.getStatus()).isEqualTo("FAILED");
-        assertThat(response.getFailureReason()).isEqualTo(FailureReason.QUEUE_TIMEOUT.name());
+        assertThat(response.getFailureReason()).isEqualTo(AnalysisAsyncFailureReason.QUEUE_TIMEOUT.name());
     }
 
     @Test
@@ -170,7 +170,7 @@ class JobPostingAsyncTaskServiceTest {
         var response = jobPostingAsyncTaskService.getTask(task.getTaskId());
 
         assertThat(response.getStatus()).isEqualTo("FAILED");
-        assertThat(response.getFailureReason()).isEqualTo(FailureReason.WORKER_TIMEOUT.name());
+        assertThat(response.getFailureReason()).isEqualTo(AnalysisAsyncFailureReason.WORKER_TIMEOUT.name());
     }
 
     @Test
@@ -182,13 +182,13 @@ class JobPostingAsyncTaskServiceTest {
 
         jobPostingAsyncTaskService.markRetryScheduled(
                 task.getTaskId(),
-                FailureReason.INTERNAL_ERROR,
+                AnalysisAsyncFailureReason.INTERNAL_ERROR,
                 "retry exhausted",
                 3
         );
 
-        assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.TaskStatus.FAILED);
-        assertThat(task.getFailureReason()).isEqualTo(FailureReason.INTERNAL_ERROR);
+        assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.AnalysisAsyncTaskStatus.FAILED);
+        assertThat(task.getFailureReason()).isEqualTo(AnalysisAsyncFailureReason.INTERNAL_ERROR);
         assertThat(task.getRetryCount()).isEqualTo(3);
         verify(jobPostingAsyncSseService).publish(any());
     }
@@ -210,7 +210,7 @@ class JobPostingAsyncTaskServiceTest {
     @DisplayName("이미 종료된 task에 대한 재시도 예약은 무시된다")
     void markRetryScheduledDoesNothingWhenTaskIsTerminal() {
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
-        task.markFailed(FailureReason.INTERNAL_ERROR, "failed", 1);
+        task.markFailed(AnalysisAsyncFailureReason.INTERNAL_ERROR, "failed", 1);
         String originalError = task.getError();
         int originalRetryCount = task.getRetryCount();
 
@@ -218,12 +218,12 @@ class JobPostingAsyncTaskServiceTest {
 
         jobPostingAsyncTaskService.markRetryScheduled(
                 task.getTaskId(),
-                FailureReason.QUEUE_TIMEOUT,
+                AnalysisAsyncFailureReason.QUEUE_TIMEOUT,
                 "should be ignored",
                 2
         );
 
-        assertThat(task.getFailureReason()).isEqualTo(FailureReason.INTERNAL_ERROR);
+        assertThat(task.getFailureReason()).isEqualTo(AnalysisAsyncFailureReason.INTERNAL_ERROR);
         assertThat(task.getError()).isEqualTo(originalError);
         assertThat(task.getRetryCount()).isEqualTo(originalRetryCount);
         verify(jobPostingAsyncSseService, never()).publish(any());
@@ -282,7 +282,7 @@ class JobPostingAsyncTaskServiceTest {
 
         jobPostingAsyncTaskService.markFailed(
                 task.getTaskId(),
-                FailureReason.INTERNAL_ERROR,
+                AnalysisAsyncFailureReason.INTERNAL_ERROR,
                 "worker stack trace",
                 1
         );
@@ -310,7 +310,7 @@ class JobPostingAsyncTaskServiceTest {
         var response = jobPostingAsyncTaskService.cancelTask(user, task.getTaskId());
 
         assertThat(response.status()).isEqualTo("CANCELLED");
-        assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.TaskStatus.CANCELLED);
+        assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.AnalysisAsyncTaskStatus.CANCELLED);
         assertThat(task.isCancelRequested()).isTrue();
         verify(jobPostingAsyncSseService).publish(any());
         verify(notificationService, never()).createNotification(any(), any(), any(), any(), any(), any(), any());
@@ -341,7 +341,7 @@ class JobPostingAsyncTaskServiceTest {
         var response = jobPostingAsyncTaskService.cancelTask(user, task.getTaskId());
 
         assertThat(response.status()).isEqualTo("SUCCEEDED");
-        assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.TaskStatus.SUCCEEDED);
+        assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.AnalysisAsyncTaskStatus.SUCCEEDED);
         assertThat(task.getMessage()).isEqualTo("채용 공고 비동기 처리에 성공했습니다.");
         verify(jobPostingAsyncSseService, never()).publish(any());
     }
@@ -352,14 +352,14 @@ class JobPostingAsyncTaskServiceTest {
         User user = User.signup("테스트 사용자", "job-posting-cancel-failed@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 7L);
         JobPostingAsyncTask task = JobPostingAsyncTask.pending(7L, 3);
-        task.markFailed(FailureReason.INTERNAL_ERROR, "failed", 1);
+        task.markFailed(AnalysisAsyncFailureReason.INTERNAL_ERROR, "failed", 1);
 
         when(jobPostingAsyncTaskRepository.findByTaskIdAndUserId(task.getTaskId(), 7L)).thenReturn(Optional.of(task));
 
         var response = jobPostingAsyncTaskService.cancelTask(user, task.getTaskId());
 
         assertThat(response.status()).isEqualTo("FAILED");
-        assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.TaskStatus.FAILED);
+        assertThat(task.getStatus()).isEqualTo(JobPostingAsyncTask.AnalysisAsyncTaskStatus.FAILED);
         assertThat(task.getMessage()).isEqualTo("채용 공고 비동기 처리에 실패했습니다.");
         verify(jobPostingAsyncSseService, never()).publish(any());
     }
@@ -410,7 +410,7 @@ class JobPostingAsyncTaskServiceTest {
 
         jobPostingAsyncTaskService.markRetryScheduled(
                 task.getTaskId(),
-                FailureReason.INTERNAL_ERROR,
+                AnalysisAsyncFailureReason.INTERNAL_ERROR,
                 "retry scheduled",
                 1
         );

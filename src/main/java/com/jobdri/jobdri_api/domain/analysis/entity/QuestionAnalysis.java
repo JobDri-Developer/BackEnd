@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.entity;
 
+import com.jobdri.jobdri_api.domain.analysis.type.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.global.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;

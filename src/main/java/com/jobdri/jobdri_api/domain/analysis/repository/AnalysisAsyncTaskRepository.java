@@ -1,7 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.repository;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;
@@ -14,14 +14,14 @@ public interface AnalysisAsyncTaskRepository extends JpaRepository<AnalysisAsync
     Optional<AnalysisAsyncTask> findFirstByUserIdAndMockApplyIdAndStatusInOrderByCreatedAtDesc(
             Long userId,
             Long mockApplyId,
-            Collection<TaskStatus> statuses
+            Collection<AnalysisAsyncTaskStatus> statuses
     );
 
     List<AnalysisAsyncTask> findByUserIdAndMockApplyIdInAndStatusIn(
             Long userId,
             Collection<Long> mockApplyIds,
-            Collection<TaskStatus> statuses
+            Collection<AnalysisAsyncTaskStatus> statuses
     );
 
-    List<AnalysisAsyncTask> findByStatusIn(Collection<TaskStatus> statuses);
+    List<AnalysisAsyncTask> findByStatusIn(Collection<AnalysisAsyncTaskStatus> statuses);
 }

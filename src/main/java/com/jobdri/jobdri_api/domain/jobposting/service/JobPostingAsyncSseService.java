@@ -1,7 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
-import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.global.sse.SseSubscriptionRegistry;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -40,7 +40,7 @@ public class JobPostingAsyncSseService {
     }
 
     private boolean isTerminal(JobPostingAsyncStatusResponse statusResponse) {
-        TaskStatus status = TaskStatus.valueOf(statusResponse.getStatus());
-        return status == TaskStatus.SUCCEEDED || status == TaskStatus.FAILED || status == TaskStatus.CANCELLED;
+        AnalysisAsyncTaskStatus status = AnalysisAsyncTaskStatus.valueOf(statusResponse.getStatus());
+        return status == AnalysisAsyncTaskStatus.SUCCEEDED || status == AnalysisAsyncTaskStatus.FAILED || status == AnalysisAsyncTaskStatus.CANCELLED;
     }
 }

@@ -1,7 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.dto.response;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
-import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.QuestionAnalysisStatus;
 
 public record QuestionAnalysisResponse(
         Long questionAnalysisId,

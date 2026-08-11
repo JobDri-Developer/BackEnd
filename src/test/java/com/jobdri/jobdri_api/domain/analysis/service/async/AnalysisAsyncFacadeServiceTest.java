@@ -5,7 +5,8 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusRes
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
@@ -261,11 +262,11 @@ class AnalysisAsyncFacadeServiceTest {
     void retryAtLimitMarksTaskFailed() {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
 
-        task.markRetryScheduled(FailureReason.INTERNAL_ERROR, "retry-1", 1);
-        task.markRetryScheduled(FailureReason.INTERNAL_ERROR, "retry-2", 2);
-        task.markRetryScheduled(FailureReason.INTERNAL_ERROR, "retry-3", 3);
+        task.markRetryScheduled(AnalysisAsyncFailureReason.INTERNAL_ERROR, "retry-1", 1);
+        task.markRetryScheduled(AnalysisAsyncFailureReason.INTERNAL_ERROR, "retry-2", 2);
+        task.markRetryScheduled(AnalysisAsyncFailureReason.INTERNAL_ERROR, "retry-3", 3);
 
-        assertThat(task.getStatus()).isEqualTo(AnalysisAsyncTask.TaskStatus.FAILED);
+        assertThat(task.getStatus()).isEqualTo(AnalysisAsyncTaskStatus.FAILED);
         assertThat(task.getRetryCount()).isEqualTo(3);
     }
 }

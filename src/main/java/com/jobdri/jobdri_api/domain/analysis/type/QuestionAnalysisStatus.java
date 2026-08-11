@@ -1,4 +1,4 @@
-package com.jobdri.jobdri_api.domain.analysis.entity;
+package com.jobdri.jobdri_api.domain.analysis.type;
 
 public enum QuestionAnalysisStatus {
     PROVEN,
