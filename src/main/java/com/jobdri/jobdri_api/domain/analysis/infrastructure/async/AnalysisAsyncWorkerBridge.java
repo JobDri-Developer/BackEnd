@@ -30,15 +30,21 @@ import com.jobdri.jobdri_api.global.logging.LoggingContext;
 import com.jobdri.jobdri_api.global.logging.LoggingMdcKeys;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Instant;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
 // 외부 분석 워커와 내부 분석 도메인 상태를 연결한다.
 public class AnalysisAsyncWorkerBridge {
+    private static final ConcurrentMap<String, ReentrantLock> CONTEXT_LOCKS = new ConcurrentHashMap<>();
+
     private final AnalysisAsyncTaskService analysisAsyncTaskService;
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
     private final AnalysisService analysisService;
@@ -47,6 +53,7 @@ public class AnalysisAsyncWorkerBridge {
     private final WorkerTaskResultService workerTaskResultService;
     private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate transactionTemplate;
 
     public AnalysisAsyncWorkerBridge(
             AnalysisAsyncTaskService analysisAsyncTaskService,
@@ -56,7 +63,8 @@ public class AnalysisAsyncWorkerBridge {
             UserService userService,
             WorkerTaskResultService workerTaskResultService,
             AnalysisInputFingerprintProvider analysisInputFingerprintProvider,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            TransactionTemplate transactionTemplate
     ) {
         this.analysisAsyncTaskService = analysisAsyncTaskService;
         this.analysisAsyncTaskRepository = analysisAsyncTaskRepository;
@@ -66,6 +74,7 @@ public class AnalysisAsyncWorkerBridge {
         this.workerTaskResultService = workerTaskResultService;
         this.analysisInputFingerprintProvider = analysisInputFingerprintProvider;
         this.objectMapper = objectMapper;
+        this.transactionTemplate = transactionTemplate;
     }
 
     @Transactional
@@ -122,43 +131,39 @@ public class AnalysisAsyncWorkerBridge {
         }
     }
 
-    @Transactional
     public AnalysisWorkerContextResponse getContext(String taskId, Long userId, Long mockApplyId) {
-        AnalysisAsyncTask task = getTaskForUpdate(taskId);
-        rejectIfCancelled(task, "취소된 자소서 분석 작업입니다. taskId=" + taskId);
-        if (!task.getUserId().equals(userId) || !task.getMockApplyId().equals(mockApplyId)) {
-            throw new GeneralException(
-                    GeneralErrorCode.FORBIDDEN,
-                    "자소서 분석 worker 컨텍스트 요청 정보가 작업 정보와 일치하지 않습니다."
+        ReentrantLock contextLock = CONTEXT_LOCKS.computeIfAbsent(taskId, ignored -> new ReentrantLock());
+        contextLock.lock();
+        try {
+            ContextAccess contextAccess = transactionTemplate.execute(
+                    status -> loadContextAccess(taskId, userId, mockApplyId)
             );
-        }
-        reserveCreditIfNeeded(task);
-        if (task.getExecutionContextSnapshot() != null) {
-            return readContextSnapshot(task);
-        }
+            if (contextAccess == null) {
+                throw new GeneralException(
+                        GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                        "자소서 분석 worker 컨텍스트를 초기화할 수 없습니다. taskId=" + taskId
+                );
+            }
+            if (contextAccess.snapshot() != null) {
+                return contextAccess.snapshot();
+            }
 
-        User user = userService.getUser(userId);
-        AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(user, mockApplyId);
-        AnalysisWorkerContextResponse context = new AnalysisWorkerContextResponse(
-                userId,
-                mockApplyId,
-                payload.jobPosting().getCompany().getName(),
-                payload.jobPosting().getDetailClassification().getDetailName(),
-                payload.jobPosting().getTask(),
-                payload.jobPosting().getRequirement(),
-                payload.jobPosting().getPreferred(),
-                payload.jobPosting().getDetailClassification().getMiddleClassification().getClassification().getBigName(),
-                payload.jobPosting().getDetailClassification().getMiddleClassification().getMiddleName(),
-                payload.jobPosting().getDetailClassification().getDetailName(),
-                toQuestionItems(payload.questions()),
-                CorpusReferenceContext.from(payload.retrievalContext()),
-                payload.similarJobPostings()
-        );
-        task.captureExecutionSnapshot(
-                writeContextSnapshot(context),
-                analysisInputFingerprintProvider.create(payload)
-        );
-        return context;
+            AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(userService.getUser(userId), mockApplyId);
+            AnalysisWorkerContextResponse context = buildContext(userId, mockApplyId, payload);
+            String contextSnapshot = writeContextSnapshot(context);
+            String inputFingerprint = analysisInputFingerprintProvider.create(payload);
+            return transactionTemplate.execute(
+                    status -> persistContextSnapshot(taskId, userId, mockApplyId, context, contextSnapshot, inputFingerprint)
+            );
+        } catch (RuntimeException exception) {
+            releaseCreditAfterContextFailure(taskId);
+            throw exception;
+        } finally {
+            contextLock.unlock();
+            if (!contextLock.hasQueuedThreads()) {
+                CONTEXT_LOCKS.remove(taskId, contextLock);
+            }
+        }
     }
 
     @Transactional
@@ -272,6 +277,66 @@ public class AnalysisAsyncWorkerBridge {
                 .toList();
     }
 
+    private ContextAccess loadContextAccess(String taskId, Long userId, Long mockApplyId) {
+        AnalysisAsyncTask task = getTaskForUpdate(taskId);
+        validateContextRequest(task, userId, mockApplyId);
+        if (task.getExecutionContextSnapshot() != null) {
+            return new ContextAccess(readContextSnapshot(task));
+        }
+        reserveCreditIfNeeded(task);
+        return new ContextAccess(null);
+    }
+
+    private AnalysisWorkerContextResponse persistContextSnapshot(
+            String taskId,
+            Long userId,
+            Long mockApplyId,
+            AnalysisWorkerContextResponse context,
+            String contextSnapshot,
+            String inputFingerprint
+    ) {
+        AnalysisAsyncTask task = getTaskForUpdate(taskId);
+        validateContextRequest(task, userId, mockApplyId);
+        if (task.getExecutionContextSnapshot() != null) {
+            return readContextSnapshot(task);
+        }
+        reserveCreditIfNeeded(task);
+        task.captureExecutionSnapshot(contextSnapshot, inputFingerprint);
+        return context;
+    }
+
+    private void validateContextRequest(AnalysisAsyncTask task, Long userId, Long mockApplyId) {
+        rejectIfCancelled(task, "취소된 자소서 분석 작업입니다. taskId=" + task.getTaskId());
+        if (!task.getUserId().equals(userId) || !task.getMockApplyId().equals(mockApplyId)) {
+            throw new GeneralException(
+                    GeneralErrorCode.FORBIDDEN,
+                    "자소서 분석 worker 컨텍스트 요청 정보가 작업 정보와 일치하지 않습니다."
+            );
+        }
+    }
+
+    private AnalysisWorkerContextResponse buildContext(
+            Long userId,
+            Long mockApplyId,
+            AnalysisExecutionPayload payload
+    ) {
+        return new AnalysisWorkerContextResponse(
+                userId,
+                mockApplyId,
+                payload.jobPosting().getCompany().getName(),
+                payload.jobPosting().getDetailClassification().getDetailName(),
+                payload.jobPosting().getTask(),
+                payload.jobPosting().getRequirement(),
+                payload.jobPosting().getPreferred(),
+                payload.jobPosting().getDetailClassification().getMiddleClassification().getClassification().getBigName(),
+                payload.jobPosting().getDetailClassification().getMiddleClassification().getMiddleName(),
+                payload.jobPosting().getDetailClassification().getDetailName(),
+                toQuestionItems(payload.questions()),
+                CorpusReferenceContext.from(payload.retrievalContext()),
+                payload.similarJobPostings()
+        );
+    }
+
     private String writeContextSnapshot(AnalysisWorkerContextResponse context) {
         try {
             return objectMapper.writeValueAsString(context);
@@ -331,7 +396,8 @@ public class AnalysisAsyncWorkerBridge {
     }
 
     private void reserveCreditIfNeeded(AnalysisAsyncTask task) {
-        if (task.getCreditStatus() != AnalysisAsyncCreditStatus.NONE) {
+        if (task.getCreditStatus() == AnalysisAsyncCreditStatus.RESERVED
+                || task.getCreditStatus() == AnalysisAsyncCreditStatus.CONFIRMED) {
             return;
         }
 
@@ -357,6 +423,17 @@ public class AnalysisAsyncWorkerBridge {
         analysisAsyncTaskService.markCreditReleased(task.getTaskId());
     }
 
+    private void releaseCreditAfterContextFailure(String taskId) {
+        transactionTemplate.execute(status -> {
+            AnalysisAsyncTask task = getTaskForUpdate(taskId);
+            if (task.getExecutionContextSnapshot() != null) {
+                return null;
+            }
+            releaseCreditIfNeeded(task);
+            return null;
+        });
+    }
+
     private Map<String, String> workerContext(
             String taskId,
             String taskType,
@@ -377,5 +454,8 @@ public class AnalysisAsyncWorkerBridge {
             context.put(LoggingMdcKeys.QUEUE_LATENCY_MILLIS, String.valueOf(queueLatencyMillis));
         }
         return context;
+    }
+
+    private record ContextAccess(AnalysisWorkerContextResponse snapshot) {
     }
 }

@@ -10,6 +10,7 @@ import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.domain.workerresult.service.WorkerTaskResultService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
 // 외부 분석 워커와 내부 분석 도메인 상태를 연결해 주는 브리지 서비스다.
@@ -23,7 +24,8 @@ public class AnalysisWorkerBridgeService extends AnalysisAsyncWorkerBridge {
             UserService userService,
             WorkerTaskResultService workerTaskResultService,
             AnalysisInputFingerprintProvider analysisInputFingerprintProvider,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            TransactionTemplate transactionTemplate
     ) {
         super(
                 analysisAsyncTaskService,
@@ -33,7 +35,8 @@ public class AnalysisWorkerBridgeService extends AnalysisAsyncWorkerBridge {
                 userService,
                 workerTaskResultService,
                 analysisInputFingerprintProvider,
-                objectMapper
+                objectMapper,
+                transactionTemplate
         );
     }
 }
