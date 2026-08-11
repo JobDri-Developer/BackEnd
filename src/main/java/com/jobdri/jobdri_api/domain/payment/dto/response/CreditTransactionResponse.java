@@ -1,7 +1,7 @@
 package com.jobdri.jobdri_api.domain.payment.dto.response;
 
 import com.jobdri.jobdri_api.domain.payment.entity.CreditTransaction;
-import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
+import com.jobdri.jobdri_api.domain.payment.type.CreditTransactionType;
 
 import java.time.LocalDateTime;
 

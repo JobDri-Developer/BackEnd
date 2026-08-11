@@ -3,29 +3,28 @@ package com.jobdri.jobdri_api.domain.payment.service;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.payment.gateway.PaymentGateway;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentQuery;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPaymentSnapshot;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPrepareCommand;
-import com.jobdri.jobdri_api.domain.payment.gateway.model.GatewayPrepareResult;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancelResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePaymentResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePrepareData;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneWebhookPayload;
+import com.jobdri.jobdri_api.domain.payment.gateway.query.GatewayPaymentQuery;
+import com.jobdri.jobdri_api.domain.payment.gateway.result.GatewayPaymentSnapshot;
+import com.jobdri.jobdri_api.domain.payment.gateway.command.GatewayPrepareCommand;
+import com.jobdri.jobdri_api.domain.payment.gateway.result.GatewayPrepareResult;
+import com.jobdri.jobdri_api.domain.payment.gateway.command.GatewayRefundCommand;
+import com.jobdri.jobdri_api.domain.payment.gateway.result.GatewayRefundResult;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOnePaymentResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOneWebhookPayload;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PortOnePaymentCompleteRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentRefundRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.*;
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayRefundResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
-import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
-import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
+import com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayStatusResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.toss.TossPaymentConfirmResponse;
+import com.jobdri.jobdri_api.domain.payment.type.CreditPlan;
+import com.jobdri.jobdri_api.domain.payment.type.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
-import com.jobdri.jobdri_api.domain.payment.entity.PaymentProviderType;
-import com.jobdri.jobdri_api.domain.payment.entity.PaymentStatus;
-import com.jobdri.jobdri_api.domain.payment.entity.TossPayStatus;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentProviderType;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentStatus;
+import com.jobdri.jobdri_api.domain.payment.type.TossPayStatus;
 import com.jobdri.jobdri_api.domain.payment.repository.CreditTransactionRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.entity.UserRole;
@@ -34,8 +33,13 @@ import com.jobdri.jobdri_api.global.apiPayload.code.BaseErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.logging.LoggingContext;
+import com.jobdri.jobdri_api.global.pagination.PaginationPolicy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpHeaders;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -52,6 +56,7 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class PaymentService {
 
+    private static final int MAX_PAGE_SIZE = PaginationPolicy.MAX_PAGE_SIZE;
     private static final String EXPECTED_PAYMENT_METHOD = "간편결제";
     private static final String EXPECTED_EASY_PAY_PROVIDER = "토스페이";
     private static final String ORDER_ID_PREFIX = "jobdri-";
@@ -272,7 +277,15 @@ public class PaymentService {
             );
         }
         try {
-            RefundExternalResult result = refundExternalPayment(start, reason);
+            GatewayRefundResult result = resolveGateway(start.provider()).refund(new GatewayRefundCommand(
+                    start.paymentId(),
+                    start.provider(),
+                    start.orderId(),
+                    start.externalPaymentId(),
+                    start.payToken(),
+                    start.amount(),
+                    reason
+            ));
             return paymentTransactionService.completeRefund(
                     start.paymentId(),
                     start.provider(),
@@ -389,6 +402,29 @@ public class PaymentService {
                 .toList();
     }
 
+    public Page<CreditTransactionResponse> getTransactionsPage(
+            User user,
+            CreditTransactionType type,
+            int page,
+            int size
+    ) {
+        User validatedUser = userService.validateUser(user);
+        Pageable pageable = PageRequest.of(
+                Math.max(page, 0),
+                Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
+                Sort.by(
+                        Sort.Order.desc("createdAt"),
+                        Sort.Order.desc("id")
+                )
+        );
+        if (type == null) {
+            return creditTransactionRepository.findAllByUserId(validatedUser.getId(), pageable)
+                    .map(CreditTransactionResponse::from);
+        }
+        return creditTransactionRepository.findAllByUserIdAndType(validatedUser.getId(), type, pageable)
+                .map(CreditTransactionResponse::from);
+    }
+
     private void validateTossResponse(Long userId, PaymentConfirmRequest request, TossPaymentConfirmResponse response) {
         if (response == null
                 || !request.orderId().equals(response.orderId())
@@ -470,76 +506,6 @@ public class PaymentService {
         }
     }
 
-    private RefundExternalResult refundExternalPayment(
-            PaymentTransactionService.PaymentRefundStart start,
-            String reason
-    ) {
-        return switch (start.provider()) {
-            case PORTONE -> refundPortOnePayment(start, reason);
-            case TOSS_PAY_DIRECT -> refundTossPayPayment(start, reason);
-            default -> throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "지원하지 않는 결제수단입니다.");
-        };
-    }
-
-    private RefundExternalResult refundPortOnePayment(PaymentTransactionService.PaymentRefundStart start, String reason) {
-        if (isBlank(start.externalPaymentId())) {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "포트원 paymentId가 없는 결제는 환불할 수 없습니다.");
-        }
-        PortOneCancelResponse response = portOneClient.cancelPayment(start.externalPaymentId(), start.amount(), reason);
-        validatePortOneRefundResponse(response, start);
-        return new RefundExternalResult("CANCELLED");
-    }
-
-    private RefundExternalResult refundTossPayPayment(PaymentTransactionService.PaymentRefundStart start, String reason) {
-        if (isBlank(start.payToken())) {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "토스페이 payToken이 없는 결제는 환불할 수 없습니다.");
-        }
-        String refundNo = tossPayRefundNo(start.paymentId());
-        TossPayRefundResponse response = tossPayClient.refundPayment(
-                start.payToken(),
-                start.orderId(),
-                refundNo,
-                start.amount(),
-                reason
-        );
-        validateTossPayRefundResponse(response, start, refundNo);
-        return new RefundExternalResult(response.payStatus());
-    }
-
-    private void validatePortOneRefundResponse(
-            PortOneCancelResponse response,
-            PaymentTransactionService.PaymentRefundStart start
-    ) {
-        if (response == null
-                || response.cancellation() == null
-                || isBlank(response.cancellation().id())
-                || !"SUCCEEDED".equals(response.cancellation().status())
-                || response.cancellation().amount() == null
-                || response.cancellation().amount() != start.amount()) {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "포트원 결제 취소 응답 검증에 실패했습니다.");
-        }
-    }
-
-    private void validateTossPayRefundResponse(
-            TossPayRefundResponse response,
-            PaymentTransactionService.PaymentRefundStart start,
-            String refundNo
-    ) {
-        if (response == null
-                || !response.successful()
-                || !refundNo.equals(response.refundNo())
-                || !start.payToken().equals(response.payToken())
-                || !TossPayStatus.REFUND_SUCCESS.name().equals(response.payStatus())
-                || response.refundedAmount() == null
-                || response.refundedAmount() != start.amount()) {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "토스페이 환불 응답 검증에 실패했습니다.");
-        }
-    }
-
-    private String tossPayRefundNo(Long paymentId) {
-        return "jobdri-refund-" + paymentId;
-    }
-
     private String normalizeRefundReason(String reason) {
         if (isBlank(reason)) {
             return DEFAULT_REFUND_REASON;
@@ -559,8 +525,5 @@ public class PaymentService {
 
     private boolean isBlank(String value) {
         return value == null || value.isBlank();
-    }
-
-    private record RefundExternalResult(String externalStatus) {
     }
 }

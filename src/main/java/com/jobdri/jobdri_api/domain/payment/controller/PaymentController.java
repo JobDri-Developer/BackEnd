@@ -7,7 +7,7 @@ import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentRefundRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PortOnePaymentCompleteRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.*;
-import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
+import com.jobdri.jobdri_api.domain.payment.type.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.service.CouponService;
 import com.jobdri.jobdri_api.domain.payment.service.PaymentService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
@@ -17,6 +17,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -158,6 +159,20 @@ public class PaymentController {
         return ApiResponse.onSuccess(
                 "크레딧 거래 내역 조회에 성공했습니다.",
                 paymentService.getTransactions(userDetails.getUser(), type)
+        );
+    }
+
+    @Operation(summary = "내 크레딧 거래 내역 페이징 조회", description = "크레딧 거래 내역을 페이지 단위로 조회합니다. type query parameter로 필터링할 수 있습니다.")
+    @GetMapping("/credits/me/transactions/page")
+    public ApiResponse<Page<CreditTransactionResponse>> getTransactionsPage(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @RequestParam(required = false) CreditTransactionType type,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size
+    ) {
+        return ApiResponse.onSuccess(
+                "크레딧 거래 내역 페이징 조회에 성공했습니다.",
+                paymentService.getTransactionsPage(userDetails.getUser(), type, page, size)
         );
     }
 }

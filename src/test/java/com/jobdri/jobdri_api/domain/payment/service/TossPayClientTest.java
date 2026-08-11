@@ -1,6 +1,6 @@
 package com.jobdri.jobdri_api.domain.payment.service;
 
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayStatusResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.BeforeEach;
@@ -113,7 +113,7 @@ class TossPayClientTest {
         when(restClient.post()).thenReturn(requestBodyUriSpec);
         when(requestBodyUriSpec.uri("/api/v2/status")).thenReturn(requestBodyUriSpec);
         when(requestBodyUriSpec.contentType(MediaType.APPLICATION_JSON)).thenReturn(requestBodyUriSpec);
-        when(requestBodyUriSpec.body(new com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusRequest(
+        when(requestBodyUriSpec.body(new com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayStatusRequest(
                 "test-api-key",
                 "pay-token-1",
                 "order-1"
