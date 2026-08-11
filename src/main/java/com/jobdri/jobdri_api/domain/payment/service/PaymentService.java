@@ -526,6 +526,7 @@ public class PaymentService {
         }
         BaseErrorCode code = generalException.getCode();
         return code == GeneralErrorCode.INVALID_PARAMETER
+                || code == GeneralErrorCode.PAYMENT_ALREADY_PROCESSED
                 || code == GeneralErrorCode.PAYMENT_CONFIRM_FAILED;
     }
 

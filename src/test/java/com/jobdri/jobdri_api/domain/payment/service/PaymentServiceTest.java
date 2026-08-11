@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.IntFunction;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -275,6 +276,62 @@ class PaymentServiceTest {
                         .isInstanceOf(GeneralException.class)
                         .extracting("code")
                         .isEqualTo(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED));
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("토스 직접 승인 중 PAY_COMPLETE 콜백이 동시에 오면 콜백이 PAYMENT_ALREADY_PROCESSED로 실패한다")
+    void confirmAndTossPayCallbackRaceCurrentlyFailsCallbackWithAlreadyProcessed() throws Exception {
+        User user = saveUser("payment-confirm-callback-race@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        String paymentKey = "payment-key-" + prepared.orderId();
+        PaymentConfirmRequest confirmRequest = new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500);
+        TossPayCallbackRequest callbackRequest = tossPayCompleteCallback(prepared);
+
+        CountDownLatch confirmEnteredExternalCall = new CountDownLatch(1);
+        CountDownLatch callbackAttemptFinished = new CountDownLatch(1);
+        when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
+                .thenAnswer(invocation -> {
+                    confirmEnteredExternalCall.countDown();
+                    assertThat(callbackAttemptFinished.await(5, TimeUnit.SECONDS)).isTrue();
+                    return tossPayResponse(paymentKey, prepared, 2500);
+                });
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+
+        List<Result> results = runConcurrentlyIndexed(2, index -> {
+            try {
+                if (index == 0) {
+                    paymentService.confirm(user, confirmRequest);
+                    return Result.ok();
+                }
+
+                assertThat(confirmEnteredExternalCall.await(5, TimeUnit.SECONDS)).isTrue();
+                paymentService.handleTossPayCallback(callbackRequest);
+                return Result.ok();
+            } catch (Exception e) {
+                return Result.failure(e);
+            } finally {
+                if (index == 1) {
+                    callbackAttemptFinished.countDown();
+                }
+            }
+        });
+
+        assertThat(results).hasSize(2);
+        assertThat(results.get(0).success()).isTrue();
+        assertThat(results.get(1).success()).isFalse();
+        assertThat(results.get(1).exception())
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED);
+
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
         assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
         assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
                 user.getId(),
@@ -621,6 +678,22 @@ class PaymentServiceTest {
                 null,
                 null
         ));
+
+        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+    }
+
+    @Test
+    @DisplayName("이미 PROCESSING 상태인 결제의 토스페이 콜백 충돌은 컨트롤러에서 200으로 응답한다")
+    void tossPayCallbackControllerAcknowledgesAlreadyProcessedConflict() {
+        User user = saveUser("payment-callback-already-processed@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        payment.markProcessing("payment-key-" + prepared.orderId());
+        paymentRepository.saveAndFlush(payment);
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+
+        var response = paymentController.tossPayCallback(tossPayCompleteCallback(prepared));
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
     }
