@@ -683,6 +683,22 @@ class PaymentServiceTest {
     }
 
     @Test
+    @DisplayName("이미 PROCESSING 상태인 결제의 토스페이 콜백 충돌은 컨트롤러에서 200으로 응답한다")
+    void tossPayCallbackControllerAcknowledgesAlreadyProcessedConflict() {
+        User user = saveUser("payment-callback-already-processed@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        payment.markProcessing("payment-key-" + prepared.orderId());
+        paymentRepository.saveAndFlush(payment);
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+
+        var response = paymentController.tossPayCallback(tossPayCompleteCallback(prepared));
+
+        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+    }
+
+    @Test
     @DisplayName("재시도 가능한 토스페이 콜백 상태 조회 실패는 컨트롤러에서 전파한다")
     void tossPayCallbackControllerPropagatesRetryableStatusFailure() {
         User user = saveUser("payment-callback-retryable@example.com");
