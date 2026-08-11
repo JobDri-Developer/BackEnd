@@ -151,7 +151,7 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     }
 
     public void markSuccess() {
-        if (isTerminal()) {
+        if (isTerminal() && !isRecoverablePublishFailure()) {
             return;
         }
         this.status = AnalysisAsyncTaskStatus.SUCCEEDED;
@@ -162,6 +162,11 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         this.currentStep = "COMPLETED";
         this.progressPercent = 100;
         this.estimatedRemainingSeconds = 0;
+    }
+
+    public boolean isRecoverablePublishFailure() {
+        return status == AnalysisAsyncTaskStatus.FAILED
+                && failureReason == AnalysisAsyncFailureReason.PUBLISH_FAILED;
     }
 
     public void markRetryScheduled(AnalysisAsyncFailureReason failureReason, String errorMessage, int retryCount) {

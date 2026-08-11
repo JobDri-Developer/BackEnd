@@ -56,7 +56,7 @@ public class AnalysisAsyncTaskSweepCoordinator {
     }
 
     private int sweepTimedOutTask(String taskId) {
-        AnalysisAsyncTask task = analysisAsyncTaskRepository.findById(taskId).orElse(null);
+        AnalysisAsyncTask task = analysisAsyncTaskRepository.findByIdForUpdate(taskId).orElse(null);
         if (task == null || task.getStatus() == AnalysisAsyncTaskStatus.SUCCEEDED || task.getStatus() == AnalysisAsyncTaskStatus.FAILED) {
             return 0;
         }

@@ -70,7 +70,7 @@ public class AnalysisAsyncWorkerBridge {
 
     @Transactional
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
-        AnalysisAsyncTask task = getTask(taskId);
+        AnalysisAsyncTask task = getTaskForUpdate(taskId);
         if (isTerminal(task)) {
             return;
         }
@@ -89,7 +89,7 @@ public class AnalysisAsyncWorkerBridge {
             String workerId,
             Long queueLatencyMillis
     ) {
-        AnalysisAsyncTask task = getTask(taskId);
+        AnalysisAsyncTask task = getTaskForUpdate(taskId);
         if (isTerminal(task)) {
             return;
         }
@@ -109,7 +109,7 @@ public class AnalysisAsyncWorkerBridge {
             String workerId,
             Long queueLatencyMillis
     ) {
-        AnalysisAsyncTask task = getTask(taskId);
+        AnalysisAsyncTask task = getTaskForUpdate(taskId);
         if (isTerminal(task)) {
             return;
         }
@@ -124,7 +124,7 @@ public class AnalysisAsyncWorkerBridge {
 
     @Transactional
     public AnalysisWorkerContextResponse getContext(String taskId, Long userId, Long mockApplyId) {
-        AnalysisAsyncTask task = getTask(taskId);
+        AnalysisAsyncTask task = getTaskForUpdate(taskId);
         rejectIfCancelled(task, "취소된 자소서 분석 작업입니다. taskId=" + taskId);
         if (!task.getUserId().equals(userId) || !task.getMockApplyId().equals(mockApplyId)) {
             throw new GeneralException(
@@ -163,7 +163,7 @@ public class AnalysisAsyncWorkerBridge {
 
     @Transactional
     public AnalysisResponse completeTask(String taskId, AnalysisWorkerCompleteRequest request) {
-        AnalysisAsyncTask task = getTask(taskId);
+        AnalysisAsyncTask task = getTaskForUpdate(taskId);
         if (!task.getUserId().equals(request.userId()) || !task.getMockApplyId().equals(request.mockApplyId())) {
             throw new GeneralException(
                     GeneralErrorCode.FORBIDDEN,
@@ -191,15 +191,17 @@ public class AnalysisAsyncWorkerBridge {
             return analysisService.getAnalysis(userService.getUser(request.userId()), request.mockApplyId());
         }
         if (task.getStatus() == AnalysisAsyncTaskStatus.FAILED) {
-            workerTaskResultService.markDeliveryFailedIfPresent(
-                    TaskType.ANALYSIS_COMPLETE,
-                    taskId,
-                    "이미 실패 처리된 자소서 분석 비동기 작업입니다."
-            );
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "이미 실패 처리된 자소서 분석 비동기 작업입니다. taskId=" + taskId
-            );
+            if (!task.isRecoverablePublishFailure()) {
+                workerTaskResultService.markDeliveryFailedIfPresent(
+                        TaskType.ANALYSIS_COMPLETE,
+                        taskId,
+                        "이미 실패 처리된 자소서 분석 비동기 작업입니다."
+                );
+                throw new GeneralException(
+                        GeneralErrorCode.INVALID_PARAMETER,
+                        "이미 실패 처리된 자소서 분석 비동기 작업입니다. taskId=" + taskId
+                );
+            }
         }
 
         User user = userService.getUser(request.userId());
@@ -302,6 +304,14 @@ public class AnalysisAsyncWorkerBridge {
 
     private AnalysisAsyncTask getTask(String taskId) {
         return analysisAsyncTaskRepository.findById(taskId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.ANALYSIS_ASYNC_TASK_NOT_FOUND,
+                        "해당 자소서 분석 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
+                ));
+    }
+
+    private AnalysisAsyncTask getTaskForUpdate(String taskId) {
+        return analysisAsyncTaskRepository.findByIdForUpdate(taskId)
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.ANALYSIS_ASYNC_TASK_NOT_FOUND,
                         "해당 자소서 분석 비동기 작업을 찾을 수 없습니다. taskId=" + taskId

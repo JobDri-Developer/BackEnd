@@ -105,10 +105,12 @@ public class AnalysisAsyncTaskService {
             );
         }
         if (task.getStatus() == AnalysisAsyncTaskStatus.FAILED) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "이미 실패 처리된 자소서 분석 비동기 작업입니다. taskId=" + taskId
-            );
+            if (!task.isRecoverablePublishFailure()) {
+                throw new GeneralException(
+                        GeneralErrorCode.INVALID_PARAMETER,
+                        "이미 실패 처리된 자소서 분석 비동기 작업입니다. taskId=" + taskId
+                );
+            }
         }
         task.markSuccess();
         recordProcessingMetric(task, "succeeded");
