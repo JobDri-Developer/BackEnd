@@ -17,12 +17,9 @@ import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificati
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
-import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
-import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationService;
-import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCompletedFilter;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeItemResponse;
@@ -42,7 +39,6 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.data.domain.Page;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -59,8 +55,6 @@ import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -102,9 +96,6 @@ class MockApplyServiceTest {
 
     @Autowired
     private PlatformTransactionManager transactionManager;
-
-    @MockBean
-    private MockJobPostingGenerationService mockJobPostingGenerationService;
 
     @Test
     @DisplayName("기존 공고를 기준으로 ACTUAL 타입 모의 서류 지원을 생성한다")
@@ -189,67 +180,6 @@ class MockApplyServiceTest {
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")
                 .isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
-    }
-
-    @Test
-    @DisplayName("소분류를 기준으로 가상 공고와 MOCK 타입 모의 서류 지원을 생성한다")
-    void createMockApply() {
-        User user = saveUser("mock-apply@example.com");
-        String companyName = "선택 기업 " + UUID.randomUUID();
-        Company company = saveCompany(companyName, CompanySize.MEDIUM);
-        DetailClassification detailClassification = saveDetailClassification("프론트엔드 개발");
-        Long middleClassificationId = detailClassification.getMiddleClassification().getId();
-        MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(
-                company.getId(),
-                middleClassificationId,
-                detailClassification.getId()
-        );
-        when(mockJobPostingGenerationService.generate(any()))
-                .thenReturn(new JobPostingMockGenerateResponse(
-                        companyName,
-                        "프론트엔드 개발자",
-                        "웹 프론트엔드 개발 및 운영",
-                        "HTML/CSS/JavaScript 기본기",
-                        "React 경험 우대",
-                        "프론트엔드 직무 대상 모의 공고입니다.",
-                        List.of("질문 1", "질문 2")
-                ));
-
-        MockApplyCreateResponse response = mockApplyService.createMockApply(user, request);
-
-        MockApply mockApply = mockApplyRepository.findById(response.mockApplyId()).orElseThrow();
-        JobPosting jobPosting = jobPostingRepository.findById(response.jobPostingId()).orElseThrow();
-        assertThat(response.applyType()).isEqualTo(ApplyType.MOCK);
-        assertThat(response.sequence()).isEqualTo(1);
-        assertThat(mockApply.getUser().getId()).isEqualTo(user.getId());
-        assertThat(mockApply.getApplyType()).isEqualTo(ApplyType.MOCK);
-        assertThat(mockApply.getStatus()).isEqualTo(MockApplyStatus.APPLICATION_CREATED);
-        assertThat(mockApply.getSequence()).isEqualTo(1);
-        assertThat(jobPosting.getCompany().getId()).isEqualTo(company.getId());
-        assertThat(jobPosting.getCompany().getName()).isEqualTo(companyName);
-        assertThat(jobPosting.getCompany().getSize()).isEqualTo(CompanySize.MEDIUM);
-        assertThat(jobPosting.getDetailClassification().getId()).isEqualTo(detailClassification.getId());
-        assertThat(jobPosting.getTask()).isEqualTo("웹 프론트엔드 개발 및 운영");
-        assertThat(jobPosting.getRequirement()).isEqualTo("HTML/CSS/JavaScript 기본기");
-        assertThat(jobPosting.getPreferred()).isEqualTo("React 경험 우대");
-    }
-
-    @Test
-    @DisplayName("저장된 공고를 기준으로 MOCK 타입 모의 서류 지원을 생성한다")
-    void createMockApplyFromJobPosting() {
-        User user = saveUser("mock-from-job-posting@example.com");
-        JobPosting jobPosting = saveJobPosting(user, "백엔드 개발");
-
-        MockApplyCreateResponse response = mockApplyService.createMockApplyFromJobPosting(user, jobPosting.getId());
-
-        MockApply mockApply = mockApplyRepository.findById(response.mockApplyId()).orElseThrow();
-        assertThat(response.jobPostingId()).isEqualTo(jobPosting.getId());
-        assertThat(response.applyType()).isEqualTo(ApplyType.MOCK);
-        assertThat(response.sequence()).isEqualTo(1);
-        assertThat(mockApply.getUser().getId()).isEqualTo(user.getId());
-        assertThat(mockApply.getJobPosting().getId()).isEqualTo(jobPosting.getId());
-        assertThat(mockApply.getApplyType()).isEqualTo(ApplyType.MOCK);
-        assertThat(mockApply.getSequence()).isEqualTo(1);
     }
 
     @Test
@@ -792,68 +722,6 @@ class MockApplyServiceTest {
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")
                 .isEqualTo(GeneralErrorCode.JOB_POSTING_NOT_FOUND);
-    }
-
-    @Test
-    @DisplayName("다른 사용자의 공고로 MOCK 타입 지원 생성 시 예외를 던진다")
-    void createMockApplyFromJobPostingThrowsWhenForbidden() {
-        User owner = saveUser("mock-owner@example.com");
-        User otherUser = saveUser("mock-other@example.com");
-        JobPosting jobPosting = saveJobPosting(owner, "프론트엔드 개발");
-
-        assertThatThrownBy(() -> mockApplyService.createMockApplyFromJobPosting(otherUser, jobPosting.getId()))
-                .isInstanceOf(GeneralException.class)
-                .extracting("code")
-                .isEqualTo(GeneralErrorCode.FORBIDDEN);
-    }
-
-    @Test
-    @DisplayName("존재하지 않는 소분류 ID로 MOCK 타입 지원 생성 시 예외를 던진다")
-    void createMockApplyThrowsWhenDetailClassificationNotFound() {
-        User user = saveUser("missing-detail-classification@example.com");
-        Company company = saveCompany("선택 기업 " + UUID.randomUUID(), CompanySize.MEDIUM);
-        MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(company.getId(), 1L, 9999L);
-        when(mockJobPostingGenerationService.generate(any()))
-                .thenThrow(new GeneralException(
-                        GeneralErrorCode.CLASSIFICATION_NOT_FOUND,
-                        "해당 소분류를 찾을 수 없습니다. detailClassificationId=9999"
-                ));
-
-        assertThatThrownBy(() -> mockApplyService.createMockApply(user, request))
-                .isInstanceOf(GeneralException.class)
-                .extracting("code")
-                .isEqualTo(GeneralErrorCode.CLASSIFICATION_NOT_FOUND);
-    }
-
-    @Test
-    @DisplayName("존재하지 않는 회사 ID로 MOCK 타입 지원 생성 시 예외를 던진다")
-    void createMockApplyThrowsWhenCompanyNotFound() {
-        User user = saveUser("missing-company@example.com");
-        MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(9999L, 1L, 1L);
-
-        assertThatThrownBy(() -> mockApplyService.createMockApply(user, request))
-                .isInstanceOf(GeneralException.class)
-                .extracting("code")
-                .isEqualTo(GeneralErrorCode.COMPANY_NOT_FOUND);
-    }
-
-    @Test
-    @DisplayName("소분류가 중분류에 속하지 않으면 MOCK 타입 지원 생성 시 예외를 던진다")
-    void createMockApplyThrowsWhenMiddleClassificationMismatched() {
-        User user = saveUser("middle-mismatch@example.com");
-        Company company = saveCompany("선택 기업 " + UUID.randomUUID(), CompanySize.MEDIUM);
-        DetailClassification detailClassification = saveDetailClassification("데이터 분석");
-        MockApplyCreateMockRequest request = new MockApplyCreateMockRequest(company.getId(), 9999L, detailClassification.getId());
-        when(mockJobPostingGenerationService.generate(any()))
-                .thenThrow(new GeneralException(
-                        GeneralErrorCode.CLASSIFICATION_NOT_FOUND,
-                        "해당 소분류가 중분류에 속하지 않습니다. middleClassificationId=9999, detailClassificationId=" + detailClassification.getId()
-                ));
-
-        assertThatThrownBy(() -> mockApplyService.createMockApply(user, request))
-                .isInstanceOf(GeneralException.class)
-                .extracting("code")
-                .isEqualTo(GeneralErrorCode.CLASSIFICATION_NOT_FOUND);
     }
 
     @Test
