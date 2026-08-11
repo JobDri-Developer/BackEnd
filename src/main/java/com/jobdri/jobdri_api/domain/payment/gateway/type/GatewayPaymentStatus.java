@@ -5,6 +5,7 @@ public enum GatewayPaymentStatus {
     PROCESSING,
     APPROVED,
     COMPLETED,
+    REFUNDED,
     CANCELED,
     FAILED,
     UNKNOWN

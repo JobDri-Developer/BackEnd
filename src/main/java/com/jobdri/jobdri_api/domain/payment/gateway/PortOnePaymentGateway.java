@@ -21,6 +21,8 @@ import org.springframework.stereotype.Component;
 @RequiredArgsConstructor
 public class PortOnePaymentGateway implements PaymentGateway {
 
+    public static final String CANCELED_EXTERNAL_STATUS = "CANCELLED";
+
     private final PortOneClient portOneClient;
 
     @Override
@@ -77,18 +79,20 @@ public class PortOnePaymentGateway implements PaymentGateway {
                 command.reason()
         );
         validateRefundResponse(response, command.amount());
-        return new GatewayRefundResult(type(), GatewayRefundStatus.SUCCEEDED, "CANCELLED");
+        return new GatewayRefundResult(type(), GatewayRefundStatus.SUCCEEDED, CANCELED_EXTERNAL_STATUS);
     }
 
-    private GatewayPaymentStatus mapStatus(String externalStatus) {
+    public static GatewayPaymentStatus mapStatus(String externalStatus) {
         if (externalStatus == null) {
             return GatewayPaymentStatus.UNKNOWN;
         }
         return switch (externalStatus.toUpperCase()) {
-            case "READY", "PENDING" -> GatewayPaymentStatus.PENDING;
+            case "READY", "PENDING", "VIRTUAL_ACCOUNT_ISSUED", "PAY_PENDING", "CANCEL_PENDING" ->
+                    GatewayPaymentStatus.PENDING;
             case "PAID" -> GatewayPaymentStatus.COMPLETED;
+            case "PARTIAL_CANCELLED" -> GatewayPaymentStatus.UNKNOWN;
             case "FAILED" -> GatewayPaymentStatus.FAILED;
-            case "CANCELLED" -> GatewayPaymentStatus.CANCELED;
+            case CANCELED_EXTERNAL_STATUS -> GatewayPaymentStatus.CANCELED;
             default -> GatewayPaymentStatus.UNKNOWN;
         };
     }

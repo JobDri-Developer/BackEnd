@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.payment.service;
 
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOnePaymentResponse;
+import com.jobdri.jobdri_api.domain.payment.gateway.PortOnePaymentGateway;
 import com.jobdri.jobdri_api.domain.payment.gateway.type.GatewayPaymentStatus;
 import com.jobdri.jobdri_api.domain.payment.gateway.result.GatewayPaymentSnapshot;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentConfirmResponse;
@@ -216,8 +217,10 @@ public class PaymentTransactionService {
         if (payment.getStatus() == PaymentStatus.FAILED) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED, "처리할 수 없는 결제 상태입니다.");
         }
-        if (payment.getStatus() == PaymentStatus.COMPLETED && normalizedStatus != GatewayPaymentStatus.CANCELED) {
-            return currentConfirmResponse(payment);
+        if (payment.getStatus() == PaymentStatus.COMPLETED
+                && normalizedStatus != GatewayPaymentStatus.CANCELED
+                && normalizedStatus != GatewayPaymentStatus.REFUNDED) {
+            return currentConfirmResponse(payment, userService.getUser(payment.getUser().getId()));
         }
 
         return applyGatewayPaymentTransition(
@@ -370,41 +373,48 @@ public class PaymentTransactionService {
             String providerTransactionId,
             String chargeReferenceId
     ) {
+        User user = userService.getUser(payment.getUser().getId());
+
         if (payment.getStatus() == PaymentStatus.REFUNDED) {
-            return currentConfirmResponse(payment);
+            return currentConfirmResponse(payment, user);
         }
-        if (payment.getStatus() == PaymentStatus.COMPLETED) {
+        if (payment.getStatus() == PaymentStatus.COMPLETED
+                && normalizedStatus != GatewayPaymentStatus.REFUNDED) {
             payment.updateProviderStatus(providerStatus, providerTransactionId);
-            return currentConfirmResponse(payment);
+            return currentConfirmResponse(payment, user);
         }
 
         return switch (normalizedStatus) {
             case COMPLETED -> PaymentConfirmResponse.of(
                     payment,
-                    completeAndCharge(payment, providerStatus, providerTransactionId, chargeReferenceId)
+                    completeAndCharge(user, payment, providerStatus, providerTransactionId, chargeReferenceId)
+            );
+            case REFUNDED -> PaymentConfirmResponse.of(
+                    payment,
+                    refundAndRecover(user, payment, providerStatus)
             );
             case FAILED, CANCELED -> {
                 payment.failByProviderStatus(providerStatus, providerTransactionId);
-                yield currentConfirmResponse(payment);
+                yield currentConfirmResponse(payment, user);
             }
             case UNKNOWN -> {
                 payment.markUnknownByProviderStatus(providerStatus, providerTransactionId);
-                yield currentConfirmResponse(payment);
+                yield currentConfirmResponse(payment, user);
             }
             default -> {
                 payment.updateProviderStatus(providerStatus, providerTransactionId);
-                yield currentConfirmResponse(payment);
+                yield currentConfirmResponse(payment, user);
             }
         };
     }
 
     private int completeAndCharge(
+            User user,
             Payment payment,
             String providerStatus,
             String providerTransactionId,
             String chargeReferenceId
     ) {
-        User user = userService.getUser(payment.getUser().getId());
         payment.completeByProviderStatus(providerStatus, providerTransactionId);
         return creditService.charge(
                 user,
@@ -414,8 +424,18 @@ public class PaymentTransactionService {
         );
     }
 
-    private PaymentConfirmResponse currentConfirmResponse(Payment payment) {
-        return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
+    private int refundAndRecover(User user, Payment payment, String providerStatus) {
+        payment.refundByProviderStatus(providerStatus, null);
+        return creditService.use(
+                user,
+                payment.getCreditAmount(),
+                "결제 환불 크레딧 회수",
+                refundCreditReferenceId(payment)
+        );
+    }
+
+    private PaymentConfirmResponse currentConfirmResponse(Payment payment, User user) {
+        return PaymentConfirmResponse.of(payment, user.getCredit());
     }
 
     private String chargeReferenceId(Payment payment) {
@@ -428,7 +448,7 @@ public class PaymentTransactionService {
     private GatewayPaymentSnapshot toGatewaySnapshot(PortOnePaymentResponse response) {
         return new GatewayPaymentSnapshot(
                 PaymentProviderType.PORTONE,
-                normalizePortOneStatus(response.status()),
+                PortOnePaymentGateway.mapStatus(response.status()),
                 response.id(),
                 null,
                 null,
@@ -448,21 +468,8 @@ public class PaymentTransactionService {
         return switch (tossPayStatus) {
             case PAY_COMPLETE -> GatewayPaymentStatus.COMPLETED;
             case PAY_CANCEL -> GatewayPaymentStatus.CANCELED;
-            case PAY_APPROVED, REFUND_SUCCESS -> GatewayPaymentStatus.APPROVED;
-        };
-    }
-
-    private GatewayPaymentStatus normalizePortOneStatus(String externalStatus) {
-        if (externalStatus == null || externalStatus.isBlank()) {
-            return GatewayPaymentStatus.UNKNOWN;
-        }
-        return switch (externalStatus.toUpperCase()) {
-            case "PAID" -> GatewayPaymentStatus.COMPLETED;
-            case "FAILED", "CANCELLED" -> GatewayPaymentStatus.FAILED;
-            case "PARTIAL_CANCELLED", "UNKNOWN" -> GatewayPaymentStatus.UNKNOWN;
-            case "READY", "PENDING", "VIRTUAL_ACCOUNT_ISSUED", "PAY_PENDING", "CANCEL_PENDING" ->
-                    GatewayPaymentStatus.PENDING;
-            default -> GatewayPaymentStatus.UNKNOWN;
+            case PAY_APPROVED -> GatewayPaymentStatus.APPROVED;
+            case REFUND_SUCCESS -> GatewayPaymentStatus.REFUNDED;
         };
     }
 

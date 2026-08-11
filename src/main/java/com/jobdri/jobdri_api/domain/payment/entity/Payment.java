@@ -234,6 +234,7 @@ public class Payment extends BaseEntity {
         switch (getProviderOrDefault()) {
             case TOSS_PAY_DIRECT -> completeByTossPay(providerStatus);
             case PORTONE -> completeByPortOne(providerStatus, providerTransactionId);
+            default -> throw unsupportedProvider("결제 완료");
         }
     }
 
@@ -241,13 +242,18 @@ public class Payment extends BaseEntity {
         switch (getProviderOrDefault()) {
             case TOSS_PAY_DIRECT -> failByTossPay(providerStatus);
             case PORTONE -> failByPortOne(providerStatus, providerTransactionId);
+            default -> throw unsupportedProvider("결제 실패");
         }
     }
 
     public void markUnknownByProviderStatus(String providerStatus, String providerTransactionId) {
         switch (getProviderOrDefault()) {
-            case TOSS_PAY_DIRECT -> updateTossStatus(providerStatus);
+            case TOSS_PAY_DIRECT -> {
+                markTossPayUnknown();
+                updateTossStatus(providerStatus);
+            }
             case PORTONE -> markPortOneUnknown(providerStatus, providerTransactionId);
+            default -> throw unsupportedProvider("결제 상태 미확정");
         }
     }
 
@@ -255,6 +261,7 @@ public class Payment extends BaseEntity {
         switch (getProviderOrDefault()) {
             case TOSS_PAY_DIRECT -> updateTossStatus(providerStatus);
             case PORTONE -> updatePortOneStatus(providerStatus, providerTransactionId);
+            default -> throw unsupportedProvider("결제 상태 갱신");
         }
     }
 
@@ -262,6 +269,7 @@ public class Payment extends BaseEntity {
         switch (getProviderOrDefault()) {
             case TOSS_PAY_DIRECT -> refundByTossPay(providerStatus, refundReason);
             case PORTONE -> refundByPortOne(providerStatus, refundReason);
+            default -> throw unsupportedProvider("결제 환불");
         }
     }
 
@@ -294,5 +302,9 @@ public class Payment extends BaseEntity {
 
     public boolean isProvider(PaymentProviderType provider) {
         return getProviderOrDefault() == provider;
+    }
+
+    private IllegalStateException unsupportedProvider(String action) {
+        return new IllegalStateException("지원하지 않는 결제 제공자입니다. action=" + action + ", provider=" + getProviderOrDefault());
     }
 }
