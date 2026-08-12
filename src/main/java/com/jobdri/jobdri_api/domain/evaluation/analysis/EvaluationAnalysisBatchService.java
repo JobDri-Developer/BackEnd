@@ -7,14 +7,13 @@ import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmRespons
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.type.QuestionAnalysisStatus;
-import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient;
-import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient.AnalysisAiCallResult;
-import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisPromptInput;
-import com.jobdri.jobdri_api.domain.analysis.service.ai.JobCategoryEvaluationCriteriaProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants;
-import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
-import lombok.RequiredArgsConstructor;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationAnalysisCommand;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationGeneratedResult;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.port.EvaluationAnalysisGenerator;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.sanitization.EvaluationSanitizationService;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -31,7 +30,6 @@ import java.util.Optional;
 import java.util.Set;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class EvaluationAnalysisBatchService {
     private static final Long EVALUATION_QUESTION_ID = 1L;
@@ -46,9 +44,31 @@ public class EvaluationAnalysisBatchService {
             "answer"
     );
 
-    private final AnalysisAiClient analysisAiClient;
-    private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
+    private final EvaluationAnalysisGenerator evaluationAnalysisGenerator;
     private final ObjectMapper objectMapper;
+    private final EvaluationSanitizationService evaluationSanitizationService;
+
+    @Autowired
+    public EvaluationAnalysisBatchService(
+            EvaluationAnalysisGenerator evaluationAnalysisGenerator,
+            ObjectMapper objectMapper,
+            EvaluationSanitizationService evaluationSanitizationService
+    ) {
+        this.evaluationAnalysisGenerator = evaluationAnalysisGenerator;
+        this.objectMapper = objectMapper;
+        this.evaluationSanitizationService = evaluationSanitizationService;
+    }
+
+    EvaluationAnalysisBatchService(
+            EvaluationAnalysisGenerator evaluationAnalysisGenerator,
+            ObjectMapper objectMapper
+    ) {
+        this(
+                evaluationAnalysisGenerator,
+                objectMapper,
+                new EvaluationSanitizationService()
+        );
+    }
 
     public EvaluationBatchSummary run(Path inputPath, Path outputPath) throws IOException {
         List<EvaluationAnalysisCase> cases = readCases(inputPath);
@@ -106,27 +126,17 @@ public class EvaluationAnalysisBatchService {
     }
 
     private EvaluationAnalysisResult analyzeCase(EvaluationAnalysisCase evaluationCase) {
-        AnalysisPromptInput promptInput = new AnalysisPromptInput(
+        EvaluationGeneratedResult generatedResult = evaluationAnalysisGenerator.generate(new EvaluationAnalysisCommand(
                 evaluationCase.caseId(),
-                "평가용 회사",
+                evaluationCase.jobCategoryMiddle(),
                 evaluationCase.jobCategorySmall(),
                 evaluationCase.mainTasks(),
                 evaluationCase.qualifications(),
                 evaluationCase.preferences(),
-                List.of(new AnalysisPromptInput.QuestionAnswer(
-                        EVALUATION_QUESTION_ID,
-                        evaluationCase.question(),
-                        evaluationCase.answer()
-                ))
-        );
-
-        AnalysisAiCallResult aiCallResult = analysisAiClient.analyzeForEvaluationResult(
-                promptInput,
-                jobCategoryEvaluationCriteriaProvider
-                        .findByMiddleName(evaluationCase.jobCategoryMiddle())
-                        .orElse(null)
-        );
-        AnalysisLlmResponse llmResponse = aiCallResult.response();
+                evaluationCase.question(),
+                evaluationCase.answer()
+        ));
+        AnalysisLlmResponse llmResponse = generatedResult.response();
 
         int jobFit = validateScore("jobFit", llmResponse == null ? null : llmResponse.jobFit());
         int impact = validateScore("impact", llmResponse == null ? null : llmResponse.impact());
@@ -136,7 +146,7 @@ public class EvaluationAnalysisBatchService {
         log.debug(
                 "Evaluation serialized missing keyword flow. caseId={}, candidateMissingKeywordCount={}, finalMissingKeywordCount={}, evaluationSerializedMissingKeywordCount={}",
                 evaluationCase.caseId(),
-                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().missingKeywordCandidates()),
+                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().missingKeywordCandidates()),
                 size(llmResponse == null ? null : llmResponse.missingKeywords()),
                 missingKeywords.size()
         );
@@ -158,25 +168,25 @@ public class EvaluationAnalysisBatchService {
                 writeJson(missingKeywords),
                 writeJson(questionAnalyses),
                 writeJson(llmResponse),
-                writeJson(aiCallResult.rawCandidateResponse()),
-                writeJson(aiCallResult.sanitizedCandidateResponse()),
-                writeJson(aiCallResult.candidateReviewResponse()),
-                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().analysisCandidates()),
-                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().analysisCandidates()),
-                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().strengthCandidates()),
-                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().missingKeywordCandidates()),
-                acceptedDecisionCount(aiCallResult.candidateReviewResponse()),
-                rejectedDecisionCount(aiCallResult.candidateReviewResponse()),
-                rejectionCodeCounts(aiCallResult.candidateReviewResponse()),
+                writeJson(generatedResult.rawCandidateResponse()),
+                writeJson(generatedResult.sanitizedCandidateResponse()),
+                writeJson(generatedResult.candidateReviewResponse()),
+                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().analysisCandidates()),
+                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().analysisCandidates()),
+                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().strengthCandidates()),
+                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().missingKeywordCandidates()),
+                acceptedDecisionCount(generatedResult.candidateReviewResponse()),
+                rejectedDecisionCount(generatedResult.candidateReviewResponse()),
+                rejectionCodeCounts(generatedResult.candidateReviewResponse()),
                 questionAnalyses.size(),
-                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().strengthCandidates()),
+                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().strengthCandidates()),
                 llmResponse.keyStrengths() == null ? 0 : llmResponse.keyStrengths().size(),
-                size(aiCallResult.sanitizedCandidateResponse() == null ? null : aiCallResult.sanitizedCandidateResponse().missingKeywordCandidates()),
+                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().missingKeywordCandidates()),
                 missingKeywords.size(),
-                aiCallResult.candidateCallLatencyMs(),
-                aiCallResult.finalCallLatencyMs(),
-                aiCallResult.candidateCallLatencyMs(),
-                aiCallResult.finalCallLatencyMs(),
+                generatedResult.candidateCallLatencyMs(),
+                generatedResult.finalCallLatencyMs(),
+                generatedResult.candidateCallLatencyMs(),
+                generatedResult.finalCallLatencyMs(),
                 null,
                 null,
                 null,
@@ -214,7 +224,7 @@ public class EvaluationAnalysisBatchService {
             if (source.isEmpty()) {
                 continue;
             }
-            if (!AnalysisSanitizationRules.isValidMissingKeyword(
+            if (!evaluationSanitizationService.isValidMissingKeyword(
                     keyword,
                     source.get(),
                     evaluationCase.mainTasks(),
@@ -222,7 +232,7 @@ public class EvaluationAnalysisBatchService {
             )) {
                 continue;
             }
-            if (AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(
+            if (evaluationSanitizationService.isMissingKeywordMentionedInAnswers(
                     keyword,
                     evaluationCase.answer()
             )) {
@@ -275,11 +285,11 @@ public class EvaluationAnalysisBatchService {
                 continue;
             }
             if (status == QuestionAnalysisStatus.PROVEN
-                    && !AnalysisSanitizationRules.hasValidProvenReason(item.reason())) {
+                    && !evaluationSanitizationService.hasValidProvenReason(item.reason())) {
                 continue;
             }
             if (status == QuestionAnalysisStatus.FABRICATED
-                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictEvidence(
+                    && !evaluationSanitizationService.hasFabricatedDirectConflictEvidence(
                             item.sentence(),
                             item.reason()
                     )) {
@@ -435,7 +445,7 @@ public class EvaluationAnalysisBatchService {
             String improvement,
             QuestionAnalysisStatus status
     ) {
-        return AnalysisSanitizationRules.normalizeImprovement(
+        return evaluationSanitizationService.normalizeImprovement(
                 sentence,
                 answer,
                 improvement,

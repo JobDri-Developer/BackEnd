@@ -4,13 +4,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateReviewResponse;
-import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient;
-import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient.AnalysisAiCallResult;
-import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisPromptInput;
-import com.jobdri.jobdri_api.domain.analysis.service.ai.JobCategoryEvaluationCriteriaProvider;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationAnalysisCommand;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationGeneratedResult;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.port.EvaluationAnalysisGenerator;
+import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
+import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -21,7 +23,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -35,14 +37,10 @@ class EvaluationAnalysisBatchServiceTest {
     @Test
     @DisplayName("LLM 응답을 검증해 평가 결과 CSV로 저장한다")
     void runWritesSanitizedEvaluationResults() throws Exception {
-        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
         ObjectMapper objectMapper = new ObjectMapper();
-        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
-                analysisAiClient,
-                new JobCategoryEvaluationCriteriaProvider(objectMapper),
-                objectMapper
-        );
-        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(generator, objectMapper);
+        when(generator.generate(any()))
                 .thenReturn(result(new AnalysisLlmResponse(
                         80,
                         70,
@@ -103,20 +101,58 @@ class EvaluationAnalysisBatchServiceTest {
         assertThat(row.get("aiMissingKeywordsJson")).doesNotContain("잘못된 출처");
         assertThat(row.get("aiQuestionAnalysesJson")).doesNotContain("답변에 없는 문장");
         assertThat(row.get("aiQuestionAnalysesJson")).doesNotContain("missing은 저장하지 않습니다.");
-        verify(analysisAiClient).analyzeForEvaluationResult(any(AnalysisPromptInput.class), any());
+        ArgumentCaptor<EvaluationAnalysisCommand> commandCaptor = ArgumentCaptor.forClass(EvaluationAnalysisCommand.class);
+        verify(generator).generate(commandCaptor.capture());
+        assertThat(commandCaptor.getValue().caseId()).isEqualTo("EV-01");
+        assertThat(commandCaptor.getValue().jobCategoryMiddle()).isEqualTo("AI·개발·데이터");
+        assertThat(commandCaptor.getValue().jobCategorySmall()).isEqualTo("백엔드");
+        assertThat(commandCaptor.getValue().question()).isEqualTo("경험을 쓰세요");
+        assertThat(commandCaptor.getValue().answer()).isEqualTo("데이터 처리 경험이 있습니다.");
+    }
+
+    @Test
+    @DisplayName("CSV 입력 순서대로 evaluation command를 generator에 전달한다")
+    void runPassesEvaluationCommandsInCsvOrder() throws Exception {
+        EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(generator, objectMapper);
+        when(generator.generate(any())).thenReturn(result(new AnalysisLlmResponse(70, 70, 70, "피드백", List.of(), List.of())));
+
+        Path input = tempDir.resolve("evaluation_cases_order.csv");
+        Path output = tempDir.resolve("evaluation_cases_order_results.csv");
+        Files.writeString(
+                input,
+                "caseId,jobCategoryMiddle,jobCategorySmall,mainTasks,qualifications,preferences,question,answer\n"
+                        + "EV-01,AI·개발·데이터,백엔드,API 개발,Spring,,첫 질문,첫 답변\n"
+                        + "EV-02,디자인,프로덕트 디자이너,UX 설계,Figma,커뮤니케이션,둘째 질문,둘째 답변\n",
+                StandardCharsets.UTF_8
+        );
+
+        service.run(input, output);
+
+        ArgumentCaptor<EvaluationAnalysisCommand> commandCaptor = ArgumentCaptor.forClass(EvaluationAnalysisCommand.class);
+        verify(generator, org.mockito.Mockito.times(2)).generate(commandCaptor.capture());
+        assertThat(commandCaptor.getAllValues())
+                .extracting(
+                        EvaluationAnalysisCommand::caseId,
+                        EvaluationAnalysisCommand::jobCategoryMiddle,
+                        EvaluationAnalysisCommand::jobCategorySmall,
+                        EvaluationAnalysisCommand::question,
+                        EvaluationAnalysisCommand::answer
+                )
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("EV-01", "AI·개발·데이터", "백엔드", "첫 질문", "첫 답변"),
+                        org.assertj.core.groups.Tuple.tuple("EV-02", "디자인", "프로덕트 디자이너", "둘째 질문", "둘째 답변")
+                );
     }
 
     @Test
     @DisplayName("평가 결과도 운영과 동일하게 missingKeywords와 improvement를 후처리한다")
     void runAppliesProductionSanitizationRules() throws Exception {
-        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
         ObjectMapper objectMapper = new ObjectMapper();
-        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
-                analysisAiClient,
-                new JobCategoryEvaluationCriteriaProvider(objectMapper),
-                objectMapper
-        );
-        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(generator, objectMapper);
+        when(generator.generate(any()))
                 .thenReturn(result(new AnalysisLlmResponse(
                         80,
                         70,
@@ -177,14 +213,10 @@ class EvaluationAnalysisBatchServiceTest {
     @Test
     @DisplayName("평가 결과도 운영과 동일하게 유효한 PROVEN/FABRICATED를 보존하고 raw/final 비교 정보를 남긴다")
     void runKeepsRawAndAppliesFinalStatusFilter() throws Exception {
-        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
         ObjectMapper objectMapper = new ObjectMapper();
-        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
-                analysisAiClient,
-                new JobCategoryEvaluationCriteriaProvider(objectMapper),
-                objectMapper
-        );
-        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(generator, objectMapper);
+        when(generator.generate(any()))
                 .thenReturn(result(new AnalysisLlmResponse(
                         80,
                         70,
@@ -253,14 +285,10 @@ class EvaluationAnalysisBatchServiceTest {
     @Test
     @DisplayName("평가 저장 경로도 reason이 null 또는 빈 PROVEN을 제외한다")
     void runSkipsProvenWithMissingReason() throws Exception {
-        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
         ObjectMapper objectMapper = new ObjectMapper();
-        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
-                analysisAiClient,
-                new JobCategoryEvaluationCriteriaProvider(objectMapper),
-                objectMapper
-        );
-        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(generator, objectMapper);
+        when(generator.generate(any()))
                 .thenReturn(result(new AnalysisLlmResponse(
                         80,
                         70,
@@ -301,16 +329,12 @@ class EvaluationAnalysisBatchServiceTest {
     }
 
     @Test
-    @DisplayName("없는 직무 중분류는 보조 기준 없이 분석한다")
-    void runOmitsCriteriaWhenMiddleNameNotFound() throws Exception {
-        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+    @DisplayName("중분류 기준 조회 여부와 무관하게 evaluation generator를 통해 분석한다")
+    void runDelegatesAnalysisThroughEvaluationGenerator() throws Exception {
+        EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
         ObjectMapper objectMapper = new ObjectMapper();
-        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
-                analysisAiClient,
-                new JobCategoryEvaluationCriteriaProvider(objectMapper),
-                objectMapper
-        );
-        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), isNull()))
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(generator, objectMapper);
+        when(generator.generate(any()))
                 .thenReturn(result(new AnalysisLlmResponse(70, 70, 70, "피드백", List.of(), List.of())));
 
         Path input = tempDir.resolve("evaluation_cases.csv");
@@ -324,19 +348,15 @@ class EvaluationAnalysisBatchServiceTest {
 
         service.run(input, output);
 
-        verify(analysisAiClient).analyzeForEvaluationResult(any(AnalysisPromptInput.class), isNull());
+        verify(generator).generate(any());
     }
 
     @Test
     @DisplayName("필수 CSV header가 없으면 AI 호출 전에 실패한다")
     void runFailsFastWhenRequiredHeaderIsMissing() throws Exception {
-        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
         ObjectMapper objectMapper = new ObjectMapper();
-        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
-                analysisAiClient,
-                new JobCategoryEvaluationCriteriaProvider(objectMapper),
-                objectMapper
-        );
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(generator, objectMapper);
         Path input = tempDir.resolve("evaluation_cases.csv");
         Path output = tempDir.resolve("evaluation_ai_results.csv");
         Files.writeString(
@@ -350,20 +370,16 @@ class EvaluationAnalysisBatchServiceTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("missing required headers")
                 .hasMessageContaining("answer");
-        verifyNoInteractions(analysisAiClient);
+        verifyNoInteractions(generator);
     }
 
     @Test
     @DisplayName("LLM 호출 실패 케이스도 실패 row로 CSV에 기록한다")
     void runWritesFailureRowWhenAnalyzeFails() throws Exception {
-        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
         ObjectMapper objectMapper = new ObjectMapper();
-        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
-                analysisAiClient,
-                new JobCategoryEvaluationCriteriaProvider(objectMapper),
-                objectMapper
-        );
-        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(generator, objectMapper);
+        when(generator.generate(any()))
                 .thenThrow(new RuntimeException("rate limit exceeded"));
 
         Path input = tempDir.resolve("evaluation_cases.csv");
@@ -388,17 +404,53 @@ class EvaluationAnalysisBatchServiceTest {
     }
 
     @Test
+    @DisplayName("한 사례가 timeout 나도 다음 사례와 CSV 출력은 계속된다")
+    void runContinuesAfterCaseDeadlineTimeout() throws Exception {
+        EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
+        ObjectMapper objectMapper = new ObjectMapper();
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(generator, objectMapper);
+        doAnswer(invocation -> {
+            EvaluationAnalysisCommand command = invocation.getArgument(0);
+            if ("EV-TIMEOUT".equals(command.caseId())) {
+                throw new GeneralException(GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT, "평가 사례 처리 시간이 제한을 초과했습니다.");
+            }
+            return result(new AnalysisLlmResponse(90, 80, 70, "정상", List.of(), List.of()));
+        }).when(generator).generate(any());
+
+        Path input = tempDir.resolve("evaluation_timeout_cases.csv");
+        Path output = tempDir.resolve("evaluation_timeout_results.csv");
+        Files.writeString(
+                input,
+                "caseId,jobCategoryMiddle,jobCategorySmall,mainTasks,qualifications,preferences,question,answer\n"
+                        + "EV-TIMEOUT,AI·개발·데이터,백엔드,API 개발,Spring,,첫 질문,첫 답변\n"
+                        + "EV-OK,AI·개발·데이터,백엔드,API 개발,Spring,,둘째 질문,둘째 답변\n",
+                StandardCharsets.UTF_8
+        );
+
+        EvaluationAnalysisBatchService.EvaluationBatchSummary summary = service.run(input, output);
+
+        assertThat(summary.totalCount()).isEqualTo(2);
+        assertThat(summary.successCount()).isEqualTo(1);
+        assertThat(summary.failureCount()).isEqualTo(1);
+        List<Map<String, String>> rows = EvaluationCsvSupport.read(output);
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0).get("caseId")).isEqualTo("EV-TIMEOUT");
+        assertThat(rows.get(0).get("errorMessage")).contains("제한을 초과");
+        assertThat(rows.get(1).get("caseId")).isEqualTo("EV-OK");
+        assertThat(rows.get(1).get("errorMessage")).isEmpty();
+        assertThat(rows.get(1).get("aiJobFit")).isEqualTo("90");
+        assertThat(rows.get(1).get("aiImpact")).isEqualTo("80");
+        assertThat(rows.get(1).get("aiCompleteness")).isEqualTo("70");
+    }
+
+    @Test
     @DisplayName("평가 CSV 후보/decision 통계는 검증 후 결과 기준으로 기록한다")
     void runWritesValidatedCandidateDecisionCounts() throws Exception {
-        AnalysisAiClient analysisAiClient = mock(AnalysisAiClient.class);
+        EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
         ObjectMapper objectMapper = new ObjectMapper();
-        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(
-                analysisAiClient,
-                new JobCategoryEvaluationCriteriaProvider(objectMapper),
-                objectMapper
-        );
-        when(analysisAiClient.analyzeForEvaluationResult(any(AnalysisPromptInput.class), any()))
-                .thenReturn(new AnalysisAiCallResult(
+        EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(generator, objectMapper);
+        when(generator.generate(any()))
+                .thenReturn(new EvaluationGeneratedResult(
                         new AnalysisLlmResponse(
                                 80,
                                 70,
@@ -482,7 +534,6 @@ class EvaluationAnalysisBatchServiceTest {
                                 60,
                                 "피드백"
                         ),
-                        true,
                         10,
                         20
                 ));
@@ -512,7 +563,7 @@ class EvaluationAnalysisBatchServiceTest {
         assertThat(row.get("rejectionCodeCounts")).doesNotContain("NONE");
     }
 
-    private AnalysisAiCallResult result(AnalysisLlmResponse response) {
-        return new AnalysisAiCallResult(response, null, null, null, false, 0, 1);
+    private EvaluationGeneratedResult result(AnalysisLlmResponse response) {
+        return new EvaluationGeneratedResult(response, null, null, null, 0, 1);
     }
 }
