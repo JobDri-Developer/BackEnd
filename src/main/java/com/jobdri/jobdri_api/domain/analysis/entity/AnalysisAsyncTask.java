@@ -169,6 +169,25 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
                 && failureReason == AnalysisAsyncFailureReason.PUBLISH_FAILED;
     }
 
+    public void reopenForRepublish() {
+        if (!isRecoverablePublishFailure()) {
+            return;
+        }
+        this.status = AnalysisAsyncTaskStatus.PENDING;
+        this.message = "자소서 분석 비동기 작업이 다시 접수되었습니다.";
+        this.error = null;
+        this.failureReason = null;
+        this.workerId = null;
+        this.submittedAt = LocalDateTime.now();
+        this.lastAttemptAt = null;
+        this.queueLatencyMillis = null;
+        this.startedAt = null;
+        this.completedAt = null;
+        this.currentStep = "VALIDATING_INPUT";
+        this.progressPercent = 0;
+        this.estimatedRemainingSeconds = null;
+    }
+
     public void markRetryScheduled(AnalysisAsyncFailureReason failureReason, String errorMessage, int retryCount) {
         if (isTerminal()) {
             return;

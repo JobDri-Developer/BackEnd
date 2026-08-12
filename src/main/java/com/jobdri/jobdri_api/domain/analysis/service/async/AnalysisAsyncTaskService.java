@@ -82,6 +82,17 @@ public class AnalysisAsyncTaskService {
         );
     }
 
+    @Transactional(readOnly = true)
+    public Optional<AnalysisAsyncTask> findRecoverablePublishFailureTask(Long userId, Long mockApplyId) {
+        return analysisAsyncTaskRepository
+                .findFirstByUserIdAndMockApplyIdAndStatusAndFailureReasonOrderByCreatedAtDesc(
+                        userId,
+                        mockApplyId,
+                        AnalysisAsyncTaskStatus.FAILED,
+                        AnalysisAsyncFailureReason.PUBLISH_FAILED
+                );
+    }
+
     @Transactional
     public void markRunning(String taskId, String workerId, int retryCount, Instant submittedAt) {
         AnalysisAsyncTask task = getTask(taskId);
@@ -183,6 +194,20 @@ public class AnalysisAsyncTaskService {
     @Transactional
     public void markCreditReleased(String taskId) {
         getTask(taskId).markCreditReleased();
+    }
+
+    @Transactional
+    public AnalysisAsyncTask reopenPublishFailureTask(String taskId) {
+        AnalysisAsyncTask task = getTask(taskId);
+        if (!task.isRecoverablePublishFailure()) {
+            throw new GeneralException(
+                    GeneralErrorCode.INVALID_PARAMETER,
+                    "재접수할 수 없는 자소서 분석 비동기 작업입니다. taskId=" + taskId
+            );
+        }
+        task.reopenForRepublish();
+        publishAfterCommit(toStatusResponse(task));
+        return task;
     }
 
     @Transactional(readOnly = true)

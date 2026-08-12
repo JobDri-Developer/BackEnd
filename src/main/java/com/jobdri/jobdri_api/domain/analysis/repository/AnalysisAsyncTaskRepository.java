@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.repository;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
 import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -19,6 +20,13 @@ public interface AnalysisAsyncTaskRepository extends JpaRepository<AnalysisAsync
             Long userId,
             Long mockApplyId,
             Collection<AnalysisAsyncTaskStatus> statuses
+    );
+
+    Optional<AnalysisAsyncTask> findFirstByUserIdAndMockApplyIdAndStatusAndFailureReasonOrderByCreatedAtDesc(
+            Long userId,
+            Long mockApplyId,
+            AnalysisAsyncTaskStatus status,
+            AnalysisAsyncFailureReason failureReason
     );
 
     List<AnalysisAsyncTask> findByUserIdAndMockApplyIdInAndStatusIn(
