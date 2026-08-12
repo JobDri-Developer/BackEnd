@@ -8,7 +8,8 @@ import org.springframework.transaction.support.TransactionTemplate;
 import java.time.Clock;
 
 @Service
-public class AnalysisAsyncSweepService extends AnalysisAsyncTaskSweepCoordinator {
+public class AnalysisAsyncSweepService {
+    private final AnalysisAsyncTaskSweepCoordinator analysisAsyncTaskSweepCoordinator;
 
     public AnalysisAsyncSweepService(
             AnalysisAsyncTaskRepository analysisAsyncTaskRepository,
@@ -18,7 +19,7 @@ public class AnalysisAsyncSweepService extends AnalysisAsyncTaskSweepCoordinator
             AnalysisQueueProperties analysisQueueProperties,
             Clock clock
     ) {
-        super(
+        this.analysisAsyncTaskSweepCoordinator = new AnalysisAsyncTaskSweepCoordinator(
                 analysisAsyncTaskRepository,
                 analysisAsyncTaskService,
                 analysisAsyncCreditCoordinator,
@@ -26,5 +27,9 @@ public class AnalysisAsyncSweepService extends AnalysisAsyncTaskSweepCoordinator
                 analysisQueueProperties,
                 clock
         );
+    }
+
+    public int sweepTimedOutTasks() {
+        return analysisAsyncTaskSweepCoordinator.sweepTimedOutTasks();
     }
 }
