@@ -12,9 +12,10 @@ import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient.Analysi
 import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisPromptInput;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.JobCategoryEvaluationCriteriaProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants;
-import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.sanitization.EvaluationSanitizationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -31,7 +32,6 @@ import java.util.Optional;
 import java.util.Set;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 public class EvaluationAnalysisBatchService {
     private static final Long EVALUATION_QUESTION_ID = 1L;
@@ -49,6 +49,33 @@ public class EvaluationAnalysisBatchService {
     private final AnalysisAiClient analysisAiClient;
     private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
     private final ObjectMapper objectMapper;
+    private final EvaluationSanitizationService evaluationSanitizationService;
+
+    @Autowired
+    public EvaluationAnalysisBatchService(
+            AnalysisAiClient analysisAiClient,
+            JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider,
+            ObjectMapper objectMapper,
+            EvaluationSanitizationService evaluationSanitizationService
+    ) {
+        this.analysisAiClient = analysisAiClient;
+        this.jobCategoryEvaluationCriteriaProvider = jobCategoryEvaluationCriteriaProvider;
+        this.objectMapper = objectMapper;
+        this.evaluationSanitizationService = evaluationSanitizationService;
+    }
+
+    EvaluationAnalysisBatchService(
+            AnalysisAiClient analysisAiClient,
+            JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider,
+            ObjectMapper objectMapper
+    ) {
+        this(
+                analysisAiClient,
+                jobCategoryEvaluationCriteriaProvider,
+                objectMapper,
+                new EvaluationSanitizationService()
+        );
+    }
 
     public EvaluationBatchSummary run(Path inputPath, Path outputPath) throws IOException {
         List<EvaluationAnalysisCase> cases = readCases(inputPath);
@@ -214,7 +241,7 @@ public class EvaluationAnalysisBatchService {
             if (source.isEmpty()) {
                 continue;
             }
-            if (!AnalysisSanitizationRules.isValidMissingKeyword(
+            if (!evaluationSanitizationService.isValidMissingKeyword(
                     keyword,
                     source.get(),
                     evaluationCase.mainTasks(),
@@ -222,7 +249,7 @@ public class EvaluationAnalysisBatchService {
             )) {
                 continue;
             }
-            if (AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(
+            if (evaluationSanitizationService.isMissingKeywordMentionedInAnswers(
                     keyword,
                     evaluationCase.answer()
             )) {
@@ -275,11 +302,11 @@ public class EvaluationAnalysisBatchService {
                 continue;
             }
             if (status == QuestionAnalysisStatus.PROVEN
-                    && !AnalysisSanitizationRules.hasValidProvenReason(item.reason())) {
+                    && !evaluationSanitizationService.hasValidProvenReason(item.reason())) {
                 continue;
             }
             if (status == QuestionAnalysisStatus.FABRICATED
-                    && !AnalysisSanitizationRules.hasFabricatedDirectConflictEvidence(
+                    && !evaluationSanitizationService.hasFabricatedDirectConflictEvidence(
                             item.sentence(),
                             item.reason()
                     )) {
@@ -435,7 +462,7 @@ public class EvaluationAnalysisBatchService {
             String improvement,
             QuestionAnalysisStatus status
     ) {
-        return AnalysisSanitizationRules.normalizeImprovement(
+        return evaluationSanitizationService.normalizeImprovement(
                 sentence,
                 answer,
                 improvement,

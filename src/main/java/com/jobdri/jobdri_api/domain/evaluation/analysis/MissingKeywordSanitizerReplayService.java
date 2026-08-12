@@ -5,9 +5,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.MissingKeywordSanitizationDecision;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.MissingKeywordSanitizationResult;
-import com.jobdri.jobdri_api.domain.analysis.service.sanitization.MissingKeywordSanitizer;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.sanitization.EvaluationSanitizationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -23,7 +24,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 class MissingKeywordSanitizerReplayService {
     private static final List<String> REQUIRED_HEADERS = List.of(
@@ -76,6 +76,20 @@ class MissingKeywordSanitizerReplayService {
     );
 
     private final ObjectMapper objectMapper;
+    private final EvaluationSanitizationService evaluationSanitizationService;
+
+    @Autowired
+    MissingKeywordSanitizerReplayService(
+            ObjectMapper objectMapper,
+            EvaluationSanitizationService evaluationSanitizationService
+    ) {
+        this.objectMapper = objectMapper;
+        this.evaluationSanitizationService = evaluationSanitizationService;
+    }
+
+    MissingKeywordSanitizerReplayService(ObjectMapper objectMapper) {
+        this(objectMapper, new EvaluationSanitizationService());
+    }
 
     ReplaySummary replay(Path input, Path output, Path reviewOutput) throws IOException {
         List<String> headers = EvaluationCsvSupport.readHeaders(input);
@@ -112,7 +126,7 @@ class MissingKeywordSanitizerReplayService {
             );
             List<AnalysisCandidateResponse.MissingKeywordCandidate> rawCandidates =
                     safeMissingKeywordCandidates(rawResponse);
-            MissingKeywordSanitizationResult replayResult = MissingKeywordSanitizer.sanitize(
+            MissingKeywordSanitizationResult replayResult = evaluationSanitizationService.sanitizeMissingKeywordCandidates(
                     value(row, "mainTasks"),
                     value(row, "qualifications"),
                     value(row, "answer"),

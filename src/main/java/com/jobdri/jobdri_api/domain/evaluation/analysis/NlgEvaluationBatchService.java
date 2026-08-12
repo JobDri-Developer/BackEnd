@@ -9,7 +9,7 @@ import com.jobdri.jobdri_api.domain.evaluation.analysis.mapper.EvaluationLlmSnap
 import com.jobdri.jobdri_api.domain.evaluation.analysis.mapper.EvaluationMissingKeywordSourceMapper;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationMissingKeyword;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationMissingKeywordSource;
-import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.sanitization.EvaluationSanitizationService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.NestedExceptionUtils;
@@ -66,15 +66,22 @@ class NlgEvaluationBatchService {
     private final NlgEvaluationAiClient nlgEvaluationAiClient;
     private final ObjectMapper objectMapper;
     private final EvaluationLlmSnapshotParser evaluationLlmSnapshotParser;
+    private final EvaluationSanitizationService evaluationSanitizationService;
 
     @Autowired
     NlgEvaluationBatchService(
             NlgEvaluationAiClient nlgEvaluationAiClient,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            EvaluationSanitizationService evaluationSanitizationService
     ) {
         this.nlgEvaluationAiClient = nlgEvaluationAiClient;
         this.objectMapper = objectMapper;
         this.evaluationLlmSnapshotParser = new EvaluationLlmSnapshotParser(objectMapper);
+        this.evaluationSanitizationService = evaluationSanitizationService;
+    }
+
+    NlgEvaluationBatchService(NlgEvaluationAiClient nlgEvaluationAiClient, ObjectMapper objectMapper) {
+        this(nlgEvaluationAiClient, objectMapper, new EvaluationSanitizationService());
     }
 
     NlgEvaluationSummary run(Path inputPath, Path outputPath) throws IOException {
@@ -446,8 +453,8 @@ class NlgEvaluationBatchService {
         if (source.isEmpty() || source.get() == EvaluationMissingKeywordSource.PREFERENCE) {
             return Optional.of(MissingKeywordMissInvalidReason.INVALID_SOURCE);
         }
-        if (AnalysisSanitizationRules.isStructuredQualificationKeyword(evaluation.keyword())
-                || AnalysisSanitizationRules.isStructuredQualificationKeyword(evaluation.relatedRequirement())) {
+        if (evaluationSanitizationService.isStructuredQualificationKeyword(evaluation.keyword())
+                || evaluationSanitizationService.isStructuredQualificationKeyword(evaluation.relatedRequirement())) {
             return Optional.of(MissingKeywordMissInvalidReason.STRUCTURED_QUALIFICATION);
         }
         String sourceText = source.get() == EvaluationMissingKeywordSource.MAIN_TASK
@@ -456,7 +463,7 @@ class NlgEvaluationBatchService {
         if (!containsNormalized(sourceText, evaluation.relatedRequirement())) {
             return Optional.of(MissingKeywordMissInvalidReason.RELATED_REQUIREMENT_NOT_IN_JD);
         }
-        if (!AnalysisSanitizationRules.isValidMissingKeyword(
+        if (!evaluationSanitizationService.isValidMissingKeyword(
                 evaluation.keyword(),
                 EvaluationMissingKeywordSourceMapper.toAnalysisSource(source.get()),
                 input.mainTasks(),
@@ -862,7 +869,7 @@ class NlgEvaluationBatchService {
     }
 
     private String normalize(String value) {
-        return AnalysisSanitizationRules.normalizeText(value);
+        return evaluationSanitizationService.normalizeText(value);
     }
 
     private String truncateShortRationale(String rationale) {
