@@ -20,9 +20,6 @@ import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
-import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
-import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
-import com.openai.client.OpenAIClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -52,14 +49,7 @@ class AnalysisAiClientTest {
     );
     private final OpenAiAnalysisAdapter openAiAnalysisAdapter = mock(OpenAiAnalysisAdapter.class);
     private final AnalysisAiClient analysisAiClient = new AnalysisAiClient(
-            mock(OpenAIClient.class),
             mock(CorpusRetrievalService.class),
-            mock(LlmConcurrencyLimiter.class),
-            new FewShotPromptProvider(),
-            fewShotSearchService,
-            fewShotProperties,
-            mock(AsyncMetricsRecorder.class),
-            objectMapper,
             analysisPromptBuilder,
             analysisResponseParser,
             openAiAnalysisAdapter
