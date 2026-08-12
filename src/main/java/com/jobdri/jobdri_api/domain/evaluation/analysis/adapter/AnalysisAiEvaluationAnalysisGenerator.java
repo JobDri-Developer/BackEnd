@@ -8,8 +8,11 @@ import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationAnalysis
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationGeneratedResult;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.port.EvaluationAnalysisGenerator;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 
 @Component
@@ -19,6 +22,15 @@ public class AnalysisAiEvaluationAnalysisGenerator implements EvaluationAnalysis
 
     private final AnalysisAiClient analysisAiClient;
     private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
+
+    @Value("${evaluation.analysis.case-timeout.single-pass-seconds:70}")
+    private long singlePassCaseTimeoutSeconds;
+
+    @Value("${evaluation.analysis.case-timeout.two-pass-seconds:130}")
+    private long twoPassCaseTimeoutSeconds;
+
+    @Value("${evaluation.analysis.case-timeout.hybrid-exact-seconds:190}")
+    private long hybridExactCaseTimeoutSeconds;
 
     @Override
     public EvaluationGeneratedResult generate(EvaluationAnalysisCommand command) {
@@ -35,12 +47,14 @@ public class AnalysisAiEvaluationAnalysisGenerator implements EvaluationAnalysis
                         command.answer()
                 ))
         );
+        Instant deadline = Instant.now().plus(resolveCaseBudget());
 
         AnalysisAiCallResult aiCallResult = analysisAiClient.analyzeForEvaluationResult(
                 promptInput,
                 jobCategoryEvaluationCriteriaProvider
                         .findByMiddleName(command.jobCategoryMiddle())
-                        .orElse(null)
+                        .orElse(null),
+                deadline
         );
         return new EvaluationGeneratedResult(
                 aiCallResult.response(),
@@ -50,5 +64,14 @@ public class AnalysisAiEvaluationAnalysisGenerator implements EvaluationAnalysis
                 aiCallResult.candidateCallLatencyMs(),
                 aiCallResult.finalCallLatencyMs()
         );
+    }
+
+    private Duration resolveCaseBudget() {
+        long seconds = switch (analysisAiClient.resolveAnalysisMode()) {
+            case SINGLE_PASS -> singlePassCaseTimeoutSeconds;
+            case TWO_PASS -> twoPassCaseTimeoutSeconds;
+            case HYBRID_EXACT -> hybridExactCaseTimeoutSeconds;
+        };
+        return Duration.ofSeconds(Math.max(1L, seconds));
     }
 }

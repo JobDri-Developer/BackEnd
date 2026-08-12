@@ -26,6 +26,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
@@ -100,19 +102,22 @@ public class AnalysisAiClient {
                         promptInput,
                         referenceContext,
                         jobCategoryEvaluationCriteria,
-                        "cover-letter-analysis"
+                        "cover-letter-analysis",
+                        null
                 ).response();
                 case HYBRID_EXACT -> analyzeHybridExact(
                         promptInput,
                         referenceContext,
                         jobCategoryEvaluationCriteria,
-                        "cover-letter-analysis"
+                        "cover-letter-analysis",
+                        null
                 ).response();
                 case SINGLE_PASS -> analyzeSinglePass(
                         promptInput,
                         referenceContext,
                         jobCategoryEvaluationCriteria,
-                        "cover-letter-analysis"
+                        "cover-letter-analysis",
+                        null
                 ).response();
             };
         } catch (GeneralException e) {
@@ -156,25 +161,36 @@ public class AnalysisAiClient {
             AnalysisPromptInput promptInput,
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria
     ) {
+        return analyzeForEvaluationResult(promptInput, jobCategoryEvaluationCriteria, null);
+    }
+
+    public AnalysisAiCallResult analyzeForEvaluationResult(
+            AnalysisPromptInput promptInput,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
+            Instant deadline
+    ) {
         try {
             return switch (resolveAnalysisMode()) {
                 case TWO_PASS -> analyzeTwoPass(
                         promptInput,
                         emptyContext(),
                         jobCategoryEvaluationCriteria,
-                        "cover-letter-analysis-evaluation"
+                        "cover-letter-analysis-evaluation",
+                        deadline
                 );
                 case HYBRID_EXACT -> analyzeHybridExact(
                         promptInput,
                         emptyContext(),
                         jobCategoryEvaluationCriteria,
-                        "cover-letter-analysis-evaluation"
+                        "cover-letter-analysis-evaluation",
+                        deadline
                 );
                 case SINGLE_PASS -> analyzeSinglePass(
                         promptInput,
                         emptyContext(),
                         jobCategoryEvaluationCriteria,
-                        "cover-letter-analysis-evaluation"
+                        "cover-letter-analysis-evaluation",
+                        deadline
                 );
             };
         } catch (GeneralException e) {
@@ -192,13 +208,15 @@ public class AnalysisAiClient {
             AnalysisPromptInput promptInput,
             RetrievalContext referenceContext,
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
-            String operationName
+            String operationName,
+            Instant deadline
     ) {
         long startedAt = System.nanoTime();
         AnalysisLlmResponse response = createStructuredResponse(
                 operationName,
                 buildPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria),
-                AnalysisLlmResponse.class
+                AnalysisLlmResponse.class,
+                deadline
         );
         response = analysisResponseParser.sanitizeSinglePassSubheadings(promptInput, response);
         return AnalysisAiCallResult.singlePass(response, elapsedMillis(startedAt));
@@ -208,13 +226,15 @@ public class AnalysisAiClient {
             AnalysisPromptInput promptInput,
             RetrievalContext referenceContext,
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
-            String operationName
+            String operationName,
+            Instant deadline
     ) {
         long candidateStartedAt = System.nanoTime();
         AnalysisCandidateResponse rawCandidates = createStructuredResponse(
                 operationName + "-candidates",
                 buildCandidatePrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria),
-                AnalysisCandidateResponse.class
+                AnalysisCandidateResponse.class,
+                deadline
         );
         long candidateLatencyMs = elapsedMillis(candidateStartedAt);
         AnalysisCandidateResponse sanitizedCandidates = sanitizeCandidates(promptInput, rawCandidates);
@@ -235,7 +255,8 @@ public class AnalysisAiClient {
         CandidateReviewResponse reviewResponse = createStructuredResponse(
                 operationName + "-final",
                 buildFinalPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria, sanitizedCandidates),
-                CandidateReviewResponse.class
+                CandidateReviewResponse.class,
+                deadline
         );
         CandidateReviewResponse validatedReviewResponse = validateCandidateReview(
                 promptInput,
@@ -257,7 +278,8 @@ public class AnalysisAiClient {
                 jobCategoryEvaluationCriteria,
                 sanitizedCandidates,
                 validatedReviewResponse,
-                operationName
+                operationName,
+                deadline
         );
         AnalysisLlmResponse response = buildFinalResponse(promptInput, sanitizedCandidates, recheckedReviewResponse);
         long finalLatencyMs = elapsedMillis(finalStartedAt);
@@ -294,19 +316,22 @@ public class AnalysisAiClient {
             AnalysisPromptInput promptInput,
             RetrievalContext referenceContext,
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
-            String operationName
+            String operationName,
+            Instant deadline
     ) {
         AnalysisAiCallResult singlePassResult = analyzeSinglePass(
                 promptInput,
                 referenceContext,
                 jobCategoryEvaluationCriteria,
-                operationName + "-single-pass"
+                operationName + "-single-pass",
+                deadline
         );
         AnalysisAiCallResult twoPassResult = analyzeTwoPass(
                 promptInput,
                 referenceContext,
                 jobCategoryEvaluationCriteria,
-                operationName + "-two-pass"
+                operationName + "-two-pass",
+                deadline
         );
         AnalysisLlmResponse merged = mergeHybridExact(
                 singlePassResult.response(),
@@ -332,6 +357,29 @@ public class AnalysisAiClient {
     }
 
     private <T> T createStructuredResponse(String operationName, String prompt, Class<T> responseType) {
+        return openAiAnalysisAdapter.createStructuredResponse(operationName, prompt, responseType);
+    }
+
+    private <T> T createStructuredResponse(
+            String operationName,
+            String prompt,
+            Class<T> responseType,
+            Instant deadline
+    ) {
+        if (deadline == null) {
+            return openAiAnalysisAdapter.createStructuredResponse(operationName, prompt, responseType);
+        }
+        Duration remaining = Duration.between(Instant.now(), deadline);
+        if (remaining.isZero() || remaining.isNegative()) {
+            throw new GeneralException(
+                    GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT,
+                    "평가 사례 처리 시간이 제한을 초과했습니다."
+            );
+        }
+        return openAiAnalysisAdapter.createStructuredResponse(operationName, prompt, responseType, remaining);
+    }
+
+    private <T> T createStructuredResponse(String operationName, String prompt, Class<T> responseType, Duration timeout) {
         return openAiAnalysisAdapter.createStructuredResponse(operationName, prompt, responseType);
     }
 
@@ -553,7 +601,8 @@ public class AnalysisAiClient {
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
             AnalysisCandidateResponse sanitizedCandidates,
             CandidateReviewResponse reviewResponse,
-            String operationName
+            String operationName,
+            Instant deadline
     ) {
         int firstPassCandidates = sanitizedCandidates == null || sanitizedCandidates.analysisCandidates() == null
                 ? 0
@@ -573,7 +622,8 @@ public class AnalysisAiClient {
         CandidateRecheckResponse recheckResponse = createStructuredResponse(
                 operationName + "-recheck",
                 buildRecheckPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria, sanitizedCandidates, reviewResponse),
-                CandidateRecheckResponse.class
+                CandidateRecheckResponse.class,
+                deadline
         );
         CandidateReviewResponse rechecked = applyRecheckResponse(promptInput, sanitizedCandidates, reviewResponse, recheckResponse);
         int recoveredMentionedCount = recoveredDecisionCount(rechecked, QuestionAnalysisStatus.MENTIONED);
@@ -1635,7 +1685,7 @@ public class AnalysisAiClient {
         return new RetrievalContext(List.of(), List.of());
     }
 
-    AnalysisMode resolveAnalysisMode() {
+    public AnalysisMode resolveAnalysisMode() {
         if (StringUtils.hasText(analysisMode)) {
             String normalized = analysisMode.trim().replace('-', '_').toUpperCase(java.util.Locale.ROOT);
             try {
@@ -1647,7 +1697,7 @@ public class AnalysisAiClient {
         return twoPassEnabled ? AnalysisMode.TWO_PASS : AnalysisMode.SINGLE_PASS;
     }
 
-    enum AnalysisMode {
+    public enum AnalysisMode {
         SINGLE_PASS,
         TWO_PASS,
         HYBRID_EXACT
