@@ -1,10 +1,14 @@
 package com.jobdri.jobdri_api.domain.evaluation.analysis;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisCandidateResponse;
-import com.jobdri.jobdri_api.domain.analysis.service.sanitization.MissingKeywordSanitizationDecision;
-import com.jobdri.jobdri_api.domain.analysis.service.sanitization.MissingKeywordSanitizationResult;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.mapper.EvaluationCandidateSnapshotParser;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationCandidateSnapshot;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationMissingKeywordCandidate;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationMissingKeywordSanitizationDecision;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationMissingKeywordSanitizationResult;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationMissingKeywordSource;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.sanitization.EvaluationSanitizationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -77,6 +81,7 @@ class MissingKeywordSanitizerReplayService {
 
     private final ObjectMapper objectMapper;
     private final EvaluationSanitizationService evaluationSanitizationService;
+    private final EvaluationCandidateSnapshotParser candidateSnapshotParser;
 
     @Autowired
     MissingKeywordSanitizerReplayService(
@@ -85,6 +90,7 @@ class MissingKeywordSanitizerReplayService {
     ) {
         this.objectMapper = objectMapper;
         this.evaluationSanitizationService = evaluationSanitizationService;
+        this.candidateSnapshotParser = new EvaluationCandidateSnapshotParser(objectMapper);
     }
 
     MissingKeywordSanitizerReplayService(ObjectMapper objectMapper) {
@@ -114,19 +120,18 @@ class MissingKeywordSanitizerReplayService {
             if (!caseIds.add(caseId)) {
                 throw new IllegalArgumentException("Missing keyword replay input CSV has duplicate caseId: " + caseId);
             }
-            AnalysisCandidateResponse rawResponse = readCandidateResponse(
+            EvaluationCandidateSnapshot rawResponse = readCandidateResponse(
                     value(row, "rawCandidateResponseJson"),
                     "rawCandidateResponseJson",
                     caseId
             );
-            AnalysisCandidateResponse existingSanitized = readCandidateResponse(
+            EvaluationCandidateSnapshot existingSanitized = readCandidateResponse(
                     value(row, "sanitizedCandidateResponseJson"),
                     "sanitizedCandidateResponseJson",
                     caseId
             );
-            List<AnalysisCandidateResponse.MissingKeywordCandidate> rawCandidates =
-                    safeMissingKeywordCandidates(rawResponse);
-            MissingKeywordSanitizationResult replayResult = evaluationSanitizationService.sanitizeMissingKeywordCandidates(
+            List<EvaluationMissingKeywordCandidate> rawCandidates = safeMissingKeywordCandidates(rawResponse);
+            EvaluationMissingKeywordSanitizationResult replayResult = evaluationSanitizationService.sanitizeMissingKeywordCandidates(
                     value(row, "mainTasks"),
                     value(row, "qualifications"),
                     value(row, "answer"),
@@ -144,7 +149,7 @@ class MissingKeywordSanitizerReplayService {
             acceptedTotal += acceptedCount;
             rejectedTotal += rejectedCount;
 
-            for (MissingKeywordSanitizationDecision decision : replayResult.decisions()) {
+            for (EvaluationMissingKeywordSanitizationDecision decision : replayResult.decisions()) {
                 reasonCounts.merge(decision.rejectionReason().name(), 1L, Long::sum);
                 replayRows.add(toReplayRow(caseId, rawCandidateCount, acceptedCount, rejectedCount, decision));
                 if (rawCandidateCount > 0) {
@@ -192,23 +197,14 @@ class MissingKeywordSanitizerReplayService {
         }
     }
 
-    private AnalysisCandidateResponse readCandidateResponse(String json, String fieldName, String caseId) {
-        if (!StringUtils.hasText(json)) {
-            return new AnalysisCandidateResponse(List.of(), List.of(), List.of());
-        }
-        try {
-            AnalysisCandidateResponse response = objectMapper.readValue(json, AnalysisCandidateResponse.class);
-            if (response == null) {
-                return new AnalysisCandidateResponse(List.of(), List.of(), List.of());
-            }
-            return response;
-        } catch (JsonProcessingException e) {
-            throw new IllegalArgumentException(fieldName + " is not valid candidate JSON. caseId=" + caseId, e);
-        }
+    private EvaluationCandidateSnapshot readCandidateResponse(String json, String fieldName, String caseId) {
+        EvaluationCandidateSnapshot snapshot = candidateSnapshotParser.parse(json, fieldName, caseId);
+        validateMissingKeywordCandidates(json, fieldName, caseId);
+        return snapshot;
     }
 
-    private List<AnalysisCandidateResponse.MissingKeywordCandidate> safeMissingKeywordCandidates(
-            AnalysisCandidateResponse response
+    private List<EvaluationMissingKeywordCandidate> safeMissingKeywordCandidates(
+            EvaluationCandidateSnapshot response
     ) {
         if (response == null || response.missingKeywordCandidates() == null) {
             return List.of();
@@ -218,14 +214,81 @@ class MissingKeywordSanitizerReplayService {
 
     private void validateExistingSanitized(
             String caseId,
-            List<AnalysisCandidateResponse.MissingKeywordCandidate> replayAccepted,
-            List<AnalysisCandidateResponse.MissingKeywordCandidate> existingAccepted
+            List<EvaluationMissingKeywordCandidate> replayAccepted,
+            List<EvaluationMissingKeywordCandidate> existingAccepted
     ) {
-        if (!Objects.equals(replayAccepted, existingAccepted)) {
+        if (!acceptedCandidatesMatch(replayAccepted, existingAccepted)) {
             throw new IllegalStateException(
                     "Missing keyword replay accepted candidates mismatch. caseId=" + caseId
             );
         }
+    }
+
+    private void validateMissingKeywordCandidates(String json, String fieldName, String caseId) {
+        if (!StringUtils.hasText(json)) {
+            return;
+        }
+        try {
+            JsonNode missingKeywordCandidates = objectMapper.readTree(json).path("missingKeywordCandidates");
+            if (!missingKeywordCandidates.isArray()) {
+                return;
+            }
+            for (int i = 0; i < missingKeywordCandidates.size(); i++) {
+                JsonNode item = missingKeywordCandidates.get(i);
+                String keyword = item.path("keyword").asText(null);
+                String source = item.path("source").asText(null);
+                if (!StringUtils.hasText(keyword)) {
+                    throw new IllegalArgumentException(
+                            fieldName + " has blank missingKeywordCandidates[" + i + "].keyword. caseId=" + caseId
+                    );
+                }
+                if (EvaluationMissingKeywordSource.from(source).isEmpty()) {
+                    throw new IllegalArgumentException(
+                            fieldName + " has invalid missingKeywordCandidates[" + i + "].source. caseId=" + caseId
+                    );
+                }
+            }
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException(fieldName + " is not valid candidate JSON. caseId=" + caseId, e);
+        }
+    }
+
+    private boolean acceptedCandidatesMatch(
+            List<EvaluationMissingKeywordCandidate> replayAccepted,
+            List<EvaluationMissingKeywordCandidate> existingAccepted
+    ) {
+        if (replayAccepted == null || existingAccepted == null) {
+            return Objects.equals(replayAccepted, existingAccepted);
+        }
+        if (replayAccepted.size() != existingAccepted.size()) {
+            return false;
+        }
+        for (int i = 0; i < replayAccepted.size(); i++) {
+            if (!acceptedCandidateMatches(replayAccepted.get(i), existingAccepted.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private boolean acceptedCandidateMatches(
+            EvaluationMissingKeywordCandidate replayCandidate,
+            EvaluationMissingKeywordCandidate existingCandidate
+    ) {
+        if (replayCandidate == null || existingCandidate == null) {
+            return Objects.equals(replayCandidate, existingCandidate);
+        }
+        return Objects.equals(replayCandidate.keyword(), existingCandidate.keyword())
+                && replayCandidate.source() == existingCandidate.source()
+                && relatedRequirementMatches(replayCandidate.relatedRequirement(), existingCandidate.relatedRequirement());
+    }
+
+    private boolean relatedRequirementMatches(String replayRelatedRequirement, String existingRelatedRequirement) {
+        String normalizedReplay = value(replayRelatedRequirement);
+        String normalizedExisting = value(existingRelatedRequirement);
+        return Objects.equals(normalizedReplay, normalizedExisting)
+                || !StringUtils.hasText(normalizedReplay)
+                || !StringUtils.hasText(normalizedExisting);
     }
 
     private Map<String, String> toReplayRow(
@@ -233,9 +296,9 @@ class MissingKeywordSanitizerReplayService {
             int rawCandidateCount,
             int acceptedCandidateCount,
             int rejectedCandidateCount,
-            MissingKeywordSanitizationDecision decision
+            EvaluationMissingKeywordSanitizationDecision decision
     ) {
-        AnalysisCandidateResponse.MissingKeywordCandidate candidate = decision.originalCandidate();
+        EvaluationMissingKeywordCandidate candidate = decision.originalCandidate();
         Map<String, String> row = new LinkedHashMap<>();
         row.put("caseId", caseId);
         row.put("candidateIndex", String.valueOf(decision.candidateIndex()));
@@ -259,9 +322,9 @@ class MissingKeywordSanitizerReplayService {
     private Map<String, String> toReviewRow(
             String caseId,
             Map<String, String> inputRow,
-            MissingKeywordSanitizationDecision decision
+            EvaluationMissingKeywordSanitizationDecision decision
     ) {
-        AnalysisCandidateResponse.MissingKeywordCandidate candidate = decision.originalCandidate();
+        EvaluationMissingKeywordCandidate candidate = decision.originalCandidate();
         Map<String, String> row = new LinkedHashMap<>();
         row.put("caseId", caseId);
         row.put("candidateIndex", String.valueOf(decision.candidateIndex()));

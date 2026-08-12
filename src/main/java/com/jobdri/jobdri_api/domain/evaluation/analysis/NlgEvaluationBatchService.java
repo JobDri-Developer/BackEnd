@@ -6,7 +6,6 @@ import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.mapper.EvaluationLlmSnapshotParser;
-import com.jobdri.jobdri_api.domain.evaluation.analysis.mapper.EvaluationMissingKeywordSourceMapper;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationMissingKeyword;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationMissingKeywordSource;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.sanitization.EvaluationSanitizationService;
@@ -465,7 +464,7 @@ class NlgEvaluationBatchService {
         }
         if (!evaluationSanitizationService.isValidMissingKeyword(
                 evaluation.keyword(),
-                EvaluationMissingKeywordSourceMapper.toAnalysisSource(source.get()),
+                source.get(),
                 input.mainTasks(),
                 input.qualifications()
         )) {

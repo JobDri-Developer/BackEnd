@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateReviewResponse;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.mapper.EvaluationCandidateReviewSnapshotParser;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.mapper.EvaluationCandidateSnapshotParser;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.mapper.EvaluationLlmSnapshotParser;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationAnalysisCommand;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationGeneratedResult;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.port.EvaluationAnalysisGenerator;
@@ -33,6 +36,8 @@ class EvaluationAnalysisBatchServiceTest {
 
     @TempDir
     Path tempDir;
+
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
     @DisplayName("LLM 응답을 검증해 평가 결과 CSV로 저장한다")
@@ -450,7 +455,7 @@ class EvaluationAnalysisBatchServiceTest {
         ObjectMapper objectMapper = new ObjectMapper();
         EvaluationAnalysisBatchService service = new EvaluationAnalysisBatchService(generator, objectMapper);
         when(generator.generate(any()))
-                .thenReturn(new EvaluationGeneratedResult(
+                .thenReturn(result(
                         new AnalysisLlmResponse(
                                 80,
                                 70,
@@ -464,7 +469,6 @@ class EvaluationAnalysisBatchServiceTest {
                                 ),
                                 List.of()
                         ),
-                        null,
                         new AnalysisCandidateResponse(
                                 List.of(),
                                 List.of(
@@ -564,6 +568,42 @@ class EvaluationAnalysisBatchServiceTest {
     }
 
     private EvaluationGeneratedResult result(AnalysisLlmResponse response) {
-        return new EvaluationGeneratedResult(response, null, null, null, 0, 1);
+        try {
+            return result(response, null, null, 0, 1);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private EvaluationGeneratedResult result(
+            AnalysisLlmResponse response,
+            AnalysisCandidateResponse sanitizedCandidateResponse,
+            CandidateReviewResponse candidateReviewResponse,
+            long candidateCallLatencyMs,
+            long finalCallLatencyMs
+    ) throws Exception {
+        String rawLlmResponseJson = objectMapper.writeValueAsString(response == null ? List.of() : response);
+        String rawCandidateResponseJson = objectMapper.writeValueAsString(List.of());
+        String sanitizedCandidateResponseJson = objectMapper.writeValueAsString(
+                sanitizedCandidateResponse == null ? List.of() : sanitizedCandidateResponse
+        );
+        String candidateReviewResponseJson = objectMapper.writeValueAsString(
+                candidateReviewResponse == null ? List.of() : candidateReviewResponse
+        );
+        return new EvaluationGeneratedResult(
+                new EvaluationLlmSnapshotParser(objectMapper).parseRawLlmResponse(rawLlmResponseJson),
+                rawLlmResponseJson,
+                rawCandidateResponseJson,
+                sanitizedCandidateResponseJson,
+                new EvaluationCandidateSnapshotParser(objectMapper).parse(
+                        sanitizedCandidateResponseJson,
+                        "sanitizedCandidateResponseJson",
+                        "TEST"
+                ),
+                candidateReviewResponseJson,
+                new EvaluationCandidateReviewSnapshotParser(objectMapper).parse(candidateReviewResponseJson),
+                candidateCallLatencyMs,
+                finalCallLatencyMs
+        );
     }
 }
