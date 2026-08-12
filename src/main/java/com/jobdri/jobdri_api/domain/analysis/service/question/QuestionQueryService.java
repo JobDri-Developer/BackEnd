@@ -54,7 +54,8 @@ public class QuestionQueryService {
                         candidate.getContent(),
                         candidate.getLimit(),
                         selectedContents.contains(candidate.getContent()),
-                        true
+                        true,
+                        questionCandidateCatalogService.toCustomCandidateKey(candidate.getId())
                 ))
                 .forEach(candidates::add);
 

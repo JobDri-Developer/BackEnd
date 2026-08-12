@@ -5,6 +5,7 @@ public record QuestionCandidateResponse(
         String content,
         int charLimit,
         boolean selected,
-        boolean custom
+        boolean custom,
+        String candidateKey
 ) {
 }

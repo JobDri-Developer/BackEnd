@@ -12,6 +12,8 @@ import java.util.stream.Collectors;
 @Service
 // 기본 문항 후보와 후보 판별 규칙을 제공한다.
 public class QuestionCandidateCatalogService {
+    private static final String DEFAULT_CANDIDATE_PREFIX = "default:";
+    private static final String CUSTOM_CANDIDATE_PREFIX = "custom:";
     private static final List<QuestionCandidate> DEFAULT_CANDIDATES = List.of(
             new QuestionCandidate(1L, "지원 동기와 입사 후 목표를 작성해주세요.", 700),
             new QuestionCandidate(2L, "지원 직무와 관련된 경험 또는 역량을 구체적으로 작성해주세요.", 1000),
@@ -30,7 +32,8 @@ public class QuestionCandidateCatalogService {
                         candidate.content(),
                         candidate.charLimit(),
                         selectedContents.contains(candidate.content()),
-                        false
+                        false,
+                        toDefaultCandidateKey(candidate.id())
                 ))
                 .toList();
     }
@@ -43,6 +46,14 @@ public class QuestionCandidateCatalogService {
         if (!isCustomQuestion(content)) {
             throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "이미 기본 후보에 존재하는 문항입니다.");
         }
+    }
+
+    public String toDefaultCandidateKey(Long candidateId) {
+        return DEFAULT_CANDIDATE_PREFIX + candidateId;
+    }
+
+    public String toCustomCandidateKey(Long candidateId) {
+        return CUSTOM_CANDIDATE_PREFIX + candidateId;
     }
 
     private record QuestionCandidate(Long id, String content, int charLimit) {

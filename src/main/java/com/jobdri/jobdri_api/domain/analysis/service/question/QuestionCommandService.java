@@ -41,6 +41,7 @@ public class QuestionCommandService {
     private final QuestionRepository questionRepository;
     private final QuestionAnalysisRepository questionAnalysisRepository;
     private final CustomQuestionCandidateRepository customQuestionCandidateRepository;
+    private final CustomQuestionCandidatePersistenceService customQuestionCandidatePersistenceService;
 
     public QuestionCommandService(
             QuestionDomainSupport questionDomainSupport,
@@ -48,7 +49,8 @@ public class QuestionCommandService {
             MockApplyRepository mockApplyRepository,
             QuestionRepository questionRepository,
             QuestionAnalysisRepository questionAnalysisRepository,
-            CustomQuestionCandidateRepository customQuestionCandidateRepository
+            CustomQuestionCandidateRepository customQuestionCandidateRepository,
+            CustomQuestionCandidatePersistenceService customQuestionCandidatePersistenceService
     ) {
         this.questionDomainSupport = questionDomainSupport;
         this.questionCandidateCatalogService = questionCandidateCatalogService;
@@ -56,6 +58,7 @@ public class QuestionCommandService {
         this.questionRepository = questionRepository;
         this.questionAnalysisRepository = questionAnalysisRepository;
         this.customQuestionCandidateRepository = customQuestionCandidateRepository;
+        this.customQuestionCandidatePersistenceService = customQuestionCandidatePersistenceService;
     }
 
     @Transactional
@@ -77,7 +80,8 @@ public class QuestionCommandService {
                 candidate.getContent(),
                 candidate.getLimit(),
                 selected,
-                true
+                true,
+                questionCandidateCatalogService.toCustomCandidateKey(candidate.getId())
         );
     }
 
@@ -218,12 +222,13 @@ public class QuestionCommandService {
             String content,
             Integer charLimit
     ) {
+        int resolvedCharLimit = questionDomainSupport.resolveCharLimit(charLimit);
         try {
-            return customQuestionCandidateRepository.saveAndFlush(CustomQuestionCandidate.create(
-                    mockApply,
+            return customQuestionCandidatePersistenceService.saveAndFlush(
+                    mockApply.getId(),
                     content,
-                    questionDomainSupport.resolveCharLimit(charLimit)
-            ));
+                    resolvedCharLimit
+            );
         } catch (DataIntegrityViolationException e) {
             return customQuestionCandidateRepository
                     .findByMockApplyIdAndContent(mockApply.getId(), content)
