@@ -7,6 +7,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerC
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncCreditStatus;
 import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
@@ -34,6 +35,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -69,7 +71,6 @@ class AnalysisWorkerBridgeServiceTest {
     @Mock
     private AnalysisCreditService analysisCreditService;
 
-    @Mock
     private AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator;
 
     @Mock
@@ -87,15 +88,26 @@ class AnalysisWorkerBridgeServiceTest {
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
 
-    @InjectMocks
     private AnalysisWorkerBridgeService analysisWorkerBridgeService;
 
     @BeforeEach
     void setUp() {
+        analysisAsyncCreditCoordinator = new AnalysisAsyncCreditCoordinator(analysisCreditService, userService);
+        analysisWorkerBridgeService = new AnalysisWorkerBridgeService(
+                analysisAsyncTaskService,
+                analysisAsyncTaskRepository,
+                analysisService,
+                analysisAsyncCreditCoordinator,
+                userService,
+                workerTaskResultService,
+                analysisInputFingerprintProvider,
+                objectMapper,
+                transactionTemplate
+        );
         lenient().when(transactionTemplate.execute(any(TransactionCallback.class)))
                 .thenAnswer(invocation -> {
                     TransactionCallback<?> callback = invocation.getArgument(0);
-                    return callback.doInTransaction(null);
+                    return callback.doInTransaction(org.mockito.Mockito.mock(TransactionStatus.class));
                 });
     }
 
@@ -153,7 +165,6 @@ class AnalysisWorkerBridgeServiceTest {
                 .isInstanceOf(GeneralException.class);
 
         verify(analysisCreditService, never()).deduct(any(), anyString());
-        verify(analysisAsyncTaskService, never()).markCreditReserved(anyString(), anyString());
     }
 
     @Test
@@ -210,21 +221,17 @@ class AnalysisWorkerBridgeServiceTest {
         when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.prepareAnalysisExecution(user, 10L)).thenReturn(payload);
-        when(analysisCreditService.createAsyncReferenceId(task.getTaskId()))
-                .thenReturn("analysisTaskId=" + task.getTaskId());
+        when(analysisCreditService.createAsyncReferenceId(task.getTaskId(), 1))
+                .thenReturn("analysisTaskId=" + task.getTaskId() + ":creditVersion=1");
         when(analysisInputFingerprintProvider.create(payload)).thenReturn("initial-fingerprint");
-        doAnswer(invocation -> {
-            ReflectionTestUtils.invokeMethod(task, "markCreditReserved", invocation.getArgument(1, String.class));
-            return null;
-        }).when(analysisAsyncTaskService).markCreditReserved(eq(task.getTaskId()), anyString());
 
         var firstContext = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
         var secondContext = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
 
-        verify(analysisCreditService).createAsyncReferenceId(task.getTaskId());
-        verify(analysisCreditService).deduct(user, "analysisTaskId=" + task.getTaskId());
-        verify(analysisAsyncTaskService).markCreditReserved(task.getTaskId(), "analysisTaskId=" + task.getTaskId());
+        verify(analysisCreditService).createAsyncReferenceId(task.getTaskId(), 1);
+        verify(analysisCreditService).deduct(user, "analysisTaskId=" + task.getTaskId() + ":creditVersion=1");
         verify(analysisService, times(1)).prepareAnalysisExecution(user, 10L);
+        assertThat(task.getCreditStatus()).isEqualTo(AnalysisAsyncCreditStatus.RESERVED);
         assertThat(firstContext).isEqualTo(secondContext);
         assertThat(firstContext.corpusReferences()).hasSize(1);
         assertThat(firstContext.corpusReferences().getFirst().corpusId()).isEqualTo(11L);
@@ -265,7 +272,6 @@ class AnalysisWorkerBridgeServiceTest {
         analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
 
         verify(analysisCreditService, never()).deduct(eq(user), anyString());
-        verify(analysisAsyncTaskService, never()).markCreditReserved(eq(task.getTaskId()), anyString());
         verify(analysisService).prepareAnalysisExecution(user, 10L);
     }
 
@@ -278,10 +284,7 @@ class AnalysisWorkerBridgeServiceTest {
         ReflectionTestUtils.setField(user, "id", 1L);
 
         when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
-        when(analysisAsyncCreditCoordinator.releaseReservedCreditIfNeeded(task)).thenAnswer(invocation -> {
-            task.markCreditReleased();
-            return true;
-        });
+        when(userService.getUser(1L)).thenReturn(user);
         doAnswer(invocation -> {
             task.markFailed(AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1);
             return null;
@@ -290,7 +293,8 @@ class AnalysisWorkerBridgeServiceTest {
         analysisWorkerBridgeService.failTask(task.getTaskId(), AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
         analysisWorkerBridgeService.failTask(task.getTaskId(), AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
 
-        verify(analysisAsyncCreditCoordinator, times(1)).releaseReservedCreditIfNeeded(task);
+        verify(analysisCreditService, times(1))
+                .refund(user, "analysisTaskId=" + task.getTaskId());
     }
 
     @Test

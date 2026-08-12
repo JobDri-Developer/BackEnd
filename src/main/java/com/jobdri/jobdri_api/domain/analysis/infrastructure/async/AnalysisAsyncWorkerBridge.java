@@ -9,14 +9,12 @@ import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerC
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.CorpusReferenceContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
-import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncCreditStatus;
 import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
 import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncCreditCoordinator;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncTaskService;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
 import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
@@ -49,7 +47,6 @@ public class AnalysisAsyncWorkerBridge {
     private final AnalysisAsyncTaskService analysisAsyncTaskService;
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
     private final AnalysisService analysisService;
-    private final AnalysisCreditService analysisCreditService;
     private final AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator;
     private final UserService userService;
     private final WorkerTaskResultService workerTaskResultService;
@@ -61,7 +58,6 @@ public class AnalysisAsyncWorkerBridge {
             AnalysisAsyncTaskService analysisAsyncTaskService,
             AnalysisAsyncTaskRepository analysisAsyncTaskRepository,
             AnalysisService analysisService,
-            AnalysisCreditService analysisCreditService,
             AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator,
             UserService userService,
             WorkerTaskResultService workerTaskResultService,
@@ -72,7 +68,6 @@ public class AnalysisAsyncWorkerBridge {
         this.analysisAsyncTaskService = analysisAsyncTaskService;
         this.analysisAsyncTaskRepository = analysisAsyncTaskRepository;
         this.analysisService = analysisService;
-        this.analysisCreditService = analysisCreditService;
         this.analysisAsyncCreditCoordinator = analysisAsyncCreditCoordinator;
         this.userService = userService;
         this.workerTaskResultService = workerTaskResultService;
@@ -287,7 +282,7 @@ public class AnalysisAsyncWorkerBridge {
         if (task.getExecutionContextSnapshot() != null) {
             return new ContextAccess(readContextSnapshot(task));
         }
-        reserveCreditIfNeeded(task);
+        analysisAsyncCreditCoordinator.reserveCreditIfNeeded(task);
         return new ContextAccess(null);
     }
 
@@ -304,7 +299,7 @@ public class AnalysisAsyncWorkerBridge {
         if (task.getExecutionContextSnapshot() != null) {
             return readContextSnapshot(task);
         }
-        reserveCreditIfNeeded(task);
+        analysisAsyncCreditCoordinator.reserveCreditIfNeeded(task);
         task.captureExecutionSnapshot(contextSnapshot, inputFingerprint);
         return context;
     }
@@ -399,23 +394,8 @@ public class AnalysisAsyncWorkerBridge {
         }
     }
 
-    private void reserveCreditIfNeeded(AnalysisAsyncTask task) {
-        if (task.getCreditStatus() == AnalysisAsyncCreditStatus.RESERVED
-                || task.getCreditStatus() == AnalysisAsyncCreditStatus.CONFIRMED) {
-            return;
-        }
-
-        User user = userService.getUser(task.getUserId());
-        String creditReferenceId = analysisCreditService.createAsyncReferenceId(task.getTaskId());
-        analysisCreditService.deduct(user, creditReferenceId);
-        analysisAsyncTaskService.markCreditReserved(task.getTaskId(), creditReferenceId);
-    }
-
     private void confirmCreditIfNeeded(AnalysisAsyncTask task) {
-        if (task.getCreditStatus() != AnalysisAsyncCreditStatus.RESERVED || task.getCreditReferenceId() == null) {
-            return;
-        }
-        analysisAsyncTaskService.markCreditConfirmed(task.getTaskId());
+        analysisAsyncCreditCoordinator.confirmReservedCreditIfNeeded(task);
     }
 
     private void releaseCreditAfterContextFailure(String taskId) {

@@ -38,6 +38,9 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     @Column(name = "credit_reference_id", length = 100)
     private String creditReferenceId;
 
+    @Column(name = "credit_reference_version", nullable = false)
+    private int creditReferenceVersion;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "credit_status", nullable = false, length = 20)
     private AnalysisAsyncCreditStatus creditStatus;
@@ -107,6 +110,7 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         task.userId = userId;
         task.mockApplyId = mockApplyId;
         task.creditStatus = AnalysisAsyncCreditStatus.NONE;
+        task.creditReferenceVersion = 0;
         task.status = AnalysisAsyncTaskStatus.PENDING;
         task.message = "자소서 분석 비동기 작업이 접수되었습니다.";
         task.retryCount = 0;
@@ -118,17 +122,39 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         return task;
     }
 
-    public void markCreditReserved(String creditReferenceId) {
+    public boolean markCreditReserved(String creditReferenceId) {
+        if (!canReserveCredit() || creditReferenceId == null || creditReferenceId.isBlank()) {
+            return false;
+        }
         this.creditReferenceId = creditReferenceId;
+        this.creditReferenceVersion += 1;
         this.creditStatus = AnalysisAsyncCreditStatus.RESERVED;
+        return true;
     }
 
-    public void markCreditConfirmed() {
+    public boolean markCreditConfirmed() {
+        if (creditStatus != AnalysisAsyncCreditStatus.RESERVED || creditReferenceId == null) {
+            return false;
+        }
         this.creditStatus = AnalysisAsyncCreditStatus.CONFIRMED;
+        return true;
     }
 
-    public void markCreditReleased() {
+    public boolean markCreditReleased() {
+        if (creditStatus != AnalysisAsyncCreditStatus.RESERVED || creditReferenceId == null) {
+            return false;
+        }
         this.creditStatus = AnalysisAsyncCreditStatus.RELEASED;
+        return true;
+    }
+
+    public boolean canReserveCredit() {
+        return creditStatus == AnalysisAsyncCreditStatus.NONE
+                || creditStatus == AnalysisAsyncCreditStatus.RELEASED;
+    }
+
+    public int nextCreditReferenceVersion() {
+        return creditReferenceVersion + 1;
     }
 
     public void markRunning(String workerId, int retryCount, Instant messageSubmittedAt) {

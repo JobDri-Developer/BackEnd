@@ -3,7 +3,6 @@ package com.jobdri.jobdri_api.domain.analysis.service.async;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.infrastructure.async.AnalysisAsyncWorkerBridge;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
@@ -20,7 +19,6 @@ public class AnalysisWorkerBridgeService extends AnalysisAsyncWorkerBridge {
             AnalysisAsyncTaskService analysisAsyncTaskService,
             AnalysisAsyncTaskRepository analysisAsyncTaskRepository,
             AnalysisService analysisService,
-            AnalysisCreditService analysisCreditService,
             AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator,
             UserService userService,
             WorkerTaskResultService workerTaskResultService,
@@ -32,7 +30,6 @@ public class AnalysisWorkerBridgeService extends AnalysisAsyncWorkerBridge {
                 analysisAsyncTaskService,
                 analysisAsyncTaskRepository,
                 analysisService,
-                analysisCreditService,
                 analysisAsyncCreditCoordinator,
                 userService,
                 workerTaskResultService,

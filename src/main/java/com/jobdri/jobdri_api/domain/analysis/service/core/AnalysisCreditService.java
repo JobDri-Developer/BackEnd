@@ -16,8 +16,8 @@ public class AnalysisCreditService {
         return "mockApplyId=" + mockApplyId + ":fingerprint=" + inputFingerprint;
     }
 
-    public String createAsyncReferenceId(String taskId) {
-        return "analysisTaskId=" + taskId;
+    public String createAsyncReferenceId(String taskId, int creditReferenceVersion) {
+        return "analysisTaskId=" + taskId + ":creditVersion=" + creditReferenceVersion;
     }
 
     @Transactional

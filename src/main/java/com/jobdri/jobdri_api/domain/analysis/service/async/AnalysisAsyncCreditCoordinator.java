@@ -27,7 +27,24 @@ public class AnalysisAsyncCreditCoordinator {
 
         User user = userService.getUser(task.getUserId());
         analysisCreditService.refund(user, task.getCreditReferenceId());
-        task.markCreditReleased();
-        return true;
+        return task.markCreditReleased();
+    }
+
+    public boolean reserveCreditIfNeeded(AnalysisAsyncTask task) {
+        if (!task.canReserveCredit()) {
+            return false;
+        }
+
+        User user = userService.getUser(task.getUserId());
+        String creditReferenceId = analysisCreditService.createAsyncReferenceId(
+                task.getTaskId(),
+                task.nextCreditReferenceVersion()
+        );
+        analysisCreditService.deduct(user, creditReferenceId);
+        return task.markCreditReserved(creditReferenceId);
+    }
+
+    public boolean confirmReservedCreditIfNeeded(AnalysisAsyncTask task) {
+        return task.markCreditConfirmed();
     }
 }
