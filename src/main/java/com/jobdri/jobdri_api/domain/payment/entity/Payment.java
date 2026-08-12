@@ -1,5 +1,7 @@
 package com.jobdri.jobdri_api.domain.payment.entity;
 
+import com.jobdri.jobdri_api.domain.payment.type.PaymentProviderType;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentStatus;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.global.entity.BaseEntity;
 import jakarta.persistence.*;
@@ -228,6 +230,49 @@ public class Payment extends BaseEntity {
         this.lastStatusCheckedAt = LocalDateTime.now();
     }
 
+    public void completeByProviderStatus(String providerStatus, String providerTransactionId) {
+        switch (getProviderOrDefault()) {
+            case TOSS_PAY_DIRECT -> completeByTossPay(providerStatus);
+            case PORTONE -> completeByPortOne(providerStatus, providerTransactionId);
+            default -> throw unsupportedProvider("결제 완료");
+        }
+    }
+
+    public void failByProviderStatus(String providerStatus, String providerTransactionId) {
+        switch (getProviderOrDefault()) {
+            case TOSS_PAY_DIRECT -> failByTossPay(providerStatus);
+            case PORTONE -> failByPortOne(providerStatus, providerTransactionId);
+            default -> throw unsupportedProvider("결제 실패");
+        }
+    }
+
+    public void markUnknownByProviderStatus(String providerStatus, String providerTransactionId) {
+        switch (getProviderOrDefault()) {
+            case TOSS_PAY_DIRECT -> {
+                markTossPayUnknown();
+                updateTossStatus(providerStatus);
+            }
+            case PORTONE -> markPortOneUnknown(providerStatus, providerTransactionId);
+            default -> throw unsupportedProvider("결제 상태 미확정");
+        }
+    }
+
+    public void updateProviderStatus(String providerStatus, String providerTransactionId) {
+        switch (getProviderOrDefault()) {
+            case TOSS_PAY_DIRECT -> updateTossStatus(providerStatus);
+            case PORTONE -> updatePortOneStatus(providerStatus, providerTransactionId);
+            default -> throw unsupportedProvider("결제 상태 갱신");
+        }
+    }
+
+    public void refundByProviderStatus(String providerStatus, String refundReason) {
+        switch (getProviderOrDefault()) {
+            case TOSS_PAY_DIRECT -> refundByTossPay(providerStatus, refundReason);
+            case PORTONE -> refundByPortOne(providerStatus, refundReason);
+            default -> throw unsupportedProvider("결제 환불");
+        }
+    }
+
     private void validateRefundableStatus() {
         if (this.status != PaymentStatus.COMPLETED) {
             throw new IllegalStateException("완료된 결제만 환불 상태로 변경할 수 있습니다.");
@@ -257,5 +302,9 @@ public class Payment extends BaseEntity {
 
     public boolean isProvider(PaymentProviderType provider) {
         return getProviderOrDefault() == provider;
+    }
+
+    private IllegalStateException unsupportedProvider(String action) {
+        return new IllegalStateException("지원하지 않는 결제 제공자입니다. action=" + action + ", provider=" + getProviderOrDefault());
     }
 }

@@ -2,24 +2,15 @@ package com.jobdri.jobdri_api.domain.mockapply.service;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
-import com.jobdri.jobdri_api.domain.company.entity.Company;
-import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
-import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
-import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingMockGenerateResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
-import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
-import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
-import com.jobdri.jobdri_api.domain.jobposting.service.MockJobPostingGenerationService;
-import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockFromJobPostingRequest;
-import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCreateMockRequest;
 import com.jobdri.jobdri_api.domain.mockapply.dto.request.MockApplyCompletedFilter;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyCreateResponse;
 import com.jobdri.jobdri_api.domain.mockapply.dto.response.MockApplyHomeItemResponse;
@@ -71,10 +62,7 @@ public class MockApplyService {
     private final MockApplyRepository mockApplyRepository;
     private final QuestionAnalysisRepository questionAnalysisRepository;
     private final AnalysisRepository analysisRepository;
-    private final JobPostingRepository jobPostingRepository;
-    private final CompanyRepository companyRepository;
     private final QuestionRepository questionRepository;
-    private final MockJobPostingGenerationService mockJobPostingGenerationService;
     private final JobPostingService jobPostingService;
     private final UserService userService;
     private final MockApplyPersistenceService mockApplyPersistenceService;
@@ -133,67 +121,6 @@ public class MockApplyService {
         }
 
         return MockApplyRetryResponse.of(sourceMockApply.getId(), retryMockApply);
-    }
-
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
-    public MockApplyCreateResponse createMockApplyFromJobPosting(User user, Long jobPostingId) {
-        return createMockApplyFromJobPosting(user, jobPostingId, null);
-    }
-
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
-    public MockApplyCreateResponse createMockApplyFromJobPosting(User user, Long jobPostingId, Integer sequence) {
-        User validatedUser = userService.validateUser(user);
-        JobPosting jobPosting = jobPostingService.getOwnedJobPosting(validatedUser, jobPostingId);
-
-        MockApply mockApply = saveMockApplyWithSequence(
-                validatedUser,
-                jobPosting,
-                ApplyType.MOCK,
-                sequence
-        );
-        return MockApplyCreateResponse.from(mockApply);
-    }
-
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
-    public MockApplyCreateResponse createMockApply(User user, MockApplyCreateMockRequest request) {
-        User validatedUser = userService.validateUser(user);
-        Company company = companyRepository.findById(request.companyId())
-                .orElseThrow(() -> new GeneralException(
-                        GeneralErrorCode.COMPANY_NOT_FOUND,
-                        "해당 회사를 찾을 수 없습니다. companyId=" + request.companyId()
-                ));
-
-        JobPostingMockGenerateResponse generated =
-                mockJobPostingGenerationService.generate(request.toJobPostingMockGenerateRequest());
-
-        JobPostingCreateRequest createRequest = new JobPostingCreateRequest(
-                JobPostingProfileColor.DEFAULT,
-                generated.jobTitle(),
-                company.getName(),
-                company.getSize(),
-                generated.jobTitle(),
-                request.detailClassificationId(),
-                generated.task(),
-                generated.requirement(),
-                generated.preferred()
-        );
-        Long savedJobPostingId = jobPostingService.createJobPosting(validatedUser, createRequest).getJobPostingId();
-        JobPosting savedJobPosting = jobPostingRepository.findById(savedJobPostingId)
-                .orElseThrow(() -> new GeneralException(
-                        GeneralErrorCode.JOB_POSTING_NOT_FOUND,
-                        "생성된 모의 공고를 찾을 수 없습니다. jobPostingId=" + savedJobPostingId
-                ));
-
-        MockApply mockApply = saveMockApplyWithSequence(
-                validatedUser,
-                savedJobPosting,
-                ApplyType.MOCK,
-                request.sequence()
-        );
-        return MockApplyCreateResponse.from(mockApply);
     }
 
     public JobPostingResponse getMockApplyJobPosting(User user, Long mockApplyId) {
@@ -335,7 +262,7 @@ public class MockApplyService {
         return analysisAsyncTaskRepository.findByUserIdAndMockApplyIdInAndStatusIn(
                         userId,
                         mockApplyIds,
-                        List.of(TaskStatus.PENDING, TaskStatus.RUNNING)
+                        List.of(AnalysisAsyncTaskStatus.PENDING, AnalysisAsyncTaskStatus.RUNNING)
                 )
                 .stream()
                 .sorted(Comparator

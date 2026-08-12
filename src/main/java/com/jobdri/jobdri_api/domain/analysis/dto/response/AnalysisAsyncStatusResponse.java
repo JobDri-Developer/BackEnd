@@ -30,4 +30,30 @@ public record AnalysisAsyncStatusResponse(
         List<AnalysisProgressStepResponse> steps,
         AnalysisResponse result
 ) {
+    public AnalysisAsyncStatusResponse withResult(AnalysisResponse result) {
+        return new AnalysisAsyncStatusResponse(
+                taskId,
+                mockApplyId,
+                status,
+                message,
+                error,
+                failureReason,
+                workerId,
+                retryCount,
+                maxRetryCount,
+                queueLatencyMillis,
+                createdAt,
+                submittedAt,
+                lastAttemptAt,
+                startedAt,
+                completedAt,
+                cancelRequested,
+                cancelledAt,
+                currentStep,
+                progressPercent,
+                estimatedRemainingSeconds,
+                steps,
+                result
+        );
+    }
 }

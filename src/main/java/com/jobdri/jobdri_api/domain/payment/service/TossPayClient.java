@@ -1,11 +1,11 @@
 package com.jobdri.jobdri_api.domain.payment.service;
 
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayCreateRequest;
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayCreateResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayRefundRequest;
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayRefundResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusRequest;
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayCreateRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayCreateResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayRefundRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayRefundResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayStatusRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayStatusResponse;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.logging.LoggingContext;

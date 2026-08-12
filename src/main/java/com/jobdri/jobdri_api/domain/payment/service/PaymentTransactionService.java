@@ -1,16 +1,18 @@
 package com.jobdri.jobdri_api.domain.payment.service;
 
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePaymentResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOnePaymentResponse;
+import com.jobdri.jobdri_api.domain.payment.gateway.PortOnePaymentGateway;
+import com.jobdri.jobdri_api.domain.payment.gateway.type.GatewayPaymentStatus;
+import com.jobdri.jobdri_api.domain.payment.gateway.result.GatewayPaymentSnapshot;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentOrderStatusResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentRefundResponse;
-import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
+import com.jobdri.jobdri_api.domain.payment.type.CreditPlan;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
-import com.jobdri.jobdri_api.domain.payment.entity.PaymentProviderType;
-import com.jobdri.jobdri_api.domain.payment.entity.PaymentStatus;
-import com.jobdri.jobdri_api.domain.payment.entity.PortOnePaymentStatus;
-import com.jobdri.jobdri_api.domain.payment.entity.TossPayStatus;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentProviderType;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentStatus;
+import com.jobdri.jobdri_api.domain.payment.type.TossPayStatus;
 import com.jobdri.jobdri_api.domain.payment.repository.PaymentRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
@@ -182,13 +184,7 @@ public class PaymentTransactionService {
         if (!payment.isProvider(provider)) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "환불 요청 결제수단이 일치하지 않습니다.");
         }
-        if (provider == PaymentProviderType.PORTONE) {
-            payment.refundByPortOne(externalStatus, reason);
-        } else if (provider == PaymentProviderType.TOSS_PAY_DIRECT) {
-            payment.refundByTossPay(externalStatus, reason);
-        } else {
-            throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "지원하지 않는 결제수단입니다.");
-        }
+        payment.refundByProviderStatus(externalStatus, reason);
         int creditBalance = creditService.use(
                 user,
                 payment.getCreditAmount(),
@@ -216,45 +212,34 @@ public class PaymentTransactionService {
                         "결제 정보를 찾을 수 없습니다. orderId=" + orderId
                 ));
         validateTossPayStatus(payment, payToken, amount);
+        GatewayPaymentStatus normalizedStatus = normalizeTossPayStatus(tossPayStatus);
 
-        if (payment.getStatus() == PaymentStatus.REFUNDED) {
-            return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
-        }
-        if (payment.getStatus() == PaymentStatus.COMPLETED) {
-            if (tossPayStatus == TossPayStatus.PAY_CANCEL) {
-                payment.updateTossStatus(tossPayStatus.name());
-            }
-            return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
-        }
-
-        if (payment.getStatus() == PaymentStatus.FAILED || payment.getStatus() == PaymentStatus.PROCESSING) {
+        if (payment.getStatus() == PaymentStatus.FAILED) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_ALREADY_PROCESSED, "처리할 수 없는 결제 상태입니다.");
         }
-
-        if (tossPayStatus == TossPayStatus.PAY_COMPLETE) {
-            User user = userService.getUser(payment.getUser().getId());
-            payment.completeByTossPay(tossPayStatus.name());
-            int creditBalance = creditService.charge(
-                    user,
-                    payment.getCreditAmount(),
-                    payment.getContent(),
-                    payment.getOrderId()
-            );
-            return PaymentConfirmResponse.of(payment, creditBalance);
+        if (payment.getStatus() == PaymentStatus.COMPLETED
+                && normalizedStatus != GatewayPaymentStatus.CANCELED
+                && normalizedStatus != GatewayPaymentStatus.REFUNDED) {
+            return currentConfirmResponse(payment, userService.getUser(payment.getUser().getId()));
         }
 
-        if (tossPayStatus == TossPayStatus.PAY_CANCEL) {
-            payment.failByTossPay(tossPayStatus.name());
-            return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
-        }
-
-        payment.updateTossStatus(tossPayStatus.name());
-        return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
+        return applyGatewayPaymentTransition(
+                payment,
+                normalizedStatus,
+                tossPayStatus.name(),
+                null,
+                chargeReferenceId(payment)
+        );
     }
 
     @Transactional
     public PaymentConfirmResponse applyPortOnePayment(Long userId, PortOnePaymentResponse response, String expectedStoreId) {
         return applyPortOnePayment(userId, response, expectedStoreId, true);
+    }
+
+    @Transactional
+    public PaymentConfirmResponse applyPortOnePayment(Long userId, GatewayPaymentSnapshot snapshot, String expectedStoreId) {
+        return applyPortOnePayment(userId, snapshot, expectedStoreId, true);
     }
 
     @Transactional
@@ -269,49 +254,32 @@ public class PaymentTransactionService {
             boolean requireOwner
     ) {
         validatePortOneResponseMinimum(response);
-        Payment payment = paymentRepository.findByOrderIdForUpdate(response.id())
+        return applyPortOnePayment(userId, toGatewaySnapshot(response), expectedStoreId, requireOwner);
+    }
+
+    private PaymentConfirmResponse applyPortOnePayment(
+            Long userId,
+            GatewayPaymentSnapshot snapshot,
+            String expectedStoreId,
+            boolean requireOwner
+    ) {
+        validatePortOneSnapshotMinimum(snapshot);
+        Payment payment = paymentRepository.findByOrderIdForUpdate(snapshot.orderId())
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.PAYMENT_NOT_FOUND,
-                        "결제 정보를 찾을 수 없습니다. paymentId=" + response.id()
+                        "결제 정보를 찾을 수 없습니다. paymentId=" + snapshot.orderId()
                 ));
         if (requireOwner && !payment.belongsTo(userId)) {
             throw new GeneralException(GeneralErrorCode.FORBIDDEN, "해당 결제에 접근할 수 없습니다.");
         }
-        validatePortOnePayment(payment, response, expectedStoreId);
-
-        PortOnePaymentStatus portOneStatus = PortOnePaymentStatus.from(response.status());
-        if (payment.getStatus() == PaymentStatus.REFUNDED) {
-            return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
-        }
-        if (payment.getStatus() == PaymentStatus.COMPLETED) {
-            payment.updatePortOneStatus(response.status(), response.transactionId());
-            return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
-        }
-
-        if (portOneStatus == PortOnePaymentStatus.PAID) {
-            User user = userService.getUser(payment.getUser().getId());
-            payment.completeByPortOne(response.status(), response.transactionId());
-            int creditBalance = creditService.charge(
-                    user,
-                    payment.getCreditAmount(),
-                    payment.getContent(),
-                    "PAYMENT:PORTONE:" + payment.getOrderId()
-            );
-            return PaymentConfirmResponse.of(payment, creditBalance);
-        }
-
-        if (portOneStatus == PortOnePaymentStatus.FAILED || portOneStatus == PortOnePaymentStatus.CANCELLED) {
-            payment.failByPortOne(response.status(), response.transactionId());
-            return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
-        }
-
-        if (portOneStatus == PortOnePaymentStatus.UNKNOWN || portOneStatus == PortOnePaymentStatus.PARTIAL_CANCELLED) {
-            payment.markPortOneUnknown(response.status(), response.transactionId());
-            return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
-        }
-
-        payment.updatePortOneStatus(response.status(), response.transactionId());
-        return PaymentConfirmResponse.of(payment, userService.getUser(payment.getUser().getId()).getCredit());
+        validatePortOnePayment(payment, snapshot, expectedStoreId);
+        return applyGatewayPaymentTransition(
+                payment,
+                snapshot.status(),
+                snapshot.externalStatus(),
+                snapshot.externalTransactionId(),
+                chargeReferenceId(payment)
+        );
     }
 
     @Transactional
@@ -392,6 +360,119 @@ public class PaymentTransactionService {
         }
     }
 
+    private void validatePortOneSnapshotMinimum(GatewayPaymentSnapshot snapshot) {
+        if (snapshot == null || snapshot.orderId() == null || snapshot.orderId().isBlank()) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "포트원 결제 조회 응답 검증에 실패했습니다.");
+        }
+    }
+
+    private PaymentConfirmResponse applyGatewayPaymentTransition(
+            Payment payment,
+            GatewayPaymentStatus normalizedStatus,
+            String providerStatus,
+            String providerTransactionId,
+            String chargeReferenceId
+    ) {
+        User user = userService.getUser(payment.getUser().getId());
+
+        if (payment.getStatus() == PaymentStatus.REFUNDED) {
+            return currentConfirmResponse(payment, user);
+        }
+        if (payment.getStatus() == PaymentStatus.COMPLETED
+                && normalizedStatus != GatewayPaymentStatus.REFUNDED) {
+            payment.updateProviderStatus(providerStatus, providerTransactionId);
+            return currentConfirmResponse(payment, user);
+        }
+
+        return switch (normalizedStatus) {
+            case COMPLETED -> PaymentConfirmResponse.of(
+                    payment,
+                    completeAndCharge(user, payment, providerStatus, providerTransactionId, chargeReferenceId)
+            );
+            case REFUNDED -> PaymentConfirmResponse.of(
+                    payment,
+                    refundAndRecover(user, payment, providerStatus)
+            );
+            case FAILED, CANCELED -> {
+                payment.failByProviderStatus(providerStatus, providerTransactionId);
+                yield currentConfirmResponse(payment, user);
+            }
+            case UNKNOWN -> {
+                payment.markUnknownByProviderStatus(providerStatus, providerTransactionId);
+                yield currentConfirmResponse(payment, user);
+            }
+            default -> {
+                payment.updateProviderStatus(providerStatus, providerTransactionId);
+                yield currentConfirmResponse(payment, user);
+            }
+        };
+    }
+
+    private int completeAndCharge(
+            User user,
+            Payment payment,
+            String providerStatus,
+            String providerTransactionId,
+            String chargeReferenceId
+    ) {
+        payment.completeByProviderStatus(providerStatus, providerTransactionId);
+        return creditService.charge(
+                user,
+                payment.getCreditAmount(),
+                payment.getContent(),
+                chargeReferenceId
+        );
+    }
+
+    private int refundAndRecover(User user, Payment payment, String providerStatus) {
+        payment.refundByProviderStatus(providerStatus, null);
+        return creditService.use(
+                user,
+                payment.getCreditAmount(),
+                "결제 환불 크레딧 회수",
+                refundCreditReferenceId(payment)
+        );
+    }
+
+    private PaymentConfirmResponse currentConfirmResponse(Payment payment, User user) {
+        return PaymentConfirmResponse.of(payment, user.getCredit());
+    }
+
+    private String chargeReferenceId(Payment payment) {
+        if (payment.isProvider(PaymentProviderType.PORTONE)) {
+            return "PAYMENT:PORTONE:" + payment.getOrderId();
+        }
+        return payment.getOrderId();
+    }
+
+    private GatewayPaymentSnapshot toGatewaySnapshot(PortOnePaymentResponse response) {
+        return new GatewayPaymentSnapshot(
+                PaymentProviderType.PORTONE,
+                PortOnePaymentGateway.mapStatus(response.status()),
+                response.id(),
+                null,
+                null,
+                response.id(),
+                response.transactionId(),
+                response.status(),
+                response.storeId(),
+                response.currency(),
+                response.amount() == null ? null : response.amount().total()
+        );
+    }
+
+    private GatewayPaymentStatus normalizeTossPayStatus(TossPayStatus tossPayStatus) {
+        if (tossPayStatus == null) {
+            return GatewayPaymentStatus.UNKNOWN;
+        }
+        return switch (tossPayStatus) {
+            case PAY_COMPLETE -> GatewayPaymentStatus.COMPLETED;
+            case PAY_CANCEL -> GatewayPaymentStatus.CANCELED;
+            case PAY_APPROVED -> GatewayPaymentStatus.APPROVED;
+            case REFUND_SUCCESS -> GatewayPaymentStatus.REFUNDED;
+        };
+    }
+
     private void validatePortOnePayment(Payment payment, PortOnePaymentResponse response, String expectedStoreId) {
         if (!payment.isProvider(PaymentProviderType.PORTONE)) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "포트원 결제 건이 아닙니다.");
@@ -409,6 +490,27 @@ public class PaymentTransactionService {
             throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "포트원 결제 금액이 누락되었습니다.");
         }
         if (payment.getPrice() != response.amount().total()) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_AMOUNT_MISMATCH, "결제 금액이 일치하지 않습니다.");
+        }
+    }
+
+    private void validatePortOnePayment(Payment payment, GatewayPaymentSnapshot snapshot, String expectedStoreId) {
+        if (!payment.isProvider(PaymentProviderType.PORTONE)) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "포트원 결제 건이 아닙니다.");
+        }
+        if (payment.getExternalPaymentId() == null || !payment.getExternalPaymentId().equals(snapshot.externalPaymentId())) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "포트원 paymentId가 일치하지 않습니다.");
+        }
+        if (expectedStoreId != null && !expectedStoreId.isBlank() && !expectedStoreId.equals(snapshot.storeId())) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "포트원 storeId가 일치하지 않습니다.");
+        }
+        if (!"KRW".equals(snapshot.currency())) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "지원하지 않는 포트원 결제 통화입니다.");
+        }
+        if (snapshot.amount() == null) {
+            throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "포트원 결제 금액이 누락되었습니다.");
+        }
+        if (payment.getPrice() != snapshot.amount()) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_AMOUNT_MISMATCH, "결제 금액이 일치하지 않습니다.");
         }
     }

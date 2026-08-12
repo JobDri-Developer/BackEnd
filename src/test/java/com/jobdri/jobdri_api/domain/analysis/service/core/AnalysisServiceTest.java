@@ -1,12 +1,13 @@
 package com.jobdri.jobdri_api.domain.analysis.service.core;
 
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.SimilarJobPostingContext;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
-import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysisStatus;
+import com.jobdri.jobdri_api.domain.analysis.type.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
@@ -29,7 +30,7 @@ import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
-import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
+import com.jobdri.jobdri_api.domain.payment.type.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.repository.CreditTransactionRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;

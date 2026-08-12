@@ -1,13 +1,16 @@
 package com.jobdri.jobdri_api.domain.analysis.service.ai;
 
-import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
+import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
+import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.criteria.JobCategoryEvaluationCriteria;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisCandidateResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateRecheckResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateRecheckResponse.RecheckDecision;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.CandidateReviewResponse.RejectionCode;
-import com.jobdri.jobdri_api.domain.analysis.dto.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisCandidateResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateRecheckResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateRecheckResponse.RecheckDecision;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateReviewResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateReviewResponse.RejectionCode;
+import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
+import com.jobdri.jobdri_api.domain.analysis.infrastructure.ai.OpenAiAnalysisAdapter;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotProperties;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotCase;
@@ -19,8 +22,6 @@ import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
-import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
-import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.openai.client.OpenAIClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -41,15 +42,20 @@ class AnalysisAiClientTest {
 
     private final FewShotSearchService fewShotSearchService = mock(FewShotSearchService.class);
     private final FewShotProperties fewShotProperties = new FewShotProperties();
-    private final AnalysisAiClient analysisAiClient = new AnalysisAiClient(
-            mock(OpenAIClient.class),
-            mock(CorpusRetrievalService.class),
-            mock(LlmConcurrencyLimiter.class),
+    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final AnalysisResponseParser analysisResponseParser = new AnalysisResponseParser();
+    private final AnalysisPromptBuilder analysisPromptBuilder = new AnalysisPromptBuilder(
             new FewShotPromptProvider(),
             fewShotSearchService,
             fewShotProperties,
-            mock(AsyncMetricsRecorder.class),
-            new ObjectMapper()
+            objectMapper
+    );
+    private final OpenAiAnalysisAdapter openAiAnalysisAdapter = mock(OpenAiAnalysisAdapter.class);
+    private final AnalysisAiClient analysisAiClient = new AnalysisAiClient(
+            mock(CorpusRetrievalService.class),
+            analysisPromptBuilder,
+            analysisResponseParser,
+            openAiAnalysisAdapter
     );
 
     @Test

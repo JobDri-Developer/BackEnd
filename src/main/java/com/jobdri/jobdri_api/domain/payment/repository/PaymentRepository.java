@@ -1,7 +1,7 @@
 package com.jobdri.jobdri_api.domain.payment.repository;
 
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
-import com.jobdri.jobdri_api.domain.payment.entity.PaymentStatus;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;

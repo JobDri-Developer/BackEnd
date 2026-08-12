@@ -58,6 +58,10 @@ CREATE INDEX IF NOT EXISTS idx_job_posting_embeddings_hnsw
 CREATE INDEX IF NOT EXISTS idx_analysis_async_tasks_user_mock_apply_status
     ON analysis_async_tasks (user_id, mock_apply_id, status);
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_analysis_async_tasks_credit_reference_id_unique
+    ON analysis_async_tasks (credit_reference_id)
+    WHERE credit_reference_id IS NOT NULL;
+
 ALTER TABLE IF EXISTS analyses
     ADD COLUMN IF NOT EXISTS missing_keywords TEXT NOT NULL DEFAULT '[]';
 
@@ -108,6 +112,9 @@ ALTER TABLE IF EXISTS analysis_async_tasks
 
 ALTER TABLE IF EXISTS analysis_async_tasks
     ADD COLUMN IF NOT EXISTS input_fingerprint_snapshot VARCHAR(64);
+
+ALTER TABLE IF EXISTS analysis_async_tasks
+    ADD COLUMN IF NOT EXISTS credit_reference_version INTEGER NOT NULL DEFAULT 0;
 
 ALTER TABLE IF EXISTS job_posting_async_tasks
     ADD COLUMN IF NOT EXISTS cancel_requested BOOLEAN NOT NULL DEFAULT FALSE;
@@ -161,3 +168,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_pay_token_unique
 CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_external_payment_id_unique
     ON payments (external_payment_id)
     WHERE external_payment_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_credit_transactions_user_created_at_id_desc
+    ON credit_transactions (user_id, created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_credit_transactions_user_type_created_at_id_desc
+    ON credit_transactions (user_id, type, created_at DESC, id DESC);

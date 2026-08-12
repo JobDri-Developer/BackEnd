@@ -1,20 +1,31 @@
 package com.jobdri.jobdri_api.domain.analysis.service.async;
 
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncCancelResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisAsyncSubmitResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
-import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask.FailureReason;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
+import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
+import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.sql.SQLException;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,8 +33,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -56,13 +69,12 @@ class AnalysisAsyncFacadeServiceTest {
         when(analysisService.hasReusableAnalysis(user, 10L)).thenReturn(false);
         when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty(), Optional.of(existingTask));
         when(analysisAsyncTaskService.createPendingTask(1L, 10L))
-                .thenThrow(new DataIntegrityViolationException("uk_analysis_async_tasks_active_user_mock_apply"));
+                .thenThrow(activeTaskUniqueConflict());
 
         AnalysisAsyncSubmitResponse response = analysisAsyncFacadeService.submit(user, 10L);
 
         assertThat(response.taskId()).isEqualTo(existingTask.getTaskId());
         assertThat(response.status()).isEqualTo("PENDING");
-        verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
         verify(analysisAsyncProcessor, never()).process(eq(existingTask.getTaskId()), eq(1L), eq(10L), eq(3));
     }
 
@@ -72,8 +84,7 @@ class AnalysisAsyncFacadeServiceTest {
         User user = User.signup("테스트 사용자", "analysis-async-missing@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 1L);
 
-        DataIntegrityViolationException exception =
-                new DataIntegrityViolationException("uk_analysis_async_tasks_active_user_mock_apply");
+        DataIntegrityViolationException exception = activeTaskUniqueConflict();
 
         when(userService.validateUser(user)).thenReturn(user);
         when(analysisService.hasReusableAnalysis(user, 10L)).thenReturn(false);
@@ -104,7 +115,129 @@ class AnalysisAsyncFacadeServiceTest {
         assertThat(response.cached()).isFalse();
         assertThat(response.resultAvailable()).isFalse();
         verify(analysisAsyncProcessor, times(1)).process(createdTask.getTaskId(), 1L, 10L, 3);
-        verify(analysisService, never()).deductAnalysisCredit(eq(user), anyString());
+    }
+
+    @Test
+    @DisplayName("이전 PUBLISH_FAILED task가 있으면 새 task를 만들지 않고 같은 task를 재접수한다")
+    void submitReopensRecoverablePublishFailureTask() {
+        User user = User.signup("테스트 사용자", "analysis-async-recoverable@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncTask failedTask = AnalysisAsyncTask.pending(1L, 10L, 3);
+        failedTask.markFailed(AnalysisAsyncFailureReason.PUBLISH_FAILED, "publish failed", 0);
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty());
+        when(analysisAsyncTaskService.findRecoverablePublishFailureTask(1L, 10L)).thenReturn(Optional.of(failedTask));
+        failedTask.reopenForRepublish();
+        when(analysisAsyncTaskService.reopenPublishFailureTask(failedTask.getTaskId()))
+                .thenReturn(new AnalysisAsyncTaskService.ReopenPublishFailureResult(failedTask, true));
+
+        AnalysisAsyncSubmitResponse response = analysisAsyncFacadeService.submit(user, 10L);
+
+        assertThat(response.taskId()).isEqualTo(failedTask.getTaskId());
+        assertThat(response.status()).isEqualTo("PENDING");
+        assertThat(response.cached()).isFalse();
+        assertThat(response.resultAvailable()).isFalse();
+        verify(analysisAsyncTaskService, never()).createPendingTask(1L, 10L);
+        verify(analysisService, never()).hasReusableAnalysis(user, 10L);
+        verify(analysisAsyncTaskService).reopenPublishFailureTask(failedTask.getTaskId());
+        verify(analysisAsyncProcessor).process(failedTask.getTaskId(), 1L, 10L, 3);
+    }
+
+    @Test
+    @DisplayName("다른 요청이 이미 PUBLISH_FAILED task를 재접수했으면 재발행하지 않고 진행 중 응답을 반환한다")
+    void submitReturnsInProgressWhenPublishFailureTaskAlreadyReopened() {
+        User user = User.signup("테스트 사용자", "analysis-async-reopened@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncTask failedTask = AnalysisAsyncTask.pending(1L, 10L, 3);
+        failedTask.markFailed(AnalysisAsyncFailureReason.PUBLISH_FAILED, "publish failed", 0);
+        AnalysisAsyncTask reopenedTask = AnalysisAsyncTask.pending(1L, 10L, 3);
+        ReflectionTestUtils.setField(reopenedTask, "taskId", failedTask.getTaskId());
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty());
+        when(analysisAsyncTaskService.findRecoverablePublishFailureTask(1L, 10L)).thenReturn(Optional.of(failedTask));
+        when(analysisAsyncTaskService.reopenPublishFailureTask(failedTask.getTaskId()))
+                .thenReturn(new AnalysisAsyncTaskService.ReopenPublishFailureResult(reopenedTask, false));
+
+        AnalysisAsyncSubmitResponse response = analysisAsyncFacadeService.submit(user, 10L);
+
+        assertThat(response.taskId()).isEqualTo(failedTask.getTaskId());
+        assertThat(response.status()).isEqualTo("PENDING");
+        assertThat(response.cached()).isFalse();
+        assertThat(response.resultAvailable()).isFalse();
+        verify(analysisAsyncProcessor, never()).process(failedTask.getTaskId(), 1L, 10L, 3);
+    }
+
+    @Test
+    @DisplayName("메시지 발행 실패 시 task를 삭제하지 않고 PUBLISH_FAILED로 실패 처리한다")
+    void submitMarksTaskFailedWhenPublishFails() {
+        User user = User.signup("테스트 사용자", "analysis-async-publish-fail@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncTask createdTask = AnalysisAsyncTask.pending(1L, 10L, 3);
+        RuntimeException publishException = new RuntimeException("publish failed");
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisService.hasReusableAnalysis(user, 10L)).thenReturn(false);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty());
+        when(analysisAsyncTaskService.createPendingTask(1L, 10L)).thenReturn(createdTask);
+        doThrow(publishException).when(analysisAsyncProcessor).process(createdTask.getTaskId(), 1L, 10L, 3);
+
+        assertThatThrownBy(() -> analysisAsyncFacadeService.submit(user, 10L))
+                .isSameAs(publishException);
+
+        verify(analysisAsyncTaskService).markFailed(
+                createdTask.getTaskId(),
+                AnalysisAsyncFailureReason.PUBLISH_FAILED,
+                "자소서 분석 비동기 작업 발행에 실패했습니다.",
+                0
+        );
+        verify(analysisAsyncTaskService, never()).deleteTask(createdTask.getTaskId());
+    }
+
+    @Test
+    @DisplayName("재접수한 PUBLISH_FAILED task의 발행이 다시 실패하면 같은 task를 다시 실패 처리한다")
+    void submitMarksReopenedTaskFailedWhenPublishFailsAgain() {
+        User user = User.signup("테스트 사용자", "analysis-async-republish-fail@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncTask failedTask = AnalysisAsyncTask.pending(1L, 10L, 3);
+        failedTask.markFailed(AnalysisAsyncFailureReason.PUBLISH_FAILED, "publish failed", 0);
+        RuntimeException publishException = new RuntimeException("publish failed again");
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty());
+        when(analysisAsyncTaskService.findRecoverablePublishFailureTask(1L, 10L)).thenReturn(Optional.of(failedTask));
+        failedTask.reopenForRepublish();
+        when(analysisAsyncTaskService.reopenPublishFailureTask(failedTask.getTaskId()))
+                .thenReturn(new AnalysisAsyncTaskService.ReopenPublishFailureResult(failedTask, true));
+        doThrow(publishException).when(analysisAsyncProcessor).process(failedTask.getTaskId(), 1L, 10L, 3);
+
+        assertThatThrownBy(() -> analysisAsyncFacadeService.submit(user, 10L))
+                .isSameAs(publishException);
+
+        verify(analysisAsyncTaskService).markFailed(
+                failedTask.getTaskId(),
+                AnalysisAsyncFailureReason.PUBLISH_FAILED,
+                "자소서 분석 비동기 작업 발행에 실패했습니다.",
+                failedTask.getRetryCount()
+        );
+    }
+
+    @Test
+    @DisplayName("제약 조건명이 없으면 메시지 기반으로 중복 충돌로 분류하지 않는다")
+    void submitDoesNotTreatMessageOnlyConflictAsDuplicate() {
+        User user = User.signup("테스트 사용자", "analysis-async-message-only@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        DataIntegrityViolationException exception =
+                new DataIntegrityViolationException("uk_analysis_async_tasks_active_user_mock_apply");
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisService.hasReusableAnalysis(user, 10L)).thenReturn(false);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty());
+        when(analysisAsyncTaskService.createPendingTask(1L, 10L)).thenThrow(exception);
+
+        assertThatThrownBy(() -> analysisAsyncFacadeService.submit(user, 10L))
+                .isSameAs(exception);
     }
 
     @Test
@@ -147,15 +280,129 @@ class AnalysisAsyncFacadeServiceTest {
     }
 
     @Test
+    @DisplayName("성공한 task 상태 조회는 분석 결과를 함께 반환한다")
+    void getTaskReturnsResultWhenSucceeded() {
+        User user = User.signup("테스트 사용자", "analysis-async-status-success@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncStatusResponse status = AnalysisAsyncStatusResponse.builder()
+                .taskId("task-1")
+                .mockApplyId(10L)
+                .status("SUCCEEDED")
+                .message("분석이 완료되었습니다.")
+                .build();
+        AnalysisResponse result = new AnalysisResponse(
+                10L,
+                100L,
+                MockApplyStatus.COMPLETED,
+                1,
+                80,
+                80,
+                80,
+                80,
+                "완료된 분석입니다.",
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of()
+        );
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.getTaskStatus(1L, "task-1")).thenReturn(status);
+        when(analysisService.getAnalysis(user, 10L)).thenReturn(result);
+
+        AnalysisAsyncStatusResponse response = analysisAsyncFacadeService.getTask(user, 10L, "task-1");
+
+        assertThat(response.taskId()).isEqualTo("task-1");
+        assertThat(response.status()).isEqualTo("SUCCEEDED");
+        assertThat(response.result()).isEqualTo(result);
+        verify(analysisService, times(1)).getAnalysis(user, 10L);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"RUNNING", "PENDING", "FAILED", "CANCELLED"})
+    @DisplayName("비완료 task 상태 조회는 분석 결과를 조회하지 않는다")
+    void getTaskReturnsStatusWithoutResultWhenNotSucceeded(String taskStatus) {
+        User user = User.signup("테스트 사용자", "analysis-async-status-" + taskStatus.toLowerCase() + "@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncStatusResponse status = AnalysisAsyncStatusResponse.builder()
+                .taskId("task-1")
+                .mockApplyId(10L)
+                .status(taskStatus)
+                .message("분석 상태입니다.")
+                .build();
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.getTaskStatus(1L, "task-1")).thenReturn(status);
+
+        AnalysisAsyncStatusResponse response = analysisAsyncFacadeService.getTask(user, 10L, "task-1");
+
+        assertThat(response).isEqualTo(status);
+        verify(analysisService, never()).getAnalysis(user, 10L);
+    }
+
+    @Test
+    @DisplayName("task 상태 조회 시 요청 mockApplyId가 다르면 예외를 던진다")
+    void getTaskThrowsWhenMockApplyIdDoesNotMatch() {
+        User user = User.signup("테스트 사용자", "analysis-async-status-forbidden@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncStatusResponse status = AnalysisAsyncStatusResponse.builder()
+                .taskId("task-1")
+                .mockApplyId(99L)
+                .status("RUNNING")
+                .message("분석 중입니다.")
+                .build();
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.getTaskStatus(1L, "task-1")).thenReturn(status);
+
+        assertThatThrownBy(() -> analysisAsyncFacadeService.getTask(user, 10L, "task-1"))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.FORBIDDEN);
+        verifyNoInteractions(analysisService);
+    }
+
+    @Test
+    @DisplayName("task 취소는 검증된 사용자 기준으로 task service에 위임한다")
+    void cancelDelegatesToTaskService() {
+        User user = User.signup("테스트 사용자", "analysis-async-cancel@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncCancelResponse cancelResponse = new AnalysisAsyncCancelResponse(
+                "task-1",
+                "CANCELLED",
+                "분석 작업이 취소되었습니다."
+        );
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.cancelTask(1L, 10L, "task-1")).thenReturn(cancelResponse);
+
+        AnalysisAsyncCancelResponse response = analysisAsyncFacadeService.cancel(user, 10L, "task-1");
+
+        assertThat(response).isEqualTo(cancelResponse);
+        verify(analysisAsyncTaskService, times(1)).cancelTask(1L, 10L, "task-1");
+    }
+
+    @Test
     @DisplayName("재시도 횟수가 maxRetryCount에 도달하면 task를 FAILED로 전환한다")
     void retryAtLimitMarksTaskFailed() {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
 
-        task.markRetryScheduled(FailureReason.INTERNAL_ERROR, "retry-1", 1);
-        task.markRetryScheduled(FailureReason.INTERNAL_ERROR, "retry-2", 2);
-        task.markRetryScheduled(FailureReason.INTERNAL_ERROR, "retry-3", 3);
+        task.markRetryScheduled(AnalysisAsyncFailureReason.INTERNAL_ERROR, "retry-1", 1);
+        task.markRetryScheduled(AnalysisAsyncFailureReason.INTERNAL_ERROR, "retry-2", 2);
+        task.markRetryScheduled(AnalysisAsyncFailureReason.INTERNAL_ERROR, "retry-3", 3);
 
-        assertThat(task.getStatus()).isEqualTo(AnalysisAsyncTask.TaskStatus.FAILED);
+        assertThat(task.getStatus()).isEqualTo(AnalysisAsyncTaskStatus.FAILED);
         assertThat(task.getRetryCount()).isEqualTo(3);
+    }
+
+    private DataIntegrityViolationException activeTaskUniqueConflict() {
+        return new DataIntegrityViolationException(
+                "constraint violation",
+                new ConstraintViolationException(
+                        "duplicate",
+                        new SQLException("duplicate"),
+                        "uk_analysis_async_tasks_active_user_mock_apply"
+                )
+        );
     }
 }

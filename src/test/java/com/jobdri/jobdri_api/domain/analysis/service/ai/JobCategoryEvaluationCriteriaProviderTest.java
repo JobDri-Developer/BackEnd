@@ -1,7 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.service.ai;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.criteria.JobCategoryEvaluationCriteria;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.criteria.JobCategoryEvaluationCriteria;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

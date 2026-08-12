@@ -1,9 +1,9 @@
 package com.jobdri.jobdri_api.domain.payment.service;
 
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancelRequest;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancelResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePaymentResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePrepareData;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOneCancelRequest;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOneCancelResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOnePaymentResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOnePrepareData;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import com.jobdri.jobdri_api.global.logging.LoggingContext;

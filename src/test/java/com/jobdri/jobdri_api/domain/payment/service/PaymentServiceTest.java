@@ -1,10 +1,10 @@
 package com.jobdri.jobdri_api.domain.payment.service;
 
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancelResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneCancellation;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOneAmount;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePaymentResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.portone.PortOnePrepareData;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOneCancelResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOneCancellation;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOneAmount;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOnePaymentResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.portone.PortOnePrepareData;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentConfirmRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentPrepareRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.request.PaymentRefundRequest;
@@ -13,31 +13,36 @@ import com.jobdri.jobdri_api.domain.payment.dto.request.TossPayCallbackRequest;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentPrepareResponse;
 import com.jobdri.jobdri_api.domain.payment.dto.response.PaymentRefundResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayCreateResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayRefundResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.tosspay.TossPayStatusResponse;
-import com.jobdri.jobdri_api.domain.payment.dto.toss.TossEasyPayInfo;
-import com.jobdri.jobdri_api.domain.payment.dto.toss.TossPaymentConfirmResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayCreateResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayRefundResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.tosspay.TossPayStatusResponse;
+import com.jobdri.jobdri_api.domain.payment.dto.external.toss.TossEasyPayInfo;
+import com.jobdri.jobdri_api.domain.payment.dto.external.toss.TossPaymentConfirmResponse;
 import com.jobdri.jobdri_api.domain.payment.controller.PaymentController;
-import com.jobdri.jobdri_api.domain.payment.entity.CreditPlan;
-import com.jobdri.jobdri_api.domain.payment.entity.CreditTransactionType;
+import com.jobdri.jobdri_api.domain.payment.type.CreditPlan;
+import com.jobdri.jobdri_api.domain.payment.entity.CreditTransaction;
+import com.jobdri.jobdri_api.domain.payment.type.CreditTransactionType;
 import com.jobdri.jobdri_api.domain.payment.entity.Payment;
-import com.jobdri.jobdri_api.domain.payment.entity.PaymentProviderType;
-import com.jobdri.jobdri_api.domain.payment.entity.PaymentStatus;
-import com.jobdri.jobdri_api.domain.payment.entity.TossPayStatus;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentProviderType;
+import com.jobdri.jobdri_api.domain.payment.type.PaymentStatus;
+import com.jobdri.jobdri_api.domain.payment.type.TossPayStatus;
 import com.jobdri.jobdri_api.domain.payment.repository.CreditTransactionRepository;
 import com.jobdri.jobdri_api.domain.payment.repository.PaymentRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpHeaders;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.web.servlet.MockMvc;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -48,6 +53,8 @@ import java.util.List;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.function.IntFunction;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,13 +65,19 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
+@AutoConfigureMockMvc
 @ActiveProfiles("test")
 class PaymentServiceTest {
 
     private static final String TEST_PORTONE_WEBHOOK_SECRET = "whsec_dGVzdC13ZWJob29rLXNlY3JldA==";
     private static final String ORDER_ID_PATTERN = "^jobdri-[0-9a-f]{32}$";
+    private static final long CONCURRENCY_TEST_TIMEOUT_SECONDS = 10L;
 
     @Autowired
     private PaymentService paymentService;
@@ -80,6 +93,9 @@ class PaymentServiceTest {
 
     @Autowired
     private CreditTransactionRepository creditTransactionRepository;
+
+    @Autowired
+    private MockMvc mockMvc;
 
     @MockitoBean
     private TossPaymentClient tossPaymentClient;
@@ -280,6 +296,118 @@ class PaymentServiceTest {
                 user.getId(),
                 CreditTransactionType.CHARGE
         )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("토스 직접 승인 중 PAY_COMPLETE 콜백이 동시에 와도 한 번만 충전하고 둘 다 성공 처리한다")
+    void confirmAndTossPayCallbackRaceCompletesIdempotently() throws Exception {
+        User user = saveUser("payment-confirm-callback-race@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        String paymentKey = "payment-key-" + prepared.orderId();
+        PaymentConfirmRequest confirmRequest = new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500);
+        TossPayCallbackRequest callbackRequest = tossPayCompleteCallback(prepared);
+
+        CountDownLatch confirmEnteredExternalCall = new CountDownLatch(1);
+        CountDownLatch callbackAttemptFinished = new CountDownLatch(1);
+        when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
+                .thenAnswer(invocation -> {
+                    confirmEnteredExternalCall.countDown();
+                    assertThat(callbackAttemptFinished.await(5, TimeUnit.SECONDS)).isTrue();
+                    return tossPayResponse(paymentKey, prepared, 2500);
+                });
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+
+        List<Result> results = runConcurrentlyIndexed(2, index -> {
+            try {
+                if (index == 0) {
+                    paymentService.confirm(user, confirmRequest);
+                    return Result.ok();
+                }
+
+                assertThat(confirmEnteredExternalCall.await(5, TimeUnit.SECONDS)).isTrue();
+                paymentService.handleTossPayCallback(callbackRequest);
+                return Result.ok();
+            } catch (Exception e) {
+                return Result.failure(e);
+            } finally {
+                if (index == 1) {
+                    callbackAttemptFinished.countDown();
+                }
+            }
+        });
+
+        assertThat(results).hasSize(2);
+        assertThat(results.get(0).success()).isTrue();
+        assertThat(results.get(1).success()).isTrue();
+
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(payment.getTossStatus()).isEqualTo("PAY_COMPLETE");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("PROCESSING 상태에서 PAY_CANCEL 콜백이 오면 결제를 실패 처리하고 크레딧을 지급하지 않는다")
+    void tossPayCallbackFailsProcessingPaymentWhenCanceled() {
+        User user = saveUser("payment-callback-processing-cancel@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        payment.markProcessing("payment-key-" + prepared.orderId());
+        paymentRepository.saveAndFlush(payment);
+        mockTossPayStatus(prepared, TossPayStatus.PAY_CANCEL, prepared.amount());
+
+        paymentService.handleTossPayCallback(new TossPayCallbackRequest(
+                "PAY_CANCEL",
+                savedPayToken(prepared),
+                prepared.orderId(),
+                "CARD",
+                prepared.amount(),
+                0,
+                0,
+                null,
+                null
+        ));
+
+        assertPaymentFailedWithoutCreditCharge(user, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("PROCESSING 상태에서 중간 상태 콜백이 오면 PROCESSING을 유지하고 상태만 갱신한다")
+    void tossPayCallbackKeepsProcessingPaymentWhenStatusIsIntermediate() {
+        User user = saveUser("payment-callback-processing-approved@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        payment.markProcessing("payment-key-" + prepared.orderId());
+        paymentRepository.saveAndFlush(payment);
+        mockTossPayStatus(prepared, TossPayStatus.PAY_APPROVED, prepared.amount());
+
+        paymentService.handleTossPayCallback(new TossPayCallbackRequest(
+                "PAY_APPROVED",
+                savedPayToken(prepared),
+                prepared.orderId(),
+                "CARD",
+                prepared.amount(),
+                0,
+                0,
+                null,
+                null
+        ));
+
+        Payment updatedPayment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.PROCESSING);
+        assertThat(updatedPayment.getTossStatus()).isEqualTo("PAY_APPROVED");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).isEmpty();
     }
 
     @Test
@@ -578,6 +706,42 @@ class PaymentServiceTest {
     }
 
     @Test
+    @DisplayName("이미 완료된 결제에 REFUND_SUCCESS 콜백이 와도 환불 처리와 크레딧 회수는 한 번만 수행한다")
+    void tossPayCallbackRefundsCompletedPaymentOnce() {
+        User user = saveUser("payment-callback-refund-success@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+        paymentService.handleTossPayCallback(tossPayCompleteCallback(prepared));
+
+        mockTossPayStatus(prepared, TossPayStatus.REFUND_SUCCESS, prepared.amount());
+        TossPayCallbackRequest refundCallback = new TossPayCallbackRequest(
+                "REFUND_SUCCESS",
+                savedPayToken(prepared),
+                prepared.orderId(),
+                "CARD",
+                prepared.amount(),
+                0,
+                0,
+                null,
+                null
+        );
+
+        paymentService.handleTossPayCallback(refundCallback);
+        paymentService.handleTossPayCallback(refundCallback);
+
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(payment.getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(payment.getTossStatus()).isEqualTo("REFUND_SUCCESS");
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.USE
+        )).filteredOn(transaction -> transaction.getReferenceId().equals("PAYMENT_REFUND:TOSS_PAY_DIRECT:" + prepared.orderId()))
+                .hasSize(1);
+    }
+
+    @Test
     @DisplayName("토스페이 중간 상태 콜백은 상태만 저장하고 크레딧을 지급하지 않는다")
     void tossPayCallbackDoesNotChargeWhenStatusIsNotComplete() {
         User user = saveUser("payment-callback-progress@example.com");
@@ -623,6 +787,25 @@ class PaymentServiceTest {
         ));
 
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+    }
+
+    @Test
+    @DisplayName("이미 PROCESSING 상태인 결제의 PAY_COMPLETE 콜백은 컨트롤러에서 성공 처리한다")
+    void tossPayCallbackControllerProcessesProcessingPayment() {
+        User user = saveUser("payment-callback-already-processed@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        payment.markProcessing("payment-key-" + prepared.orderId());
+        paymentRepository.saveAndFlush(payment);
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+
+        var response = paymentController.tossPayCallback(tossPayCompleteCallback(prepared));
+
+        assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
+        Payment updatedPayment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        assertThat(updatedPayment.getStatus()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
     }
 
     @Test
@@ -1087,6 +1270,99 @@ class PaymentServiceTest {
     }
 
     @Test
+    @DisplayName("크레딧 거래 내역을 페이지 단위로 최신순 조회한다")
+    void getTransactionsPage() {
+        User user = saveUser("payment-transactions-page@example.com");
+        saveCreditTransaction(user, CreditTransactionType.CHARGE, 1, 2, "첫 충전", "charge-1");
+        saveCreditTransaction(user, CreditTransactionType.USE, -1, 1, "사용", "use-1");
+        saveCreditTransaction(user, CreditTransactionType.COUPON, 1, 2, "쿠폰", "coupon-1");
+
+        Page<?> firstPage = paymentService.getTransactionsPage(user, null, 0, 2);
+        Page<?> secondPage = paymentService.getTransactionsPage(user, null, 1, 2);
+
+        assertThat(firstPage.getTotalElements()).isEqualTo(3);
+        assertThat(firstPage.getContent()).extracting("referenceId")
+                .containsExactly("coupon-1", "use-1");
+        assertThat(secondPage.getContent()).extracting("referenceId")
+                .containsExactly("charge-1");
+    }
+
+    @Test
+    @DisplayName("크레딧 거래 내역 페이지 조회는 타입 필터와 최대 페이지 크기 제한을 적용한다")
+    void getTransactionsPageWithTypeFilter() {
+        User user = saveUser("payment-transactions-page-filter@example.com");
+        saveCreditTransaction(user, CreditTransactionType.CHARGE, 1, 2, "충전 1", "charge-1");
+        saveCreditTransaction(user, CreditTransactionType.CHARGE, 5, 7, "충전 2", "charge-2");
+        saveCreditTransaction(user, CreditTransactionType.USE, -1, 6, "사용", "use-1");
+
+        Page<?> page = paymentService.getTransactionsPage(user, CreditTransactionType.CHARGE, 0, 999);
+
+        assertThat(page.getSize()).isEqualTo(100);
+        assertThat(page.getTotalElements()).isEqualTo(2);
+        assertThat(page.getContent()).extracting("referenceId")
+                .containsExactly("charge-2", "charge-1");
+    }
+
+    @Test
+    @DisplayName("크레딧 거래 내역 페이지 조회는 page와 size 경계값을 보정한다")
+    void getTransactionsPageNormalizesBounds() {
+        User user = saveUser("payment-transactions-page-bounds@example.com");
+        saveCreditTransaction(user, CreditTransactionType.CHARGE, 1, 2, "충전 1", "charge-1");
+        saveCreditTransaction(user, CreditTransactionType.USE, -1, 1, "사용", "use-1");
+        saveCreditTransaction(user, CreditTransactionType.COUPON, 1, 2, "쿠폰", "coupon-1");
+
+        Page<?> negativePage = paymentService.getTransactionsPage(user, null, -1, 2);
+        Page<?> zeroSize = paymentService.getTransactionsPage(user, null, 0, 0);
+        Page<?> negativeSize = paymentService.getTransactionsPage(user, null, 0, -5);
+        Page<?> oversized = paymentService.getTransactionsPage(user, null, 0, 999);
+
+        assertThat(negativePage.getNumber()).isEqualTo(0);
+        assertThat(negativePage.getContent()).extracting("referenceId")
+                .containsExactly("coupon-1", "use-1");
+        assertThat(zeroSize.getSize()).isEqualTo(1);
+        assertThat(zeroSize.getContent()).extracting("referenceId")
+                .containsExactly("coupon-1");
+        assertThat(negativeSize.getSize()).isEqualTo(1);
+        assertThat(negativeSize.getContent()).extracting("referenceId")
+                .containsExactly("coupon-1");
+        assertThat(oversized.getSize()).isEqualTo(100);
+        assertThat(oversized.getTotalElements()).isEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("크레딧 거래 내역 페이지 API는 기본 page/size와 type 필터를 적용한다")
+    void getTransactionsPageEndpointUsesDefaultsAndTypeFilter() throws Exception {
+        User user = saveUser("payment-transactions-page-endpoint@example.com");
+        for (int i = 1; i <= 21; i++) {
+            saveCreditTransaction(user, CreditTransactionType.CHARGE, i, i + 1, "충전 " + i, "charge-" + i);
+        }
+        saveCreditTransaction(user, CreditTransactionType.USE, -1, 21, "사용", "use-1");
+
+        mockMvc.perform(get("/api/payments/credits/me/transactions/page")
+                        .param("type", "CHARGE")
+                        .with(user(new UserDetailsImpl(userRepository.findById(user.getId()).orElseThrow()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.isSuccess").value(true))
+                .andExpect(jsonPath("$.code").value("COMMON2000"))
+                .andExpect(jsonPath("$.message").value("크레딧 거래 내역 페이징 조회에 성공했습니다."))
+                .andExpect(jsonPath("$.result.number").value(0))
+                .andExpect(jsonPath("$.result.size").value(20))
+                .andExpect(jsonPath("$.result.totalElements").value(21))
+                .andExpect(jsonPath("$.result.content.length()").value(20))
+                .andExpect(jsonPath("$.result.content[0].type").value("CHARGE"))
+                .andExpect(jsonPath("$.result.content[0].referenceId").value("charge-21"));
+    }
+
+    @Test
+    @DisplayName("크레딧 거래 내역 페이지 API는 인증이 없으면 401을 반환한다")
+    void getTransactionsPageEndpointRequiresAuthentication() throws Exception {
+        mockMvc.perform(get("/api/payments/credits/me/transactions/page"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.isSuccess").value(false))
+                .andExpect(jsonPath("$.code").value("AUTH_4011"));
+    }
+
+    @Test
     @DisplayName("결제 주문 상태 조회는 소유자의 주문만 반환한다")
     void getOrderStatus() {
         User user = saveUser("payment-status-owner@example.com");
@@ -1162,6 +1438,24 @@ class PaymentServiceTest {
                         "SUCCEEDED",
                         payment.getPrice()
                 )));
+    }
+
+    private CreditTransaction saveCreditTransaction(
+            User user,
+            CreditTransactionType type,
+            int amount,
+            int balanceAfter,
+            String description,
+            String referenceId
+    ) {
+        return creditTransactionRepository.save(CreditTransaction.create(
+                user,
+                type,
+                amount,
+                balanceAfter,
+                description,
+                referenceId
+        ));
     }
 
     private String portOneWebhookBody(String paymentId) {
@@ -1332,16 +1626,36 @@ class PaymentServiceTest {
             var futures = tasks.stream()
                     .map(executor::submit)
                     .toList();
-            ready.await();
+            if (!ready.await(CONCURRENCY_TEST_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                cancelAll(futures);
+                throw new AssertionError("Concurrent test setup timed out before all workers became ready.");
+            }
             start.countDown();
 
             List<Result> results = new java.util.ArrayList<>();
+            long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(CONCURRENCY_TEST_TIMEOUT_SECONDS);
             for (var future : futures) {
-                results.add(future.get());
+                long remainingNanos = deadlineNanos - System.nanoTime();
+                if (remainingNanos <= 0) {
+                    cancelAll(futures);
+                    throw new AssertionError("Concurrent test timed out while waiting for worker completion.");
+                }
+                try {
+                    results.add(future.get(remainingNanos, TimeUnit.NANOSECONDS));
+                } catch (TimeoutException e) {
+                    cancelAll(futures);
+                    throw new AssertionError("Concurrent test timed out while waiting for worker completion.", e);
+                }
             }
             return results;
         } finally {
             executor.shutdownNow();
+        }
+    }
+
+    private void cancelAll(List<? extends java.util.concurrent.Future<?>> futures) {
+        for (var future : futures) {
+            future.cancel(true);
         }
     }
 

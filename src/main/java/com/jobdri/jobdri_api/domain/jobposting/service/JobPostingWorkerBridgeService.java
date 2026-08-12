@@ -9,8 +9,8 @@ import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerFinalizeRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.worker.JobPostingWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask;
-import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.FailureReason;
-import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.TaskStatus;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.AnalysisAsyncFailureReason;
+import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingAsyncTask.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.domain.workerresult.dto.WorkerTaskResultResponse;
@@ -71,7 +71,7 @@ public class JobPostingWorkerBridgeService {
     @Transactional
     public void markRetry(
             String taskId,
-            FailureReason failureReason,
+            AnalysisAsyncFailureReason failureReason,
             String errorMessage,
             int retryCount,
             String workerId,
@@ -91,7 +91,7 @@ public class JobPostingWorkerBridgeService {
     @Transactional
     public void failTask(
             String taskId,
-            FailureReason failureReason,
+            AnalysisAsyncFailureReason failureReason,
             String errorMessage,
             int retryCount,
             String workerId,
@@ -139,21 +139,21 @@ public class JobPostingWorkerBridgeService {
                         "해당 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
                 ));
 
-        if (task.getStatus() == TaskStatus.SUCCEEDED) {
+        if (task.getStatus() == AnalysisAsyncTaskStatus.SUCCEEDED) {
             workerTaskResultService.markDeliveredIfPresent(TaskType.JOB_POSTING_FINALIZE, taskId);
             return jobPostingAsyncTaskService.getTask(taskId).getResult();
         }
-        if (task.getStatus() == TaskStatus.FAILED || task.getStatus() == TaskStatus.CANCELLED) {
+        if (task.getStatus() == AnalysisAsyncTaskStatus.FAILED || task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED) {
             workerTaskResultService.markDeliveryFailedIfPresent(
                     TaskType.JOB_POSTING_FINALIZE,
                     taskId,
-                    task.getStatus() == TaskStatus.CANCELLED
+                    task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED
                             ? "취소된 채용 공고 비동기 작업입니다."
                             : "이미 실패 처리된 채용 공고 비동기 작업입니다."
             );
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
-                    task.getStatus() == TaskStatus.CANCELLED
+                    task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED
                             ? "취소된 채용 공고 비동기 작업입니다. taskId=" + taskId
                             : "이미 실패 처리된 채용 공고 비동기 작업입니다. taskId=" + taskId
             );
@@ -236,13 +236,13 @@ public class JobPostingWorkerBridgeService {
     }
 
     private boolean isTerminal(JobPostingAsyncTask task) {
-        return task.getStatus() == TaskStatus.SUCCEEDED
-                || task.getStatus() == TaskStatus.FAILED
-                || task.getStatus() == TaskStatus.CANCELLED;
+        return task.getStatus() == AnalysisAsyncTaskStatus.SUCCEEDED
+                || task.getStatus() == AnalysisAsyncTaskStatus.FAILED
+                || task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED;
     }
 
     private void rejectIfCancelled(JobPostingAsyncTask task, String message) {
-        if (task.getStatus() == TaskStatus.CANCELLED || task.isCancelRequested()) {
+        if (task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED || task.isCancelRequested()) {
             throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, message);
         }
     }

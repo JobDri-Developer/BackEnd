@@ -1,6 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.service.async;
 
-import com.jobdri.jobdri_api.domain.analysis.dto.worker.AnalysisTaskMessage;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisTaskMessage;
 import com.jobdri.jobdri_api.global.apiPayload.code.BaseErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;

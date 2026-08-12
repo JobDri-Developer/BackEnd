@@ -1,0 +1,480 @@
+package com.jobdri.jobdri_api.domain.evaluation.analysis;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.analysis.type.QuestionAnalysisStatus;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationAnalysisCommand;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationCandidateReviewDecision;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationCandidateReviewSnapshot;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationGeneratedResult;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationLlmSnapshot;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationMissingKeyword;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationQuestionAnalysis;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.policy.EvaluationAnalysisPolicyConstants;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.port.EvaluationAnalysisGenerator;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.sanitization.EvaluationSanitizationService;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+@Service
+@Slf4j
+public class EvaluationAnalysisBatchService {
+    private static final Long EVALUATION_QUESTION_ID = 1L;
+    private static final List<String> REQUIRED_HEADERS = List.of(
+            "caseId",
+            "jobCategoryMiddle",
+            "jobCategorySmall",
+            "mainTasks",
+            "qualifications",
+            "preferences",
+            "question",
+            "answer"
+    );
+
+    private final EvaluationAnalysisGenerator evaluationAnalysisGenerator;
+    private final ObjectMapper objectMapper;
+    private final EvaluationSanitizationService evaluationSanitizationService;
+
+    @Autowired
+    public EvaluationAnalysisBatchService(
+            EvaluationAnalysisGenerator evaluationAnalysisGenerator,
+            ObjectMapper objectMapper,
+            EvaluationSanitizationService evaluationSanitizationService
+    ) {
+        this.evaluationAnalysisGenerator = evaluationAnalysisGenerator;
+        this.objectMapper = objectMapper;
+        this.evaluationSanitizationService = evaluationSanitizationService;
+    }
+
+    EvaluationAnalysisBatchService(
+            EvaluationAnalysisGenerator evaluationAnalysisGenerator,
+            ObjectMapper objectMapper
+    ) {
+        this(
+                evaluationAnalysisGenerator,
+                objectMapper,
+                new EvaluationSanitizationService()
+        );
+    }
+
+    public EvaluationBatchSummary run(Path inputPath, Path outputPath) throws IOException {
+        List<EvaluationAnalysisCase> cases = readCases(inputPath);
+        List<EvaluationAnalysisResult> results = new ArrayList<>();
+        int successCount = 0;
+
+        for (int i = 0; i < cases.size(); i++) {
+            EvaluationAnalysisCase evaluationCase = cases.get(i);
+            log.info("[{}/{}] {} analyzing...", i + 1, cases.size(), evaluationCase.caseId());
+
+            try {
+                EvaluationAnalysisResult result = analyzeCase(evaluationCase);
+                results.add(result);
+                if (!StringUtils.hasText(result.errorMessage())) {
+                    successCount++;
+                }
+            } catch (Exception e) {
+                log.warn("[{}/{}] {} failed. message={}", i + 1, cases.size(), evaluationCase.caseId(), e.getMessage());
+                results.add(EvaluationAnalysisResult.failed(
+                        evaluationCase,
+                        safeErrorMessage(e),
+                        createdAt()
+                ));
+            }
+        }
+
+        EvaluationCsvSupport.write(outputPath, results);
+        return new EvaluationBatchSummary(cases.size(), successCount, cases.size() - successCount, outputPath);
+    }
+
+    private List<EvaluationAnalysisCase> readCases(Path inputPath) throws IOException {
+        validateHeaders(EvaluationCsvSupport.readHeaders(inputPath));
+        return EvaluationCsvSupport.read(inputPath).stream()
+                .map(row -> new EvaluationAnalysisCase(
+                        value(row, "caseId"),
+                        value(row, "jobCategoryMiddle"),
+                        value(row, "jobCategorySmall"),
+                        value(row, "mainTasks"),
+                        value(row, "qualifications"),
+                        value(row, "preferences"),
+                        value(row, "question"),
+                        value(row, "answer")
+                ))
+                .toList();
+    }
+
+    private void validateHeaders(List<String> headers) {
+        Set<String> headerSet = new HashSet<>(headers);
+        List<String> missingHeaders = REQUIRED_HEADERS.stream()
+                .filter(header -> !headerSet.contains(header))
+                .toList();
+        if (!missingHeaders.isEmpty()) {
+            throw new IllegalArgumentException("Evaluation CSV missing required headers: " + missingHeaders);
+        }
+    }
+
+    private EvaluationAnalysisResult analyzeCase(EvaluationAnalysisCase evaluationCase) {
+        EvaluationGeneratedResult generatedResult = evaluationAnalysisGenerator.generate(new EvaluationAnalysisCommand(
+                evaluationCase.caseId(),
+                evaluationCase.jobCategoryMiddle(),
+                evaluationCase.jobCategorySmall(),
+                evaluationCase.mainTasks(),
+                evaluationCase.qualifications(),
+                evaluationCase.preferences(),
+                evaluationCase.question(),
+                evaluationCase.answer()
+        ));
+        EvaluationLlmSnapshot llmResponse = generatedResult.responseSnapshot();
+
+        int jobFit = validateScore("jobFit", llmResponse == null ? null : llmResponse.jobFit());
+        int impact = validateScore("impact", llmResponse == null ? null : llmResponse.impact());
+        int completeness = validateScore("completeness", llmResponse == null ? null : llmResponse.completeness());
+        List<EvaluationMissingKeyword> missingKeywords = buildMissingKeywords(evaluationCase, llmResponse);
+        List<EvaluationQuestionAnalysisResult> questionAnalyses = buildQuestionAnalyses(evaluationCase, llmResponse);
+        log.debug(
+                "Evaluation serialized missing keyword flow. caseId={}, candidateMissingKeywordCount={}, finalMissingKeywordCount={}, evaluationSerializedMissingKeywordCount={}",
+                evaluationCase.caseId(),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().missingKeywordCandidates()),
+                size(llmResponse == null ? null : llmResponse.missingKeywords()),
+                missingKeywords.size()
+        );
+
+        return new EvaluationAnalysisResult(
+                evaluationCase.caseId(),
+                evaluationCase.jobCategoryMiddle(),
+                evaluationCase.jobCategorySmall(),
+                evaluationCase.mainTasks(),
+                evaluationCase.qualifications(),
+                evaluationCase.preferences(),
+                evaluationCase.question(),
+                evaluationCase.answer(),
+                calculateScore(jobFit, impact, completeness),
+                jobFit,
+                impact,
+                completeness,
+                normalizeFeedback(llmResponse.feedback()),
+                writeJson(missingKeywords),
+                writeJson(questionAnalyses),
+                generatedResult.rawLlmResponseJson(),
+                generatedResult.rawCandidateResponseJson(),
+                generatedResult.sanitizedCandidateResponseJson(),
+                generatedResult.candidateReviewResponseJson(),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().analysisCandidates()),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().analysisCandidates()),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().strengthCandidates()),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().missingKeywordCandidates()),
+                acceptedDecisionCount(generatedResult.candidateReviewSnapshot()),
+                rejectedDecisionCount(generatedResult.candidateReviewSnapshot()),
+                rejectionCodeCounts(generatedResult.candidateReviewSnapshot()),
+                questionAnalyses.size(),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().strengthCandidates()),
+                llmResponse.keyStrengthQuotes() == null ? 0 : llmResponse.keyStrengthQuotes().size(),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().missingKeywordCandidates()),
+                missingKeywords.size(),
+                generatedResult.candidateCallLatencyMs(),
+                generatedResult.finalCallLatencyMs(),
+                generatedResult.candidateCallLatencyMs(),
+                generatedResult.finalCallLatencyMs(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "",
+                "",
+                createdAt()
+        );
+    }
+
+    private List<EvaluationMissingKeyword> buildMissingKeywords(
+            EvaluationAnalysisCase evaluationCase,
+            EvaluationLlmSnapshot llmResponse
+    ) {
+        if (llmResponse == null || llmResponse.missingKeywords() == null) {
+            return List.of();
+        }
+
+        List<EvaluationMissingKeyword> result = new ArrayList<>();
+        Set<String> seenKeywords = new HashSet<>();
+
+        for (EvaluationMissingKeyword item : llmResponse.missingKeywords()) {
+            if (item == null || !StringUtils.hasText(item.keyword())) {
+                continue;
+            }
+
+            String keyword = item.keyword().trim();
+            if (keyword.length() > EvaluationAnalysisPolicyConstants.MAX_MISSING_KEYWORD_LENGTH) {
+                continue;
+            }
+
+            if (!evaluationSanitizationService.isValidMissingKeyword(
+                    keyword,
+                    item.source(),
+                    evaluationCase.mainTasks(),
+                    evaluationCase.qualifications()
+            )) {
+                continue;
+            }
+            if (evaluationSanitizationService.isMissingKeywordMentionedInAnswers(
+                    keyword,
+                    evaluationCase.answer()
+            )) {
+                continue;
+            }
+
+            String dedupeKey = normalizeKeyword(keyword);
+            if (!seenKeywords.add(dedupeKey)) {
+                continue;
+            }
+
+            result.add(new EvaluationMissingKeyword(keyword, item.source()));
+            if (result.size() >= EvaluationAnalysisPolicyConstants.MAX_MISSING_KEYWORDS) {
+                break;
+            }
+        }
+        return result;
+    }
+
+    private List<EvaluationQuestionAnalysisResult> buildQuestionAnalyses(
+            EvaluationAnalysisCase evaluationCase,
+            EvaluationLlmSnapshot llmResponse
+    ) {
+        if (llmResponse == null || llmResponse.questionAnalyses() == null) {
+            return List.of();
+        }
+
+        String answer = evaluationCase.answer();
+        if (!StringUtils.hasText(answer)) {
+            return List.of();
+        }
+
+        List<EvaluationQuestionAnalysisResult> result = new ArrayList<>();
+        Map<Long, Integer> analysisCountByQuestionId = new HashMap<>();
+        Map<Long, Integer> nextSearchIndexByQuestionId = new HashMap<>();
+        Set<String> seenSentences = new HashSet<>();
+        Set<Long> fabricatedQuestionIds = new HashSet<>();
+        Set<String> keyStrengthQuotes = normalizedKeyStrengthQuotes(llmResponse);
+
+        for (EvaluationQuestionAnalysis item : llmResponse.questionAnalyses()) {
+            if (item == null || item.questionId() == null || !StringUtils.hasText(item.sentence())) {
+                continue;
+            }
+            if (!EVALUATION_QUESTION_ID.equals(item.questionId())) {
+                continue;
+            }
+
+            QuestionAnalysisStatus status = parseStatus(item.status());
+            if (status == null || status == QuestionAnalysisStatus.MISSING) {
+                continue;
+            }
+            if (status == QuestionAnalysisStatus.PROVEN
+                    && !evaluationSanitizationService.hasValidProvenReason(item.reason())) {
+                continue;
+            }
+            if (status == QuestionAnalysisStatus.FABRICATED
+                    && !evaluationSanitizationService.hasFabricatedDirectConflictEvidence(
+                            item.sentence(),
+                            item.reason()
+                    )) {
+                continue;
+            }
+
+            int currentCount = analysisCountByQuestionId.getOrDefault(item.questionId(), 0);
+            if (currentCount >= EvaluationAnalysisPolicyConstants.MAX_ANALYSES_PER_QUESTION) {
+                continue;
+            }
+
+            String sentence = item.sentence();
+            if (status != QuestionAnalysisStatus.PROVEN
+                    && keyStrengthQuotes.contains(normalizeKeyword(sentence))) {
+                continue;
+            }
+            String dedupeKey = item.questionId() + ":" + sentence.trim();
+            if (!seenSentences.add(dedupeKey)) {
+                continue;
+            }
+
+            int start = findNextSentenceStart(
+                    answer,
+                    sentence,
+                    nextSearchIndexByQuestionId.getOrDefault(item.questionId(), 0)
+            );
+            if (start < 0) {
+                continue;
+            }
+            if (status == QuestionAnalysisStatus.FABRICATED
+                    && !fabricatedQuestionIds.add(item.questionId())) {
+                continue;
+            }
+
+            nextSearchIndexByQuestionId.put(item.questionId(), start + sentence.length());
+            analysisCountByQuestionId.put(item.questionId(), currentCount + 1);
+            result.add(new EvaluationQuestionAnalysisResult(
+                    item.questionId(),
+                    sentence,
+                    status.name().toLowerCase(),
+                    defaultString(item.reason()),
+                    normalizeImprovement(sentence, answer, item.improvement(), status),
+                    start,
+                    start + sentence.length()
+            ));
+        }
+        return result;
+    }
+
+    private Set<String> normalizedKeyStrengthQuotes(EvaluationLlmSnapshot llmResponse) {
+        if (llmResponse == null || llmResponse.keyStrengthQuotes() == null) {
+            return Set.of();
+        }
+        return llmResponse.keyStrengthQuotes().stream()
+                .filter(StringUtils::hasText)
+                .map(this::normalizeKeyword)
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    private int validateScore(String fieldName, Integer score) {
+        if (score == null
+                || score < EvaluationAnalysisPolicyConstants.MIN_SCORE
+                || score > EvaluationAnalysisPolicyConstants.MAX_SCORE) {
+            throw new IllegalArgumentException("자소서 분석 AI 응답의 " + fieldName + " 점수 범위가 올바르지 않습니다.");
+        }
+        return score;
+    }
+
+    private int calculateScore(int jobFit, int impact, int completeness) {
+        return (int) Math.round(
+                jobFit * EvaluationAnalysisPolicyConstants.JOB_FIT_WEIGHT
+                        + impact * EvaluationAnalysisPolicyConstants.IMPACT_WEIGHT
+                        + completeness * EvaluationAnalysisPolicyConstants.COMPLETENESS_WEIGHT
+        );
+    }
+
+    private int findNextSentenceStart(String answer, String sentence, int fromIndex) {
+        int start = answer.indexOf(sentence, Math.max(0, fromIndex));
+        if (start >= 0) {
+            return start;
+        }
+        return answer.indexOf(sentence);
+    }
+
+    private QuestionAnalysisStatus parseStatus(String status) {
+        if (!StringUtils.hasText(status)) {
+            return null;
+        }
+
+        try {
+            return QuestionAnalysisStatus.valueOf(status.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value == null ? List.of() : value);
+        } catch (JsonProcessingException e) {
+            log.warn("평가 결과 JSON 직렬화에 실패했습니다. 빈 배열로 대체합니다.", e);
+            return "[]";
+        }
+    }
+
+    private Integer size(List<?> values) {
+        return values == null ? null : values.size();
+    }
+
+    private Integer acceptedDecisionCount(EvaluationCandidateReviewSnapshot reviewResponse) {
+        if (reviewResponse == null || reviewResponse.decisions() == null) {
+            return null;
+        }
+        return (int) reviewResponse.decisions().stream()
+                .filter(decision -> decision != null && Boolean.TRUE.equals(decision.accepted()))
+                .count();
+    }
+
+    private Integer rejectedDecisionCount(EvaluationCandidateReviewSnapshot reviewResponse) {
+        if (reviewResponse == null || reviewResponse.decisions() == null) {
+            return null;
+        }
+        return (int) reviewResponse.decisions().stream()
+                .filter(decision -> decision != null && !Boolean.TRUE.equals(decision.accepted()))
+                .count();
+    }
+
+    private String rejectionCodeCounts(EvaluationCandidateReviewSnapshot reviewResponse) {
+        if (reviewResponse == null || reviewResponse.decisions() == null) {
+            return "";
+        }
+        Map<String, Long> counts = reviewResponse.decisions().stream()
+                .filter(decision -> decision != null
+                        && StringUtils.hasText(decision.rejectionCode())
+                        && !"NONE".equals(decision.rejectionCode()))
+                .collect(java.util.stream.Collectors.groupingBy(
+                        EvaluationCandidateReviewDecision::rejectionCode,
+                        java.util.stream.Collectors.counting()
+                ));
+        return writeJson(counts);
+    }
+
+    private String normalizeFeedback(String feedback) {
+        if (StringUtils.hasText(feedback)) {
+            return feedback;
+        }
+        return "자소서 분석 결과를 확인해주세요.";
+    }
+
+    private String normalizeImprovement(
+            String sentence,
+            String answer,
+            String improvement,
+            QuestionAnalysisStatus status
+    ) {
+        return evaluationSanitizationService.normalizeImprovement(
+                sentence,
+                answer,
+                improvement,
+                status == QuestionAnalysisStatus.PROVEN
+        );
+    }
+
+    private String normalizeKeyword(String keyword) {
+        return keyword == null ? "" : keyword.replaceAll("\\s+", "").toLowerCase();
+    }
+
+    private String defaultString(String value) {
+        return value == null ? "" : value;
+    }
+
+    private String value(Map<String, String> row, String key) {
+        return row.getOrDefault(key, "");
+    }
+
+    private String safeErrorMessage(Exception e) {
+        String message = e.getMessage();
+        return StringUtils.hasText(message) ? message : e.getClass().getSimpleName();
+    }
+
+    private String createdAt() {
+        return LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+    }
+
+    public record EvaluationBatchSummary(
+            int totalCount,
+            int successCount,
+            int failureCount,
+            Path outputPath
+    ) {
+    }
+}
