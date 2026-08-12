@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionCandidateCreate
 import com.jobdri.jobdri_api.domain.analysis.dto.request.QuestionSelectionSaveRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnswerResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionCandidateResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionSelectionResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.CustomQuestionCandidate;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
@@ -40,6 +41,7 @@ public class QuestionCommandService {
     private final QuestionRepository questionRepository;
     private final QuestionAnalysisRepository questionAnalysisRepository;
     private final CustomQuestionCandidateRepository customQuestionCandidateRepository;
+    private final CustomQuestionCandidatePersistenceService customQuestionCandidatePersistenceService;
 
     public QuestionCommandService(
             QuestionDomainSupport questionDomainSupport,
@@ -47,7 +49,8 @@ public class QuestionCommandService {
             MockApplyRepository mockApplyRepository,
             QuestionRepository questionRepository,
             QuestionAnalysisRepository questionAnalysisRepository,
-            CustomQuestionCandidateRepository customQuestionCandidateRepository
+            CustomQuestionCandidateRepository customQuestionCandidateRepository,
+            CustomQuestionCandidatePersistenceService customQuestionCandidatePersistenceService
     ) {
         this.questionDomainSupport = questionDomainSupport;
         this.questionCandidateCatalogService = questionCandidateCatalogService;
@@ -55,6 +58,7 @@ public class QuestionCommandService {
         this.questionRepository = questionRepository;
         this.questionAnalysisRepository = questionAnalysisRepository;
         this.customQuestionCandidateRepository = customQuestionCandidateRepository;
+        this.customQuestionCandidatePersistenceService = customQuestionCandidatePersistenceService;
     }
 
     @Transactional
@@ -76,7 +80,8 @@ public class QuestionCommandService {
                 candidate.getContent(),
                 candidate.getLimit(),
                 selected,
-                true
+                true,
+                questionCandidateCatalogService.toCustomCandidateKey(candidate.getId())
         );
     }
 
@@ -91,7 +96,7 @@ public class QuestionCommandService {
         questionDomainSupport.validateSelectionCount(request.questions().size());
 
         List<Question> existingQuestions = questionRepository.findAllByMockApplyId(mockApply.getId());
-        questionRepository.deleteAll(existingQuestions);
+        deleteQuestions(existingQuestions);
 
         List<Question> questions = request.questions().stream()
                 .map(item -> Question.create(
@@ -164,7 +169,7 @@ public class QuestionCommandService {
         List<Question> deletedQuestions = existingQuestions.stream()
                 .filter(question -> !requestedQuestionIds.contains(question.getId()))
                 .toList();
-        questionRepository.deleteAll(deletedQuestions);
+        deleteQuestions(deletedQuestions);
         List<Question> savedQuestions = questionRepository.saveAll(syncedQuestions);
         mockApply.updateStatus(MockApplyStatus.ANSWER_WRITE);
 
@@ -193,9 +198,8 @@ public class QuestionCommandService {
                         "해당 지원서의 문항을 찾을 수 없습니다. questionId=" + questionId
                 ));
 
-        questionAnalysisRepository.deleteAllByQuestionId(question.getId());
-        questionRepository.delete(question);
-        List<com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionResponse> remainingQuestions = existingQuestions.stream()
+        deleteQuestions(List.of(question));
+        List<QuestionResponse> remainingQuestions = existingQuestions.stream()
                 .filter(existingQuestion -> !existingQuestion.getId().equals(question.getId()))
                 .map(questionDomainSupport::toQuestionResponse)
                 .toList();
@@ -218,16 +222,27 @@ public class QuestionCommandService {
             String content,
             Integer charLimit
     ) {
+        int resolvedCharLimit = questionDomainSupport.resolveCharLimit(charLimit);
         try {
-            return customQuestionCandidateRepository.saveAndFlush(CustomQuestionCandidate.create(
-                    mockApply,
+            return customQuestionCandidatePersistenceService.saveAndFlush(
+                    mockApply.getId(),
                     content,
-                    questionDomainSupport.resolveCharLimit(charLimit)
-            ));
+                    resolvedCharLimit
+            );
         } catch (DataIntegrityViolationException e) {
             return customQuestionCandidateRepository
                     .findByMockApplyIdAndContent(mockApply.getId(), content)
                     .orElseThrow(() -> e);
         }
+    }
+
+    private void deleteQuestions(List<Question> questions) {
+        if (questions == null || questions.isEmpty()) {
+            return;
+        }
+        questions.stream()
+                .map(Question::getId)
+                .forEach(questionAnalysisRepository::deleteAllByQuestionId);
+        questionRepository.deleteAll(questions);
     }
 }

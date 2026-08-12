@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.service.core;
 
+import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.criteria.JobCategoryEvaluationCriteria;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;

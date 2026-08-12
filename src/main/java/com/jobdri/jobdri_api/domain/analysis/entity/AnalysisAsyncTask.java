@@ -38,6 +38,9 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     @Column(name = "credit_reference_id", length = 100)
     private String creditReferenceId;
 
+    @Column(name = "credit_reference_version", nullable = false)
+    private int creditReferenceVersion;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "credit_status", nullable = false, length = 20)
     private AnalysisAsyncCreditStatus creditStatus;
@@ -107,6 +110,7 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         task.userId = userId;
         task.mockApplyId = mockApplyId;
         task.creditStatus = AnalysisAsyncCreditStatus.NONE;
+        task.creditReferenceVersion = 0;
         task.status = AnalysisAsyncTaskStatus.PENDING;
         task.message = "자소서 분석 비동기 작업이 접수되었습니다.";
         task.retryCount = 0;
@@ -118,17 +122,39 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         return task;
     }
 
-    public void markCreditReserved(String creditReferenceId) {
+    public boolean markCreditReserved(String creditReferenceId) {
+        if (!canReserveCredit() || creditReferenceId == null || creditReferenceId.isBlank()) {
+            return false;
+        }
         this.creditReferenceId = creditReferenceId;
+        this.creditReferenceVersion += 1;
         this.creditStatus = AnalysisAsyncCreditStatus.RESERVED;
+        return true;
     }
 
-    public void markCreditConfirmed() {
+    public boolean markCreditConfirmed() {
+        if (creditStatus != AnalysisAsyncCreditStatus.RESERVED || creditReferenceId == null) {
+            return false;
+        }
         this.creditStatus = AnalysisAsyncCreditStatus.CONFIRMED;
+        return true;
     }
 
-    public void markCreditReleased() {
+    public boolean markCreditReleased() {
+        if (creditStatus != AnalysisAsyncCreditStatus.RESERVED || creditReferenceId == null) {
+            return false;
+        }
         this.creditStatus = AnalysisAsyncCreditStatus.RELEASED;
+        return true;
+    }
+
+    public boolean canReserveCredit() {
+        return creditStatus == AnalysisAsyncCreditStatus.NONE
+                || creditStatus == AnalysisAsyncCreditStatus.RELEASED;
+    }
+
+    public int nextCreditReferenceVersion() {
+        return creditReferenceVersion + 1;
     }
 
     public void markRunning(String workerId, int retryCount, Instant messageSubmittedAt) {
@@ -151,7 +177,7 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
     }
 
     public void markSuccess() {
-        if (isTerminal()) {
+        if (isTerminal() && !isRecoverablePublishFailure()) {
             return;
         }
         this.status = AnalysisAsyncTaskStatus.SUCCEEDED;
@@ -162,6 +188,30 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         this.currentStep = "COMPLETED";
         this.progressPercent = 100;
         this.estimatedRemainingSeconds = 0;
+    }
+
+    public boolean isRecoverablePublishFailure() {
+        return status == AnalysisAsyncTaskStatus.FAILED
+                && failureReason == AnalysisAsyncFailureReason.PUBLISH_FAILED;
+    }
+
+    public void reopenForRepublish() {
+        if (!isRecoverablePublishFailure()) {
+            return;
+        }
+        this.status = AnalysisAsyncTaskStatus.PENDING;
+        this.message = "자소서 분석 비동기 작업이 다시 접수되었습니다.";
+        this.error = null;
+        this.failureReason = null;
+        this.workerId = null;
+        this.submittedAt = LocalDateTime.now();
+        this.lastAttemptAt = null;
+        this.queueLatencyMillis = null;
+        this.startedAt = null;
+        this.completedAt = null;
+        this.currentStep = "VALIDATING_INPUT";
+        this.progressPercent = 0;
+        this.estimatedRemainingSeconds = null;
     }
 
     public void markRetryScheduled(AnalysisAsyncFailureReason failureReason, String errorMessage, int retryCount) {

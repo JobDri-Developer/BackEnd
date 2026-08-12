@@ -7,13 +7,15 @@ import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncProcessor;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncTaskService;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 
-import java.util.Locale;
+import java.util.Optional;
 
 // 분석 비동기 작업의 접수/조회/취소 유스케이스를 조율한다.
 public class AnalysisAsyncUseCase {
@@ -55,30 +57,7 @@ public class AnalysisAsyncUseCase {
             return status;
         }
 
-        return AnalysisAsyncStatusResponse.builder()
-                .taskId(status.taskId())
-                .mockApplyId(status.mockApplyId())
-                .status(status.status())
-                .message(status.message())
-                .error(status.error())
-                .failureReason(status.failureReason())
-                .workerId(status.workerId())
-                .retryCount(status.retryCount())
-                .maxRetryCount(status.maxRetryCount())
-                .queueLatencyMillis(status.queueLatencyMillis())
-                .createdAt(status.createdAt())
-                .submittedAt(status.submittedAt())
-                .lastAttemptAt(status.lastAttemptAt())
-                .startedAt(status.startedAt())
-                .completedAt(status.completedAt())
-                .cancelRequested(status.cancelRequested())
-                .cancelledAt(status.cancelledAt())
-                .currentStep(status.currentStep())
-                .progressPercent(status.progressPercent())
-                .estimatedRemainingSeconds(status.estimatedRemainingSeconds())
-                .steps(status.steps())
-                .result(analysisService.getAnalysis(validatedUser, status.mockApplyId()))
-                .build();
+        return status.withResult(analysisService.getAnalysis(validatedUser, status.mockApplyId()));
     }
 
     public AnalysisAsyncCancelResponse cancel(User user, Long mockApplyId, String taskId) {
@@ -87,6 +66,11 @@ public class AnalysisAsyncUseCase {
     }
 
     private AnalysisAsyncSubmitResponse createCachedOrProcessTask(User user, Long mockApplyId) {
+        Optional<AnalysisAsyncTask> recoverableTask =
+                analysisAsyncTaskService.findRecoverablePublishFailureTask(user.getId(), mockApplyId);
+        if (recoverableTask.isPresent()) {
+            return reopenAndProcessTask(user, mockApplyId, recoverableTask.get());
+        }
         if (analysisService.hasReusableAnalysis(user, mockApplyId)) {
             return toCachedResponse();
         }
@@ -100,8 +84,20 @@ public class AnalysisAsyncUseCase {
         }
 
         AnalysisAsyncTask task = pendingTaskResult.task();
-        String taskId = task.getTaskId();
+        return processTask(user, mockApplyId, task);
+    }
 
+    private AnalysisAsyncSubmitResponse reopenAndProcessTask(User user, Long mockApplyId, AnalysisAsyncTask task) {
+        AnalysisAsyncTaskService.ReopenPublishFailureResult reopenResult =
+                analysisAsyncTaskService.reopenPublishFailureTask(task.getTaskId());
+        if (!reopenResult.reopened()) {
+            return toInProgressResponse(reopenResult.task());
+        }
+        return processTask(user, mockApplyId, reopenResult.task());
+    }
+
+    private AnalysisAsyncSubmitResponse processTask(User user, Long mockApplyId, AnalysisAsyncTask task) {
+        String taskId = task.getTaskId();
         try {
             analysisAsyncProcessor.process(
                     taskId,
@@ -117,7 +113,12 @@ public class AnalysisAsyncUseCase {
                     false
             );
         } catch (RuntimeException e) {
-            analysisAsyncTaskService.deleteTask(taskId);
+            analysisAsyncTaskService.markFailed(
+                    taskId,
+                    AnalysisAsyncFailureReason.PUBLISH_FAILED,
+                    "자소서 분석 비동기 작업 발행에 실패했습니다.",
+                    task.getRetryCount()
+            );
             throw e;
         }
     }
@@ -161,20 +162,13 @@ public class AnalysisAsyncUseCase {
     private boolean isActiveTaskUniqueConflict(DataIntegrityViolationException exception) {
         Throwable cause = exception;
         while (cause != null) {
-            if (cause instanceof org.hibernate.exception.ConstraintViolationException constraintViolation
-                    && containsConstraintName(constraintViolation.getConstraintName())) {
-                return true;
-            }
-            if (containsConstraintName(cause.getMessage())) {
+            if (cause instanceof ConstraintViolationException constraintViolation
+                    && ACTIVE_TASK_UNIQUE_CONSTRAINT.equalsIgnoreCase(constraintViolation.getConstraintName())) {
                 return true;
             }
             cause = cause.getCause();
         }
         return false;
-    }
-
-    private boolean containsConstraintName(String value) {
-        return value != null && value.toLowerCase(Locale.ROOT).contains(ACTIVE_TASK_UNIQUE_CONSTRAINT);
     }
 
     private record PendingTaskResult(AnalysisAsyncTask task, boolean created) {

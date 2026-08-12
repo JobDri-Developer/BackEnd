@@ -7,11 +7,12 @@ import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerC
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
+import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncCreditStatus;
 import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisExecutionPayload;
+import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
@@ -23,6 +24,7 @@ import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.domain.workerresult.entity.WorkerTaskResult.TaskType;
 import com.jobdri.jobdri_api.domain.workerresult.service.WorkerTaskResultService;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -33,9 +35,20 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.TransactionCallback;
+import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -46,9 +59,11 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.spy;
 
 @ExtendWith(MockitoExtension.class)
 class AnalysisWorkerBridgeServiceTest {
@@ -65,6 +80,8 @@ class AnalysisWorkerBridgeServiceTest {
     @Mock
     private AnalysisCreditService analysisCreditService;
 
+    private AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator;
+
     @Mock
     private UserService userService;
 
@@ -74,11 +91,34 @@ class AnalysisWorkerBridgeServiceTest {
     @Mock
     private AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
 
+    @Mock
+    private TransactionTemplate transactionTemplate;
+
     @Spy
     private ObjectMapper objectMapper = new ObjectMapper();
 
-    @InjectMocks
     private AnalysisWorkerBridgeService analysisWorkerBridgeService;
+
+    @BeforeEach
+    void setUp() {
+        analysisAsyncCreditCoordinator = new AnalysisAsyncCreditCoordinator(analysisCreditService, userService);
+        analysisWorkerBridgeService = new AnalysisWorkerBridgeService(
+                analysisAsyncTaskService,
+                analysisAsyncTaskRepository,
+                analysisService,
+                analysisAsyncCreditCoordinator,
+                userService,
+                workerTaskResultService,
+                analysisInputFingerprintProvider,
+                objectMapper,
+                transactionTemplate
+        );
+        lenient().when(transactionTemplate.execute(any(TransactionCallback.class)))
+                .thenAnswer(invocation -> {
+                    TransactionCallback<?> callback = invocation.getArgument(0);
+                    return callback.doInTransaction(org.mockito.Mockito.mock(TransactionStatus.class));
+                });
+    }
 
     @Test
     @DisplayName("취소된 task의 complete 요청은 결과 저장과 성공 처리를 하지 않는다")
@@ -93,7 +133,7 @@ class AnalysisWorkerBridgeServiceTest {
                 10L
         );
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
 
         assertThatThrownBy(() -> analysisWorkerBridgeService.completeTask(task.getTaskId(), request))
                 .isInstanceOf(GeneralException.class);
@@ -128,13 +168,12 @@ class AnalysisWorkerBridgeServiceTest {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
         task.requestCancel();
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
 
         assertThatThrownBy(() -> analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L))
                 .isInstanceOf(GeneralException.class);
 
         verify(analysisCreditService, never()).deduct(any(), anyString());
-        verify(analysisAsyncTaskService, never()).markCreditReserved(anyString(), anyString());
     }
 
     @Test
@@ -188,24 +227,20 @@ class AnalysisWorkerBridgeServiceTest {
                 List.of(similarContext)
         );
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.prepareAnalysisExecution(user, 10L)).thenReturn(payload);
-        when(analysisCreditService.createAsyncReferenceId(task.getTaskId()))
-                .thenReturn("analysisTaskId=" + task.getTaskId());
+        when(analysisCreditService.createAsyncReferenceId(task.getTaskId(), 1))
+                .thenReturn("analysisTaskId=" + task.getTaskId() + ":creditVersion=1");
         when(analysisInputFingerprintProvider.create(payload)).thenReturn("initial-fingerprint");
-        doAnswer(invocation -> {
-            ReflectionTestUtils.invokeMethod(task, "markCreditReserved", invocation.getArgument(1, String.class));
-            return null;
-        }).when(analysisAsyncTaskService).markCreditReserved(eq(task.getTaskId()), anyString());
 
         var firstContext = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
         var secondContext = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
 
-        verify(analysisCreditService).createAsyncReferenceId(task.getTaskId());
-        verify(analysisCreditService).deduct(user, "analysisTaskId=" + task.getTaskId());
-        verify(analysisAsyncTaskService).markCreditReserved(task.getTaskId(), "analysisTaskId=" + task.getTaskId());
+        verify(analysisCreditService).createAsyncReferenceId(task.getTaskId(), 1);
+        verify(analysisCreditService).deduct(user, "analysisTaskId=" + task.getTaskId() + ":creditVersion=1");
         verify(analysisService, times(1)).prepareAnalysisExecution(user, 10L);
+        assertThat(task.getCreditStatus()).isEqualTo(AnalysisAsyncCreditStatus.RESERVED);
         assertThat(firstContext).isEqualTo(secondContext);
         assertThat(firstContext.corpusReferences()).hasSize(1);
         assertThat(firstContext.corpusReferences().getFirst().corpusId()).isEqualTo(11L);
@@ -239,14 +274,13 @@ class AnalysisWorkerBridgeServiceTest {
                 List.of()
         );
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.prepareAnalysisExecution(user, 10L)).thenReturn(payload);
 
         analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
 
         verify(analysisCreditService, never()).deduct(eq(user), anyString());
-        verify(analysisAsyncTaskService, never()).markCreditReserved(eq(task.getTaskId()), anyString());
         verify(analysisService).prepareAnalysisExecution(user, 10L);
     }
 
@@ -258,12 +292,8 @@ class AnalysisWorkerBridgeServiceTest {
         User user = User.signup("테스트 사용자", "analysis-worker-refund@example.com", "encoded-password");
         ReflectionTestUtils.setField(user, "id", 1L);
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
-        doAnswer(invocation -> {
-            task.markCreditReleased();
-            return null;
-        }).when(analysisAsyncTaskService).markCreditReleased(task.getTaskId());
         doAnswer(invocation -> {
             task.markFailed(AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1);
             return null;
@@ -272,8 +302,8 @@ class AnalysisWorkerBridgeServiceTest {
         analysisWorkerBridgeService.failTask(task.getTaskId(), AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
         analysisWorkerBridgeService.failTask(task.getTaskId(), AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
 
-        verify(analysisCreditService, times(1)).refund(user, "analysisTaskId=" + task.getTaskId());
-        verify(analysisAsyncTaskService, times(1)).markCreditReleased(task.getTaskId());
+        verify(analysisCreditService, times(1))
+                .refund(user, "analysisTaskId=" + task.getTaskId());
     }
 
     @Test
@@ -340,7 +370,7 @@ class AnalysisWorkerBridgeServiceTest {
                 1L, 10L, llmResponse, "worker-1", 10L
         );
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         AnalysisExecutionPayload changedRetrievalPayload = new AnalysisExecutionPayload(
                 1L, 10L, jobPosting, List.of(), List.of(), null, null, List.of(laterContext)
@@ -381,7 +411,7 @@ class AnalysisWorkerBridgeServiceTest {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
         task.markSuccess();
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
 
         analysisWorkerBridgeService.markRunning(task.getTaskId(), "worker-1", 1, java.time.Instant.now());
         analysisWorkerBridgeService.markRetry(
@@ -401,7 +431,7 @@ class AnalysisWorkerBridgeServiceTest {
     @DisplayName("완료 요청의 사용자나 mockApply가 task와 다르면 거부한다")
     void completeTaskRejectsMismatchedIdentity() {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
 
         AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
                 2L,
@@ -459,7 +489,7 @@ class AnalysisWorkerBridgeServiceTest {
         ReflectionTestUtils.setField(user, "id", 1L);
         var llmResponse = mock(com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse.class);
 
-        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.getAnalysis(user, 10L)).thenReturn(mock(com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse.class));
 
@@ -480,5 +510,141 @@ class AnalysisWorkerBridgeServiceTest {
                 new AnalysisWorkerResultStoreRequest(1L, 10L, llmResponse)
         );
         inOrder.verify(workerTaskResultService).markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, task.getTaskId());
+    }
+
+    @Test
+    @DisplayName("PUBLISH_FAILED 이후 늦게 도착한 complete 요청은 정상 완료로 복구한다")
+    void completeTaskRecoversAfterPublishFailure() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        task.markFailed(AnalysisAsyncFailureReason.PUBLISH_FAILED, "publish failed", 0);
+        User user = User.signup("테스트 사용자", "analysis-recover@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+
+        JobPosting jobPosting = mock(JobPosting.class, org.mockito.Answers.RETURNS_DEEP_STUBS);
+        AnalysisExecutionPayload completionPayload = new AnalysisExecutionPayload(
+                1L,
+                10L,
+                jobPosting,
+                List.of(),
+                List.of()
+        );
+        ReflectionTestUtils.setField(task, "executionContextSnapshot", """
+                {"userId":1,"mockApplyId":10,"companyName":"","jobTitle":"","task":"","requirements":"","preferredQualifications":"","bigClassificationName":"","middleClassificationName":"","detailClassificationName":"","questions":[],"corpusReferences":[],"similarJobPostings":[]}
+                """);
+        ReflectionTestUtils.setField(task, "inputFingerprintSnapshot", "publish-fingerprint");
+
+        AnalysisLlmResponse llmResponse = mock(AnalysisLlmResponse.class);
+        AnalysisResponse response = mock(AnalysisResponse.class);
+        AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
+                1L,
+                10L,
+                llmResponse,
+                "worker-1",
+                15L
+        );
+
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
+        when(userService.getUser(1L)).thenReturn(user);
+        when(analysisService.prepareAnalysisExecution(user, 10L, List.of())).thenReturn(completionPayload);
+        when(analysisService.finalizeAnalysis(user, 10L, completionPayload, llmResponse, "publish-fingerprint"))
+                .thenReturn(response);
+
+        AnalysisResponse completed = analysisWorkerBridgeService.completeTask(task.getTaskId(), request);
+
+        assertThat(completed).isEqualTo(response);
+        verify(analysisAsyncTaskService).markSuccess(task.getTaskId(), response);
+        verify(workerTaskResultService).markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, task.getTaskId());
+    }
+
+    @Test
+    @DisplayName("동시에 complete가 들어와도 분석 완료 처리는 한 번만 수행한다")
+    void completeTaskProcessesSuccessOnlyOnceAcrossConcurrentRequests() throws Exception {
+        AnalysisAsyncTask task = spy(AnalysisAsyncTask.pending(1L, 10L, 3));
+        task.markCreditReserved("credit-ref");
+        ReflectionTestUtils.setField(task, "executionContextSnapshot", """
+                {"userId":1,"mockApplyId":10,"companyName":"","jobTitle":"","task":"","requirements":"","preferredQualifications":"","bigClassificationName":"","middleClassificationName":"","detailClassificationName":"","questions":[],"corpusReferences":[],"similarJobPostings":[]}
+                """);
+        ReflectionTestUtils.setField(task, "inputFingerprintSnapshot", "complete-fingerprint");
+
+        User user = User.signup("테스트 사용자", "analysis-concurrent-complete@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+
+        JobPosting jobPosting = mock(JobPosting.class, org.mockito.Answers.RETURNS_DEEP_STUBS);
+        AnalysisExecutionPayload completionPayload = new AnalysisExecutionPayload(
+                1L,
+                10L,
+                jobPosting,
+                List.of(),
+                List.of()
+        );
+        AnalysisLlmResponse llmResponse = mock(AnalysisLlmResponse.class);
+        AnalysisResponse finalizedResponse = mock(AnalysisResponse.class);
+        AnalysisResponse cachedResponse = mock(AnalysisResponse.class);
+        AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
+                1L,
+                10L,
+                llmResponse,
+                "worker-1",
+                15L
+        );
+
+        CountDownLatch successMarked = new CountDownLatch(1);
+        AtomicBoolean firstLookup = new AtomicBoolean(true);
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenAnswer(invocation -> {
+            if (firstLookup.getAndSet(false)) {
+                return Optional.of(task);
+            }
+            assertThat(successMarked.await(5, TimeUnit.SECONDS)).isTrue();
+            return Optional.of(task);
+        });
+        when(userService.getUser(1L)).thenReturn(user);
+        when(analysisService.prepareAnalysisExecution(user, 10L, List.of())).thenReturn(completionPayload);
+        when(analysisService.finalizeAnalysis(user, 10L, completionPayload, llmResponse, "complete-fingerprint"))
+                .thenAnswer(invocation -> {
+                    task.markSuccess();
+                    successMarked.countDown();
+                    return finalizedResponse;
+                });
+        when(analysisService.getAnalysis(user, 10L)).thenReturn(cachedResponse);
+
+        List<AnalysisResponse> results = runConcurrently(
+                2,
+                () -> analysisWorkerBridgeService.completeTask(task.getTaskId(), request)
+        );
+
+        assertThat(results).containsExactlyInAnyOrder(finalizedResponse, cachedResponse);
+        assertThat(task.getCreditStatus()).isEqualTo(AnalysisAsyncCreditStatus.CONFIRMED);
+        verify(analysisService, times(1))
+                .finalizeAnalysis(user, 10L, completionPayload, llmResponse, "complete-fingerprint");
+        verify(analysisService, times(1)).getAnalysis(user, 10L);
+        verify(analysisAsyncTaskService, times(1)).markSuccess(task.getTaskId(), finalizedResponse);
+        verify(task, times(1)).markCreditConfirmed();
+    }
+
+    private <T> List<T> runConcurrently(int threadCount, Callable<T> task) throws Exception {
+        ExecutorService executorService = Executors.newFixedThreadPool(threadCount);
+        CountDownLatch ready = new CountDownLatch(threadCount);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Future<T>> futures = new ArrayList<>(threadCount);
+        try {
+            for (int i = 0; i < threadCount; i++) {
+                futures.add(executorService.submit(() -> {
+                    ready.countDown();
+                    assertThat(start.await(5, TimeUnit.SECONDS)).isTrue();
+                    return task.call();
+                }));
+            }
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            List<T> results = new ArrayList<>(threadCount);
+            for (Future<T> future : futures) {
+                results.add(future.get(5, TimeUnit.SECONDS));
+            }
+            return results;
+        } finally {
+            executorService.shutdownNow();
+            executorService.awaitTermination(5, TimeUnit.SECONDS);
+        }
     }
 }

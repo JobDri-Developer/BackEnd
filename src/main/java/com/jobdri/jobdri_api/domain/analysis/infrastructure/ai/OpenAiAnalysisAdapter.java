@@ -19,7 +19,7 @@ public class OpenAiAnalysisAdapter {
     private final AnalysisResponseParser analysisResponseParser;
 
     @Value("${openai.model.cover-letter-analysis:gpt-4o-mini}")
-    private String analysisModel = "gpt-4o-mini";
+    private String analysisModel;
 
     public <T> T createStructuredResponse(String operationName, String prompt, Class<T> responseType) {
         var params = ResponseCreateParams.builder()
@@ -29,19 +29,21 @@ public class OpenAiAnalysisAdapter {
                 .text(responseType)
                 .build();
         long startedAt = System.nanoTime();
+        boolean success = false;
         try {
             StructuredResponse<T> response = llmConcurrencyLimiter.execute(
                     operationName,
                     () -> openAIClient.responses().create(params)
             );
-            asyncMetricsRecorder.recordLlmRequest(operationName, "success", elapsedMillis(startedAt));
-            return analysisResponseParser.extractStructuredContent(response);
-        } catch (RuntimeException e) {
-            asyncMetricsRecorder.recordLlmRequest(operationName, "error", elapsedMillis(startedAt));
-            throw e;
-        } catch (Error e) {
-            asyncMetricsRecorder.recordLlmRequest(operationName, "error", elapsedMillis(startedAt));
-            throw e;
+            T structuredContent = analysisResponseParser.extractStructuredContent(response);
+            success = true;
+            return structuredContent;
+        } finally {
+            asyncMetricsRecorder.recordLlmRequest(
+                    operationName,
+                    success ? "success" : "error",
+                    elapsedMillis(startedAt)
+            );
         }
     }
 
