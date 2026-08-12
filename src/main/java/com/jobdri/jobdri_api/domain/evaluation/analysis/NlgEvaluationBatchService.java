@@ -10,8 +10,8 @@ import com.jobdri.jobdri_api.domain.evaluation.analysis.mapper.EvaluationMissing
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationMissingKeyword;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationMissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -30,7 +30,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 @Slf4j
 class NlgEvaluationBatchService {
     private static final int MIN_SCORE = 1;
@@ -68,8 +67,14 @@ class NlgEvaluationBatchService {
     private final ObjectMapper objectMapper;
     private final EvaluationLlmSnapshotParser evaluationLlmSnapshotParser;
 
-    NlgEvaluationBatchService(NlgEvaluationAiClient nlgEvaluationAiClient, ObjectMapper objectMapper) {
-        this(nlgEvaluationAiClient, objectMapper, new EvaluationLlmSnapshotParser(objectMapper));
+    @Autowired
+    NlgEvaluationBatchService(
+            NlgEvaluationAiClient nlgEvaluationAiClient,
+            ObjectMapper objectMapper
+    ) {
+        this.nlgEvaluationAiClient = nlgEvaluationAiClient;
+        this.objectMapper = objectMapper;
+        this.evaluationLlmSnapshotParser = new EvaluationLlmSnapshotParser(objectMapper);
     }
 
     NlgEvaluationSummary run(Path inputPath, Path outputPath) throws IOException {
