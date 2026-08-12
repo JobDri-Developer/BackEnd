@@ -14,6 +14,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -29,6 +30,7 @@ public class AnalysisAsyncTaskSweepCoordinator {
     private final UserService userService;
     private final TransactionTemplate transactionTemplate;
     private final AnalysisQueueProperties analysisQueueProperties;
+    private final Clock clock;
 
     public AnalysisAsyncTaskSweepCoordinator(
             AnalysisAsyncTaskRepository analysisAsyncTaskRepository,
@@ -36,7 +38,8 @@ public class AnalysisAsyncTaskSweepCoordinator {
             AnalysisCreditService analysisCreditService,
             UserService userService,
             TransactionTemplate transactionTemplate,
-            AnalysisQueueProperties analysisQueueProperties
+            AnalysisQueueProperties analysisQueueProperties,
+            Clock clock
     ) {
         this.analysisAsyncTaskRepository = analysisAsyncTaskRepository;
         this.analysisAsyncTaskService = analysisAsyncTaskService;
@@ -44,10 +47,11 @@ public class AnalysisAsyncTaskSweepCoordinator {
         this.userService = userService;
         this.transactionTemplate = transactionTemplate;
         this.analysisQueueProperties = analysisQueueProperties;
+        this.clock = clock;
     }
 
     public int sweepTimedOutTasks() {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         int expiredCount = sweepTimedOutPendingTasks(now);
         expiredCount += sweepTimedOutRunningTasks(now);
         return expiredCount;
@@ -120,7 +124,7 @@ public class AnalysisAsyncTaskSweepCoordinator {
     }
 
     private ExpirationDecision resolveExpiration(AnalysisAsyncTask task) {
-        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime now = LocalDateTime.now(clock);
         if (task.getStatus() == AnalysisAsyncTaskStatus.PENDING
                 && isExpired(task.getSubmittedAt(), now, analysisQueueProperties.getQueueTimeoutSeconds())) {
             return new ExpirationDecision(

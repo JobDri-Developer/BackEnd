@@ -7,6 +7,8 @@ import com.jobdri.jobdri_api.domain.user.service.UserService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Clock;
+
 @Service
 public class AnalysisAsyncSweepService extends AnalysisAsyncTaskSweepCoordinator {
 
@@ -16,7 +18,8 @@ public class AnalysisAsyncSweepService extends AnalysisAsyncTaskSweepCoordinator
             AnalysisCreditService analysisCreditService,
             UserService userService,
             TransactionTemplate transactionTemplate,
-            AnalysisQueueProperties analysisQueueProperties
+            AnalysisQueueProperties analysisQueueProperties,
+            Clock clock
     ) {
         super(
                 analysisAsyncTaskRepository,
@@ -24,7 +27,8 @@ public class AnalysisAsyncSweepService extends AnalysisAsyncTaskSweepCoordinator
                 analysisCreditService,
                 userService,
                 transactionTemplate,
-                analysisQueueProperties
+                analysisQueueProperties,
+                clock
         );
     }
 }

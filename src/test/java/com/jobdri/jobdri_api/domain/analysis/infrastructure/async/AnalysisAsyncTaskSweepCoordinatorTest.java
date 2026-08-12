@@ -19,13 +19,17 @@ import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
@@ -52,17 +56,20 @@ class AnalysisAsyncTaskSweepCoordinatorTest {
 
     private AnalysisAsyncTaskSweepCoordinator analysisAsyncTaskSweepCoordinator;
     private AnalysisQueueProperties analysisQueueProperties;
+    private Clock clock;
 
     @BeforeEach
     void setUp() {
         analysisQueueProperties = new AnalysisQueueProperties();
+        clock = Clock.fixed(Instant.parse("2026-08-12T00:00:00Z"), ZoneId.of("Asia/Seoul"));
         analysisAsyncTaskSweepCoordinator = new AnalysisAsyncTaskSweepCoordinator(
                 analysisAsyncTaskRepository,
                 analysisAsyncTaskService,
                 analysisCreditService,
                 userService,
                 transactionTemplate,
-                analysisQueueProperties
+                analysisQueueProperties,
+                clock
         );
         lenient().doAnswer(invocation -> {
             @SuppressWarnings("unchecked")
@@ -74,15 +81,19 @@ class AnalysisAsyncTaskSweepCoordinatorTest {
     @Test
     @DisplayName("sweep는 timeout 대상 task id만 batch 조회해 처리한다")
     void sweepTimedOutTasksLoadsOnlyTimedOutTaskIdsInBatches() {
+        LocalDateTime now = LocalDateTime.now(clock);
         AnalysisAsyncTask pendingTask = AnalysisAsyncTask.pending(1L, 10L, 3);
-        ReflectionTestUtils.setField(pendingTask, "submittedAt", LocalDateTime.now().minusMinutes(10));
+        ReflectionTestUtils.setField(pendingTask, "submittedAt", now.minusMinutes(10));
         AnalysisAsyncTask runningTask = AnalysisAsyncTask.pending(2L, 20L, 3);
         runningTask.markRunning("worker-1", 0, null);
-        ReflectionTestUtils.setField(runningTask, "lastAttemptAt", LocalDateTime.now().minusMinutes(20));
+        ReflectionTestUtils.setField(runningTask, "lastAttemptAt", now.minusMinutes(20));
 
-        when(analysisAsyncTaskRepository.findTimedOutPendingTaskIds(any(LocalDateTime.class), any(Pageable.class)))
+        LocalDateTime pendingDeadline = now.minusSeconds(analysisQueueProperties.getQueueTimeoutSeconds());
+        LocalDateTime runningDeadline = now.minusSeconds(analysisQueueProperties.getProcessingTimeoutSeconds());
+
+        when(analysisAsyncTaskRepository.findTimedOutPendingTaskIds(eq(pendingDeadline), any(Pageable.class)))
                 .thenReturn(List.of(pendingTask.getTaskId()), List.of());
-        when(analysisAsyncTaskRepository.findTimedOutRunningTaskIds(any(LocalDateTime.class), any(Pageable.class)))
+        when(analysisAsyncTaskRepository.findTimedOutRunningTaskIds(eq(runningDeadline), any(Pageable.class)))
                 .thenReturn(List.of(runningTask.getTaskId()), List.of());
         when(analysisAsyncTaskRepository.findByIdForUpdate(pendingTask.getTaskId())).thenReturn(Optional.of(pendingTask));
         when(analysisAsyncTaskRepository.findByIdForUpdate(runningTask.getTaskId())).thenReturn(Optional.of(runningTask));
@@ -107,9 +118,16 @@ class AnalysisAsyncTaskSweepCoordinatorTest {
     @Test
     @DisplayName("batch가 비어 있으면 추가 처리 없이 종료한다")
     void sweepTimedOutTasksStopsWhenNoTimedOutTaskIdsExist() {
-        when(analysisAsyncTaskRepository.findTimedOutPendingTaskIds(any(LocalDateTime.class), any(Pageable.class)))
+        LocalDateTime now = LocalDateTime.now(clock);
+        when(analysisAsyncTaskRepository.findTimedOutPendingTaskIds(
+                eq(now.minusSeconds(analysisQueueProperties.getQueueTimeoutSeconds())),
+                any(Pageable.class)
+        ))
                 .thenReturn(List.of());
-        when(analysisAsyncTaskRepository.findTimedOutRunningTaskIds(any(LocalDateTime.class), any(Pageable.class)))
+        when(analysisAsyncTaskRepository.findTimedOutRunningTaskIds(
+                eq(now.minusSeconds(analysisQueueProperties.getProcessingTimeoutSeconds())),
+                any(Pageable.class)
+        ))
                 .thenReturn(List.of());
 
         int expiredCount = analysisAsyncTaskSweepCoordinator.sweepTimedOutTasks();
