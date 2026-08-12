@@ -75,6 +75,7 @@ class QuestionCommandServiceTest {
 
         when(questionDomainSupport.getOwnedMockApply(user, 10L)).thenReturn(mockApply);
         doNothing().when(questionCandidateCatalogService).validateCustomCandidate("새로운 지원 동기를 작성해주세요.");
+        when(questionCandidateCatalogService.toCustomCandidateKey(7L)).thenReturn("custom:7");
         when(questionDomainSupport.resolveCharLimit(900)).thenReturn(900);
         when(customQuestionCandidateRepository.findByMockApplyIdAndContent(10L, "새로운 지원 동기를 작성해주세요."))
                 .thenReturn(Optional.empty(), Optional.of(existingCandidate));
@@ -94,6 +95,7 @@ class QuestionCommandServiceTest {
         assertThat(response.charLimit()).isEqualTo(900);
         assertThat(response.selected()).isFalse();
         assertThat(response.custom()).isTrue();
+        assertThat(response.candidateKey()).isEqualTo("custom:7");
         verify(customQuestionCandidatePersistenceService).saveAndFlush(10L, "새로운 지원 동기를 작성해주세요.", 900);
         verify(customQuestionCandidateRepository, never()).saveAndFlush(existingCandidate);
     }

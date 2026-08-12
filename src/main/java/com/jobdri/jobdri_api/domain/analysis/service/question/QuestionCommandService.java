@@ -80,7 +80,8 @@ public class QuestionCommandService {
                 candidate.getContent(),
                 candidate.getLimit(),
                 selected,
-                true
+                true,
+                questionCandidateCatalogService.toCustomCandidateKey(candidate.getId())
         );
     }
 
