@@ -193,17 +193,25 @@ public class AnalysisAsyncTaskService {
     }
 
     @Transactional
-    public AnalysisAsyncTask reopenPublishFailureTask(String taskId) {
-        AnalysisAsyncTask task = getTask(taskId);
-        if (!task.isRecoverablePublishFailure()) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "재접수할 수 없는 자소서 분석 비동기 작업입니다. taskId=" + taskId
-            );
+    public ReopenPublishFailureResult reopenPublishFailureTask(String taskId) {
+        AnalysisAsyncTask task = analysisAsyncTaskRepository.findByIdForUpdate(taskId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.ANALYSIS_ASYNC_TASK_NOT_FOUND,
+                        "해당 자소서 분석 비동기 작업을 찾을 수 없습니다. taskId=" + taskId
+                ));
+        if (task.isRecoverablePublishFailure()) {
+            task.reopenForRepublish();
+            publishAfterCommit(toStatusResponse(task));
+            return new ReopenPublishFailureResult(task, true);
         }
-        task.reopenForRepublish();
-        publishAfterCommit(toStatusResponse(task));
-        return task;
+        if (task.getStatus() == AnalysisAsyncTaskStatus.PENDING
+                || task.getStatus() == AnalysisAsyncTaskStatus.RUNNING) {
+            return new ReopenPublishFailureResult(task, false);
+        }
+        throw new GeneralException(
+                GeneralErrorCode.INVALID_PARAMETER,
+                "재접수할 수 없는 자소서 분석 비동기 작업입니다. taskId=" + taskId
+        );
     }
 
     @Transactional(readOnly = true)
@@ -368,6 +376,9 @@ public class AnalysisAsyncTaskService {
                 task.getTaskId(),
                 payload
         );
+    }
+
+    public record ReopenPublishFailureResult(AnalysisAsyncTask task, boolean reopened) {
     }
 
 }

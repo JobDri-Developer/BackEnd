@@ -88,8 +88,12 @@ public class AnalysisAsyncUseCase {
     }
 
     private AnalysisAsyncSubmitResponse reopenAndProcessTask(User user, Long mockApplyId, AnalysisAsyncTask task) {
-        AnalysisAsyncTask reopenedTask = analysisAsyncTaskService.reopenPublishFailureTask(task.getTaskId());
-        return processTask(user, mockApplyId, reopenedTask);
+        AnalysisAsyncTaskService.ReopenPublishFailureResult reopenResult =
+                analysisAsyncTaskService.reopenPublishFailureTask(task.getTaskId());
+        if (!reopenResult.reopened()) {
+            return toInProgressResponse(reopenResult.task());
+        }
+        return processTask(user, mockApplyId, reopenResult.task());
     }
 
     private AnalysisAsyncSubmitResponse processTask(User user, Long mockApplyId, AnalysisAsyncTask task) {
