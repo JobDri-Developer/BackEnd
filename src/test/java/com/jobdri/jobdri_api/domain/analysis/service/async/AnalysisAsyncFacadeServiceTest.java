@@ -118,6 +118,58 @@ class AnalysisAsyncFacadeServiceTest {
     }
 
     @Test
+    @DisplayName("이전 PUBLISH_FAILED task가 있으면 새 task를 만들지 않고 같은 task를 재접수한다")
+    void submitReopensRecoverablePublishFailureTask() {
+        User user = User.signup("테스트 사용자", "analysis-async-recoverable@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncTask failedTask = AnalysisAsyncTask.pending(1L, 10L, 3);
+        failedTask.markFailed(AnalysisAsyncFailureReason.PUBLISH_FAILED, "publish failed", 0);
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty());
+        when(analysisAsyncTaskService.findRecoverablePublishFailureTask(1L, 10L)).thenReturn(Optional.of(failedTask));
+        failedTask.reopenForRepublish();
+        when(analysisAsyncTaskService.reopenPublishFailureTask(failedTask.getTaskId()))
+                .thenReturn(new AnalysisAsyncTaskService.ReopenPublishFailureResult(failedTask, true));
+
+        AnalysisAsyncSubmitResponse response = analysisAsyncFacadeService.submit(user, 10L);
+
+        assertThat(response.taskId()).isEqualTo(failedTask.getTaskId());
+        assertThat(response.status()).isEqualTo("PENDING");
+        assertThat(response.cached()).isFalse();
+        assertThat(response.resultAvailable()).isFalse();
+        verify(analysisAsyncTaskService, never()).createPendingTask(1L, 10L);
+        verify(analysisService, never()).hasReusableAnalysis(user, 10L);
+        verify(analysisAsyncTaskService).reopenPublishFailureTask(failedTask.getTaskId());
+        verify(analysisAsyncProcessor).process(failedTask.getTaskId(), 1L, 10L, 3);
+    }
+
+    @Test
+    @DisplayName("다른 요청이 이미 PUBLISH_FAILED task를 재접수했으면 재발행하지 않고 진행 중 응답을 반환한다")
+    void submitReturnsInProgressWhenPublishFailureTaskAlreadyReopened() {
+        User user = User.signup("테스트 사용자", "analysis-async-reopened@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncTask failedTask = AnalysisAsyncTask.pending(1L, 10L, 3);
+        failedTask.markFailed(AnalysisAsyncFailureReason.PUBLISH_FAILED, "publish failed", 0);
+        AnalysisAsyncTask reopenedTask = AnalysisAsyncTask.pending(1L, 10L, 3);
+        ReflectionTestUtils.setField(reopenedTask, "taskId", failedTask.getTaskId());
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty());
+        when(analysisAsyncTaskService.findRecoverablePublishFailureTask(1L, 10L)).thenReturn(Optional.of(failedTask));
+        when(analysisAsyncTaskService.reopenPublishFailureTask(failedTask.getTaskId()))
+                .thenReturn(new AnalysisAsyncTaskService.ReopenPublishFailureResult(reopenedTask, false));
+
+        AnalysisAsyncSubmitResponse response = analysisAsyncFacadeService.submit(user, 10L);
+
+        assertThat(response.taskId()).isEqualTo(failedTask.getTaskId());
+        assertThat(response.status()).isEqualTo("PENDING");
+        assertThat(response.cached()).isFalse();
+        assertThat(response.resultAvailable()).isFalse();
+        verify(analysisAsyncProcessor, never()).process(failedTask.getTaskId(), 1L, 10L, 3);
+    }
+
+    @Test
     @DisplayName("메시지 발행 실패 시 task를 삭제하지 않고 PUBLISH_FAILED로 실패 처리한다")
     void submitMarksTaskFailedWhenPublishFails() {
         User user = User.signup("테스트 사용자", "analysis-async-publish-fail@example.com", "encoded-password");
@@ -141,6 +193,34 @@ class AnalysisAsyncFacadeServiceTest {
                 0
         );
         verify(analysisAsyncTaskService, never()).deleteTask(createdTask.getTaskId());
+    }
+
+    @Test
+    @DisplayName("재접수한 PUBLISH_FAILED task의 발행이 다시 실패하면 같은 task를 다시 실패 처리한다")
+    void submitMarksReopenedTaskFailedWhenPublishFailsAgain() {
+        User user = User.signup("테스트 사용자", "analysis-async-republish-fail@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        AnalysisAsyncTask failedTask = AnalysisAsyncTask.pending(1L, 10L, 3);
+        failedTask.markFailed(AnalysisAsyncFailureReason.PUBLISH_FAILED, "publish failed", 0);
+        RuntimeException publishException = new RuntimeException("publish failed again");
+
+        when(userService.validateUser(user)).thenReturn(user);
+        when(analysisAsyncTaskService.findActiveTask(1L, 10L)).thenReturn(Optional.empty());
+        when(analysisAsyncTaskService.findRecoverablePublishFailureTask(1L, 10L)).thenReturn(Optional.of(failedTask));
+        failedTask.reopenForRepublish();
+        when(analysisAsyncTaskService.reopenPublishFailureTask(failedTask.getTaskId()))
+                .thenReturn(new AnalysisAsyncTaskService.ReopenPublishFailureResult(failedTask, true));
+        doThrow(publishException).when(analysisAsyncProcessor).process(failedTask.getTaskId(), 1L, 10L, 3);
+
+        assertThatThrownBy(() -> analysisAsyncFacadeService.submit(user, 10L))
+                .isSameAs(publishException);
+
+        verify(analysisAsyncTaskService).markFailed(
+                failedTask.getTaskId(),
+                AnalysisAsyncFailureReason.PUBLISH_FAILED,
+                "자소서 분석 비동기 작업 발행에 실패했습니다.",
+                failedTask.getRetryCount()
+        );
     }
 
     @Test

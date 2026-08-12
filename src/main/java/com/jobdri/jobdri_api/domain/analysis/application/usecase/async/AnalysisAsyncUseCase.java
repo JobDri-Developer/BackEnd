@@ -15,6 +15,8 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
 
+import java.util.Optional;
+
 // 분석 비동기 작업의 접수/조회/취소 유스케이스를 조율한다.
 public class AnalysisAsyncUseCase {
     private static final String ACTIVE_TASK_UNIQUE_CONSTRAINT = "uk_analysis_async_tasks_active_user_mock_apply";
@@ -64,6 +66,11 @@ public class AnalysisAsyncUseCase {
     }
 
     private AnalysisAsyncSubmitResponse createCachedOrProcessTask(User user, Long mockApplyId) {
+        Optional<AnalysisAsyncTask> recoverableTask =
+                analysisAsyncTaskService.findRecoverablePublishFailureTask(user.getId(), mockApplyId);
+        if (recoverableTask.isPresent()) {
+            return reopenAndProcessTask(user, mockApplyId, recoverableTask.get());
+        }
         if (analysisService.hasReusableAnalysis(user, mockApplyId)) {
             return toCachedResponse();
         }
@@ -77,8 +84,20 @@ public class AnalysisAsyncUseCase {
         }
 
         AnalysisAsyncTask task = pendingTaskResult.task();
-        String taskId = task.getTaskId();
+        return processTask(user, mockApplyId, task);
+    }
 
+    private AnalysisAsyncSubmitResponse reopenAndProcessTask(User user, Long mockApplyId, AnalysisAsyncTask task) {
+        AnalysisAsyncTaskService.ReopenPublishFailureResult reopenResult =
+                analysisAsyncTaskService.reopenPublishFailureTask(task.getTaskId());
+        if (!reopenResult.reopened()) {
+            return toInProgressResponse(reopenResult.task());
+        }
+        return processTask(user, mockApplyId, reopenResult.task());
+    }
+
+    private AnalysisAsyncSubmitResponse processTask(User user, Long mockApplyId, AnalysisAsyncTask task) {
+        String taskId = task.getTaskId();
         try {
             analysisAsyncProcessor.process(
                     taskId,
