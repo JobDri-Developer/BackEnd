@@ -30,4 +30,35 @@ class EvaluationCandidateReviewSnapshotParserTest {
                 .extracting(decision -> decision.accepted() + ":" + decision.rejectionCode())
                 .containsExactly("true:NONE", "false:NOT_ACTIONABLE");
     }
+
+    @Test
+    @DisplayName("candidate review json이 비어 있거나 malformed면 empty snapshot을 반환한다")
+    void returnsEmptySnapshotForEmptyOrMalformedJson() {
+        assertThat(parser.parse(null).decisions()).isEmpty();
+        assertThat(parser.parse("").decisions()).isEmpty();
+        assertThat(parser.parse("{bad-json").decisions()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("decisions가 없거나 배열이 아니면 empty snapshot을 반환한다")
+    void returnsEmptySnapshotWhenDecisionsMissingOrNotArray() {
+        assertThat(parser.parse("{\"other\":[]}").decisions()).isEmpty();
+        assertThat(parser.parse("{\"decisions\":{}}").decisions()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("accepted가 boolean이 아니면 null로 파싱한다")
+    void parsesNonBooleanAcceptedAsNull() {
+        EvaluationCandidateReviewSnapshot snapshot = parser.parse("""
+                {
+                  "decisions": [
+                    {"accepted": "true", "rejectionCode": "NONE"}
+                  ]
+                }
+                """);
+
+        assertThat(snapshot.decisions()).singleElement()
+                .extracting(decision -> decision.accepted() + ":" + decision.rejectionCode())
+                .isEqualTo("null:NONE");
+    }
 }

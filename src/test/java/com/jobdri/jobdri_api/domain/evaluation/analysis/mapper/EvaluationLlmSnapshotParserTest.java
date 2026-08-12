@@ -28,6 +28,8 @@ class EvaluationLlmSnapshotParserTest {
         EvaluationLlmSnapshot snapshot = parser.parseRawLlmResponse(rawLlmResponseJson);
 
         assertThat(snapshot.jobFit()).isNull();
+        assertThat(snapshot.impact()).isNull();
+        assertThat(snapshot.completeness()).isNull();
         assertThat(snapshot.feedback()).isEmpty();
         assertThat(snapshot.keyStrengthQuotes()).containsExactly("강점 문장");
         assertThat(snapshot.missingKeywords())
@@ -36,6 +38,22 @@ class EvaluationLlmSnapshotParserTest {
         assertThat(snapshot.questionAnalyses())
                 .extracting(questionAnalysis -> questionAnalysis.sentence() + ":" + questionAnalysis.status())
                 .containsExactly("문장:mentioned");
+    }
+
+    @Test
+    @DisplayName("숫자 점수 필드를 모두 파싱한다")
+    void parsesNumericScores() {
+        EvaluationLlmSnapshot snapshot = parser.parseRawLlmResponse("""
+                {
+                  "jobFit": 80,
+                  "impact": 70,
+                  "completeness": 60
+                }
+                """);
+
+        assertThat(snapshot.jobFit()).isEqualTo(80);
+        assertThat(snapshot.impact()).isEqualTo(70);
+        assertThat(snapshot.completeness()).isEqualTo(60);
     }
 
     @Test

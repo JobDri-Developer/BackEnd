@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.evaluation.analysis.mapper;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationCandidateSnapshot;
 import org.junit.jupiter.api.DisplayName;
@@ -29,7 +30,13 @@ class EvaluationCandidateSnapshotParserTest {
         EvaluationCandidateSnapshot snapshot = parser.parse(json, "rawCandidateResponseJson", "EV-01");
 
         assertThat(snapshot.strengthCandidates()).hasSize(1);
+        assertThat(snapshot.strengthCandidates())
+                .extracting(node -> ((JsonNode) node).path("quote").asText())
+                .containsExactly("강점");
         assertThat(snapshot.analysisCandidates()).hasSize(1);
+        assertThat(snapshot.analysisCandidates())
+                .extracting(node -> ((JsonNode) node).path("candidateId").asText())
+                .containsExactly("candidate-1");
         assertThat(snapshot.missingKeywordCandidates())
                 .extracting(candidate -> candidate.keyword() + ":" + candidate.source().name())
                 .containsExactly("Spring Boot:QUALIFICATION");
@@ -42,5 +49,25 @@ class EvaluationCandidateSnapshotParserTest {
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("rawCandidateResponseJson")
                 .hasMessageContaining("EV-01");
+    }
+
+    @Test
+    @DisplayName("candidate 배열 필드가 없거나 배열이 아니면 빈 목록으로 파싱한다")
+    void returnsEmptyListsWhenCandidateArraysMissingOrNotArray() {
+        EvaluationCandidateSnapshot missingArrays = parser.parse("{}", "rawCandidateResponseJson", "EV-01");
+        EvaluationCandidateSnapshot nonArrayFields = parser.parse("""
+                {
+                  "strengthCandidates": {},
+                  "analysisCandidates": "",
+                  "missingKeywordCandidates": 1
+                }
+                """, "rawCandidateResponseJson", "EV-01");
+
+        assertThat(missingArrays.strengthCandidates()).isEmpty();
+        assertThat(missingArrays.analysisCandidates()).isEmpty();
+        assertThat(missingArrays.missingKeywordCandidates()).isEmpty();
+        assertThat(nonArrayFields.strengthCandidates()).isEmpty();
+        assertThat(nonArrayFields.analysisCandidates()).isEmpty();
+        assertThat(nonArrayFields.missingKeywordCandidates()).isEmpty();
     }
 }

@@ -38,11 +38,11 @@ public class EvaluationCandidateSnapshotParser {
         return new EvaluationCandidateSnapshot(List.of(), List.of(), List.of());
     }
 
-    private List<Object> readOpaqueItems(JsonNode node) {
+    private List<JsonNode> readOpaqueItems(JsonNode node) {
         if (!node.isArray()) {
             return List.of();
         }
-        List<Object> items = new ArrayList<>();
+        List<JsonNode> items = new ArrayList<>();
         node.forEach(item -> items.add(item));
         return items;
     }

@@ -17,8 +17,8 @@ class EvaluationAnalysisPackageDependencyTest {
             "src/main/java/com/jobdri/jobdri_api/domain/evaluation/analysis"
     );
     private static final List<String> FORBIDDEN_IMPORT_PREFIXES = List.of(
-            "import com.jobdri.jobdri_api.domain.analysis.dto.",
-            "import com.jobdri.jobdri_api.domain.analysis.service."
+            "com.jobdri.jobdri_api.domain.analysis.dto.",
+            "com.jobdri.jobdri_api.domain.analysis.service."
     );
 
     @Test
@@ -37,10 +37,13 @@ class EvaluationAnalysisPackageDependencyTest {
     private void collectViolations(Path file, List<String> violations) {
         try {
             List<String> lines = Files.readAllLines(file);
-            for (String forbiddenPrefix : FORBIDDEN_IMPORT_PREFIXES) {
-                boolean matched = lines.stream().anyMatch(line -> line.startsWith(forbiddenPrefix));
-                if (matched) {
-                    violations.add(file + " -> " + forbiddenPrefix);
+            for (int i = 0; i < lines.size(); i++) {
+                String line = lines.get(i).stripLeading();
+                for (String forbiddenPrefix : FORBIDDEN_IMPORT_PREFIXES) {
+                    if (line.startsWith("import " + forbiddenPrefix)
+                            || line.startsWith("import static " + forbiddenPrefix)) {
+                        violations.add(file + ":" + (i + 1) + " -> " + forbiddenPrefix);
+                    }
                 }
             }
         } catch (IOException e) {

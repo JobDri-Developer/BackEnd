@@ -86,6 +86,84 @@ class MissingKeywordSanitizerReplayServiceTest {
     }
 
     @Test
+    @DisplayName("blank missing keyword 후보는 parser 단계에서 fail-fast 한다")
+    void blankMissingKeywordCandidateFailsFast() throws Exception {
+        Path input = tempDir.resolve("input.csv");
+        Map<String, String> row = row("EV-01", response(List.of()), response(List.of()));
+        row.put("rawCandidateResponseJson", """
+                {"missingKeywordCandidates":[{"keyword":" ","source":"MAIN_TASK","relatedRequirement":"재고 관리"}]}
+                """);
+        EvaluationCsvSupport.writeRows(input, headers(), List.of(row));
+
+        assertThatThrownBy(() -> service.replay(input, tempDir.resolve("replay.csv"), tempDir.resolve("review.csv")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("rawCandidateResponseJson")
+                .hasMessageContaining("missingKeywordCandidates[0].keyword")
+                .hasMessageContaining("EV-01");
+    }
+
+    @Test
+    @DisplayName("unknown source 후보는 parser 단계에서 fail-fast 한다")
+    void unknownSourceCandidateFailsFast() throws Exception {
+        Path input = tempDir.resolve("input.csv");
+        Map<String, String> row = row("EV-01", response(List.of()), response(List.of()));
+        row.put("rawCandidateResponseJson", """
+                {"missingKeywordCandidates":[{"keyword":"재고 분석 경험","source":"UNKNOWN","relatedRequirement":"재고 분석 경험"}]}
+                """);
+        EvaluationCsvSupport.writeRows(input, headers(), List.of(row));
+
+        assertThatThrownBy(() -> service.replay(input, tempDir.resolve("replay.csv"), tempDir.resolve("review.csv")))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("rawCandidateResponseJson")
+                .hasMessageContaining("missingKeywordCandidates[0].source")
+                .hasMessageContaining("EV-01");
+    }
+
+    @Test
+    @DisplayName("relatedRequirement가 다르면 기존 sanitized JSON과 mismatch로 fail-fast 한다")
+    void replayFailsWhenRelatedRequirementDoesNotMatch() throws Exception {
+        Path input = tempDir.resolve("input.csv");
+        AnalysisCandidateResponse raw = response(List.of(candidate("재고 관리 및 분석 경험", "MAIN_TASK")));
+        AnalysisCandidateResponse sanitized = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(),
+                List.of(new AnalysisCandidateResponse.MissingKeywordCandidate(
+                        "재고 관리 및 분석 경험",
+                        "MAIN_TASK",
+                        "다른 요구사항"
+                ))
+        );
+        writeInput(input, List.of(row("EV-01", raw, sanitized)));
+
+        assertThatThrownBy(() -> service.replay(input, tempDir.resolve("replay.csv"), tempDir.resolve("review.csv")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("accepted candidates mismatch")
+                .hasMessageContaining("EV-01");
+    }
+
+    @Test
+    @DisplayName("legacy sanitized JSON에 relatedRequirement가 비어 있으면 mismatch로 보지 않는다")
+    void replayAllowsLegacyMissingRelatedRequirement() throws Exception {
+        Path input = tempDir.resolve("input.csv");
+        AnalysisCandidateResponse raw = response(List.of(candidate("재고 관리 및 분석 경험", "MAIN_TASK")));
+        AnalysisCandidateResponse sanitized = new AnalysisCandidateResponse(
+                List.of(),
+                List.of(),
+                List.of(new AnalysisCandidateResponse.MissingKeywordCandidate(
+                        "재고 관리 및 분석 경험",
+                        "MAIN_TASK",
+                        null
+                ))
+        );
+        writeInput(input, List.of(row("EV-01", raw, sanitized)));
+
+        MissingKeywordSanitizerReplayService.ReplaySummary summary =
+                service.replay(input, tempDir.resolve("replay.csv"), tempDir.resolve("review.csv"));
+
+        assertThat(summary.acceptedCandidateCount()).isEqualTo(1);
+    }
+
+    @Test
     @DisplayName("malformed rawCandidateResponseJson은 fail-fast 한다")
     void malformedRawCandidateResponseFailsFast() throws Exception {
         Path input = tempDir.resolve("input.csv");

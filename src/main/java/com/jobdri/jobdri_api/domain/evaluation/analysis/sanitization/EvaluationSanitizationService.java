@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -22,15 +23,17 @@ import java.util.regex.Pattern;
 public class EvaluationSanitizationService {
     private static final int MAX_ACCEPTED_COUNT = 3;
     private static final double MIN_KEYWORD_TOKEN_MATCH_RATIO = 0.5;
+    private static final Pattern WHITESPACE_PATTERN = Pattern.compile("\\s+");
     private static final Pattern TOKEN_PATTERN = Pattern.compile("[a-zA-Z0-9+#.]+|[가-힣]+");
+    private static final Pattern KOREAN_ONLY_PATTERN = Pattern.compile("[가-힣]+");
     private static final Pattern CAREER_YEAR_PATTERN = Pattern.compile("경력\\s*\\d+\\s*년|\\d+\\s*년\\s*(이상|이하|미만|초과)");
-    private static final String[] STRUCTURED_QUALIFICATION_TERMS = {
+    private static final Set<String> STRUCTURED_QUALIFICATION_TERMS = normalizedSet(
             "자격증", "면허", "면허증", "공인성적", "어학성적", "토익", "toeic", "토플", "toefl",
             "opic", "ielts", "학위", "전공", "졸업", "학력", "신입", "근무 가능", "국적", "나이", "연령",
             "사회복지사", "청소년지도사", "청소년상담사", "직업상담사", "임상심리사",
             "대졸", "초대졸", "전문대졸", "고졸"
-    };
-    private static final String[] META_IMPROVEMENT_TERMS = {
+    );
+    private static final Set<String> META_IMPROVEMENT_TERMS = normalizedSet(
             "구체적으로 작성했습니다", "명확히 설명했습니다", "성과를 강조했습니다", "수치로 명시했습니다",
             "더 설득력 있게 작성했습니다", "경험을 구체적으로 작성했습니다", "구체적으로 설명했습니다",
             "구체적으로 서술했습니다", "명확히 서술했습니다", "구체적으로 설명합니다",
@@ -39,23 +42,28 @@ public class EvaluationSanitizationService {
             "강조하겠", "추가하겠", "명확히 작성", "작성할 수 있", "설명할 수 있",
             "보완하겠", "드러내겠", "제시하겠", "추가할 수 있", "수정할 수 있",
             "수정하는 방향", "강조하는 방향"
-    };
+    );
     private static final String[] CONTRADICTORY_PROVEN_REASON_TERMS = {
             "근거가 부족", "성과가 부족", "수치가 부족", "구체성이 부족", "보완이 필요",
             "드러나지 않음", "확인하기 어려움"
     };
-    private static final String[] FABRICATED_DIRECT_CONFLICT_TERMS = {
+    private static final Set<String> FABRICATED_DIRECT_CONFLICT_TERMS = normalizedSet(
             "직접 충돌", "명시적 사실과 충돌", "사실과 충돌", "조건과 충돌", "요건과 충돌",
             "서로 충돌", "상충", "하지 않았다고", "수행하지 않았다고", "경험이 없다고",
             "없다고 밝혔", "실제로 하지 않았", "모순", "불일치", "일치하지 않", "앞뒤가 맞지",
             "다르게 서술"
-    };
+    );
+    private static final String TEAM_PROJECT_TERM = normalizeStatic("팀 프로젝트");
+    private static final String TEAM_PROGRESS_TERM = normalizeStatic("팀으로 진행");
+    private static final String INDIVIDUAL_PROJECT_TERM = normalizeStatic("개인 프로젝트");
+    private static final String SOLO_EXECUTION_TERM = normalizeStatic("혼자 수행");
+    private static final String SOLO_PROGRESS_TERM = normalizeStatic("혼자 진행");
     private static final Set<String> STOP_WORDS = Set.of(
             "경험", "역량", "업무", "관련", "가능", "보유", "필수", "우대", "자격", "요건",
             "사항", "직무", "수행", "활용", "사용", "기반", "중심", "대한", "통한", "등",
             "및", "또는", "위한", "있는", "없는"
     );
-    private static final List<String> BANNED_IMPROVEMENT_PHRASES = List.of(
+    private static final List<String> BANNED_IMPROVEMENT_PHRASES = compactList(
             "추가하세요",
             "보완하세요",
             "수정해주세요",
@@ -68,11 +76,15 @@ public class EvaluationSanitizationService {
             "명확히 해야",
             "명확히 하세요"
     );
-    private static final List<String> IMPERATIVE_ENDINGS = List.of(
+    private static final List<String> IMPERATIVE_ENDINGS = compactList(
             "하세요",
             "하십시오",
             "해주십시오",
             "해 주십시오"
+    );
+    private static final List<String> KOREAN_SUFFIXES = List.of(
+            "했습니다", "았습니다", "었습니다", "으로", "에서", "하며", "하고", "하는", "까지", "부터", "에게", "보다",
+            "은", "는", "이", "가", "을", "를", "와", "과", "의", "에", "로", "한"
     );
 
     public boolean isValidMissingKeyword(
@@ -163,12 +175,15 @@ public class EvaluationSanitizationService {
     }
 
     public boolean isStructuredQualificationKeyword(String value) {
+        if (value == null) {
+            return false;
+        }
         String normalized = normalize(value);
         if (CAREER_YEAR_PATTERN.matcher(value).find()) {
             return true;
         }
         for (String term : STRUCTURED_QUALIFICATION_TERMS) {
-            if (normalized.contains(normalize(term))) {
+            if (normalized.contains(term)) {
                 return true;
             }
         }
@@ -302,15 +317,15 @@ public class EvaluationSanitizationService {
         }
         String normalized = normalize(reason);
         for (String term : FABRICATED_DIRECT_CONFLICT_TERMS) {
-            if (normalized.contains(normalize(term))) {
+            if (normalized.contains(term)) {
                 return true;
             }
         }
-        boolean teamClaim = normalized.contains(normalize("팀 프로젝트"))
-                || normalized.contains(normalize("팀으로 진행"));
-        boolean individualClaim = normalized.contains(normalize("개인 프로젝트"))
-                || normalized.contains(normalize("혼자 수행"))
-                || normalized.contains(normalize("혼자 진행"));
+        boolean teamClaim = normalized.contains(TEAM_PROJECT_TERM)
+                || normalized.contains(TEAM_PROGRESS_TERM);
+        boolean individualClaim = normalized.contains(INDIVIDUAL_PROJECT_TERM)
+                || normalized.contains(SOLO_EXECUTION_TERM)
+                || normalized.contains(SOLO_PROGRESS_TERM);
         return teamClaim && individualClaim;
     }
 
@@ -318,12 +333,9 @@ public class EvaluationSanitizationService {
         if (improvement == null) {
             return false;
         }
-        String compact = improvement.replaceAll("\\s+", "");
-        return BANNED_IMPROVEMENT_PHRASES.stream()
-                .map(phrase -> phrase.replaceAll("\\s+", ""))
-                .anyMatch(compact::contains)
+        String compact = compactWhitespace(improvement);
+        return BANNED_IMPROVEMENT_PHRASES.stream().anyMatch(compact::contains)
                 || IMPERATIVE_ENDINGS.stream()
-                .map(ending -> ending.replaceAll("\\s+", ""))
                 .anyMatch(ending -> compact.endsWith(ending) || compact.endsWith(ending + "."));
     }
 
@@ -370,16 +382,14 @@ public class EvaluationSanitizationService {
     }
 
     private String stripKoreanSuffix(String token) {
-        if (token == null || !token.matches("[가-힣]+")) {
+        if (token == null || !KOREAN_ONLY_PATTERN.matcher(token).matches()) {
             return token == null ? "" : token;
         }
         String result = token;
-        String[] suffixes = {"했습니다", "았습니다", "었습니다", "으로", "에서", "하며", "하고", "하는", "까지", "부터", "에게", "보다",
-                "은", "는", "이", "가", "을", "를", "와", "과", "의", "에", "로", "한"};
         boolean changed;
         do {
             changed = false;
-            for (String suffix : suffixes) {
+            for (String suffix : KOREAN_SUFFIXES) {
                 if (result.length() > suffix.length() + 1 && result.endsWith(suffix)) {
                     result = result.substring(0, result.length() - suffix.length());
                     changed = true;
@@ -418,7 +428,7 @@ public class EvaluationSanitizationService {
     private boolean isMetaImprovement(String improvement) {
         String normalized = normalize(improvement);
         for (String term : META_IMPROVEMENT_TERMS) {
-            if (normalized.contains(normalize(term))) {
+            if (normalized.contains(term)) {
                 return true;
             }
         }
@@ -466,7 +476,27 @@ public class EvaluationSanitizationService {
     }
 
     private String normalize(String value) {
-        return value == null ? "" : value.replaceAll("\\s+", "").toLowerCase(Locale.ROOT);
+        return normalizeStatic(value);
+    }
+
+    private static Set<String> normalizedSet(String... values) {
+        return Arrays.stream(values)
+                .map(EvaluationSanitizationService::normalizeStatic)
+                .collect(LinkedHashSet::new, Set::add, Set::addAll);
+    }
+
+    private static List<String> compactList(String... values) {
+        return Arrays.stream(values)
+                .map(EvaluationSanitizationService::compactWhitespace)
+                .toList();
+    }
+
+    private static String compactWhitespace(String value) {
+        return value == null ? "" : WHITESPACE_PATTERN.matcher(value).replaceAll("");
+    }
+
+    private static String normalizeStatic(String value) {
+        return compactWhitespace(value).toLowerCase(Locale.ROOT);
     }
 
     private record IndexedKeyword(
