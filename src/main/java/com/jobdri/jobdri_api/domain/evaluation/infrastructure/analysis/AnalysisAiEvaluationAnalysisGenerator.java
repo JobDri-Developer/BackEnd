@@ -1,9 +1,14 @@
-package com.jobdri.jobdri_api.domain.evaluation.analysis.adapter;
+package com.jobdri.jobdri_api.domain.evaluation.infrastructure.analysis;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisAiClient.AnalysisAiCallResult;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.AnalysisPromptInput;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.JobCategoryEvaluationCriteriaProvider;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.mapper.EvaluationCandidateReviewSnapshotParser;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.mapper.EvaluationCandidateSnapshotParser;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.mapper.EvaluationLlmSnapshotParser;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationAnalysisCommand;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationGeneratedResult;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.port.EvaluationAnalysisGenerator;
@@ -22,6 +27,7 @@ public class AnalysisAiEvaluationAnalysisGenerator implements EvaluationAnalysis
 
     private final AnalysisAiClient analysisAiClient;
     private final JobCategoryEvaluationCriteriaProvider jobCategoryEvaluationCriteriaProvider;
+    private final ObjectMapper objectMapper;
 
     @Value("${evaluation.analysis.case-timeout.single-pass-seconds:70}")
     private long singlePassCaseTimeoutSeconds;
@@ -56,11 +62,25 @@ public class AnalysisAiEvaluationAnalysisGenerator implements EvaluationAnalysis
                         .orElse(null),
                 deadline
         );
+        String rawLlmResponseJson = writeJson(aiCallResult.response());
+        String rawCandidateResponseJson = writeJson(aiCallResult.rawCandidateResponse());
+        String sanitizedCandidateResponseJson = writeJson(aiCallResult.sanitizedCandidateResponse());
+        String candidateReviewResponseJson = writeJson(aiCallResult.candidateReviewResponse());
+        EvaluationLlmSnapshotParser llmSnapshotParser = new EvaluationLlmSnapshotParser(objectMapper);
+        EvaluationCandidateSnapshotParser candidateSnapshotParser = new EvaluationCandidateSnapshotParser(objectMapper);
+        EvaluationCandidateReviewSnapshotParser reviewSnapshotParser = new EvaluationCandidateReviewSnapshotParser(objectMapper);
         return new EvaluationGeneratedResult(
-                aiCallResult.response(),
-                aiCallResult.rawCandidateResponse(),
-                aiCallResult.sanitizedCandidateResponse(),
-                aiCallResult.candidateReviewResponse(),
+                llmSnapshotParser.parseRawLlmResponse(rawLlmResponseJson),
+                rawLlmResponseJson,
+                rawCandidateResponseJson,
+                sanitizedCandidateResponseJson,
+                candidateSnapshotParser.parse(
+                        sanitizedCandidateResponseJson,
+                        "sanitizedCandidateResponseJson",
+                        command.caseId()
+                ),
+                candidateReviewResponseJson,
+                reviewSnapshotParser.parse(candidateReviewResponseJson),
                 aiCallResult.candidateCallLatencyMs(),
                 aiCallResult.finalCallLatencyMs()
         );
@@ -73,5 +93,13 @@ public class AnalysisAiEvaluationAnalysisGenerator implements EvaluationAnalysis
             case HYBRID_EXACT -> hybridExactCaseTimeoutSeconds;
         };
         return Duration.ofSeconds(Math.max(1L, seconds));
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value == null ? List.of() : value);
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("Failed to serialize evaluation analysis result.", e);
+        }
     }
 }

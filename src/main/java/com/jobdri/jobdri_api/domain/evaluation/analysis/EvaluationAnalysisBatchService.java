@@ -2,14 +2,15 @@ package com.jobdri.jobdri_api.domain.evaluation.analysis;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateReviewResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
 import com.jobdri.jobdri_api.domain.analysis.type.QuestionAnalysisStatus;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationAnalysisCommand;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationCandidateReviewDecision;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationCandidateReviewSnapshot;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationGeneratedResult;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationLlmSnapshot;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationMissingKeyword;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.model.EvaluationQuestionAnalysis;
+import com.jobdri.jobdri_api.domain.evaluation.analysis.policy.EvaluationAnalysisPolicyConstants;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.port.EvaluationAnalysisGenerator;
 import com.jobdri.jobdri_api.domain.evaluation.analysis.sanitization.EvaluationSanitizationService;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +27,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 @Service
@@ -136,17 +136,17 @@ public class EvaluationAnalysisBatchService {
                 evaluationCase.question(),
                 evaluationCase.answer()
         ));
-        AnalysisLlmResponse llmResponse = generatedResult.response();
+        EvaluationLlmSnapshot llmResponse = generatedResult.responseSnapshot();
 
         int jobFit = validateScore("jobFit", llmResponse == null ? null : llmResponse.jobFit());
         int impact = validateScore("impact", llmResponse == null ? null : llmResponse.impact());
         int completeness = validateScore("completeness", llmResponse == null ? null : llmResponse.completeness());
-        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(evaluationCase, llmResponse);
+        List<EvaluationMissingKeyword> missingKeywords = buildMissingKeywords(evaluationCase, llmResponse);
         List<EvaluationQuestionAnalysisResult> questionAnalyses = buildQuestionAnalyses(evaluationCase, llmResponse);
         log.debug(
                 "Evaluation serialized missing keyword flow. caseId={}, candidateMissingKeywordCount={}, finalMissingKeywordCount={}, evaluationSerializedMissingKeywordCount={}",
                 evaluationCase.caseId(),
-                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().missingKeywordCandidates()),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().missingKeywordCandidates()),
                 size(llmResponse == null ? null : llmResponse.missingKeywords()),
                 missingKeywords.size()
         );
@@ -167,21 +167,21 @@ public class EvaluationAnalysisBatchService {
                 normalizeFeedback(llmResponse.feedback()),
                 writeJson(missingKeywords),
                 writeJson(questionAnalyses),
-                writeJson(llmResponse),
-                writeJson(generatedResult.rawCandidateResponse()),
-                writeJson(generatedResult.sanitizedCandidateResponse()),
-                writeJson(generatedResult.candidateReviewResponse()),
-                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().analysisCandidates()),
-                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().analysisCandidates()),
-                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().strengthCandidates()),
-                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().missingKeywordCandidates()),
-                acceptedDecisionCount(generatedResult.candidateReviewResponse()),
-                rejectedDecisionCount(generatedResult.candidateReviewResponse()),
-                rejectionCodeCounts(generatedResult.candidateReviewResponse()),
+                generatedResult.rawLlmResponseJson(),
+                generatedResult.rawCandidateResponseJson(),
+                generatedResult.sanitizedCandidateResponseJson(),
+                generatedResult.candidateReviewResponseJson(),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().analysisCandidates()),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().analysisCandidates()),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().strengthCandidates()),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().missingKeywordCandidates()),
+                acceptedDecisionCount(generatedResult.candidateReviewSnapshot()),
+                rejectedDecisionCount(generatedResult.candidateReviewSnapshot()),
+                rejectionCodeCounts(generatedResult.candidateReviewSnapshot()),
                 questionAnalyses.size(),
-                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().strengthCandidates()),
-                llmResponse.keyStrengths() == null ? 0 : llmResponse.keyStrengths().size(),
-                size(generatedResult.sanitizedCandidateResponse() == null ? null : generatedResult.sanitizedCandidateResponse().missingKeywordCandidates()),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().strengthCandidates()),
+                llmResponse.keyStrengthQuotes() == null ? 0 : llmResponse.keyStrengthQuotes().size(),
+                size(generatedResult.sanitizedCandidateSnapshot() == null ? null : generatedResult.sanitizedCandidateSnapshot().missingKeywordCandidates()),
                 missingKeywords.size(),
                 generatedResult.candidateCallLatencyMs(),
                 generatedResult.finalCallLatencyMs(),
@@ -199,34 +199,30 @@ public class EvaluationAnalysisBatchService {
         );
     }
 
-    private List<MissingKeywordResponse> buildMissingKeywords(
+    private List<EvaluationMissingKeyword> buildMissingKeywords(
             EvaluationAnalysisCase evaluationCase,
-            AnalysisLlmResponse llmResponse
+            EvaluationLlmSnapshot llmResponse
     ) {
         if (llmResponse == null || llmResponse.missingKeywords() == null) {
             return List.of();
         }
 
-        List<MissingKeywordResponse> result = new ArrayList<>();
+        List<EvaluationMissingKeyword> result = new ArrayList<>();
         Set<String> seenKeywords = new HashSet<>();
 
-        for (AnalysisLlmResponse.MissingKeywordItem item : llmResponse.missingKeywords()) {
+        for (EvaluationMissingKeyword item : llmResponse.missingKeywords()) {
             if (item == null || !StringUtils.hasText(item.keyword())) {
                 continue;
             }
 
             String keyword = item.keyword().trim();
-            if (keyword.length() > AnalysisResultConstants.MAX_MISSING_KEYWORD_LENGTH) {
+            if (keyword.length() > EvaluationAnalysisPolicyConstants.MAX_MISSING_KEYWORD_LENGTH) {
                 continue;
             }
 
-            Optional<MissingKeywordSource> source = MissingKeywordSource.from(item.source());
-            if (source.isEmpty()) {
-                continue;
-            }
             if (!evaluationSanitizationService.isValidMissingKeyword(
                     keyword,
-                    source.get(),
+                    item.source(),
                     evaluationCase.mainTasks(),
                     evaluationCase.qualifications()
             )) {
@@ -244,8 +240,8 @@ public class EvaluationAnalysisBatchService {
                 continue;
             }
 
-            result.add(new MissingKeywordResponse(keyword, source.get()));
-            if (result.size() >= AnalysisResultConstants.MAX_MISSING_KEYWORDS) {
+            result.add(new EvaluationMissingKeyword(keyword, item.source()));
+            if (result.size() >= EvaluationAnalysisPolicyConstants.MAX_MISSING_KEYWORDS) {
                 break;
             }
         }
@@ -254,7 +250,7 @@ public class EvaluationAnalysisBatchService {
 
     private List<EvaluationQuestionAnalysisResult> buildQuestionAnalyses(
             EvaluationAnalysisCase evaluationCase,
-            AnalysisLlmResponse llmResponse
+            EvaluationLlmSnapshot llmResponse
     ) {
         if (llmResponse == null || llmResponse.questionAnalyses() == null) {
             return List.of();
@@ -272,7 +268,7 @@ public class EvaluationAnalysisBatchService {
         Set<Long> fabricatedQuestionIds = new HashSet<>();
         Set<String> keyStrengthQuotes = normalizedKeyStrengthQuotes(llmResponse);
 
-        for (AnalysisLlmResponse.QuestionAnalysisItem item : llmResponse.questionAnalyses()) {
+        for (EvaluationQuestionAnalysis item : llmResponse.questionAnalyses()) {
             if (item == null || item.questionId() == null || !StringUtils.hasText(item.sentence())) {
                 continue;
             }
@@ -297,7 +293,7 @@ public class EvaluationAnalysisBatchService {
             }
 
             int currentCount = analysisCountByQuestionId.getOrDefault(item.questionId(), 0);
-            if (currentCount >= AnalysisResultConstants.MAX_ANALYSES_PER_QUESTION) {
+            if (currentCount >= EvaluationAnalysisPolicyConstants.MAX_ANALYSES_PER_QUESTION) {
                 continue;
             }
 
@@ -339,20 +335,20 @@ public class EvaluationAnalysisBatchService {
         return result;
     }
 
-    private Set<String> normalizedKeyStrengthQuotes(AnalysisLlmResponse llmResponse) {
-        if (llmResponse == null || llmResponse.keyStrengths() == null) {
+    private Set<String> normalizedKeyStrengthQuotes(EvaluationLlmSnapshot llmResponse) {
+        if (llmResponse == null || llmResponse.keyStrengthQuotes() == null) {
             return Set.of();
         }
-        return llmResponse.keyStrengths().stream()
-                .filter(item -> item != null && StringUtils.hasText(item.quote()))
-                .map(item -> normalizeKeyword(item.quote()))
+        return llmResponse.keyStrengthQuotes().stream()
+                .filter(StringUtils::hasText)
+                .map(this::normalizeKeyword)
                 .collect(java.util.stream.Collectors.toSet());
     }
 
     private int validateScore(String fieldName, Integer score) {
         if (score == null
-                || score < AnalysisResultConstants.MIN_SCORE
-                || score > AnalysisResultConstants.MAX_SCORE) {
+                || score < EvaluationAnalysisPolicyConstants.MIN_SCORE
+                || score > EvaluationAnalysisPolicyConstants.MAX_SCORE) {
             throw new IllegalArgumentException("자소서 분석 AI 응답의 " + fieldName + " 점수 범위가 올바르지 않습니다.");
         }
         return score;
@@ -360,9 +356,9 @@ public class EvaluationAnalysisBatchService {
 
     private int calculateScore(int jobFit, int impact, int completeness) {
         return (int) Math.round(
-                jobFit * AnalysisResultConstants.JOB_FIT_WEIGHT
-                        + impact * AnalysisResultConstants.IMPACT_WEIGHT
-                        + completeness * AnalysisResultConstants.COMPLETENESS_WEIGHT
+                jobFit * EvaluationAnalysisPolicyConstants.JOB_FIT_WEIGHT
+                        + impact * EvaluationAnalysisPolicyConstants.IMPACT_WEIGHT
+                        + completeness * EvaluationAnalysisPolicyConstants.COMPLETENESS_WEIGHT
         );
     }
 
@@ -399,7 +395,7 @@ public class EvaluationAnalysisBatchService {
         return values == null ? null : values.size();
     }
 
-    private Integer acceptedDecisionCount(CandidateReviewResponse reviewResponse) {
+    private Integer acceptedDecisionCount(EvaluationCandidateReviewSnapshot reviewResponse) {
         if (reviewResponse == null || reviewResponse.decisions() == null) {
             return null;
         }
@@ -408,7 +404,7 @@ public class EvaluationAnalysisBatchService {
                 .count();
     }
 
-    private Integer rejectedDecisionCount(CandidateReviewResponse reviewResponse) {
+    private Integer rejectedDecisionCount(EvaluationCandidateReviewSnapshot reviewResponse) {
         if (reviewResponse == null || reviewResponse.decisions() == null) {
             return null;
         }
@@ -417,16 +413,16 @@ public class EvaluationAnalysisBatchService {
                 .count();
     }
 
-    private String rejectionCodeCounts(CandidateReviewResponse reviewResponse) {
+    private String rejectionCodeCounts(EvaluationCandidateReviewSnapshot reviewResponse) {
         if (reviewResponse == null || reviewResponse.decisions() == null) {
             return "";
         }
         Map<String, Long> counts = reviewResponse.decisions().stream()
                 .filter(decision -> decision != null
-                        && decision.rejectionCode() != null
-                        && decision.rejectionCode() != CandidateReviewResponse.RejectionCode.NONE)
+                        && StringUtils.hasText(decision.rejectionCode())
+                        && !"NONE".equals(decision.rejectionCode()))
                 .collect(java.util.stream.Collectors.groupingBy(
-                        decision -> decision.rejectionCode().name(),
+                        EvaluationCandidateReviewDecision::rejectionCode,
                         java.util.stream.Collectors.counting()
                 ));
         return writeJson(counts);

@@ -26,6 +26,10 @@ public class EvaluationLlmSnapshotParser {
         try {
             JsonNode root = objectMapper.readTree(rawLlmResponseJson);
             return new EvaluationLlmSnapshot(
+                    root.path("jobFit").isNumber() ? root.path("jobFit").intValue() : null,
+                    root.path("impact").isNumber() ? root.path("impact").intValue() : null,
+                    root.path("completeness").isNumber() ? root.path("completeness").intValue() : null,
+                    root.path("feedback").asText(""),
                     readKeyStrengthQuotes(root.path("keyStrengths")),
                     readMissingKeywords(root.path("missingKeywords")),
                     readQuestionAnalyses(root.path("questionAnalyses"))
@@ -51,7 +55,7 @@ public class EvaluationLlmSnapshotParser {
     }
 
     private EvaluationLlmSnapshot emptySnapshot() {
-        return new EvaluationLlmSnapshot(List.of(), List.of(), List.of());
+        return new EvaluationLlmSnapshot(null, null, null, "", List.of(), List.of(), List.of());
     }
 
     private List<String> readKeyStrengthQuotes(JsonNode keyStrengthsNode) {

@@ -27,6 +27,8 @@ class EvaluationLlmSnapshotParserTest {
 
         EvaluationLlmSnapshot snapshot = parser.parseRawLlmResponse(rawLlmResponseJson);
 
+        assertThat(snapshot.jobFit()).isNull();
+        assertThat(snapshot.feedback()).isEmpty();
         assertThat(snapshot.keyStrengthQuotes()).containsExactly("강점 문장");
         assertThat(snapshot.missingKeywords())
                 .extracting(keyword -> keyword.keyword() + ":" + keyword.source().name())
