@@ -1,15 +1,12 @@
 package com.jobdri.jobdri_api.domain.analysis.infrastructure.async;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
-import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncCreditStatus;
 import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
 import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
+import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncCreditCoordinator;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncTaskService;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisQueueProperties;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
-import com.jobdri.jobdri_api.domain.user.entity.User;
-import com.jobdri.jobdri_api.domain.user.service.UserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -26,8 +23,7 @@ public class AnalysisAsyncTaskSweepCoordinator {
 
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
     private final AnalysisAsyncTaskService analysisAsyncTaskService;
-    private final AnalysisCreditService analysisCreditService;
-    private final UserService userService;
+    private final AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator;
     private final TransactionTemplate transactionTemplate;
     private final AnalysisQueueProperties analysisQueueProperties;
     private final Clock clock;
@@ -35,16 +31,14 @@ public class AnalysisAsyncTaskSweepCoordinator {
     public AnalysisAsyncTaskSweepCoordinator(
             AnalysisAsyncTaskRepository analysisAsyncTaskRepository,
             AnalysisAsyncTaskService analysisAsyncTaskService,
-            AnalysisCreditService analysisCreditService,
-            UserService userService,
+            AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator,
             TransactionTemplate transactionTemplate,
             AnalysisQueueProperties analysisQueueProperties,
             Clock clock
     ) {
         this.analysisAsyncTaskRepository = analysisAsyncTaskRepository;
         this.analysisAsyncTaskService = analysisAsyncTaskService;
-        this.analysisCreditService = analysisCreditService;
-        this.userService = userService;
+        this.analysisAsyncCreditCoordinator = analysisAsyncCreditCoordinator;
         this.transactionTemplate = transactionTemplate;
         this.analysisQueueProperties = analysisQueueProperties;
         this.clock = clock;
@@ -113,7 +107,7 @@ public class AnalysisAsyncTaskSweepCoordinator {
             return 0;
         }
 
-        releaseCreditIfNeeded(task);
+        analysisAsyncCreditCoordinator.releaseReservedCreditIfNeeded(task);
         analysisAsyncTaskService.markFailed(
                 task.getTaskId(),
                 expirationDecision.failureReason(),
@@ -150,16 +144,6 @@ public class AnalysisAsyncTaskSweepCoordinator {
             return false;
         }
         return Duration.between(baseTime, now).getSeconds() >= timeoutSeconds;
-    }
-
-    private void releaseCreditIfNeeded(AnalysisAsyncTask task) {
-        if (task.getCreditStatus() != AnalysisAsyncCreditStatus.RESERVED || task.getCreditReferenceId() == null) {
-            return;
-        }
-
-        User user = userService.getUser(task.getUserId());
-        analysisCreditService.refund(user, task.getCreditReferenceId());
-        analysisAsyncTaskService.markCreditReleased(task.getTaskId());
     }
 
     private record ExpirationDecision(AnalysisAsyncFailureReason failureReason, String errorMessage) {

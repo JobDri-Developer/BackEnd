@@ -2,11 +2,10 @@ package com.jobdri.jobdri_api.domain.analysis.infrastructure.async;
 
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
+import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncCreditCoordinator;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncTaskService;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisQueueProperties;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
 import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
-import com.jobdri.jobdri_api.domain.user.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -46,10 +45,7 @@ class AnalysisAsyncTaskSweepCoordinatorTest {
     private AnalysisAsyncTaskService analysisAsyncTaskService;
 
     @Mock
-    private AnalysisCreditService analysisCreditService;
-
-    @Mock
-    private UserService userService;
+    private AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator;
 
     @Mock
     private TransactionTemplate transactionTemplate;
@@ -65,8 +61,7 @@ class AnalysisAsyncTaskSweepCoordinatorTest {
         analysisAsyncTaskSweepCoordinator = new AnalysisAsyncTaskSweepCoordinator(
                 analysisAsyncTaskRepository,
                 analysisAsyncTaskService,
-                analysisCreditService,
-                userService,
+                analysisAsyncCreditCoordinator,
                 transactionTemplate,
                 analysisQueueProperties,
                 clock

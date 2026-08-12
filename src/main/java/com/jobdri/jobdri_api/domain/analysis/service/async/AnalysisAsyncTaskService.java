@@ -12,9 +12,6 @@ import com.jobdri.jobdri_api.domain.notification.entity.NotificationTargetType;
 import com.jobdri.jobdri_api.domain.notification.entity.NotificationType;
 import com.jobdri.jobdri_api.domain.notification.service.NotificationService;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
-import com.jobdri.jobdri_api.domain.user.entity.User;
-import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
@@ -57,8 +54,7 @@ public class AnalysisAsyncTaskService {
     private final NotificationService notificationService;
     private final AsyncMetricsRecorder asyncMetricsRecorder;
     private final AnalysisQueueProperties analysisQueueProperties;
-    private final AnalysisCreditService analysisCreditService;
-    private final UserService userService;
+    private final AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator;
     private final AsyncProgressCalculator asyncProgressCalculator;
 
     @Transactional
@@ -163,7 +159,7 @@ public class AnalysisAsyncTaskService {
         boolean cancelled = task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED;
         boolean newlyCancelled = previousStatus != AnalysisAsyncTaskStatus.CANCELLED && cancelled;
         if (newlyCancelled) {
-            releaseCreditIfNeeded(task);
+            analysisAsyncCreditCoordinator.releaseReservedCreditIfNeeded(task);
             recordProcessingMetric(task, "cancelled");
         }
         if (newlyCancelled || previousCancelledAt == null && cancelled) {
@@ -280,15 +276,6 @@ public class AnalysisAsyncTaskService {
                 .steps(buildSteps(task))
                 .result(task.getStatus() == AnalysisAsyncTaskStatus.SUCCEEDED ? result : null)
                 .build();
-    }
-
-    private void releaseCreditIfNeeded(AnalysisAsyncTask task) {
-        if (task.getCreditStatus() != AnalysisAsyncCreditStatus.RESERVED || task.getCreditReferenceId() == null) {
-            return;
-        }
-        User user = userService.getUser(task.getUserId());
-        analysisCreditService.refund(user, task.getCreditReferenceId());
-        task.markCreditReleased();
     }
 
     private String resolveCurrentStep(AnalysisAsyncTask task) {

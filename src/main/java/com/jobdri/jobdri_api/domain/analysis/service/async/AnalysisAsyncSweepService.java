@@ -2,8 +2,6 @@ package com.jobdri.jobdri_api.domain.analysis.service.async;
 
 import com.jobdri.jobdri_api.domain.analysis.infrastructure.async.AnalysisAsyncTaskSweepCoordinator;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
-import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
-import com.jobdri.jobdri_api.domain.user.service.UserService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -15,8 +13,7 @@ public class AnalysisAsyncSweepService extends AnalysisAsyncTaskSweepCoordinator
     public AnalysisAsyncSweepService(
             AnalysisAsyncTaskRepository analysisAsyncTaskRepository,
             AnalysisAsyncTaskService analysisAsyncTaskService,
-            AnalysisCreditService analysisCreditService,
-            UserService userService,
+            AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator,
             TransactionTemplate transactionTemplate,
             AnalysisQueueProperties analysisQueueProperties,
             Clock clock
@@ -24,8 +21,7 @@ public class AnalysisAsyncSweepService extends AnalysisAsyncTaskSweepCoordinator
         super(
                 analysisAsyncTaskRepository,
                 analysisAsyncTaskService,
-                analysisCreditService,
-                userService,
+                analysisAsyncCreditCoordinator,
                 transactionTemplate,
                 analysisQueueProperties,
                 clock

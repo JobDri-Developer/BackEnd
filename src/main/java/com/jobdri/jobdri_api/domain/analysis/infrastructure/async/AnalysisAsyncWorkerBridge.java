@@ -14,6 +14,7 @@ import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
 import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncTaskStatus;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
+import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncCreditCoordinator;
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncTaskService;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
 import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
@@ -49,6 +50,7 @@ public class AnalysisAsyncWorkerBridge {
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
     private final AnalysisService analysisService;
     private final AnalysisCreditService analysisCreditService;
+    private final AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator;
     private final UserService userService;
     private final WorkerTaskResultService workerTaskResultService;
     private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
@@ -60,6 +62,7 @@ public class AnalysisAsyncWorkerBridge {
             AnalysisAsyncTaskRepository analysisAsyncTaskRepository,
             AnalysisService analysisService,
             AnalysisCreditService analysisCreditService,
+            AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator,
             UserService userService,
             WorkerTaskResultService workerTaskResultService,
             AnalysisInputFingerprintProvider analysisInputFingerprintProvider,
@@ -70,6 +73,7 @@ public class AnalysisAsyncWorkerBridge {
         this.analysisAsyncTaskRepository = analysisAsyncTaskRepository;
         this.analysisService = analysisService;
         this.analysisCreditService = analysisCreditService;
+        this.analysisAsyncCreditCoordinator = analysisAsyncCreditCoordinator;
         this.userService = userService;
         this.workerTaskResultService = workerTaskResultService;
         this.analysisInputFingerprintProvider = analysisInputFingerprintProvider;
@@ -124,7 +128,7 @@ public class AnalysisAsyncWorkerBridge {
         }
 
         analysisAsyncTaskService.updateWorkerMetadata(taskId, workerId, queueLatencyMillis);
-        releaseCreditIfNeeded(task);
+        analysisAsyncCreditCoordinator.releaseReservedCreditIfNeeded(task);
         analysisAsyncTaskService.markFailed(taskId, failureReason, errorMessage, retryCount);
         try (var ignored = LoggingContext.with("worker.task.failed", null, workerContext(taskId, "ANALYSIS", workerId, retryCount, queueLatencyMillis))) {
             log.warn("Analysis worker failed task: failureReason={}", failureReason);
@@ -414,22 +418,13 @@ public class AnalysisAsyncWorkerBridge {
         analysisAsyncTaskService.markCreditConfirmed(task.getTaskId());
     }
 
-    private void releaseCreditIfNeeded(AnalysisAsyncTask task) {
-        if (task.getCreditStatus() != AnalysisAsyncCreditStatus.RESERVED || task.getCreditReferenceId() == null) {
-            return;
-        }
-        User user = userService.getUser(task.getUserId());
-        analysisCreditService.refund(user, task.getCreditReferenceId());
-        analysisAsyncTaskService.markCreditReleased(task.getTaskId());
-    }
-
     private void releaseCreditAfterContextFailure(String taskId) {
         transactionTemplate.execute(status -> {
             AnalysisAsyncTask task = getTaskForUpdate(taskId);
             if (task.getExecutionContextSnapshot() != null) {
                 return null;
             }
-            releaseCreditIfNeeded(task);
+            analysisAsyncCreditCoordinator.releaseReservedCreditIfNeeded(task);
             return null;
         });
     }

@@ -70,6 +70,9 @@ class AnalysisWorkerBridgeServiceTest {
     private AnalysisCreditService analysisCreditService;
 
     @Mock
+    private AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator;
+
+    @Mock
     private UserService userService;
 
     @Mock
@@ -275,11 +278,10 @@ class AnalysisWorkerBridgeServiceTest {
         ReflectionTestUtils.setField(user, "id", 1L);
 
         when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
-        when(userService.getUser(1L)).thenReturn(user);
-        doAnswer(invocation -> {
+        when(analysisAsyncCreditCoordinator.releaseReservedCreditIfNeeded(task)).thenAnswer(invocation -> {
             task.markCreditReleased();
-            return null;
-        }).when(analysisAsyncTaskService).markCreditReleased(task.getTaskId());
+            return true;
+        });
         doAnswer(invocation -> {
             task.markFailed(AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1);
             return null;
@@ -288,8 +290,7 @@ class AnalysisWorkerBridgeServiceTest {
         analysisWorkerBridgeService.failTask(task.getTaskId(), AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
         analysisWorkerBridgeService.failTask(task.getTaskId(), AnalysisAsyncFailureReason.INTERNAL_ERROR, "error", 1, "worker-1", 10L);
 
-        verify(analysisCreditService, times(1)).refund(user, "analysisTaskId=" + task.getTaskId());
-        verify(analysisAsyncTaskService, times(1)).markCreditReleased(task.getTaskId());
+        verify(analysisAsyncCreditCoordinator, times(1)).releaseReservedCreditIfNeeded(task);
     }
 
     @Test
