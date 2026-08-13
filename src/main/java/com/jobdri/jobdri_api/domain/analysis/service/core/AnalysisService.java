@@ -102,7 +102,7 @@ public class AnalysisService {
         return analysisPreparationService.prepare(user, mockApplyId, similarJobPostings).toExecutionPayload();
     }
 
-    public AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
+    private AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
         return analysisGenerator.analyze(payload);
     }
 
@@ -117,9 +117,20 @@ public class AnalysisService {
             User user,
             Long mockApplyId,
             AnalysisExecutionPayload payload,
+            AnalysisLlmResponse llmResponse,
+            String inputFingerprint
+    ) {
+        return persistAnalysis(user, mockApplyId, payload, llmResponse, inputFingerprint);
+    }
+
+    @Transactional
+    public AnalysisResponse finalizeAnalysis(
+            User user,
+            Long mockApplyId,
+            AnalysisExecutionPayload payload,
             AnalysisLlmResponse llmResponse
     ) {
-        return finalizeAnalysis(
+        return persistAnalysis(
                 user,
                 mockApplyId,
                 payload,
@@ -128,8 +139,7 @@ public class AnalysisService {
         );
     }
 
-    @Transactional
-    public AnalysisResponse finalizeAnalysis(
+    private AnalysisResponse persistAnalysis(
             User user,
             Long mockApplyId,
             AnalysisExecutionPayload payload,
