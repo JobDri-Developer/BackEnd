@@ -27,7 +27,6 @@ import org.springframework.util.StringUtils;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -39,8 +38,6 @@ import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultC
 import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.IMPACT_WEIGHT;
 import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.JOB_FIT_WEIGHT;
 import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.MAX_ANALYSES_PER_QUESTION;
-import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.MAX_SCORE;
-import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.MIN_SCORE;
 
 @Service
 @RequiredArgsConstructor
@@ -50,9 +47,9 @@ public class AnalysisResultPersistenceService {
     private final QuestionRepository questionRepository;
     private final AnalysisRepository analysisRepository;
     private final QuestionAnalysisRepository questionAnalysisRepository;
-    private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
     private final AnalysisResponseAssembler analysisResponseAssembler;
     private final AnalysisResultSanitizationService analysisResultSanitizationService;
+    private final AnalysisResultValidationService analysisResultValidationService;
 
     @Transactional
     public AnalysisResponse finalizeAnalysis(
@@ -67,11 +64,12 @@ public class AnalysisResultPersistenceService {
                         GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
                         "해당 모의 서류 지원을 찾을 수 없습니다. mockApplyId=" + mockApply.getId()
                 ));
-        VerifiedAnswerSnapshot answerSnapshot = verifyAnswerSnapshot(questions, payloadSnapshots);
-        validateRequiredScores(llmResponse);
-        int jobFit = validateScore("jobFit", llmResponse.jobFit());
-        int impact = validateScore("impact", llmResponse.impact());
-        int completeness = validateScore("completeness", llmResponse.completeness());
+        AnalysisResultValidationService.VerifiedAnswerSnapshot answerSnapshot =
+                analysisResultValidationService.verifyAnswerSnapshot(questions, payloadSnapshots);
+        analysisResultValidationService.validateRequiredScores(llmResponse);
+        int jobFit = analysisResultValidationService.validateScore("jobFit", llmResponse.jobFit());
+        int impact = analysisResultValidationService.validateScore("impact", llmResponse.impact());
+        int completeness = analysisResultValidationService.validateScore("completeness", llmResponse.completeness());
         List<AnalysisHighlightResponse> keyStrengths = analysisResultSanitizationService.buildHighlights(
                 llmResponse.keyStrengths()
         );
@@ -92,7 +90,7 @@ public class AnalysisResultPersistenceService {
                 jobFit,
                 impact,
                 completeness,
-                normalizeFeedback(llmResponse.feedback()),
+                analysisResultValidationService.normalizeFeedback(llmResponse.feedback()),
                 analysisResultSanitizationService.serializeMissingKeywords(missingKeywords),
                 analysisResultSanitizationService.serializeHighlights(keyStrengths, "keyStrengths"),
                 analysisResultSanitizationService.serializeHighlights(keyWeaknesses, "keyWeaknesses"),
@@ -164,49 +162,6 @@ public class AnalysisResultPersistenceService {
         questionAnalysisRepository.deleteAllByAnalysisId(analysis.getId());
         analysisRepository.delete(analysis);
         analysisRepository.flush();
-    }
-
-    private VerifiedAnswerSnapshot verifyAnswerSnapshot(
-            List<Question> databaseQuestions,
-            List<AnalysisExecutionPayload.AnswerSnapshot> payloadSnapshots
-    ) {
-        String databaseFingerprint = analysisInputFingerprintProvider
-                .createAnswerFingerprintFromQuestions(databaseQuestions);
-        String payloadFingerprint = analysisInputFingerprintProvider
-                .createAnswerFingerprint(payloadSnapshots);
-        if (!databaseFingerprint.equals(payloadFingerprint)) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "분석 실행 이후 자소서 답변이 변경되어 결과를 저장할 수 없습니다."
-            );
-        }
-
-        List<AnalysisExecutionPayload.AnswerSnapshot> immutableSnapshots = List.copyOf(payloadSnapshots);
-        Map<Long, String> answerByQuestionId = new LinkedHashMap<>();
-        for (AnalysisExecutionPayload.AnswerSnapshot snapshot : immutableSnapshots) {
-            if (snapshot == null || snapshot.questionId() == null || !StringUtils.hasText(snapshot.answer())) {
-                continue;
-            }
-            if (answerByQuestionId.putIfAbsent(snapshot.questionId(), snapshot.answer()) != null) {
-                throw new GeneralException(
-                        GeneralErrorCode.INVALID_PARAMETER,
-                        "분석 답변 snapshot에 중복된 questionId가 있습니다. questionId=" + snapshot.questionId()
-                );
-            }
-        }
-        return new VerifiedAnswerSnapshot(immutableSnapshots, Map.copyOf(answerByQuestionId));
-    }
-
-    private record VerifiedAnswerSnapshot(
-            List<AnalysisExecutionPayload.AnswerSnapshot> answers,
-            Map<Long, String> answerByQuestionId
-    ) {
-        private String combinedAnswers() {
-            return answers.stream()
-                    .map(AnalysisExecutionPayload.AnswerSnapshot::answer)
-                    .filter(StringUtils::hasText)
-                    .collect(Collectors.joining("\n"));
-        }
     }
 
     private List<QuestionAnalysis> buildQuestionAnalyses(
@@ -290,7 +245,12 @@ public class AnalysisResultPersistenceService {
                     analysis,
                     sentence,
                     defaultString(item.reason()),
-                    normalizeImprovement(sentence, answer, item.improvement(), status),
+                    analysisResultValidationService.normalizeImprovement(
+                            sentence,
+                            answer,
+                            item.improvement(),
+                            status
+                    ),
                     status,
                     start,
                     start + sentence.length()
@@ -310,28 +270,6 @@ public class AnalysisResultPersistenceService {
                 .collect(Collectors.toSet());
     }
 
-    private void validateRequiredScores(AnalysisLlmResponse llmResponse) {
-        if (llmResponse == null
-                || llmResponse.jobFit() == null
-                || llmResponse.impact() == null
-                || llmResponse.completeness() == null) {
-            throw new GeneralException(
-                    GeneralErrorCode.SERVICE_UNAVAILABLE,
-                    "자소서 분석 AI 응답에 필수 점수 필드가 누락되었습니다."
-            );
-        }
-    }
-
-    private int validateScore(String fieldName, Integer score) {
-        if (score == null || score < MIN_SCORE || score > MAX_SCORE) {
-            throw new GeneralException(
-                    GeneralErrorCode.SERVICE_UNAVAILABLE,
-                    "자소서 분석 AI 응답의 " + fieldName + " 점수 범위가 올바르지 않습니다."
-            );
-        }
-        return score;
-    }
-
     private int calculateScore(int jobFit, int impact, int completeness) {
         return (int) Math.round(
                 jobFit * JOB_FIT_WEIGHT
@@ -348,29 +286,8 @@ public class AnalysisResultPersistenceService {
         return answer.indexOf(sentence);
     }
 
-    private String normalizeFeedback(String feedback) {
-        if (StringUtils.hasText(feedback)) {
-            return feedback;
-        }
-        return "자소서 분석 결과를 확인해주세요.";
-    }
-
     private String defaultString(String value) {
         return value == null ? "" : value;
-    }
-
-    private String normalizeImprovement(
-            String sentence,
-            String answer,
-            String improvement,
-            QuestionAnalysisStatus status
-    ) {
-        return AnalysisSanitizationRules.normalizeImprovement(
-                sentence,
-                answer,
-                improvement,
-                status == QuestionAnalysisStatus.PROVEN
-        );
     }
 
     private QuestionAnalysisStatus parseStatus(String status) {
