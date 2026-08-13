@@ -133,7 +133,16 @@ public class Analysis extends BaseEntity {
     }
 
     public void updateHighlightsJson(String keyStrengthsJson, String keyWeaknessesJson) {
+        updateResultPayloadJson(keyStrengthsJson, keyWeaknessesJson, this.missingKeywordsJson);
+    }
+
+    public void updateResultPayloadJson(
+            String keyStrengthsJson,
+            String keyWeaknessesJson,
+            String missingKeywordsJson
+    ) {
         this.keyStrengthsJson = keyStrengthsJson == null ? "[]" : keyStrengthsJson;
         this.keyWeaknessesJson = keyWeaknessesJson == null ? "[]" : keyWeaknessesJson;
+        this.missingKeywordsJson = missingKeywordsJson == null ? "[]" : missingKeywordsJson;
     }
 }

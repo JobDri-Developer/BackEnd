@@ -71,10 +71,16 @@ public class AnalysisResultSanitizationService {
         AnalysisResultPayload payload = analysisResultPayload(analysis);
         String sanitizedKeyStrengthsJson = serializeHighlights(payload.keyStrengths(), "keyStrengths");
         String sanitizedKeyWeaknessesJson = serializeHighlights(payload.keyWeaknesses(), "keyWeaknesses");
+        String sanitizedMissingKeywordsJson = serializeMissingKeywords(payload.missingKeywords());
         if (persistIfChanged
                 && (!sanitizedKeyStrengthsJson.equals(analysis.getKeyStrengthsJson())
-                || !sanitizedKeyWeaknessesJson.equals(analysis.getKeyWeaknessesJson()))) {
-            analysis.updateHighlightsJson(sanitizedKeyStrengthsJson, sanitizedKeyWeaknessesJson);
+                || !sanitizedKeyWeaknessesJson.equals(analysis.getKeyWeaknessesJson())
+                || !sanitizedMissingKeywordsJson.equals(analysis.getMissingKeywordsJson()))) {
+            analysis.updateResultPayloadJson(
+                    sanitizedKeyStrengthsJson,
+                    sanitizedKeyWeaknessesJson,
+                    sanitizedMissingKeywordsJson
+            );
         }
         return payload;
     }
