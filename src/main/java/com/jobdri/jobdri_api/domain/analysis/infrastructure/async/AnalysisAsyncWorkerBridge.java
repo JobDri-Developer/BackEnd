@@ -148,10 +148,7 @@ public class AnalysisAsyncWorkerBridge {
                 return contextAccess.snapshot();
             }
 
-            AnalysisExecutionPayload payload = analysisService.prepareAsyncAnalysisExecution(
-                    userService.getUser(userId),
-                    mockApplyId
-            );
+            AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(userService.getUser(userId), mockApplyId);
             AnalysisWorkerContextResponse context = buildContext(userId, mockApplyId, payload);
             String contextSnapshot = writeContextSnapshot(context);
             String inputFingerprint = analysisInputFingerprintProvider.create(payload);
@@ -214,7 +211,7 @@ public class AnalysisAsyncWorkerBridge {
 
         User user = userService.getUser(request.userId());
         AnalysisWorkerContextResponse contextSnapshot = readContextSnapshot(task);
-        AnalysisExecutionPayload payload = analysisService.prepareAsyncAnalysisExecution(
+        AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(
                 user,
                 request.mockApplyId(),
                 contextSnapshot.similarJobPostings()
@@ -226,7 +223,7 @@ public class AnalysisAsyncWorkerBridge {
                 ))
                 .toList());
         AnalysisLlmResponse llmResponse = request.llmResponse();
-        AnalysisResponse response = analysisService.completeAsyncAnalysis(
+        AnalysisResponse response = analysisService.finalizeAnalysis(
                 user,
                 request.mockApplyId(),
                 payload,

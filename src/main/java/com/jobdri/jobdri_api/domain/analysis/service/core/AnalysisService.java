@@ -89,24 +89,12 @@ public class AnalysisService {
     }
 
     @Transactional(readOnly = true)
-    public AnalysisExecutionPayload prepareAsyncAnalysisExecution(User user, Long mockApplyId) {
-        return prepareAnalysisExecution(user, mockApplyId);
-    }
-
-    @Transactional(readOnly = true)
-    public AnalysisExecutionPayload prepareAsyncAnalysisExecution(
-            User user,
-            Long mockApplyId,
-            List<SimilarJobPostingContext> similarJobPostings
-    ) {
-        return prepareAnalysisExecution(user, mockApplyId, similarJobPostings);
-    }
-
-    private AnalysisExecutionPayload prepareAnalysisExecution(User user, Long mockApplyId) {
+    public AnalysisExecutionPayload prepareAnalysisExecution(User user, Long mockApplyId) {
         return analysisPreparationService.prepare(user, mockApplyId).toExecutionPayload();
     }
 
-    private AnalysisExecutionPayload prepareAnalysisExecution(
+    @Transactional(readOnly = true)
+    public AnalysisExecutionPayload prepareAnalysisExecution(
             User user,
             Long mockApplyId,
             List<SimilarJobPostingContext> similarJobPostings
@@ -119,13 +107,13 @@ public class AnalysisService {
     }
 
     @Transactional
-    private AnalysisResponse lockAndReuseExistingAnalysis(User user, Long mockApplyId, String inputFingerprint) {
+    public AnalysisResponse lockAndReuseExistingAnalysis(User user, Long mockApplyId, String inputFingerprint) {
         MockApply mockApply = lockOwnedMockApply(user, mockApplyId);
         return reuseExistingAnalysisIfSameInput(mockApply, inputFingerprint);
     }
 
     @Transactional
-    public AnalysisResponse completeAsyncAnalysis(
+    public AnalysisResponse finalizeAnalysis(
             User user,
             Long mockApplyId,
             AnalysisExecutionPayload payload,
@@ -136,7 +124,7 @@ public class AnalysisService {
     }
 
     @Transactional
-    private AnalysisResponse finalizeAnalysis(
+    public AnalysisResponse finalizeAnalysis(
             User user,
             Long mockApplyId,
             AnalysisExecutionPayload payload,
