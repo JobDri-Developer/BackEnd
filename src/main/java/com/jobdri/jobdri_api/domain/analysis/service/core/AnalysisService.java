@@ -89,12 +89,24 @@ public class AnalysisService {
     }
 
     @Transactional(readOnly = true)
-    public AnalysisExecutionPayload prepareAnalysisExecution(User user, Long mockApplyId) {
-        return analysisPreparationService.prepare(user, mockApplyId).toExecutionPayload();
+    public AnalysisExecutionPayload prepareAsyncAnalysisExecution(User user, Long mockApplyId) {
+        return prepareAnalysisExecution(user, mockApplyId);
     }
 
     @Transactional(readOnly = true)
-    public AnalysisExecutionPayload prepareAnalysisExecution(
+    public AnalysisExecutionPayload prepareAsyncAnalysisExecution(
+            User user,
+            Long mockApplyId,
+            List<SimilarJobPostingContext> similarJobPostings
+    ) {
+        return prepareAnalysisExecution(user, mockApplyId, similarJobPostings);
+    }
+
+    private AnalysisExecutionPayload prepareAnalysisExecution(User user, Long mockApplyId) {
+        return analysisPreparationService.prepare(user, mockApplyId).toExecutionPayload();
+    }
+
+    private AnalysisExecutionPayload prepareAnalysisExecution(
             User user,
             Long mockApplyId,
             List<SimilarJobPostingContext> similarJobPostings
@@ -102,24 +114,35 @@ public class AnalysisService {
         return analysisPreparationService.prepare(user, mockApplyId, similarJobPostings).toExecutionPayload();
     }
 
-    public AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
+    private AnalysisLlmResponse executeAnalysis(AnalysisExecutionPayload payload) {
         return analysisGenerator.analyze(payload);
     }
 
     @Transactional
-    public AnalysisResponse lockAndReuseExistingAnalysis(User user, Long mockApplyId, String inputFingerprint) {
+    private AnalysisResponse lockAndReuseExistingAnalysis(User user, Long mockApplyId, String inputFingerprint) {
         MockApply mockApply = lockOwnedMockApply(user, mockApplyId);
         return reuseExistingAnalysisIfSameInput(mockApply, inputFingerprint);
     }
 
     @Transactional
-    public AnalysisResponse finalizeAnalysis(
+    public AnalysisResponse completeAsyncAnalysis(
+            User user,
+            Long mockApplyId,
+            AnalysisExecutionPayload payload,
+            AnalysisLlmResponse llmResponse,
+            String inputFingerprint
+    ) {
+        return persistAnalysis(user, mockApplyId, payload, llmResponse, inputFingerprint);
+    }
+
+    @Transactional
+    private AnalysisResponse finalizeAnalysis(
             User user,
             Long mockApplyId,
             AnalysisExecutionPayload payload,
             AnalysisLlmResponse llmResponse
     ) {
-        return finalizeAnalysis(
+        return persistAnalysis(
                 user,
                 mockApplyId,
                 payload,
@@ -128,8 +151,7 @@ public class AnalysisService {
         );
     }
 
-    @Transactional
-    public AnalysisResponse finalizeAnalysis(
+    private AnalysisResponse persistAnalysis(
             User user,
             Long mockApplyId,
             AnalysisExecutionPayload payload,
