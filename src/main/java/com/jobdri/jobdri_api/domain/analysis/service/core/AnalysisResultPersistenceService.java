@@ -64,43 +64,37 @@ public class AnalysisResultPersistenceService {
                         GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
                         "해당 모의 서류 지원을 찾을 수 없습니다. mockApplyId=" + mockApply.getId()
                 ));
-        AnalysisResultValidationService.VerifiedAnswerSnapshot answerSnapshot =
-                analysisResultValidationService.verifyAnswerSnapshot(questions, payloadSnapshots);
-        analysisResultValidationService.validateRequiredScores(llmResponse);
-        int jobFit = analysisResultValidationService.validateScore("jobFit", llmResponse.jobFit());
-        int impact = analysisResultValidationService.validateScore("impact", llmResponse.impact());
-        int completeness = analysisResultValidationService.validateScore("completeness", llmResponse.completeness());
-        List<AnalysisHighlightResponse> keyStrengths = analysisResultSanitizationService.buildHighlights(
-                llmResponse.keyStrengths()
-        );
-        List<AnalysisHighlightResponse> keyWeaknesses = analysisResultSanitizationService.buildNonOverlappingHighlights(
-                llmResponse.keyWeaknesses(),
-                keyStrengths
-        );
-        List<MissingKeywordResponse> missingKeywords = analysisResultSanitizationService.buildMissingKeywords(
-                lockedMockApply.getJobPosting(),
-                answerSnapshot.combinedAnswers(),
-                llmResponse
-        );
+        AnalysisResultValidationService.ValidatedAnalysisResult validatedResult =
+                analysisResultValidationService.validateForPersistence(questions, payloadSnapshots, llmResponse);
+        AnalysisResultSanitizationService.SanitizedAnalysisContent sanitizedContent =
+                analysisResultSanitizationService.sanitizeForPersistence(
+                        lockedMockApply.getJobPosting(),
+                        validatedResult.answerSnapshot().combinedAnswers(),
+                        llmResponse
+                );
         replaceExistingAnalysis(lockedMockApply);
 
         Analysis analysis = analysisRepository.save(Analysis.create(
                 lockedMockApply,
-                calculateScore(jobFit, impact, completeness),
-                jobFit,
-                impact,
-                completeness,
-                analysisResultValidationService.normalizeFeedback(llmResponse.feedback()),
-                analysisResultSanitizationService.serializeMissingKeywords(missingKeywords),
-                analysisResultSanitizationService.serializeHighlights(keyStrengths, "keyStrengths"),
-                analysisResultSanitizationService.serializeHighlights(keyWeaknesses, "keyWeaknesses"),
+                calculateScore(
+                        validatedResult.jobFit(),
+                        validatedResult.impact(),
+                        validatedResult.completeness()
+                ),
+                validatedResult.jobFit(),
+                validatedResult.impact(),
+                validatedResult.completeness(),
+                validatedResult.feedback(),
+                analysisResultSanitizationService.serializeMissingKeywords(sanitizedContent.missingKeywords()),
+                analysisResultSanitizationService.serializeHighlights(sanitizedContent.keyStrengths(), "keyStrengths"),
+                analysisResultSanitizationService.serializeHighlights(sanitizedContent.keyWeaknesses(), "keyWeaknesses"),
                 inputFingerprint
         ));
 
         List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(
                 analysis,
                 questions,
-                answerSnapshot.answerByQuestionId(),
+                validatedResult.answerSnapshot().answerByQuestionId(),
                 llmResponse
         );
         questionAnalysisRepository.saveAll(questionAnalyses);

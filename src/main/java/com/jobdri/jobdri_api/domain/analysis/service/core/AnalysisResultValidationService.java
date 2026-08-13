@@ -24,6 +24,22 @@ import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultC
 public class AnalysisResultValidationService {
     private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
 
+    public ValidatedAnalysisResult validateForPersistence(
+            List<Question> databaseQuestions,
+            List<AnalysisExecutionPayload.AnswerSnapshot> payloadSnapshots,
+            AnalysisLlmResponse llmResponse
+    ) {
+        VerifiedAnswerSnapshot answerSnapshot = verifyAnswerSnapshot(databaseQuestions, payloadSnapshots);
+        validateRequiredScores(llmResponse);
+        return new ValidatedAnalysisResult(
+                answerSnapshot,
+                validateScore("jobFit", llmResponse.jobFit()),
+                validateScore("impact", llmResponse.impact()),
+                validateScore("completeness", llmResponse.completeness()),
+                normalizeFeedback(llmResponse.feedback())
+        );
+    }
+
     public VerifiedAnswerSnapshot verifyAnswerSnapshot(
             List<Question> databaseQuestions,
             List<AnalysisExecutionPayload.AnswerSnapshot> payloadSnapshots
@@ -108,5 +124,14 @@ public class AnalysisResultValidationService {
                     .filter(StringUtils::hasText)
                     .collect(Collectors.joining("\n"));
         }
+    }
+
+    public record ValidatedAnalysisResult(
+            VerifiedAnswerSnapshot answerSnapshot,
+            int jobFit,
+            int impact,
+            int completeness,
+            String feedback
+    ) {
     }
 }

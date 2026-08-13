@@ -38,6 +38,19 @@ public class AnalysisResultSanitizationService {
 
     private final ObjectMapper objectMapper;
 
+    public SanitizedAnalysisContent sanitizeForPersistence(
+            JobPosting jobPosting,
+            String combinedAnswers,
+            AnalysisLlmResponse llmResponse
+    ) {
+        List<AnalysisHighlightResponse> keyStrengths = buildHighlights(llmResponse.keyStrengths());
+        return new SanitizedAnalysisContent(
+                keyStrengths,
+                buildNonOverlappingHighlights(llmResponse.keyWeaknesses(), keyStrengths),
+                buildMissingKeywords(jobPosting, combinedAnswers, llmResponse)
+        );
+    }
+
     public AnalysisResultPayload analysisResultPayload(Analysis analysis) {
         List<AnalysisHighlightResponse> keyStrengths = readHighlights(
                 analysis,
@@ -319,6 +332,13 @@ public class AnalysisResultSanitizationService {
     }
 
     public record AnalysisResultPayload(
+            List<AnalysisHighlightResponse> keyStrengths,
+            List<AnalysisHighlightResponse> keyWeaknesses,
+            List<MissingKeywordResponse> missingKeywords
+    ) {
+    }
+
+    public record SanitizedAnalysisContent(
             List<AnalysisHighlightResponse> keyStrengths,
             List<AnalysisHighlightResponse> keyWeaknesses,
             List<MissingKeywordResponse> missingKeywords
