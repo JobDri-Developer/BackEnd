@@ -6,6 +6,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnalysisRespon
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
+import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisResultSanitizationService;
 import com.jobdri.jobdri_api.domain.analysis.type.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
@@ -29,7 +30,7 @@ public class AnalysisResponseAssembler {
             Analysis analysis,
             List<Question> questions,
             List<QuestionAnalysis> questionAnalyses,
-            AnalysisResultPersistenceService.AnalysisResultPayload resultPayload
+            AnalysisResultSanitizationService.AnalysisResultPayload resultPayload
     ) {
         Map<Long, Question> questionById = questions.stream()
                 .collect(Collectors.toMap(Question::getId, Function.identity()));
