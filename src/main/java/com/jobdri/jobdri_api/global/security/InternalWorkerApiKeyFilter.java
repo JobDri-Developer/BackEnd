@@ -41,10 +41,12 @@ public class InternalWorkerApiKeyFilter extends OncePerRequestFilter {
     ) throws ServletException, IOException {
         try {
             internalApiKeyValidator.validate(request.getHeader(INTERNAL_API_KEY_HEADER));
-            filterChain.doFilter(request, response);
         } catch (GeneralException exception) {
             writeForbiddenResponse(response, exception);
+            return;
         }
+
+        filterChain.doFilter(request, response);
     }
 
     private void writeForbiddenResponse(HttpServletResponse response, GeneralException exception) throws IOException {
