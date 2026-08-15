@@ -9,6 +9,8 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.handler.CustomAuthentic
 import com.jobdri.jobdri_api.global.jwt.JwtAuthenticationFilter;
 import com.jobdri.jobdri_api.global.jwt.JwtUtil;
 import com.jobdri.jobdri_api.global.metrics.AuthRedisMetricsRecorder;
+import com.jobdri.jobdri_api.global.security.InternalApiKeyValidator;
+import com.jobdri.jobdri_api.global.security.InternalWorkerApiKeyFilter;
 import com.jobdri.jobdri_api.global.security.UserDetailsServiceImpl;
 import com.jobdri.jobdri_api.global.logging.RequestContextLoggingFilter;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.servlet.HandlerExceptionResolver;
 
 import java.util.List;
 
@@ -50,6 +53,14 @@ public class SecurityConfig {
     @Bean
     public PortOneWebhookRateLimitFilter portOneWebhookRateLimitFilter() {
         return new PortOneWebhookRateLimitFilter();
+    }
+
+    @Bean
+    public InternalWorkerApiKeyFilter internalWorkerApiKeyFilter(
+            InternalApiKeyValidator internalApiKeyValidator,
+            HandlerExceptionResolver handlerExceptionResolver
+    ) {
+        return new InternalWorkerApiKeyFilter(internalApiKeyValidator, handlerExceptionResolver);
     }
 
     @Bean
@@ -88,11 +99,21 @@ public class SecurityConfig {
     }
 
     @Bean
+    public FilterRegistrationBean<InternalWorkerApiKeyFilter> internalWorkerApiKeyFilterRegistration(
+            InternalWorkerApiKeyFilter internalWorkerApiKeyFilter
+    ) {
+        FilterRegistrationBean<InternalWorkerApiKeyFilter> registration = new FilterRegistrationBean<>(internalWorkerApiKeyFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
             RequestContextLoggingFilter requestContextLoggingFilter,
             JwtAuthenticationFilter jwtAuthenticationFilter,
-            PortOneWebhookRateLimitFilter portOneWebhookRateLimitFilter
+            PortOneWebhookRateLimitFilter portOneWebhookRateLimitFilter,
+            InternalWorkerApiKeyFilter internalWorkerApiKeyFilter
     ) throws Exception {
 
         http.cors((cors) -> cors.configurationSource(corsConfigurationSource()));
@@ -128,6 +149,7 @@ public class SecurityConfig {
         );
 
         http.addFilterBefore(portOneWebhookRateLimitFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(internalWorkerApiKeyFilter, PortOneWebhookRateLimitFilter.class);
         http.addFilterBefore(requestContextLoggingFilter, UsernamePasswordAuthenticationFilter.class);
         http.addFilterAfter(jwtAuthenticationFilter, RequestContextLoggingFilter.class);
 
