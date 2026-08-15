@@ -26,7 +26,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.servlet.HandlerExceptionResolver;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
 
@@ -58,9 +58,9 @@ public class SecurityConfig {
     @Bean
     public InternalWorkerApiKeyFilter internalWorkerApiKeyFilter(
             InternalApiKeyValidator internalApiKeyValidator,
-            HandlerExceptionResolver handlerExceptionResolver
+            ObjectMapper objectMapper
     ) {
-        return new InternalWorkerApiKeyFilter(internalApiKeyValidator, handlerExceptionResolver);
+        return new InternalWorkerApiKeyFilter(internalApiKeyValidator, objectMapper);
     }
 
     @Bean

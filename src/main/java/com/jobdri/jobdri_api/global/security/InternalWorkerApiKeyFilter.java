@@ -1,12 +1,14 @@
 package com.jobdri.jobdri_api.global.security;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
+import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.filter.OncePerRequestFilter;
-import org.springframework.web.servlet.HandlerExceptionResolver;
 
 import java.io.IOException;
 
@@ -16,14 +18,14 @@ public class InternalWorkerApiKeyFilter extends OncePerRequestFilter {
     private static final String INTERNAL_API_KEY_HEADER = "X-Internal-Api-Key";
 
     private final InternalApiKeyValidator internalApiKeyValidator;
-    private final HandlerExceptionResolver handlerExceptionResolver;
+    private final ObjectMapper objectMapper;
 
     public InternalWorkerApiKeyFilter(
             InternalApiKeyValidator internalApiKeyValidator,
-            HandlerExceptionResolver handlerExceptionResolver
+            ObjectMapper objectMapper
     ) {
         this.internalApiKeyValidator = internalApiKeyValidator;
-        this.handlerExceptionResolver = handlerExceptionResolver;
+        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -41,7 +43,19 @@ public class InternalWorkerApiKeyFilter extends OncePerRequestFilter {
             internalApiKeyValidator.validate(request.getHeader(INTERNAL_API_KEY_HEADER));
             filterChain.doFilter(request, response);
         } catch (GeneralException exception) {
-            handlerExceptionResolver.resolveException(request, response, null, exception);
+            writeForbiddenResponse(response, exception);
         }
+    }
+
+    private void writeForbiddenResponse(HttpServletResponse response, GeneralException exception) throws IOException {
+        response.setStatus(GeneralErrorCode.FORBIDDEN.getHttpStatus().value());
+        response.setContentType("application/json;charset=UTF-8");
+        objectMapper.writeValue(
+                response.getWriter(),
+                ApiResponse.onFailure(
+                        GeneralErrorCode.FORBIDDEN,
+                        exception.getError() != null ? exception.getError() : exception.getMessage()
+                )
+        );
     }
 }
