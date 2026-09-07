@@ -81,6 +81,7 @@ app:
   logging:
     path: ${APP_LOG_PATH:/var/log/spring-boot}
     audit-path: ${APP_AUDIT_LOG_PATH:/var/log/spring-boot/audit}
+    environment: ${APP_LOG_ENVIRONMENT:production}
   oauth2:
     redirect-uri: ${APP_OAUTH2_REDIRECT_URI}
   worker:

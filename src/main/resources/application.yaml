@@ -18,5 +18,6 @@ app:
   logging:
     path: ${APP_LOG_PATH:logs}
     audit-path: ${APP_AUDIT_LOG_PATH:logs/audit}
+    environment: ${APP_LOG_ENVIRONMENT:local}
     request-id-max-length: ${APP_LOG_REQUEST_ID_MAX_LENGTH:64}
     trusted-proxies: ${APP_LOG_TRUSTED_PROXIES:}

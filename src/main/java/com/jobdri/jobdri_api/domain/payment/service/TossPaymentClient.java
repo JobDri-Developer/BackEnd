@@ -57,7 +57,7 @@ public class TossPaymentClient {
         if (secretKey == null || secretKey.isBlank()) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_FAILED, "토스페이먼츠 시크릿 키가 설정되지 않았습니다.");
         }
-        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderId, paymentKey, amount);
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderId, amount);
         try (var ignored = LoggingContext.with("payment.confirm.external_called", null, paymentContext)) {
             log.info("Calling Toss payment confirm API");
         }

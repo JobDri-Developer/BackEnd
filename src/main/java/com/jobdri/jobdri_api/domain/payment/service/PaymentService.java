@@ -85,7 +85,7 @@ public class PaymentService {
         try (var ignored = LoggingContext.with(
                 "payment.prepare.started",
                 null,
-                PaymentLogMasking.paymentContext(null, null, validatedUser.getId(), request.planCode(), plan.getPrice())
+                PaymentLogMasking.paymentContext(null, validatedUser.getId(), request.planCode(), plan.getPrice())
         )) {
             log.info("Starting payment preparation");
         }
@@ -139,7 +139,7 @@ public class PaymentService {
         try (var ignored = LoggingContext.with(
                 "payment.create.completed",
                 null,
-                PaymentLogMasking.paymentContext(payment.getOrderId(), null, validatedUser.getId(), plan.getCode(), plan.getPrice())
+                PaymentLogMasking.paymentContext(payment.getOrderId(), validatedUser.getId(), plan.getCode(), plan.getPrice())
         )) {
             log.info("Payment preparation completed");
         }
@@ -175,7 +175,7 @@ public class PaymentService {
         try (var ignored = LoggingContext.with(
                 "payment.portone.prepare.completed",
                 null,
-                PaymentLogMasking.paymentContext(payment.getOrderId(), null, validatedUser.getId(), plan.getCode(), plan.getPrice())
+                PaymentLogMasking.paymentContext(payment.getOrderId(), validatedUser.getId(), plan.getCode(), plan.getPrice())
         )) {
             log.info("PortOne payment preparation completed");
         }
@@ -197,7 +197,6 @@ public class PaymentService {
         User validatedUser = userService.validateUser(user);
         Map<String, String> paymentContext = PaymentLogMasking.paymentContext(
                 request.orderId(),
-                request.paymentKey(),
                 validatedUser.getId(),
                 null,
                 request.amount()
@@ -329,7 +328,7 @@ public class PaymentService {
                 try (var ignored = LoggingContext.with(
                         "payment.portone.webhook.ignored",
                         e.getCode(),
-                        PaymentLogMasking.paymentContext(payload.data().paymentId(), null, null)
+                        PaymentLogMasking.paymentContext(payload.data().paymentId(), null)
                 )) {
                     log.warn("PortOne webhook ignored: {}", e.getMessage());
                 }
@@ -343,7 +342,6 @@ public class PaymentService {
     public void handleTossPayCallback(TossPayCallbackRequest request) {
         Map<String, String> paymentContext = PaymentLogMasking.paymentContext(
                 request == null ? null : request.orderNo(),
-                request == null ? null : request.payToken(),
                 request == null ? null : request.amount()
         );
         try (var ignored = LoggingContext.with("payment.callback.received", null, paymentContext)) {
@@ -436,7 +434,6 @@ public class PaymentService {
         String easyPayProvider = response.easyPay() == null ? null : response.easyPay().provider();
         Map<String, String> paymentContext = PaymentLogMasking.paymentContext(
                 request.orderId(),
-                request.paymentKey(),
                 userId,
                 null,
                 request.amount()
