@@ -3,6 +3,7 @@
     <springProperty scope="context" name="APP_NAME" source="spring.application.name" defaultValue="jobdri-api" />
     <springProperty scope="context" name="LOG_PATH" source="app.logging.path" defaultValue="logs" />
     <springProperty scope="context" name="AUDIT_LOG_PATH" source="app.logging.audit-path" defaultValue="logs/audit" />
+    <springProperty scope="context" name="APP_ENVIRONMENT" source="app.logging.environment" defaultValue="local" />
 
     <property name="APPLICATION_LOG_FILE" value="${LOG_PATH}/application.log" />
     <property name="AUDIT_LOG_FILE" value="${AUDIT_LOG_PATH}/audit.log" />
@@ -11,12 +12,30 @@
             name="CONSOLE_LOG_PATTERN"
             value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg %mdc%n%ex{full}" />
 
-    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-        <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
-            <pattern>${CONSOLE_LOG_PATTERN}</pattern>
-            <charset>UTF-8</charset>
-        </encoder>
-    </appender>
+    <springProfile name="prod">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <timeZone>Asia/Seoul</timeZone>
+                <includeMdc>true</includeMdc>
+                <customFields>{"service":"${APP_NAME}","service_name":"${APP_NAME}","environment":"${APP_ENVIRONMENT}"}</customFields>
+                <fieldNames>
+                    <timestamp>timestamp</timestamp>
+                    <logger>logger_name</logger>
+                    <thread>thread</thread>
+                    <stackTrace>stack_trace</stackTrace>
+                </fieldNames>
+            </encoder>
+        </appender>
+    </springProfile>
+
+    <springProfile name="!prod">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="ch.qos.logback.classic.encoder.PatternLayoutEncoder">
+                <pattern>${CONSOLE_LOG_PATTERN}</pattern>
+                <charset>UTF-8</charset>
+            </encoder>
+        </appender>
+    </springProfile>
 
     <appender name="APPLICATION_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${APPLICATION_LOG_FILE}</file>
@@ -29,7 +48,7 @@
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
             <timeZone>Asia/Seoul</timeZone>
             <includeMdc>true</includeMdc>
-            <customFields>{"service":"${APP_NAME}"}</customFields>
+            <customFields>{"service":"${APP_NAME}","service_name":"${APP_NAME}","environment":"${APP_ENVIRONMENT}"}</customFields>
             <fieldNames>
                 <timestamp>timestamp</timestamp>
                 <logger>logger_name</logger>
@@ -50,7 +69,7 @@
         <encoder class="net.logstash.logback.encoder.LogstashEncoder">
             <timeZone>Asia/Seoul</timeZone>
             <includeMdc>true</includeMdc>
-            <customFields>{"service":"${APP_NAME}"}</customFields>
+            <customFields>{"service":"${APP_NAME}","service_name":"${APP_NAME}","environment":"${APP_ENVIRONMENT}"}</customFields>
             <fieldNames>
                 <timestamp>timestamp</timestamp>
                 <logger>logger_name</logger>
