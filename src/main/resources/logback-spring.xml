@@ -17,6 +17,18 @@
             <encoder class="net.logstash.logback.encoder.LogstashEncoder">
                 <timeZone>Asia/Seoul</timeZone>
                 <includeMdc>true</includeMdc>
+                <includeMdcKeyName>requestId</includeMdcKeyName>
+                <includeMdcKeyName>method</includeMdcKeyName>
+                <includeMdcKeyName>uri</includeMdcKeyName>
+                <includeMdcKeyName>logType</includeMdcKeyName>
+                <includeMdcKeyName>event</includeMdcKeyName>
+                <includeMdcKeyName>errorCode</includeMdcKeyName>
+                <includeMdcKeyName>taskId</includeMdcKeyName>
+                <includeMdcKeyName>messageId</includeMdcKeyName>
+                <includeMdcKeyName>taskType</includeMdcKeyName>
+                <includeMdcKeyName>retryCount</includeMdcKeyName>
+                <includeMdcKeyName>workerId</includeMdcKeyName>
+                <includeMdcKeyName>queueLatencyMillis</includeMdcKeyName>
                 <customFields>{"service":"${APP_NAME}","service_name":"${APP_NAME}","environment":"${APP_ENVIRONMENT}"}</customFields>
                 <fieldNames>
                     <timestamp>timestamp</timestamp>

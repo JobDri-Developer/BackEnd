@@ -85,7 +85,7 @@ public class PortOneClient {
     public PortOnePaymentResponse getPayment(String paymentId) {
         ensureConfigured();
         ensureRequestValue(paymentId, "paymentId");
-        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(paymentId, null, null);
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(paymentId, null);
         try (var ignored = LoggingContext.with("payment.portone.status.external_called", null, paymentContext)) {
             log.info("Calling PortOne get payment API");
         }
@@ -129,7 +129,7 @@ public class PortOneClient {
     public PortOneCancelResponse cancelPayment(String paymentId, int amount, String reason) {
         ensureConfigured();
         ensureRequestValue(paymentId, "paymentId");
-        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(paymentId, null, amount);
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(paymentId, amount);
         try (var ignored = LoggingContext.with("payment.portone.refund.external_called", null, paymentContext)) {
             log.info("Calling PortOne cancel payment API");
         }
