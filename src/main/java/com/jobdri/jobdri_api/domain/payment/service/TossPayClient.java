@@ -62,7 +62,7 @@ public class TossPayClient {
 
     public TossPayCreateResponse createPayment(String orderNo, int amount, String productDesc) {
         ensureCreatePaymentConfigured();
-        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderNo, null, amount);
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderNo, amount);
         try (var ignored = LoggingContext.with("payment.create.external_called", null, paymentContext)) {
             log.info("Calling Toss Pay create payment API");
         }
@@ -148,7 +148,7 @@ public class TossPayClient {
             String reason
     ) {
         ensureRefundConfigured(payToken, orderNo, refundNo);
-        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderNo, payToken, amount);
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderNo, amount);
         try (var ignored = LoggingContext.with("payment.tosspay.refund.external_called", null, paymentContext)) {
             log.info("Calling Toss Pay refund API");
         }

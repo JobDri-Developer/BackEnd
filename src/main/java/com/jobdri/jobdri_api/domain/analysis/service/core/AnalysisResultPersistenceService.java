@@ -1,16 +1,10 @@
 package com.jobdri.jobdri_api.domain.analysis.service.core;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisHighlightResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisQuestionResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordResponse;
-import com.jobdri.jobdri_api.domain.analysis.dto.response.MissingKeywordSource;
-import com.jobdri.jobdri_api.domain.analysis.dto.response.QuestionAnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.entity.Analysis;
 import com.jobdri.jobdri_api.domain.analysis.entity.Question;
 import com.jobdri.jobdri_api.domain.analysis.entity.QuestionAnalysis;
@@ -18,24 +12,21 @@ import com.jobdri.jobdri_api.domain.analysis.type.QuestionAnalysisStatus;
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
+import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisResultSanitizationService;
 import com.jobdri.jobdri_api.domain.analysis.service.sanitization.AnalysisSanitizationRules;
-import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -47,30 +38,18 @@ import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultC
 import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.IMPACT_WEIGHT;
 import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.JOB_FIT_WEIGHT;
 import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.MAX_ANALYSES_PER_QUESTION;
-import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.MAX_HIGHLIGHTS;
-import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.MAX_HIGHLIGHT_QUOTE_LENGTH;
-import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.MAX_HIGHLIGHT_TITLE_LENGTH;
-import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.MAX_MISSING_KEYWORDS;
-import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.MAX_MISSING_KEYWORD_LENGTH;
-import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.MAX_SCORE;
-import static com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisResultConstants.MIN_SCORE;
 
 @Service
-@Slf4j
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class AnalysisResultPersistenceService {
-    private static final TypeReference<List<MissingKeywordResponse>> MISSING_KEYWORDS_TYPE = new TypeReference<>() {
-    };
-    private static final TypeReference<List<AnalysisHighlightResponse>> HIGHLIGHTS_TYPE = new TypeReference<>() {
-    };
-
     private final MockApplyRepository mockApplyRepository;
     private final QuestionRepository questionRepository;
     private final AnalysisRepository analysisRepository;
     private final QuestionAnalysisRepository questionAnalysisRepository;
-    private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
-    private final ObjectMapper objectMapper;
+    private final AnalysisResponseAssembler analysisResponseAssembler;
+    private final AnalysisResultSanitizationService analysisResultSanitizationService;
+    private final AnalysisResultValidationService analysisResultValidationService;
 
     @Transactional
     public AnalysisResponse finalizeAnalysis(
@@ -85,44 +64,50 @@ public class AnalysisResultPersistenceService {
                         GeneralErrorCode.MOCK_APPLY_NOT_FOUND,
                         "해당 모의 서류 지원을 찾을 수 없습니다. mockApplyId=" + mockApply.getId()
                 ));
-        VerifiedAnswerSnapshot answerSnapshot = verifyAnswerSnapshot(questions, payloadSnapshots);
-        validateRequiredScores(llmResponse);
-        int jobFit = validateScore("jobFit", llmResponse.jobFit());
-        int impact = validateScore("impact", llmResponse.impact());
-        int completeness = validateScore("completeness", llmResponse.completeness());
-        List<AnalysisHighlightResponse> keyStrengths = buildHighlights(llmResponse.keyStrengths());
-        List<AnalysisHighlightResponse> keyWeaknesses = buildNonOverlappingHighlights(llmResponse.keyWeaknesses(), keyStrengths);
-        List<MissingKeywordResponse> missingKeywords = buildMissingKeywords(
-                lockedMockApply.getJobPosting(),
-                answerSnapshot.combinedAnswers(),
-                llmResponse
-        );
+        AnalysisResultValidationService.ValidatedAnalysisResult validatedResult =
+                analysisResultValidationService.validateForPersistence(questions, payloadSnapshots, llmResponse);
+        AnalysisResultSanitizationService.SanitizedAnalysisContent sanitizedContent =
+                analysisResultSanitizationService.sanitizeForPersistence(
+                        lockedMockApply.getJobPosting(),
+                        validatedResult.answerSnapshot().combinedAnswers(),
+                        llmResponse
+                );
         replaceExistingAnalysis(lockedMockApply);
 
         Analysis analysis = analysisRepository.save(Analysis.create(
                 lockedMockApply,
-                calculateScore(jobFit, impact, completeness),
-                jobFit,
-                impact,
-                completeness,
-                normalizeFeedback(llmResponse.feedback()),
-                serializeMissingKeywords(missingKeywords),
-                serializeHighlights(keyStrengths, "keyStrengths"),
-                serializeHighlights(keyWeaknesses, "keyWeaknesses"),
+                calculateScore(
+                        validatedResult.jobFit(),
+                        validatedResult.impact(),
+                        validatedResult.completeness()
+                ),
+                validatedResult.jobFit(),
+                validatedResult.impact(),
+                validatedResult.completeness(),
+                validatedResult.feedback(),
+                analysisResultSanitizationService.serializeMissingKeywords(sanitizedContent.missingKeywords()),
+                analysisResultSanitizationService.serializeHighlights(sanitizedContent.keyStrengths(), "keyStrengths"),
+                analysisResultSanitizationService.serializeHighlights(sanitizedContent.keyWeaknesses(), "keyWeaknesses"),
                 inputFingerprint
         ));
 
         List<QuestionAnalysis> questionAnalyses = buildQuestionAnalyses(
                 analysis,
                 questions,
-                answerSnapshot.answerByQuestionId(),
+                validatedResult.answerSnapshot().answerByQuestionId(),
                 llmResponse
         );
         questionAnalysisRepository.saveAll(questionAnalyses);
         lockedMockApply.updateStatus(MockApplyStatus.COMPLETED);
         mockApplyRepository.flush();
 
-        return toResponse(lockedMockApply, analysis, questions, questionAnalyses, analysisResultPayload(analysis));
+        return analysisResponseAssembler.toResponse(
+                lockedMockApply,
+                analysis,
+                questions,
+                questionAnalyses,
+                analysisResultSanitizationService.analysisResultPayload(analysis)
+        );
     }
 
     @Transactional
@@ -136,12 +121,12 @@ public class AnalysisResultPersistenceService {
         List<QuestionAnalysis> questionAnalyses =
                 questionAnalysisRepository.findAllByAnalysisIdOrderByQuestionIdAscIdAsc(analysis.getId());
 
-        return toResponse(
+        return analysisResponseAssembler.toResponse(
                 mockApply,
                 analysis,
                 questions,
                 questionAnalyses,
-                sanitizeAndPersistAnalysisPayload(analysis, true)
+                analysisResultSanitizationService.sanitizeAndPersistAnalysisPayload(analysis, true)
         );
     }
 
@@ -151,12 +136,12 @@ public class AnalysisResultPersistenceService {
         List<QuestionAnalysis> questionAnalyses =
                 questionAnalysisRepository.findAllByAnalysisIdOrderByQuestionIdAscIdAsc(analysis.getId());
 
-        return toResponse(
+        return analysisResponseAssembler.toResponse(
                 mockApply,
                 analysis,
                 questions,
                 questionAnalyses,
-                sanitizeAndPersistAnalysisPayload(analysis, false)
+                analysisResultSanitizationService.sanitizeAndPersistAnalysisPayload(analysis, false)
         );
     }
 
@@ -171,49 +156,6 @@ public class AnalysisResultPersistenceService {
         questionAnalysisRepository.deleteAllByAnalysisId(analysis.getId());
         analysisRepository.delete(analysis);
         analysisRepository.flush();
-    }
-
-    private VerifiedAnswerSnapshot verifyAnswerSnapshot(
-            List<Question> databaseQuestions,
-            List<AnalysisExecutionPayload.AnswerSnapshot> payloadSnapshots
-    ) {
-        String databaseFingerprint = analysisInputFingerprintProvider
-                .createAnswerFingerprintFromQuestions(databaseQuestions);
-        String payloadFingerprint = analysisInputFingerprintProvider
-                .createAnswerFingerprint(payloadSnapshots);
-        if (!databaseFingerprint.equals(payloadFingerprint)) {
-            throw new GeneralException(
-                    GeneralErrorCode.INVALID_PARAMETER,
-                    "분석 실행 이후 자소서 답변이 변경되어 결과를 저장할 수 없습니다."
-            );
-        }
-
-        List<AnalysisExecutionPayload.AnswerSnapshot> immutableSnapshots = List.copyOf(payloadSnapshots);
-        Map<Long, String> answerByQuestionId = new LinkedHashMap<>();
-        for (AnalysisExecutionPayload.AnswerSnapshot snapshot : immutableSnapshots) {
-            if (snapshot == null || snapshot.questionId() == null || !StringUtils.hasText(snapshot.answer())) {
-                continue;
-            }
-            if (answerByQuestionId.putIfAbsent(snapshot.questionId(), snapshot.answer()) != null) {
-                throw new GeneralException(
-                        GeneralErrorCode.INVALID_PARAMETER,
-                        "분석 답변 snapshot에 중복된 questionId가 있습니다. questionId=" + snapshot.questionId()
-                );
-            }
-        }
-        return new VerifiedAnswerSnapshot(immutableSnapshots, Map.copyOf(answerByQuestionId));
-    }
-
-    private record VerifiedAnswerSnapshot(
-            List<AnalysisExecutionPayload.AnswerSnapshot> answers,
-            Map<Long, String> answerByQuestionId
-    ) {
-        private String combinedAnswers() {
-            return answers.stream()
-                    .map(AnalysisExecutionPayload.AnswerSnapshot::answer)
-                    .filter(StringUtils::hasText)
-                    .collect(Collectors.joining("\n"));
-        }
     }
 
     private List<QuestionAnalysis> buildQuestionAnalyses(
@@ -270,7 +212,7 @@ public class AnalysisResultPersistenceService {
             }
             String sentence = item.sentence();
             if (status != QuestionAnalysisStatus.PROVEN
-                    && keyStrengthQuotes.contains(normalizeKeyword(sentence))) {
+                    && keyStrengthQuotes.contains(analysisResultSanitizationService.normalizeKeyword(sentence))) {
                 continue;
             }
             String dedupeKey = question.getId() + ":" + sentence.trim();
@@ -297,7 +239,12 @@ public class AnalysisResultPersistenceService {
                     analysis,
                     sentence,
                     defaultString(item.reason()),
-                    normalizeImprovement(sentence, answer, item.improvement(), status),
+                    analysisResultValidationService.normalizeImprovement(
+                            sentence,
+                            answer,
+                            item.improvement(),
+                            status
+                    ),
                     status,
                     start,
                     start + sentence.length()
@@ -313,370 +260,8 @@ public class AnalysisResultPersistenceService {
         }
         return llmResponse.keyStrengths().stream()
                 .filter(item -> item != null && StringUtils.hasText(item.quote()))
-                .map(item -> normalizeKeyword(item.quote()))
+                .map(item -> analysisResultSanitizationService.normalizeKeyword(item.quote()))
                 .collect(Collectors.toSet());
-    }
-
-    private AnalysisResponse toResponse(
-            MockApply mockApply,
-            Analysis analysis,
-            List<Question> questions,
-            List<QuestionAnalysis> questionAnalyses,
-            AnalysisResultPayload resultPayload
-    ) {
-        Map<Long, Question> questionById = questions.stream()
-                .collect(Collectors.toMap(Question::getId, Function.identity()));
-        Map<Long, List<QuestionAnalysisResponse>> analysesByQuestionId = questionAnalyses.stream()
-                .filter(questionAnalysis -> isValidQuestionAnalysisForResponse(
-                        questionAnalysis,
-                        questionById.get(questionAnalysis.getQuestion().getId())
-                ))
-                .collect(Collectors.groupingBy(
-                        questionAnalysis -> questionAnalysis.getQuestion().getId(),
-                        Collectors.mapping(QuestionAnalysisResponse::from, Collectors.toList())
-                ));
-
-        List<AnalysisQuestionResponse> questionResponses = questions.stream()
-                .sorted(Comparator.comparing(Question::getId))
-                .map(question -> AnalysisQuestionResponse.of(
-                        question,
-                        analysesByQuestionId.getOrDefault(question.getId(), List.of())
-                ))
-                .toList();
-
-        return AnalysisResponse.of(
-                analysis,
-                mockApply.getStatus(),
-                mockApplyRepository.calculateSequence(mockApply),
-                resultPayload.keyStrengths(),
-                resultPayload.keyWeaknesses(),
-                resultPayload.missingKeywords(),
-                questionResponses
-        );
-    }
-
-    private boolean isValidQuestionAnalysisForResponse(QuestionAnalysis questionAnalysis, Question question) {
-        if (questionAnalysis == null || question == null) {
-            return false;
-        }
-        if (questionAnalysis.getStatus() == QuestionAnalysisStatus.MISSING) {
-            return false;
-        }
-        String answer = question.getAnswer();
-        String sentence = questionAnalysis.getSentence();
-        int start = questionAnalysis.getStart();
-        int end = questionAnalysis.getEnd();
-        if (!StringUtils.hasText(answer) || !StringUtils.hasText(sentence)) {
-            return false;
-        }
-        if (start < 0 || end <= start || end > answer.length()) {
-            return false;
-        }
-        return answer.substring(start, end).equals(sentence);
-    }
-
-    private AnalysisResultPayload analysisResultPayload(Analysis analysis) {
-        List<AnalysisHighlightResponse> keyStrengths = readHighlights(analysis, analysis.getKeyStrengthsJson(), "keyStrengths");
-        return new AnalysisResultPayload(
-                keyStrengths,
-                removeOverlappingHighlights(
-                        readHighlights(analysis, analysis.getKeyWeaknessesJson(), "keyWeaknesses"),
-                        keyStrengths
-                ),
-                readMissingKeywords(analysis)
-        );
-    }
-
-    private AnalysisResultPayload sanitizeAndPersistAnalysisPayload(Analysis analysis, boolean persistIfChanged) {
-        AnalysisResultPayload payload = analysisResultPayload(analysis);
-        String sanitizedKeyStrengthsJson = serializeHighlights(payload.keyStrengths(), "keyStrengths");
-        String sanitizedKeyWeaknessesJson = serializeHighlights(payload.keyWeaknesses(), "keyWeaknesses");
-        if (persistIfChanged
-                && (!sanitizedKeyStrengthsJson.equals(analysis.getKeyStrengthsJson())
-                || !sanitizedKeyWeaknessesJson.equals(analysis.getKeyWeaknessesJson()))) {
-            analysis.updateHighlightsJson(sanitizedKeyStrengthsJson, sanitizedKeyWeaknessesJson);
-        }
-        return payload;
-    }
-
-    private List<AnalysisHighlightResponse> buildHighlights(List<AnalysisLlmResponse.HighlightItem> items) {
-        return sanitizeHighlights(items, AnalysisLlmResponse.HighlightItem::title, AnalysisLlmResponse.HighlightItem::quote);
-    }
-
-    private List<AnalysisHighlightResponse> buildNonOverlappingHighlights(
-            List<AnalysisLlmResponse.HighlightItem> items,
-            List<AnalysisHighlightResponse> existingHighlights
-    ) {
-        return sanitizeHighlights(
-                removeOverlappingRawHighlights(items, existingHighlights),
-                AnalysisLlmResponse.HighlightItem::title,
-                AnalysisLlmResponse.HighlightItem::quote
-        );
-    }
-
-    private List<MissingKeywordResponse> buildMissingKeywords(
-            JobPosting jobPosting,
-            String combinedAnswers,
-            AnalysisLlmResponse llmResponse
-    ) {
-        if (llmResponse == null || llmResponse.missingKeywords() == null) {
-            return List.of();
-        }
-
-        List<MissingKeywordResponse> result = new ArrayList<>();
-        Set<String> seenKeywords = new HashSet<>();
-
-        for (AnalysisLlmResponse.MissingKeywordItem item : llmResponse.missingKeywords()) {
-            if (item == null || !StringUtils.hasText(item.keyword())) {
-                continue;
-            }
-
-            String keyword = item.keyword().trim();
-            if (keyword.length() > MAX_MISSING_KEYWORD_LENGTH) {
-                continue;
-            }
-
-            Optional<MissingKeywordSource> source = MissingKeywordSource.from(item.source());
-            if (source.isEmpty()) {
-                continue;
-            }
-            if (!AnalysisSanitizationRules.isValidMissingKeyword(
-                    keyword,
-                    source.get(),
-                    jobPosting == null ? "" : jobPosting.getTask(),
-                    jobPosting == null ? "" : jobPosting.getRequirement()
-            )) {
-                continue;
-            }
-            if (AnalysisSanitizationRules.isMissingKeywordMentionedInAnswers(keyword, combinedAnswers)) {
-                continue;
-            }
-
-            String dedupeKey = normalizeKeyword(keyword);
-            if (!seenKeywords.add(dedupeKey)) {
-                continue;
-            }
-
-            result.add(new MissingKeywordResponse(keyword, source.get()));
-            if (result.size() >= MAX_MISSING_KEYWORDS) {
-                break;
-            }
-        }
-
-        return result;
-    }
-
-    private String normalizeKeyword(String keyword) {
-        return keyword == null ? "" : keyword.replaceAll("\\s+", "").toLowerCase();
-    }
-
-    private String serializeMissingKeywords(List<MissingKeywordResponse> missingKeywords) {
-        try {
-            return objectMapper.writeValueAsString(missingKeywords == null ? List.of() : missingKeywords);
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to serialize missingKeywords. Fallback to empty array.", e);
-            return "[]";
-        }
-    }
-
-    private String serializeHighlights(List<AnalysisHighlightResponse> highlights, String fieldName) {
-        try {
-            return objectMapper.writeValueAsString(highlights == null ? List.of() : highlights);
-        } catch (JsonProcessingException e) {
-            log.warn("Failed to serialize {}. Fallback to empty array.", fieldName, e);
-            return "[]";
-        }
-    }
-
-    private List<AnalysisHighlightResponse> readHighlights(Analysis analysis, String json, String fieldName) {
-        if (!StringUtils.hasText(json)) {
-            return List.of();
-        }
-
-        try {
-            List<AnalysisHighlightResponse> highlights = objectMapper.readValue(json, HIGHLIGHTS_TYPE);
-            return sanitizeStoredHighlights(highlights);
-        } catch (Exception e) {
-            log.warn(
-                    "Failed to deserialize {}. analysisId={}, fallback to empty array.",
-                    fieldName,
-                    analysis == null ? null : analysis.getId(),
-                    e
-            );
-            return List.of();
-        }
-    }
-
-    private List<MissingKeywordResponse> readMissingKeywords(Analysis analysis) {
-        if (!StringUtils.hasText(analysis.getMissingKeywordsJson())) {
-            return List.of();
-        }
-
-        try {
-            List<MissingKeywordResponse> missingKeywords = objectMapper.readValue(
-                    analysis.getMissingKeywordsJson(),
-                    MISSING_KEYWORDS_TYPE
-            );
-            return sanitizeStoredMissingKeywords(missingKeywords);
-        } catch (Exception e) {
-            log.warn(
-                    "Failed to deserialize missingKeywords. analysisId={}, fallback to empty array.",
-                    analysis.getId(),
-                    e
-            );
-            return List.of();
-        }
-    }
-
-    private List<MissingKeywordResponse> sanitizeStoredMissingKeywords(List<MissingKeywordResponse> missingKeywords) {
-        if (missingKeywords == null) {
-            return List.of();
-        }
-
-        List<MissingKeywordResponse> result = new ArrayList<>();
-        Set<String> seenKeywords = new HashSet<>();
-
-        for (MissingKeywordResponse item : missingKeywords) {
-            if (item == null || !StringUtils.hasText(item.keyword()) || item.source() == null) {
-                continue;
-            }
-
-            String keyword = item.keyword().trim();
-            if (keyword.length() > MAX_MISSING_KEYWORD_LENGTH) {
-                continue;
-            }
-
-            String dedupeKey = normalizeKeyword(keyword);
-            if (!seenKeywords.add(dedupeKey)) {
-                continue;
-            }
-
-            result.add(new MissingKeywordResponse(keyword, item.source()));
-            if (result.size() >= MAX_MISSING_KEYWORDS) {
-                break;
-            }
-        }
-
-        return result;
-    }
-
-    private List<AnalysisHighlightResponse> sanitizeStoredHighlights(List<AnalysisHighlightResponse> highlights) {
-        return sanitizeHighlights(highlights, AnalysisHighlightResponse::title, AnalysisHighlightResponse::quote);
-    }
-
-    private <T> List<AnalysisHighlightResponse> sanitizeHighlights(
-            List<T> items,
-            Function<T, String> titleExtractor,
-            Function<T, String> quoteExtractor
-    ) {
-        if (items == null) {
-            return List.of();
-        }
-
-        List<AnalysisHighlightResponse> result = new ArrayList<>();
-        Set<String> seenHighlights = new HashSet<>();
-
-        for (T item : items) {
-            if (item == null) {
-                continue;
-            }
-
-            String rawTitle = titleExtractor.apply(item);
-            String rawQuote = quoteExtractor.apply(item);
-            if (!StringUtils.hasText(rawTitle) || !StringUtils.hasText(rawQuote)) {
-                continue;
-            }
-
-            String title = rawTitle.trim();
-            String quote = rawQuote.trim();
-            if (title.length() > MAX_HIGHLIGHT_TITLE_LENGTH || quote.length() > MAX_HIGHLIGHT_QUOTE_LENGTH) {
-                continue;
-            }
-
-            String dedupeKey = normalizeKeyword(title) + ":" + normalizeKeyword(quote);
-            if (!seenHighlights.add(dedupeKey)) {
-                continue;
-            }
-
-            result.add(new AnalysisHighlightResponse(title, quote));
-            if (result.size() >= MAX_HIGHLIGHTS) {
-                break;
-            }
-        }
-
-        return result;
-    }
-
-    private List<AnalysisHighlightResponse> removeOverlappingHighlights(
-            List<AnalysisHighlightResponse> highlights,
-            List<AnalysisHighlightResponse> existingHighlights
-    ) {
-        if (highlights == null || highlights.isEmpty()) {
-            return List.of();
-        }
-        Set<String> existingQuotes = normalizedHighlightQuotes(existingHighlights);
-        if (existingQuotes.isEmpty()) {
-            return highlights;
-        }
-
-        return highlights.stream()
-                .filter(highlight -> highlight != null && !existingQuotes.contains(normalizeKeyword(highlight.quote())))
-                .toList();
-    }
-
-    private List<AnalysisLlmResponse.HighlightItem> removeOverlappingRawHighlights(
-            List<AnalysisLlmResponse.HighlightItem> highlights,
-            List<AnalysisHighlightResponse> existingHighlights
-    ) {
-        if (highlights == null || highlights.isEmpty()) {
-            return List.of();
-        }
-        Set<String> existingQuotes = normalizedHighlightQuotes(existingHighlights);
-        if (existingQuotes.isEmpty()) {
-            return highlights;
-        }
-        return highlights.stream()
-                .filter(highlight -> highlight != null && !existingQuotes.contains(normalizeKeyword(highlight.quote())))
-                .toList();
-    }
-
-    private Set<String> normalizedHighlightQuotes(List<AnalysisHighlightResponse> highlights) {
-        if (highlights == null || highlights.isEmpty()) {
-            return Set.of();
-        }
-        return highlights.stream()
-                .filter(highlight -> highlight != null && StringUtils.hasText(highlight.quote()))
-                .map(highlight -> normalizeKeyword(highlight.quote()))
-                .collect(Collectors.toSet());
-    }
-
-    private record AnalysisResultPayload(
-            List<AnalysisHighlightResponse> keyStrengths,
-            List<AnalysisHighlightResponse> keyWeaknesses,
-            List<MissingKeywordResponse> missingKeywords
-    ) {
-    }
-
-    private void validateRequiredScores(AnalysisLlmResponse llmResponse) {
-        if (llmResponse == null
-                || llmResponse.jobFit() == null
-                || llmResponse.impact() == null
-                || llmResponse.completeness() == null) {
-            throw new GeneralException(
-                    GeneralErrorCode.SERVICE_UNAVAILABLE,
-                    "자소서 분석 AI 응답에 필수 점수 필드가 누락되었습니다."
-            );
-        }
-    }
-
-    private int validateScore(String fieldName, Integer score) {
-        if (score == null || score < MIN_SCORE || score > MAX_SCORE) {
-            throw new GeneralException(
-                    GeneralErrorCode.SERVICE_UNAVAILABLE,
-                    "자소서 분석 AI 응답의 " + fieldName + " 점수 범위가 올바르지 않습니다."
-            );
-        }
-        return score;
     }
 
     private int calculateScore(int jobFit, int impact, int completeness) {
@@ -695,29 +280,8 @@ public class AnalysisResultPersistenceService {
         return answer.indexOf(sentence);
     }
 
-    private String normalizeFeedback(String feedback) {
-        if (StringUtils.hasText(feedback)) {
-            return feedback;
-        }
-        return "자소서 분석 결과를 확인해주세요.";
-    }
-
     private String defaultString(String value) {
         return value == null ? "" : value;
-    }
-
-    private String normalizeImprovement(
-            String sentence,
-            String answer,
-            String improvement,
-            QuestionAnalysisStatus status
-    ) {
-        return AnalysisSanitizationRules.normalizeImprovement(
-                sentence,
-                answer,
-                improvement,
-                status == QuestionAnalysisStatus.PROVEN
-        );
     }
 
     private QuestionAnalysisStatus parseStatus(String status) {

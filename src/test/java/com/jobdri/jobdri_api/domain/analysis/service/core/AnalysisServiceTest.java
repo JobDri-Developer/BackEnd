@@ -1733,9 +1733,12 @@ class AnalysisServiceTest {
         entityManager.clear();
 
         AnalysisResponse response = analysisService.getAnalysis(user, mockApply.getId());
+        entityManager.clear();
+        Analysis persisted = analysisRepository.findByMockApplyId(mockApply.getId()).orElseThrow();
 
         assertThat(response.analysisId()).isEqualTo(saved.analysisId());
         assertThat(response.missingKeywords()).isEmpty();
+        assertThat(persisted.getMissingKeywordsJson()).isEqualTo("[]");
     }
 
     @Test
