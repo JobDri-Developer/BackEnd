@@ -8,6 +8,7 @@ import com.jobdri.jobdri_api.domain.analysis.policy.AnalysisPromptPolicy;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotProperties;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSearchQuery;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSearchService;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSelectionMode;
 import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.SelectedFewShotCase;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievedJobPostingReference;
@@ -615,7 +616,8 @@ public class AnalysisPromptBuilder {
             );
             if (selectedFewShots.isEmpty()) {
                 log.warn(
-                        "dynamic few-shot selection returned empty result. fallback=fixed, caseId={}, datasetVersion={}",
+                        "dynamic few-shot selection returned empty result. selectionMode={}, caseId={}, datasetVersion={}",
+                        FewShotSelectionMode.STATIC_FALLBACK,
                         promptInput.caseId(),
                         fewShotProperties.getDatasetVersion()
                 );
@@ -632,7 +634,8 @@ public class AnalysisPromptBuilder {
             return fewShotPromptProvider.buildPromptBlock(selectedFewShots);
         } catch (Exception e) {
             log.warn(
-                    "dynamic few-shot selection failed. fallback=fixed, caseId={}, datasetVersion={}, reason={}, message={}",
+                    "dynamic few-shot selection failed. selectionMode={}, caseId={}, datasetVersion={}, reason={}, message={}",
+                    FewShotSelectionMode.STATIC_FALLBACK,
                     promptInput.caseId(),
                     fewShotProperties.getDatasetVersion(),
                     e.getClass().getSimpleName(),

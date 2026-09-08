@@ -61,6 +61,7 @@ class DefaultFewShotSearchServiceTest {
 
         assertThat(result).extracting(item -> item.fewShotCase().id())
                 .containsExactly("EV-02");
+        assertThat(result.getFirst().selectionMethod()).isEqualTo("cohere-embedding");
     }
 
     @Test
