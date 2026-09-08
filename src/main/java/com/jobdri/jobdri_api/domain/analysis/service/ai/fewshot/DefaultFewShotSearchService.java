@@ -61,21 +61,33 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         String cacheKey = selectionCacheKey(query, requestedTopK, datasetFingerprint);
         SelectionCacheEntry cached = readSelectionCache(cacheKey);
         if (cached != null) {
-            log.debug("few-shot selection cache hit. selectedCount={}, datasetVersion={}", cached.selectedCases().size(), properties.getDatasetVersion());
+            log.debug(
+                    "few-shot selection cache hit. selectionMode={}, selectedCount={}, datasetVersion={}",
+                    cached.selectionMode(),
+                    cached.selectedCases().size(),
+                    properties.getDatasetVersion()
+            );
             return cached.selectedCases();
         }
 
         long startedAt = System.nanoTime();
         List<FewShotCase> candidates = localPrefilter(activeCases, query);
         List<SelectedFewShotCase> selected = selectWithCohere(query, candidates, requestedTopK);
+        FewShotSelectionMode selectionMode = selected.isEmpty()
+                ? FewShotSelectionMode.STATIC_FALLBACK
+                : FewShotSelectionMode.EMBEDDING;
         if (selected.isEmpty() && properties.isFallbackEnabled()) {
             selected = selectLocally(query, candidates, requestedTopK, "local-fallback");
+            if (!selected.isEmpty()) {
+                selectionMode = FewShotSelectionMode.LOCAL_FALLBACK;
+            }
         }
         if (properties.isCacheEnabled()) {
-            selectionCache.put(cacheKey, new SelectionCacheEntry(selected, expiresAt()));
+            selectionCache.put(cacheKey, new SelectionCacheEntry(selected, selectionMode, expiresAt()));
         }
         log.info(
-                "dynamic few-shot selection completed. enabled=true, totalCandidates={}, filteredCandidates={}, selectedIds={}, sources={}, scores={}, latencyMs={}",
+                "dynamic few-shot selection completed. enabled=true, selectionMode={}, totalCandidates={}, filteredCandidates={}, selectedIds={}, sources={}, scores={}, latencyMs={}",
+                selectionMode,
                 activeCases.size(),
                 candidates.size(),
                 selected.stream().map(item -> item.fewShotCase().id()).toList(),
@@ -447,7 +459,11 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     ) {
     }
 
-    private record SelectionCacheEntry(List<SelectedFewShotCase> selectedCases, Instant expiresAt) {
+    private record SelectionCacheEntry(
+            List<SelectedFewShotCase> selectedCases,
+            FewShotSelectionMode selectionMode,
+            Instant expiresAt
+    ) {
         private SelectionCacheEntry {
             selectedCases = selectedCases == null ? List.of() : List.copyOf(selectedCases);
         }
