@@ -3,8 +3,17 @@ package com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot;
 import com.jobdri.jobdri_api.global.cohere.CohereEmbeddingClient;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -139,6 +148,106 @@ class DefaultFewShotSearchServiceTest {
         service.searchRelevantFewShots(query("EV-02", "Java 서버를 운영했습니다."), 1);
 
         verify(cohereEmbeddingClient, times(2)).embedDocuments(any());
+    }
+
+    @Test
+    @DisplayName("서로 다른 후보의 document embedding 호출은 동시에 실행할 수 있다")
+    void embedsDifferentDocumentKeysConcurrently() throws Exception {
+        properties.setDynamicSelectionEnabled(true);
+        properties.getSearch().setCandidateLimit(1);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(
+                caseItem("FS-A", "alphaonly reference", 0),
+                caseItem("FS-B", "betaonly reference", 0)
+        ));
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        CountDownLatch callsStarted = new CountDownLatch(2);
+        CountDownLatch releaseCalls = new CountDownLatch(1);
+        AtomicInteger activeCalls = new AtomicInteger();
+        AtomicInteger maxActiveCalls = new AtomicInteger();
+        when(cohereEmbeddingClient.embedDocuments(any())).thenAnswer(invocation -> {
+            int active = activeCalls.incrementAndGet();
+            maxActiveCalls.accumulateAndGet(active, Math::max);
+            callsStarted.countDown();
+            try {
+                if (!releaseCalls.await(3, TimeUnit.SECONDS)) {
+                    throw new IllegalStateException("concurrent embedding calls did not start in time");
+                }
+                return List.of(new float[]{1, 0});
+            } finally {
+                activeCalls.decrementAndGet();
+            }
+        });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<SelectedFewShotCase>> alpha = executor.submit(
+                    () -> service.searchRelevantFewShots(query("EV-A", "alphaonly request"), 1)
+            );
+            Future<List<SelectedFewShotCase>> beta = executor.submit(
+                    () -> service.searchRelevantFewShots(query("EV-B", "betaonly request"), 1)
+            );
+
+            assertThat(callsStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            assertThat(maxActiveCalls.get()).isEqualTo(2);
+            releaseCalls.countDown();
+            assertThat(alpha.get(2, TimeUnit.SECONDS)).hasSize(1);
+            assertThat(beta.get(2, TimeUnit.SECONDS)).hasSize(1);
+        } finally {
+            releaseCalls.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("동일 후보의 동시 요청은 document embedding 호출을 공유한다")
+    void deduplicatesConcurrentDocumentEmbeddingForSameKey() throws Exception {
+        properties.setDynamicSelectionEnabled(true);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(caseItem("FS-1", "shared reference", 0)));
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        CountDownLatch embeddingStarted = new CountDownLatch(1);
+        CountDownLatch releaseEmbedding = new CountDownLatch(1);
+        when(cohereEmbeddingClient.embedDocuments(any())).thenAnswer(invocation -> {
+            embeddingStarted.countDown();
+            if (!releaseEmbedding.await(3, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("document embedding did not finish in time");
+            }
+            return List.of(new float[]{1, 0});
+        });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<SelectedFewShotCase>> first = executor.submit(
+                    () -> service.searchRelevantFewShots(query("EV-A", "first request"), 1)
+            );
+            assertThat(embeddingStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            Future<List<SelectedFewShotCase>> second = executor.submit(
+                    () -> service.searchRelevantFewShots(query("EV-B", "second request"), 1)
+            );
+
+            releaseEmbedding.countDown();
+            assertThat(first.get(2, TimeUnit.SECONDS)).hasSize(1);
+            assertThat(second.get(2, TimeUnit.SECONDS)).hasSize(1);
+            verify(cohereEmbeddingClient, times(1)).embedDocuments(any());
+        } finally {
+            releaseEmbedding.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("선택 캐시 접근 시 다른 키의 만료 항목도 함께 제거한다")
+    void evictsExpiredSelectionEntriesGlobally() {
+        properties.setDynamicSelectionEnabled(true);
+        properties.setCacheTtl(Duration.ZERO);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(caseItem("FS-1", "Spring Boot API 개발", 0)));
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(new float[]{1, 0}));
+
+        service.searchRelevantFewShots(query("EV-01", "첫 번째 요청"), 1);
+        service.searchRelevantFewShots(query("EV-02", "두 번째 요청"), 1);
+
+        Map<?, ?> selectionCache = (Map<?, ?>) ReflectionTestUtils.getField(service, "selectionCache");
+        assertThat(selectionCache).hasSize(1);
     }
 
     private static FewShotSearchQuery query(String caseId) {

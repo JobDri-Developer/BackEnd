@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -33,7 +34,8 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private final FewShotProperties properties;
     private final Map<String, SelectionCacheEntry> selectionCache = new ConcurrentHashMap<>();
     private final Map<String, DocumentEmbeddingCacheEntry> documentEmbeddingCache = new ConcurrentHashMap<>();
-    private final Object documentEmbeddingCacheMonitor = new Object();
+    private final Map<String, CompletableFuture<DocumentEmbeddingCacheEntry>> documentEmbeddingInFlight =
+            new ConcurrentHashMap<>();
 
     public DefaultFewShotSearchService(
             FewShotCaseStore caseStore,
@@ -125,52 +127,92 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         if (!properties.isCacheEnabled()) {
             return cohereEmbeddingClient.embedDocuments(documents);
         }
-        synchronized (documentEmbeddingCacheMonitor) {
-            Instant now = Instant.now();
-            documentEmbeddingCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
+        Instant now = Instant.now();
+        documentEmbeddingCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
 
-            List<float[]> result = new ArrayList<>(java.util.Collections.nCopies(candidates.size(), null));
-            List<String> missingKeys = new ArrayList<>();
-            List<String> missingDocuments = new ArrayList<>();
-            List<Integer> missingIndexes = new ArrayList<>();
-            int cacheHitCount = 0;
+        List<float[]> result = new ArrayList<>(java.util.Collections.nCopies(candidates.size(), null));
+        List<PendingDocumentEmbedding> pending = new ArrayList<>();
+        int cacheHitCount = 0;
+        int inFlightReuseCount = 0;
 
-            for (int i = 0; i < candidates.size(); i++) {
-                String key = documentEmbeddingCacheKey(candidates.get(i), documents.get(i));
-                DocumentEmbeddingCacheEntry cached = documentEmbeddingCache.get(key);
-                if (cached != null) {
-                    result.set(i, cached.embedding());
+        for (int i = 0; i < candidates.size(); i++) {
+            String key = documentEmbeddingCacheKey(candidates.get(i), documents.get(i));
+            DocumentEmbeddingCacheEntry cached = documentEmbeddingCache.get(key);
+            if (cached != null) {
+                result.set(i, cached.embedding());
+                cacheHitCount++;
+                continue;
+            }
+
+            CompletableFuture<DocumentEmbeddingCacheEntry> created = new CompletableFuture<>();
+            CompletableFuture<DocumentEmbeddingCacheEntry> existing = documentEmbeddingInFlight.putIfAbsent(key, created);
+            boolean owner = existing == null;
+            if (owner) {
+                DocumentEmbeddingCacheEntry cachedAfterClaim = documentEmbeddingCache.get(key);
+                if (cachedAfterClaim != null) {
+                    created.complete(cachedAfterClaim);
+                    documentEmbeddingInFlight.remove(key, created);
+                    result.set(i, cachedAfterClaim.embedding());
                     cacheHitCount++;
                     continue;
                 }
-                missingKeys.add(key);
-                missingDocuments.add(documents.get(i));
-                missingIndexes.add(i);
             }
+            if (!owner) {
+                inFlightReuseCount++;
+            }
+            pending.add(new PendingDocumentEmbedding(
+                    i,
+                    key,
+                    documents.get(i),
+                    owner ? created : existing,
+                    owner
+            ));
+        }
 
-            if (!missingDocuments.isEmpty()) {
-                List<float[]> embeddedDocuments = cohereEmbeddingClient.embedDocuments(missingDocuments);
-                if (embeddedDocuments.size() != missingDocuments.size()) {
-                    throw new IllegalStateException("Cohere document embedding count does not match candidate count.");
-                }
-                Instant expiresAt = expiresAt();
-                for (int i = 0; i < embeddedDocuments.size(); i++) {
-                    float[] embedding = embeddedDocuments.get(i);
-                    documentEmbeddingCache.put(
-                            missingKeys.get(i),
-                            new DocumentEmbeddingCacheEntry(embedding, expiresAt)
-                    );
-                    result.set(missingIndexes.get(i), embedding);
-                }
-            }
-            log.debug(
-                    "few-shot document embedding cache resolved. hitCount={}, missCount={}, candidateCount={}, datasetVersion={}",
-                    cacheHitCount,
-                    missingDocuments.size(),
-                    candidates.size(),
-                    properties.getDatasetVersion()
+        initializeMissingDocumentEmbeddings(pending);
+        for (PendingDocumentEmbedding item : pending) {
+            result.set(item.index(), item.future().join().embedding());
+        }
+        log.debug(
+                "few-shot document embedding cache resolved. hitCount={}, initializedCount={}, inFlightReuseCount={}, candidateCount={}, datasetVersion={}",
+                cacheHitCount,
+                pending.stream().filter(PendingDocumentEmbedding::owner).count(),
+                inFlightReuseCount,
+                candidates.size(),
+                properties.getDatasetVersion()
+        );
+        return List.copyOf(result);
+    }
+
+    private void initializeMissingDocumentEmbeddings(List<PendingDocumentEmbedding> pending) {
+        List<PendingDocumentEmbedding> owned = pending.stream()
+                .filter(PendingDocumentEmbedding::owner)
+                .toList();
+        if (owned.isEmpty()) {
+            return;
+        }
+        try {
+            List<float[]> embeddedDocuments = cohereEmbeddingClient.embedDocuments(
+                    owned.stream().map(PendingDocumentEmbedding::document).toList()
             );
-            return List.copyOf(result);
+            if (embeddedDocuments.size() != owned.size()) {
+                throw new IllegalStateException("Cohere document embedding count does not match candidate count.");
+            }
+            Instant expiresAt = expiresAt();
+            for (int i = 0; i < owned.size(); i++) {
+                PendingDocumentEmbedding item = owned.get(i);
+                DocumentEmbeddingCacheEntry entry = new DocumentEmbeddingCacheEntry(
+                        embeddedDocuments.get(i),
+                        expiresAt
+                );
+                documentEmbeddingCache.put(item.key(), entry);
+                item.future().complete(entry);
+            }
+        } catch (RuntimeException | Error e) {
+            owned.forEach(item -> item.future().completeExceptionally(e));
+            throw e;
+        } finally {
+            owned.forEach(item -> documentEmbeddingInFlight.remove(item.key(), item.future()));
         }
     }
 
@@ -251,15 +293,9 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         if (!properties.isCacheEnabled()) {
             return null;
         }
-        SelectionCacheEntry entry = selectionCache.get(key);
-        if (entry == null) {
-            return null;
-        }
-        if (entry.expiresAt().isBefore(Instant.now())) {
-            selectionCache.remove(key);
-            return null;
-        }
-        return entry;
+        Instant now = Instant.now();
+        selectionCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
+        return selectionCache.get(key);
     }
 
     private String selectionCacheKey(FewShotSearchQuery query, int topK, String datasetFingerprint) {
@@ -400,6 +436,15 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     }
 
     private record LocalScore(FewShotCase fewShotCase, double score) {
+    }
+
+    private record PendingDocumentEmbedding(
+            int index,
+            String key,
+            String document,
+            CompletableFuture<DocumentEmbeddingCacheEntry> future,
+            boolean owner
+    ) {
     }
 
     private record SelectionCacheEntry(List<SelectedFewShotCase> selectedCases, Instant expiresAt) {
