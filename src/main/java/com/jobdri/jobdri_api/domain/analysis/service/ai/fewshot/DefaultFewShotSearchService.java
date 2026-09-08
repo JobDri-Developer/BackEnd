@@ -76,7 +76,11 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         FewShotSelectionMode selectionMode = selected.isEmpty()
                 ? FewShotSelectionMode.STATIC_FALLBACK
                 : FewShotSelectionMode.EMBEDDING;
-        if (selected.isEmpty() && properties.isFallbackEnabled()) {
+        int minimumSelectedCount = Math.max(
+                1,
+                Math.min(properties.getSearch().getMinimumSelectedCount(), requestedTopK)
+        );
+        if (selected.size() < minimumSelectedCount && properties.isFallbackEnabled()) {
             selected = selectLocally(query, candidates, requestedTopK, "local-fallback");
             if (!selected.isEmpty()) {
                 selectionMode = FewShotSelectionMode.LOCAL_FALLBACK;
@@ -114,12 +118,15 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             float[] queryEmbedding = cohereEmbeddingClient.embedQuery(queryText);
             List<float[]> documentEmbeddings = resolveDocumentEmbeddings(candidates, documents);
             List<SelectedFewShotCase> ranked = new ArrayList<>();
+            List<Double> similarityScores = new ArrayList<>();
             for (int i = 0; i < candidates.size(); i++) {
                 double score = cosineSimilarity(queryEmbedding, documentEmbeddings.get(i));
-                if (score >= properties.getSearch().getMinRerankScore()) {
+                similarityScores.add(score);
+                if (score >= properties.getSearch().getMinSimilarity()) {
                     ranked.add(new SelectedFewShotCase(candidates.get(i), score, "cohere-embedding"));
                 }
             }
+            logSimilarityDistribution(similarityScores, ranked.size());
             ranked.sort(Comparator
                     .comparingDouble(SelectedFewShotCase::score).reversed()
                     .thenComparingInt(item -> -item.fewShotCase().priority())
@@ -130,6 +137,28 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             log.debug("dynamic few-shot Cohere exception", e);
             return List.of();
         }
+    }
+
+    private void logSimilarityDistribution(List<Double> scores, int passedThresholdCount) {
+        if (scores.isEmpty()) {
+            return;
+        }
+        double topScore = scores.stream().mapToDouble(Double::doubleValue).max().orElse(0.0);
+        double bottomScore = scores.stream().mapToDouble(Double::doubleValue).min().orElse(0.0);
+        double avgScore = scores.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+        log.info(
+                "few-shot embedding similarity distribution. candidateCount={}, passedThresholdCount={}, minSimilarity={}, topScore={}, bottomScore={}, avgScore={}",
+                scores.size(),
+                passedThresholdCount,
+                formatScore(properties.getSearch().getMinSimilarity()),
+                formatScore(topScore),
+                formatScore(bottomScore),
+                formatScore(avgScore)
+        );
+    }
+
+    private static String formatScore(double score) {
+        return String.format(Locale.ROOT, "%.4f", score);
     }
 
     private List<float[]> resolveDocumentEmbeddings(
@@ -314,6 +343,10 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         return sha256(
                 datasetFingerprint
                         + "\n" + topK
+                        + "\n" + properties.getSearch().getMinSimilarity()
+                        + "\n" + properties.getSearch().getMinimumSelectedCount()
+                        + "\n" + properties.isFallbackEnabled()
+                        + "\n" + properties.getSearch().isDiversityEnabled()
                         + "\n" + defaultString(query.caseId())
                         + "\n" + textBuilder.buildQueryText(query)
         );

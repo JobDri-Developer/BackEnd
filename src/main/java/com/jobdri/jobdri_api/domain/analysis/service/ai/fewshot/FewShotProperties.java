@@ -141,7 +141,8 @@ public class FewShotProperties {
     public static class Search {
         private int candidateLimit = 30;
         private int topK = 5;
-        private double minRerankScore = -1.0;
+        private double minSimilarity = -1.0;
+        private int minimumSelectedCount = 1;
         private boolean diversityEnabled = true;
 
         public int getCandidateLimit() {
@@ -161,11 +162,27 @@ public class FewShotProperties {
         }
 
         public double getMinRerankScore() {
-            return minRerankScore;
+            return minSimilarity;
         }
 
         public void setMinRerankScore(double minRerankScore) {
-            this.minRerankScore = minRerankScore;
+            this.minSimilarity = minRerankScore;
+        }
+
+        public double getMinSimilarity() {
+            return minSimilarity;
+        }
+
+        public void setMinSimilarity(double minSimilarity) {
+            this.minSimilarity = minSimilarity;
+        }
+
+        public int getMinimumSelectedCount() {
+            return minimumSelectedCount;
+        }
+
+        public void setMinimumSelectedCount(int minimumSelectedCount) {
+            this.minimumSelectedCount = minimumSelectedCount;
         }
 
         public boolean isDiversityEnabled() {
