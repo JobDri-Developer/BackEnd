@@ -98,6 +98,43 @@ class DefaultFewShotSearchServiceTest {
     }
 
     @Test
+    @DisplayName("임계값을 통과한 후보가 최소 개수보다 적으면 로컬 선택으로 fallback한다")
+    void fallsBackToLocalSelectionWhenEmbeddingResultsAreBelowMinimumCount() {
+        properties.setDynamicSelectionEnabled(true);
+        properties.getSearch().setMinSimilarity(0.5);
+        properties.getSearch().setMinimumSelectedCount(2);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(
+                caseItem("FS-1", "Spring Boot API 개발", 0),
+                caseItem("FS-2", "브랜드 운영", 0)
+        ));
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(
+                new float[]{1, 0},
+                new float[]{0, 1}
+        ));
+
+        List<SelectedFewShotCase> result = service.searchRelevantFewShots(query("EV-99"), 2);
+
+        assertThat(result).hasSize(2);
+        assertThat(result).allMatch(item -> item.selectionMethod().equals("local-fallback"));
+    }
+
+    @Test
+    @DisplayName("fallback이 비활성화되면 최소 유사도 미만 후보를 선택하지 않는다")
+    void excludesCandidatesBelowMinimumSimilarityWhenFallbackDisabled() {
+        properties.setDynamicSelectionEnabled(true);
+        properties.setFallbackEnabled(false);
+        properties.getSearch().setMinSimilarity(0.5);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(caseItem("FS-1", "브랜드 운영", 0)));
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(new float[]{0, 1}));
+
+        List<SelectedFewShotCase> result = service.searchRelevantFewShots(query("EV-99"), 1);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
     @DisplayName("서로 다른 검색 요청에서도 동일한 후보의 document embedding을 재사용한다")
     void reusesDocumentEmbeddingAcrossDifferentQueries() {
         properties.setDynamicSelectionEnabled(true);

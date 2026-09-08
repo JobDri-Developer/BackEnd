@@ -100,6 +100,34 @@ class AnalysisInputFingerprintProviderTest {
         assertThat(provider.create(first)).isEqualTo(provider.create(changedDistance));
     }
 
+    @Test
+    @DisplayName("Few-shot 유사도 임계값이 달라지면 fingerprint가 달라진다")
+    void fingerprintChangesWhenFewShotSimilarityPolicyChanges() {
+        when(fewShotPromptProvider.getPrompt()).thenReturn("few-shot");
+        FewShotProperties defaultProperties = new FewShotProperties();
+        FewShotProperties changedProperties = new FewShotProperties();
+        changedProperties.getSearch().setMinSimilarity(0.5);
+        changedProperties.getSearch().setMinimumSelectedCount(2);
+        AnalysisExecutionPayload payload = payload(currentJobPosting(), similarContext("Spring Boot API 개발", 0.91));
+
+        assertThat(providerWith(defaultProperties).create(payload))
+                .isNotEqualTo(providerWith(changedProperties).create(payload));
+    }
+
+    private AnalysisInputFingerprintProvider providerWith(FewShotProperties properties) {
+        return new AnalysisInputFingerprintProvider(
+                new ObjectMapper(),
+                fewShotPromptProvider,
+                properties,
+                new CohereProperties(null, null, null),
+                "gpt-4o-mini",
+                false,
+                "",
+                3,
+                5
+        );
+    }
+
     private AnalysisExecutionPayload payload(JobPosting jobPosting, SimilarJobPostingContext context) {
         return new AnalysisExecutionPayload(
                 1L,

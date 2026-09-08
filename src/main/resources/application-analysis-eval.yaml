@@ -103,7 +103,8 @@ analysis:
     search:
       candidate-limit: ${ANALYSIS_FEW_SHOT_CANDIDATE_LIMIT:30}
       top-k: ${ANALYSIS_FEW_SHOT_TOP_K:5}
-      min-rerank-score: ${ANALYSIS_FEW_SHOT_MIN_RERANK_SCORE:-1.0}
+      min-similarity: ${ANALYSIS_FEW_SHOT_MIN_SIMILARITY:${ANALYSIS_FEW_SHOT_MIN_RERANK_SCORE:-1.0}}
+      minimum-selected-count: ${ANALYSIS_FEW_SHOT_MINIMUM_SELECTED_COUNT:1}
       diversity-enabled: ${ANALYSIS_FEW_SHOT_DIVERSITY_ENABLED:true}
 
 cohere:
