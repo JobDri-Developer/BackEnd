@@ -156,6 +156,64 @@ class DefaultFewShotSearchServiceTest {
     }
 
     @Test
+    @DisplayName("동일한 검색 질의를 다른 topK로 요청해도 query embedding을 재사용한다")
+    void reusesQueryEmbeddingAcrossDifferentTopK() {
+        properties.setDynamicSelectionEnabled(true);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(
+                caseItem("FS-1", "Spring Boot API 개발", 0),
+                caseItem("FS-2", "브랜드 운영", 0)
+        ));
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(
+                new float[]{1, 0},
+                new float[]{0, 1}
+        ));
+        FewShotSearchQuery query = query("EV-01", "Spring Boot API를 개발했습니다.");
+
+        service.searchRelevantFewShots(query, 1);
+        service.searchRelevantFewShots(query, 2);
+
+        verify(cohereEmbeddingClient, times(1)).embedQuery(any());
+    }
+
+    @Test
+    @DisplayName("동일 질의의 동시 요청은 query embedding 호출을 공유한다")
+    void deduplicatesConcurrentQueryEmbeddingForSameQuery() throws Exception {
+        properties.setDynamicSelectionEnabled(true);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(caseItem("FS-1", "shared reference", 0)));
+        CountDownLatch embeddingStarted = new CountDownLatch(1);
+        CountDownLatch releaseEmbedding = new CountDownLatch(1);
+        when(cohereEmbeddingClient.embedQuery(any())).thenAnswer(invocation -> {
+            embeddingStarted.countDown();
+            if (!releaseEmbedding.await(3, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("query embedding did not finish in time");
+            }
+            return new float[]{1, 0};
+        });
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(new float[]{1, 0}));
+        FewShotSearchQuery query = query("EV-01", "shared request");
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<SelectedFewShotCase>> first = executor.submit(
+                    () -> service.searchRelevantFewShots(query, 1)
+            );
+            assertThat(embeddingStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            Future<List<SelectedFewShotCase>> second = executor.submit(
+                    () -> service.searchRelevantFewShots(query, 2)
+            );
+
+            releaseEmbedding.countDown();
+            assertThat(first.get(2, TimeUnit.SECONDS)).hasSize(1);
+            assertThat(second.get(2, TimeUnit.SECONDS)).hasSize(1);
+            verify(cohereEmbeddingClient, times(1)).embedQuery(any());
+        } finally {
+            releaseEmbedding.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     @DisplayName("후보 내용이 변경되면 document embedding을 다시 생성한다")
     void refreshesDocumentEmbeddingWhenCandidateContentChanges() {
         properties.setDynamicSelectionEnabled(true);
@@ -169,7 +227,7 @@ class DefaultFewShotSearchServiceTest {
         service.searchRelevantFewShots(query("EV-01", "Spring Boot API를 개발했습니다."), 1);
         service.searchRelevantFewShots(query("EV-01", "Spring Boot API를 개발했습니다."), 1);
 
-        verify(cohereEmbeddingClient, times(2)).embedQuery(any());
+        verify(cohereEmbeddingClient, times(1)).embedQuery(any());
         verify(cohereEmbeddingClient, times(2)).embedDocuments(any());
     }
 
@@ -185,6 +243,7 @@ class DefaultFewShotSearchServiceTest {
         service.searchRelevantFewShots(query("EV-01", "Spring Boot API를 개발했습니다."), 1);
         service.searchRelevantFewShots(query("EV-02", "Java 서버를 운영했습니다."), 1);
 
+        verify(cohereEmbeddingClient, times(2)).embedQuery(any());
         verify(cohereEmbeddingClient, times(2)).embedDocuments(any());
     }
 

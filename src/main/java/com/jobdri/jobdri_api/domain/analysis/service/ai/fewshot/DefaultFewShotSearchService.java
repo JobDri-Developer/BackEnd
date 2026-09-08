@@ -33,6 +33,9 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private final CohereEmbeddingClient cohereEmbeddingClient;
     private final FewShotProperties properties;
     private final Map<String, SelectionCacheEntry> selectionCache = new ConcurrentHashMap<>();
+    private final Map<String, QueryEmbeddingCacheEntry> queryEmbeddingCache = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<QueryEmbeddingCacheEntry>> queryEmbeddingInFlight =
+            new ConcurrentHashMap<>();
     private final Map<String, DocumentEmbeddingCacheEntry> documentEmbeddingCache = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<DocumentEmbeddingCacheEntry>> documentEmbeddingInFlight =
             new ConcurrentHashMap<>();
@@ -115,7 +118,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             List<String> documents = candidates.stream()
                     .map(textBuilder::buildCandidateDocument)
                     .toList();
-            float[] queryEmbedding = cohereEmbeddingClient.embedQuery(queryText);
+            float[] queryEmbedding = resolveQueryEmbedding(queryText);
             List<float[]> documentEmbeddings = resolveDocumentEmbeddings(candidates, documents);
             List<SelectedFewShotCase> ranked = new ArrayList<>();
             List<Double> similarityScores = new ArrayList<>();
@@ -159,6 +162,51 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
 
     private static String formatScore(double score) {
         return String.format(Locale.ROOT, "%.4f", score);
+    }
+
+    private float[] resolveQueryEmbedding(String queryText) {
+        if (!properties.isCacheEnabled()) {
+            return cohereEmbeddingClient.embedQuery(queryText);
+        }
+        Instant now = Instant.now();
+        queryEmbeddingCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
+        String key = sha256(queryText);
+        QueryEmbeddingCacheEntry cached = queryEmbeddingCache.get(key);
+        if (cached != null) {
+            log.debug("few-shot query embedding cache hit.");
+            return cached.embedding();
+        }
+
+        CompletableFuture<QueryEmbeddingCacheEntry> created = new CompletableFuture<>();
+        CompletableFuture<QueryEmbeddingCacheEntry> existing = queryEmbeddingInFlight.putIfAbsent(key, created);
+        if (existing != null) {
+            log.debug("few-shot query embedding in-flight request reused.");
+            return existing.join().embedding();
+        }
+
+        QueryEmbeddingCacheEntry cachedAfterClaim = queryEmbeddingCache.get(key);
+        if (cachedAfterClaim != null) {
+            created.complete(cachedAfterClaim);
+            queryEmbeddingInFlight.remove(key, created);
+            log.debug("few-shot query embedding cache hit after in-flight claim.");
+            return cachedAfterClaim.embedding();
+        }
+
+        try {
+            QueryEmbeddingCacheEntry initialized = new QueryEmbeddingCacheEntry(
+                    cohereEmbeddingClient.embedQuery(queryText),
+                    expiresAt()
+            );
+            queryEmbeddingCache.put(key, initialized);
+            created.complete(initialized);
+            log.debug("few-shot query embedding cache initialized.");
+            return initialized.embedding();
+        } catch (RuntimeException | Error e) {
+            created.completeExceptionally(e);
+            throw e;
+        } finally {
+            queryEmbeddingInFlight.remove(key, created);
+        }
     }
 
     private List<float[]> resolveDocumentEmbeddings(
@@ -504,6 +552,17 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
 
     private record DocumentEmbeddingCacheEntry(float[] embedding, Instant expiresAt) {
         private DocumentEmbeddingCacheEntry {
+            embedding = embedding == null ? new float[0] : embedding.clone();
+        }
+
+        @Override
+        public float[] embedding() {
+            return embedding.clone();
+        }
+    }
+
+    private record QueryEmbeddingCacheEntry(float[] embedding, Instant expiresAt) {
+        private QueryEmbeddingCacheEntry {
             embedding = embedding == null ? new float[0] : embedding.clone();
         }
 
