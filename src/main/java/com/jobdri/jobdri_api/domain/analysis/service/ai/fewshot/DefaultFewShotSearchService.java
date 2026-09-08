@@ -8,6 +8,7 @@ import org.springframework.util.StringUtils;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.text.Normalizer;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -17,6 +18,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -24,12 +26,16 @@ import java.util.regex.Pattern;
 @Slf4j
 public class DefaultFewShotSearchService implements FewShotSearchService {
     private static final Pattern TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{IsAlphabetic}\\p{IsDigit}가-힣]+");
+    private static final Pattern NORMALIZED_INPUT_WHITESPACE_PATTERN = Pattern.compile("[\\p{Z}\\s]+");
 
     private final FewShotCaseStore caseStore;
     private final FewShotSearchTextBuilder textBuilder;
     private final CohereEmbeddingClient cohereEmbeddingClient;
     private final FewShotProperties properties;
-    private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
+    private final Map<String, SelectionCacheEntry> selectionCache = new ConcurrentHashMap<>();
+    private final Map<String, DocumentEmbeddingCacheEntry> documentEmbeddingCache = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<DocumentEmbeddingCacheEntry>> documentEmbeddingInFlight =
+            new ConcurrentHashMap<>();
 
     public DefaultFewShotSearchService(
             FewShotCaseStore caseStore,
@@ -50,22 +56,23 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             return List.of();
         }
         int requestedTopK = topK > 0 ? topK : properties.getSearch().getTopK();
-        String cacheKey = cacheKey(query, requestedTopK);
-        CacheEntry cached = readCache(cacheKey);
+        List<FewShotCase> activeCases = caseStore.loadActiveCases();
+        String datasetFingerprint = datasetFingerprint(activeCases);
+        String cacheKey = selectionCacheKey(query, requestedTopK, datasetFingerprint);
+        SelectionCacheEntry cached = readSelectionCache(cacheKey);
         if (cached != null) {
             log.debug("few-shot selection cache hit. selectedCount={}, datasetVersion={}", cached.selectedCases().size(), properties.getDatasetVersion());
             return cached.selectedCases();
         }
 
         long startedAt = System.nanoTime();
-        List<FewShotCase> activeCases = caseStore.loadActiveCases();
         List<FewShotCase> candidates = localPrefilter(activeCases, query);
         List<SelectedFewShotCase> selected = selectWithCohere(query, candidates, requestedTopK);
         if (selected.isEmpty() && properties.isFallbackEnabled()) {
             selected = selectLocally(query, candidates, requestedTopK, "local-fallback");
         }
         if (properties.isCacheEnabled()) {
-            cache.put(cacheKey, new CacheEntry(selected, Instant.now().plus(properties.getCacheTtl())));
+            selectionCache.put(cacheKey, new SelectionCacheEntry(selected, expiresAt()));
         }
         log.info(
                 "dynamic few-shot selection completed. enabled=true, totalCandidates={}, filteredCandidates={}, selectedIds={}, sources={}, scores={}, latencyMs={}",
@@ -93,7 +100,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
                     .map(textBuilder::buildCandidateDocument)
                     .toList();
             float[] queryEmbedding = cohereEmbeddingClient.embedQuery(queryText);
-            List<float[]> documentEmbeddings = cohereEmbeddingClient.embedDocuments(documents);
+            List<float[]> documentEmbeddings = resolveDocumentEmbeddings(candidates, documents);
             List<SelectedFewShotCase> ranked = new ArrayList<>();
             for (int i = 0; i < candidates.size(); i++) {
                 double score = cosineSimilarity(queryEmbedding, documentEmbeddings.get(i));
@@ -113,10 +120,113 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         }
     }
 
+    private List<float[]> resolveDocumentEmbeddings(
+            List<FewShotCase> candidates,
+            List<String> documents
+    ) {
+        if (!properties.isCacheEnabled()) {
+            return cohereEmbeddingClient.embedDocuments(documents);
+        }
+        Instant now = Instant.now();
+        documentEmbeddingCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
+
+        List<float[]> result = new ArrayList<>(java.util.Collections.nCopies(candidates.size(), null));
+        List<PendingDocumentEmbedding> pending = new ArrayList<>();
+        int cacheHitCount = 0;
+        int inFlightReuseCount = 0;
+
+        for (int i = 0; i < candidates.size(); i++) {
+            String key = documentEmbeddingCacheKey(candidates.get(i), documents.get(i));
+            DocumentEmbeddingCacheEntry cached = documentEmbeddingCache.get(key);
+            if (cached != null) {
+                result.set(i, cached.embedding());
+                cacheHitCount++;
+                continue;
+            }
+
+            CompletableFuture<DocumentEmbeddingCacheEntry> created = new CompletableFuture<>();
+            CompletableFuture<DocumentEmbeddingCacheEntry> existing = documentEmbeddingInFlight.putIfAbsent(key, created);
+            boolean owner = existing == null;
+            if (owner) {
+                DocumentEmbeddingCacheEntry cachedAfterClaim = documentEmbeddingCache.get(key);
+                if (cachedAfterClaim != null) {
+                    created.complete(cachedAfterClaim);
+                    documentEmbeddingInFlight.remove(key, created);
+                    result.set(i, cachedAfterClaim.embedding());
+                    cacheHitCount++;
+                    continue;
+                }
+            }
+            if (!owner) {
+                inFlightReuseCount++;
+            }
+            pending.add(new PendingDocumentEmbedding(
+                    i,
+                    key,
+                    documents.get(i),
+                    owner ? created : existing,
+                    owner
+            ));
+        }
+
+        initializeMissingDocumentEmbeddings(pending);
+        for (PendingDocumentEmbedding item : pending) {
+            result.set(item.index(), item.future().join().embedding());
+        }
+        log.debug(
+                "few-shot document embedding cache resolved. hitCount={}, initializedCount={}, inFlightReuseCount={}, candidateCount={}, datasetVersion={}",
+                cacheHitCount,
+                pending.stream().filter(PendingDocumentEmbedding::owner).count(),
+                inFlightReuseCount,
+                candidates.size(),
+                properties.getDatasetVersion()
+        );
+        return List.copyOf(result);
+    }
+
+    private void initializeMissingDocumentEmbeddings(List<PendingDocumentEmbedding> pending) {
+        List<PendingDocumentEmbedding> owned = pending.stream()
+                .filter(PendingDocumentEmbedding::owner)
+                .toList();
+        if (owned.isEmpty()) {
+            return;
+        }
+        try {
+            List<float[]> embeddedDocuments = cohereEmbeddingClient.embedDocuments(
+                    owned.stream().map(PendingDocumentEmbedding::document).toList()
+            );
+            if (embeddedDocuments.size() != owned.size()) {
+                throw new IllegalStateException("Cohere document embedding count does not match candidate count.");
+            }
+            Instant expiresAt = expiresAt();
+            for (int i = 0; i < owned.size(); i++) {
+                PendingDocumentEmbedding item = owned.get(i);
+                DocumentEmbeddingCacheEntry entry = new DocumentEmbeddingCacheEntry(
+                        embeddedDocuments.get(i),
+                        expiresAt
+                );
+                documentEmbeddingCache.put(item.key(), entry);
+                item.future().complete(entry);
+            }
+        } catch (RuntimeException | Error e) {
+            owned.forEach(item -> item.future().completeExceptionally(e));
+            throw e;
+        } finally {
+            owned.forEach(item -> documentEmbeddingInFlight.remove(item.key(), item.future()));
+        }
+    }
+
     private List<FewShotCase> localPrefilter(List<FewShotCase> activeCases, FewShotSearchQuery query) {
         int limit = Math.max(1, properties.getSearch().getCandidateLimit());
+        String queryInputHash = normalizedInputHash(
+                query.mainTasks(),
+                query.qualifications(),
+                query.question(),
+                query.answer()
+        );
         return activeCases.stream()
                 .filter(fewShotCase -> !sameCase(query.caseId(), fewShotCase.id()))
+                .filter(fewShotCase -> !sameNormalizedInput(queryInputHash, fewShotCase))
                 .map(fewShotCase -> new LocalScore(fewShotCase, localScore(query, fewShotCase)))
                 .sorted(Comparator
                         .comparingDouble(LocalScore::score).reversed()
@@ -179,27 +289,105 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         return jaccard + fewShotCase.priority() / 1000.0;
     }
 
-    private CacheEntry readCache(String key) {
+    private SelectionCacheEntry readSelectionCache(String key) {
         if (!properties.isCacheEnabled()) {
             return null;
         }
-        CacheEntry entry = cache.get(key);
-        if (entry == null) {
-            return null;
-        }
-        if (entry.expiresAt().isBefore(Instant.now())) {
-            cache.remove(key);
-            return null;
-        }
-        return entry;
+        Instant now = Instant.now();
+        selectionCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
+        return selectionCache.get(key);
     }
 
-    private String cacheKey(FewShotSearchQuery query, int topK) {
-        return sha256(properties.getDatasetVersion() + "\n" + topK + "\n" + textBuilder.buildQueryText(query));
+    private String selectionCacheKey(FewShotSearchQuery query, int topK, String datasetFingerprint) {
+        return sha256(
+                datasetFingerprint
+                        + "\n" + topK
+                        + "\n" + defaultString(query.caseId())
+                        + "\n" + textBuilder.buildQueryText(query)
+        );
+    }
+
+    private String datasetFingerprint(List<FewShotCase> activeCases) {
+        StringBuilder source = new StringBuilder(properties.getDatasetVersion());
+        for (FewShotCase fewShotCase : activeCases) {
+            source.append('\n')
+                    .append(defaultString(fewShotCase.id())).append('\u001f')
+                    .append(fewShotCase.source()).append('\u001f')
+                    .append(fewShotCase.priority()).append('\u001f')
+                    .append(textBuilder.buildCandidateDocument(fewShotCase)).append('\u001f')
+                    .append(defaultString(fewShotCase.promptBlock()));
+        }
+        return sha256(source.toString());
+    }
+
+    private String documentEmbeddingCacheKey(FewShotCase fewShotCase, String document) {
+        return sha256(
+                properties.getDatasetVersion()
+                        + "\n" + defaultString(fewShotCase.id())
+                        + "\n" + document
+        );
+    }
+
+    private Instant expiresAt() {
+        return Instant.now().plus(properties.getCacheTtl());
     }
 
     private static boolean sameCase(String queryCaseId, String candidateId) {
         return StringUtils.hasText(queryCaseId) && queryCaseId.equals(candidateId);
+    }
+
+    private static boolean sameNormalizedInput(String queryInputHash, FewShotCase fewShotCase) {
+        if (!StringUtils.hasText(queryInputHash)) {
+            return false;
+        }
+        String candidateInputHash = normalizedInputHash(
+                fewShotCase.mainTasks(),
+                fewShotCase.qualifications(),
+                fewShotCase.question(),
+                fewShotCase.sanitizedAnswer()
+        );
+        return queryInputHash.equals(candidateInputHash);
+    }
+
+    private static String normalizedInputHash(
+            List<String> mainTasks,
+            List<String> qualifications,
+            String question,
+            String answer
+    ) {
+        String normalizedMainTasks = normalizeInputSection(mainTasks == null ? "" : String.join("\n", mainTasks));
+        String normalizedQualifications = normalizeInputSection(
+                qualifications == null ? "" : String.join("\n", qualifications)
+        );
+        String normalizedQuestion = normalizeInputSection(question);
+        String normalizedAnswer = normalizeInputSection(answer);
+        if (normalizedMainTasks.isEmpty()
+                && normalizedQualifications.isEmpty()
+                && normalizedQuestion.isEmpty()
+                && normalizedAnswer.isEmpty()) {
+            return "";
+        }
+        return sha256(
+                normalizedMainTasks + '\u001f'
+                        + normalizedQualifications + '\u001f'
+                        + normalizedQuestion + '\u001f'
+                        + normalizedAnswer
+        );
+    }
+
+    private static String normalizeInputSection(String value) {
+        if (!StringUtils.hasText(value)) {
+            return "";
+        }
+        String unicodeNormalized = Normalizer.normalize(value, Normalizer.Form.NFKC);
+        return NORMALIZED_INPUT_WHITESPACE_PATTERN.matcher(unicodeNormalized)
+                .replaceAll(" ")
+                .trim()
+                .toLowerCase(Locale.ROOT);
+    }
+
+    private static String defaultString(String value) {
+        return value == null ? "" : value;
     }
 
     private static Set<String> tokens(String text) {
@@ -250,9 +438,29 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private record LocalScore(FewShotCase fewShotCase, double score) {
     }
 
-    private record CacheEntry(List<SelectedFewShotCase> selectedCases, Instant expiresAt) {
-        private CacheEntry {
+    private record PendingDocumentEmbedding(
+            int index,
+            String key,
+            String document,
+            CompletableFuture<DocumentEmbeddingCacheEntry> future,
+            boolean owner
+    ) {
+    }
+
+    private record SelectionCacheEntry(List<SelectedFewShotCase> selectedCases, Instant expiresAt) {
+        private SelectionCacheEntry {
             selectedCases = selectedCases == null ? List.of() : List.copyOf(selectedCases);
+        }
+    }
+
+    private record DocumentEmbeddingCacheEntry(float[] embedding, Instant expiresAt) {
+        private DocumentEmbeddingCacheEntry {
+            embedding = embedding == null ? new float[0] : embedding.clone();
+        }
+
+        @Override
+        public float[] embedding() {
+            return embedding.clone();
         }
     }
 }
