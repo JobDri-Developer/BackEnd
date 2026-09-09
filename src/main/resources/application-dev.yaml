@@ -169,6 +169,8 @@ analysis:
     fallback-enabled: ${ANALYSIS_FEW_SHOT_FALLBACK_ENABLED:true}
     cache-enabled: ${ANALYSIS_FEW_SHOT_CACHE_ENABLED:true}
     cache-ttl: ${ANALYSIS_FEW_SHOT_CACHE_TTL:30m}
+    query-embedding-cache-max-size: ${ANALYSIS_FEW_SHOT_QUERY_EMBEDDING_CACHE_MAX_SIZE:1000}
+    query-embedding-in-flight-wait-timeout: ${ANALYSIS_FEW_SHOT_QUERY_EMBEDDING_IN_FLIGHT_WAIT_TIMEOUT:20s}
     source:
       fixed-enabled: ${ANALYSIS_FEW_SHOT_FIXED_ENABLED:true}
       curated-enabled: ${ANALYSIS_FEW_SHOT_CURATED_ENABLED:true}

@@ -20,11 +20,18 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 
 @Service
 @Slf4j
 public class DefaultFewShotSearchService implements FewShotSearchService {
+    private static final long QUERY_EMBEDDING_CACHE_CLEANUP_INTERVAL_MILLIS = 60_000L;
+    private static final long DEFAULT_QUERY_EMBEDDING_IN_FLIGHT_WAIT_TIMEOUT_MILLIS = 20_000L;
     private static final Pattern TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{IsAlphabetic}\\p{IsDigit}가-힣]+");
     private static final Pattern NORMALIZED_INPUT_WHITESPACE_PATTERN = Pattern.compile("[\\p{Z}\\s]+");
 
@@ -33,6 +40,11 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private final CohereEmbeddingClient cohereEmbeddingClient;
     private final FewShotProperties properties;
     private final Map<String, SelectionCacheEntry> selectionCache = new ConcurrentHashMap<>();
+    private final Map<String, QueryEmbeddingCacheEntry> queryEmbeddingCache = new ConcurrentHashMap<>();
+    private final Map<String, CompletableFuture<QueryEmbeddingCacheEntry>> queryEmbeddingInFlight =
+            new ConcurrentHashMap<>();
+    private final AtomicLong queryEmbeddingCacheNextCleanupAt = new AtomicLong();
+    private final AtomicBoolean queryEmbeddingCacheCleanupInProgress = new AtomicBoolean();
     private final Map<String, DocumentEmbeddingCacheEntry> documentEmbeddingCache = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<DocumentEmbeddingCacheEntry>> documentEmbeddingInFlight =
             new ConcurrentHashMap<>();
@@ -115,7 +127,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             List<String> documents = candidates.stream()
                     .map(textBuilder::buildCandidateDocument)
                     .toList();
-            float[] queryEmbedding = cohereEmbeddingClient.embedQuery(queryText);
+            float[] queryEmbedding = resolveQueryEmbedding(queryText);
             List<float[]> documentEmbeddings = resolveDocumentEmbeddings(candidates, documents);
             List<SelectedFewShotCase> ranked = new ArrayList<>();
             List<Double> similarityScores = new ArrayList<>();
@@ -159,6 +171,118 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
 
     private static String formatScore(double score) {
         return String.format(Locale.ROOT, "%.4f", score);
+    }
+
+    private float[] resolveQueryEmbedding(String queryText) {
+        if (!properties.isCacheEnabled()) {
+            return cohereEmbeddingClient.embedQuery(queryText);
+        }
+        Instant now = Instant.now();
+        maintainQueryEmbeddingCache(now);
+        String key = sha256(queryText);
+        QueryEmbeddingCacheEntry cached = readQueryEmbeddingCache(key, now);
+        if (cached != null) {
+            log.debug("few-shot query embedding cache hit.");
+            return cached.embedding();
+        }
+
+        CompletableFuture<QueryEmbeddingCacheEntry> created = new CompletableFuture<>();
+        CompletableFuture<QueryEmbeddingCacheEntry> existing = queryEmbeddingInFlight.putIfAbsent(key, created);
+        if (existing != null) {
+            log.debug("few-shot query embedding in-flight request reused.");
+            return awaitQueryEmbedding(existing).embedding();
+        }
+
+        QueryEmbeddingCacheEntry cachedAfterClaim = readQueryEmbeddingCache(key, Instant.now());
+        if (cachedAfterClaim != null) {
+            created.complete(cachedAfterClaim);
+            queryEmbeddingInFlight.remove(key, created);
+            log.debug("few-shot query embedding cache hit after in-flight claim.");
+            return cachedAfterClaim.embedding();
+        }
+
+        try {
+            QueryEmbeddingCacheEntry initialized = new QueryEmbeddingCacheEntry(
+                    cohereEmbeddingClient.embedQuery(queryText),
+                    expiresAt()
+            );
+            queryEmbeddingCache.put(key, initialized);
+            maintainQueryEmbeddingCache(Instant.now());
+            created.complete(initialized);
+            log.debug("few-shot query embedding cache initialized.");
+            return initialized.embedding();
+        } catch (RuntimeException | Error e) {
+            created.completeExceptionally(e);
+            throw e;
+        } finally {
+            queryEmbeddingInFlight.remove(key, created);
+        }
+    }
+
+    private QueryEmbeddingCacheEntry readQueryEmbeddingCache(String key, Instant now) {
+        QueryEmbeddingCacheEntry cached = queryEmbeddingCache.get(key);
+        if (cached == null) {
+            return null;
+        }
+        if (cached.expiresAt().isBefore(now)) {
+            queryEmbeddingCache.remove(key, cached);
+            return null;
+        }
+        QueryEmbeddingCacheEntry accessed = cached.accessedAt(now);
+        queryEmbeddingCache.replace(key, cached, accessed);
+        return accessed;
+    }
+
+    private QueryEmbeddingCacheEntry awaitQueryEmbedding(
+            CompletableFuture<QueryEmbeddingCacheEntry> existing
+    ) {
+        long timeoutMillis = properties.getQueryEmbeddingInFlightWaitTimeout() == null
+                ? DEFAULT_QUERY_EMBEDDING_IN_FLIGHT_WAIT_TIMEOUT_MILLIS
+                : Math.max(1L, properties.getQueryEmbeddingInFlightWaitTimeout().toMillis());
+        try {
+            return existing.get(timeoutMillis, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Few-shot query embedding 대기 중 인터럽트되었습니다.", e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("공유된 Few-shot query embedding 생성에 실패했습니다.", e.getCause());
+        } catch (TimeoutException e) {
+            throw new IllegalStateException("공유된 Few-shot query embedding 대기 시간이 초과되었습니다.", e);
+        }
+    }
+
+    private void maintainQueryEmbeddingCache(Instant now) {
+        int maxSize = Math.max(1, properties.getQueryEmbeddingCacheMaxSize());
+        long nowMillis = now.toEpochMilli();
+        if (queryEmbeddingCache.size() < maxSize
+                && nowMillis < queryEmbeddingCacheNextCleanupAt.get()) {
+            return;
+        }
+        if (!queryEmbeddingCacheCleanupInProgress.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            int sizeBefore = queryEmbeddingCache.size();
+            queryEmbeddingCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
+            int sizeAfterExpiration = queryEmbeddingCache.size();
+            if (sizeAfterExpiration >= maxSize) {
+                int trimTarget = Math.max(1, maxSize - Math.max(1, maxSize / 10));
+                int removalCount = sizeAfterExpiration - trimTarget;
+                queryEmbeddingCache.entrySet().stream()
+                        .sorted(Comparator.comparing(entry -> entry.getValue().lastAccessedAt()))
+                        .limit(removalCount)
+                        .forEach(entry -> queryEmbeddingCache.remove(entry.getKey(), entry.getValue()));
+            }
+            queryEmbeddingCacheNextCleanupAt.set(nowMillis + QUERY_EMBEDDING_CACHE_CLEANUP_INTERVAL_MILLIS);
+            log.debug(
+                    "few-shot query embedding cache maintained. sizeBefore={}, sizeAfter={}, maxSize={}",
+                    sizeBefore,
+                    queryEmbeddingCache.size(),
+                    maxSize
+            );
+        } finally {
+            queryEmbeddingCacheCleanupInProgress.set(false);
+        }
     }
 
     private List<float[]> resolveDocumentEmbeddings(
@@ -505,6 +629,25 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private record DocumentEmbeddingCacheEntry(float[] embedding, Instant expiresAt) {
         private DocumentEmbeddingCacheEntry {
             embedding = embedding == null ? new float[0] : embedding.clone();
+        }
+
+        @Override
+        public float[] embedding() {
+            return embedding.clone();
+        }
+    }
+
+    private record QueryEmbeddingCacheEntry(float[] embedding, Instant expiresAt, Instant lastAccessedAt) {
+        private QueryEmbeddingCacheEntry(float[] embedding, Instant expiresAt) {
+            this(embedding, expiresAt, Instant.now());
+        }
+
+        private QueryEmbeddingCacheEntry {
+            embedding = embedding == null ? new float[0] : embedding.clone();
+        }
+
+        private QueryEmbeddingCacheEntry accessedAt(Instant accessedAt) {
+            return new QueryEmbeddingCacheEntry(embedding, expiresAt, accessedAt);
         }
 
         @Override

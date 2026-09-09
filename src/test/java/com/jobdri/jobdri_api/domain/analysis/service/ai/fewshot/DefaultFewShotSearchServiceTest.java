@@ -16,6 +16,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -156,6 +157,261 @@ class DefaultFewShotSearchServiceTest {
     }
 
     @Test
+    @DisplayName("동일한 검색 질의를 다른 topK로 요청해도 query embedding을 재사용한다")
+    void reusesQueryEmbeddingAcrossDifferentTopK() {
+        properties.setDynamicSelectionEnabled(true);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(
+                caseItem("FS-1", "Spring Boot API 개발", 0),
+                caseItem("FS-2", "브랜드 운영", 0)
+        ));
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(
+                new float[]{1, 0},
+                new float[]{0, 1}
+        ));
+        FewShotSearchQuery query = query("EV-01", "Spring Boot API를 개발했습니다.");
+
+        service.searchRelevantFewShots(query, 1);
+        service.searchRelevantFewShots(query, 2);
+
+        verify(cohereEmbeddingClient, times(1)).embedQuery(any());
+    }
+
+    @Test
+    @DisplayName("동일 질의의 동시 요청은 query embedding 호출을 공유한다")
+    void deduplicatesConcurrentQueryEmbeddingForSameQuery() throws Exception {
+        properties.setDynamicSelectionEnabled(true);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(caseItem("FS-1", "shared reference", 0)));
+        CountDownLatch embeddingStarted = new CountDownLatch(1);
+        CountDownLatch releaseEmbedding = new CountDownLatch(1);
+        when(cohereEmbeddingClient.embedQuery(any())).thenAnswer(invocation -> {
+            embeddingStarted.countDown();
+            if (!releaseEmbedding.await(3, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("query embedding did not finish in time");
+            }
+            return new float[]{1, 0};
+        });
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(new float[]{1, 0}));
+        FewShotSearchQuery query = query("EV-01", "shared request");
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<SelectedFewShotCase>> first = executor.submit(
+                    () -> service.searchRelevantFewShots(query, 1)
+            );
+            assertThat(embeddingStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            Future<List<SelectedFewShotCase>> second = executor.submit(
+                    () -> service.searchRelevantFewShots(query, 2)
+            );
+
+            releaseEmbedding.countDown();
+            assertThat(first.get(2, TimeUnit.SECONDS)).hasSize(1);
+            assertThat(second.get(2, TimeUnit.SECONDS)).hasSize(1);
+            verify(cohereEmbeddingClient, times(1)).embedQuery(any());
+        } finally {
+            releaseEmbedding.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("공유 query embedding이 실패하면 모든 대기 요청이 fallback하고 후속 요청은 재시도한다")
+    void recoversWaitingRequestsAfterSharedQueryEmbeddingFailure() throws Exception {
+        properties.setDynamicSelectionEnabled(true);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(
+                caseItem("FS-1", "Spring Boot API 개발", 0),
+                caseItem("FS-2", "브랜드 운영", 0),
+                caseItem("FS-3", "데이터 분석", 0)
+        ));
+        CountDownLatch embeddingStarted = new CountDownLatch(1);
+        CountDownLatch releaseFailure = new CountDownLatch(1);
+        when(cohereEmbeddingClient.embedQuery(any()))
+                .thenAnswer(invocation -> {
+                    embeddingStarted.countDown();
+                    if (!releaseFailure.await(3, TimeUnit.SECONDS)) {
+                        throw new IllegalStateException("query embedding failure was not released in time");
+                    }
+                    throw new RuntimeException("cohere down");
+                })
+                .thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(
+                new float[]{1, 0},
+                new float[]{0, 1},
+                new float[]{0.5f, 0.5f}
+        ));
+        FewShotSearchQuery query = query("EV-01", "shared failure request");
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<SelectedFewShotCase>> owner = executor.submit(
+                    () -> service.searchRelevantFewShots(query, 1)
+            );
+            assertThat(embeddingStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            Future<List<SelectedFewShotCase>> waiter = executor.submit(
+                    () -> service.searchRelevantFewShots(query, 2)
+            );
+            assertThatThrownBy(() -> waiter.get(100, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+
+            releaseFailure.countDown();
+            assertThat(owner.get(2, TimeUnit.SECONDS))
+                    .allMatch(item -> item.selectionMethod().equals("local-fallback"));
+            assertThat(waiter.get(2, TimeUnit.SECONDS))
+                    .allMatch(item -> item.selectionMethod().equals("local-fallback"));
+        } finally {
+            releaseFailure.countDown();
+            executor.shutdownNow();
+        }
+        Map<?, ?> inFlightAfterFailure = (Map<?, ?>) ReflectionTestUtils.getField(
+                service,
+                "queryEmbeddingInFlight"
+        );
+        assertThat(inFlightAfterFailure).isEmpty();
+
+        List<SelectedFewShotCase> retried = service.searchRelevantFewShots(query, 3);
+
+        assertThat(retried).hasSize(3);
+        assertThat(retried).allMatch(item -> item.selectionMethod().equals("cohere-embedding"));
+        verify(cohereEmbeddingClient, times(2)).embedQuery(any());
+    }
+
+    @Test
+    @DisplayName("공유 query embedding 대기가 제한 시간을 넘으면 로컬 fallback한다")
+    void fallsBackLocallyWhenSharedQueryEmbeddingWaitTimesOut() throws Exception {
+        properties.setDynamicSelectionEnabled(true);
+        properties.setQueryEmbeddingInFlightWaitTimeout(Duration.ofMillis(50));
+        when(caseStore.loadActiveCases()).thenReturn(List.of(
+                caseItem("FS-1", "Spring Boot API 개발", 0),
+                caseItem("FS-2", "브랜드 운영", 0)
+        ));
+        CountDownLatch embeddingStarted = new CountDownLatch(1);
+        CountDownLatch releaseEmbedding = new CountDownLatch(1);
+        when(cohereEmbeddingClient.embedQuery(any())).thenAnswer(invocation -> {
+            embeddingStarted.countDown();
+            if (!releaseEmbedding.await(3, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("query embedding did not finish in time");
+            }
+            return new float[]{1, 0};
+        });
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(
+                new float[]{1, 0},
+                new float[]{0, 1}
+        ));
+        FewShotSearchQuery query = query("EV-01", "timeout request");
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<SelectedFewShotCase>> owner = executor.submit(
+                    () -> service.searchRelevantFewShots(query, 1)
+            );
+            assertThat(embeddingStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            Future<List<SelectedFewShotCase>> waiter = executor.submit(
+                    () -> service.searchRelevantFewShots(query, 2)
+            );
+
+            assertThat(waiter.get(1, TimeUnit.SECONDS))
+                    .allMatch(item -> item.selectionMethod().equals("local-fallback"));
+            releaseEmbedding.countDown();
+            assertThat(owner.get(2, TimeUnit.SECONDS)).hasSize(1);
+            verify(cohereEmbeddingClient, times(1)).embedQuery(any());
+        } finally {
+            releaseEmbedding.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    @DisplayName("query embedding 캐시는 최근 접근 항목을 유지하고 오래 사용하지 않은 항목을 제거한다")
+    void evictsLeastRecentlyAccessedQueryEmbedding() throws Exception {
+        properties.setDynamicSelectionEnabled(true);
+        properties.setQueryEmbeddingCacheMaxSize(3);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(caseItem("FS-1", "Spring Boot API 개발", 0)));
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(new float[]{1, 0}));
+        FewShotSearchQuery first = query("EV-A", "first request");
+        FewShotSearchQuery second = query("EV-B", "second request");
+        FewShotSearchQuery third = query("EV-C", "third request");
+
+        service.searchRelevantFewShots(first, 1);
+        TimeUnit.MILLISECONDS.sleep(2);
+        service.searchRelevantFewShots(second, 1);
+        TimeUnit.MILLISECONDS.sleep(2);
+        service.searchRelevantFewShots(first, 2);
+        TimeUnit.MILLISECONDS.sleep(2);
+        service.searchRelevantFewShots(third, 1);
+        service.searchRelevantFewShots(first, 3);
+        service.searchRelevantFewShots(second, 2);
+
+        verify(cohereEmbeddingClient, times(4)).embedQuery(any());
+    }
+
+    @Test
+    @DisplayName("query embedding 실패 후 동일 질의를 재요청하면 Cohere 호출을 다시 시도한다")
+    void retriesSameQueryAfterQueryEmbeddingFailure() {
+        properties.setDynamicSelectionEnabled(true);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(
+                caseItem("FS-1", "Spring Boot API 개발", 0),
+                caseItem("FS-2", "브랜드 운영", 0)
+        ));
+        when(cohereEmbeddingClient.embedQuery(any()))
+                .thenThrow(new RuntimeException("cohere down"))
+                .thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(
+                new float[]{1, 0},
+                new float[]{0, 1}
+        ));
+        FewShotSearchQuery query = query("EV-01", "retry request");
+
+        List<SelectedFewShotCase> failedAttempt = service.searchRelevantFewShots(query, 1);
+        Map<?, ?> inFlightAfterFailure = (Map<?, ?>) ReflectionTestUtils.getField(
+                service,
+                "queryEmbeddingInFlight"
+        );
+        assertThat(failedAttempt).hasSize(1);
+        assertThat(failedAttempt.getFirst().selectionMethod()).isEqualTo("local-fallback");
+        assertThat(inFlightAfterFailure).isEmpty();
+
+        List<SelectedFewShotCase> retried = service.searchRelevantFewShots(query, 2);
+
+        assertThat(retried).hasSize(2);
+        assertThat(retried).allMatch(item -> item.selectionMethod().equals("cohere-embedding"));
+        verify(cohereEmbeddingClient, times(2)).embedQuery(any());
+    }
+
+    @Test
+    @DisplayName("query embedding 캐시는 설정된 최대 크기를 넘지 않도록 정리한다")
+    void boundsQueryEmbeddingCacheSize() {
+        properties.setDynamicSelectionEnabled(true);
+        properties.setQueryEmbeddingCacheMaxSize(3);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(caseItem("FS-1", "Spring Boot API 개발", 0)));
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(new float[]{1, 0}));
+
+        for (int i = 0; i < 5; i++) {
+            service.searchRelevantFewShots(query("EV-" + i, "unique request " + i), 1);
+        }
+
+        Map<?, ?> queryEmbeddingCache = (Map<?, ?>) ReflectionTestUtils.getField(service, "queryEmbeddingCache");
+        assertThat(queryEmbeddingCache).hasSizeLessThanOrEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("만료된 query embedding은 동일 질의 재요청에 사용하지 않는다")
+    void doesNotReuseExpiredQueryEmbedding() {
+        properties.setDynamicSelectionEnabled(true);
+        properties.setCacheTtl(Duration.ZERO);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(caseItem("FS-1", "Spring Boot API 개발", 0)));
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(new float[]{1, 0}));
+        FewShotSearchQuery query = query("EV-01", "expired request");
+
+        service.searchRelevantFewShots(query, 1);
+        service.searchRelevantFewShots(query, 2);
+
+        verify(cohereEmbeddingClient, times(2)).embedQuery(any());
+    }
+
+    @Test
     @DisplayName("후보 내용이 변경되면 document embedding을 다시 생성한다")
     void refreshesDocumentEmbeddingWhenCandidateContentChanges() {
         properties.setDynamicSelectionEnabled(true);
@@ -169,7 +425,7 @@ class DefaultFewShotSearchServiceTest {
         service.searchRelevantFewShots(query("EV-01", "Spring Boot API를 개발했습니다."), 1);
         service.searchRelevantFewShots(query("EV-01", "Spring Boot API를 개발했습니다."), 1);
 
-        verify(cohereEmbeddingClient, times(2)).embedQuery(any());
+        verify(cohereEmbeddingClient, times(1)).embedQuery(any());
         verify(cohereEmbeddingClient, times(2)).embedDocuments(any());
     }
 
@@ -185,6 +441,7 @@ class DefaultFewShotSearchServiceTest {
         service.searchRelevantFewShots(query("EV-01", "Spring Boot API를 개발했습니다."), 1);
         service.searchRelevantFewShots(query("EV-02", "Java 서버를 운영했습니다."), 1);
 
+        verify(cohereEmbeddingClient, times(2)).embedQuery(any());
         verify(cohereEmbeddingClient, times(2)).embedDocuments(any());
     }
 
