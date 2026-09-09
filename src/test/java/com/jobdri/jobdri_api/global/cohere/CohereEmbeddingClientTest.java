@@ -139,6 +139,19 @@ class CohereEmbeddingClientTest {
     }
 
     @Test
+    @DisplayName("서버 Retry-After 값은 최대 재시도 대기 시간을 넘지 않는다")
+    void capsRetryAfterDelay() {
+        assertThat(CohereEmbeddingClient.boundedRetryDelay(
+                Duration.ofHours(1),
+                Duration.ofMillis(200)
+        )).isEqualTo(Duration.ofSeconds(2));
+        assertThat(CohereEmbeddingClient.boundedRetryDelay(
+                null,
+                Duration.ofMillis(200)
+        )).isEqualTo(Duration.ofMillis(200));
+    }
+
+    @Test
     @DisplayName("Cohere 400, 401, 403은 요청 또는 설정 오류로 변환한다")
     void requestOrConfigurationErrors() throws Exception {
         for (int status : List.of(400, 401, 403)) {

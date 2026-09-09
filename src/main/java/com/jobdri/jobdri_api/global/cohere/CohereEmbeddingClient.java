@@ -94,7 +94,7 @@ public class CohereEmbeddingClient {
                 if (attempt == MAX_TRANSIENT_ATTEMPTS) {
                     throw unavailable("Cohere Embed API가 일시적으로 응답할 수 없습니다.", e);
                 }
-                Duration delay = e.retryAfter() != null ? e.retryAfter() : backoff;
+                Duration delay = boundedRetryDelay(e.retryAfter(), backoff);
                 log.warn(
                         "Cohere Embed API transient failure. attempt={}, maxAttempts={}, retryAfterMs={}, message={}",
                         attempt,
@@ -258,6 +258,11 @@ public class CohereEmbeddingClient {
     private static Duration nextBackoff(Duration current) {
         Duration next = current.multipliedBy(2);
         return next.compareTo(MAX_RETRY_BACKOFF) > 0 ? MAX_RETRY_BACKOFF : next;
+    }
+
+    static Duration boundedRetryDelay(Duration retryAfter, Duration backoff) {
+        Duration requested = retryAfter != null ? retryAfter : backoff;
+        return requested.compareTo(MAX_RETRY_BACKOFF) > 0 ? MAX_RETRY_BACKOFF : requested;
     }
 
     private static void sleepBeforeRetry(Duration delay) {
