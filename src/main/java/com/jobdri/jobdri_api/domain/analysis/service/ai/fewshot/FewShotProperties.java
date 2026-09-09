@@ -16,6 +16,7 @@ public class FewShotProperties {
     private boolean fallbackEnabled = true;
     private boolean cacheEnabled = true;
     private Duration cacheTtl = Duration.ofMinutes(30);
+    private int queryEmbeddingCacheMaxSize = 1_000;
     private Source source = new Source();
     private Search search = new Search();
 
@@ -81,6 +82,14 @@ public class FewShotProperties {
 
     public void setCacheTtl(Duration cacheTtl) {
         this.cacheTtl = cacheTtl;
+    }
+
+    public int getQueryEmbeddingCacheMaxSize() {
+        return queryEmbeddingCacheMaxSize;
+    }
+
+    public void setQueryEmbeddingCacheMaxSize(int queryEmbeddingCacheMaxSize) {
+        this.queryEmbeddingCacheMaxSize = queryEmbeddingCacheMaxSize;
     }
 
     public Source getSource() {

@@ -214,6 +214,72 @@ class DefaultFewShotSearchServiceTest {
     }
 
     @Test
+    @DisplayName("query embedding 실패 후 동일 질의를 재요청하면 Cohere 호출을 다시 시도한다")
+    void retriesSameQueryAfterQueryEmbeddingFailure() {
+        properties.setDynamicSelectionEnabled(true);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(
+                caseItem("FS-1", "Spring Boot API 개발", 0),
+                caseItem("FS-2", "브랜드 운영", 0)
+        ));
+        when(cohereEmbeddingClient.embedQuery(any()))
+                .thenThrow(new RuntimeException("cohere down"))
+                .thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(
+                new float[]{1, 0},
+                new float[]{0, 1}
+        ));
+        FewShotSearchQuery query = query("EV-01", "retry request");
+
+        List<SelectedFewShotCase> failedAttempt = service.searchRelevantFewShots(query, 1);
+        Map<?, ?> inFlightAfterFailure = (Map<?, ?>) ReflectionTestUtils.getField(
+                service,
+                "queryEmbeddingInFlight"
+        );
+        assertThat(failedAttempt).hasSize(1);
+        assertThat(failedAttempt.getFirst().selectionMethod()).isEqualTo("local-fallback");
+        assertThat(inFlightAfterFailure).isEmpty();
+
+        List<SelectedFewShotCase> retried = service.searchRelevantFewShots(query, 2);
+
+        assertThat(retried).hasSize(2);
+        assertThat(retried).allMatch(item -> item.selectionMethod().equals("cohere-embedding"));
+        verify(cohereEmbeddingClient, times(2)).embedQuery(any());
+    }
+
+    @Test
+    @DisplayName("query embedding 캐시는 설정된 최대 크기를 넘지 않도록 정리한다")
+    void boundsQueryEmbeddingCacheSize() {
+        properties.setDynamicSelectionEnabled(true);
+        properties.setQueryEmbeddingCacheMaxSize(3);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(caseItem("FS-1", "Spring Boot API 개발", 0)));
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(new float[]{1, 0}));
+
+        for (int i = 0; i < 5; i++) {
+            service.searchRelevantFewShots(query("EV-" + i, "unique request " + i), 1);
+        }
+
+        Map<?, ?> queryEmbeddingCache = (Map<?, ?>) ReflectionTestUtils.getField(service, "queryEmbeddingCache");
+        assertThat(queryEmbeddingCache).hasSizeLessThanOrEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("만료된 query embedding은 동일 질의 재요청에 사용하지 않는다")
+    void doesNotReuseExpiredQueryEmbedding() {
+        properties.setDynamicSelectionEnabled(true);
+        properties.setCacheTtl(Duration.ZERO);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(caseItem("FS-1", "Spring Boot API 개발", 0)));
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(new float[]{1, 0}));
+        FewShotSearchQuery query = query("EV-01", "expired request");
+
+        service.searchRelevantFewShots(query, 1);
+        service.searchRelevantFewShots(query, 2);
+
+        verify(cohereEmbeddingClient, times(2)).embedQuery(any());
+    }
+
+    @Test
     @DisplayName("후보 내용이 변경되면 document embedding을 다시 생성한다")
     void refreshesDocumentEmbeddingWhenCandidateContentChanges() {
         properties.setDynamicSelectionEnabled(true);

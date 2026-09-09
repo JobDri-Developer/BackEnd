@@ -20,11 +20,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 
 @Service
 @Slf4j
 public class DefaultFewShotSearchService implements FewShotSearchService {
+    private static final long QUERY_EMBEDDING_CACHE_CLEANUP_INTERVAL_MILLIS = 60_000L;
     private static final Pattern TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{IsAlphabetic}\\p{IsDigit}가-힣]+");
     private static final Pattern NORMALIZED_INPUT_WHITESPACE_PATTERN = Pattern.compile("[\\p{Z}\\s]+");
 
@@ -36,6 +39,8 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private final Map<String, QueryEmbeddingCacheEntry> queryEmbeddingCache = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<QueryEmbeddingCacheEntry>> queryEmbeddingInFlight =
             new ConcurrentHashMap<>();
+    private final AtomicLong queryEmbeddingCacheNextCleanupAt = new AtomicLong();
+    private final AtomicBoolean queryEmbeddingCacheCleanupInProgress = new AtomicBoolean();
     private final Map<String, DocumentEmbeddingCacheEntry> documentEmbeddingCache = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<DocumentEmbeddingCacheEntry>> documentEmbeddingInFlight =
             new ConcurrentHashMap<>();
@@ -169,9 +174,9 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             return cohereEmbeddingClient.embedQuery(queryText);
         }
         Instant now = Instant.now();
-        queryEmbeddingCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
+        maintainQueryEmbeddingCache(now);
         String key = sha256(queryText);
-        QueryEmbeddingCacheEntry cached = queryEmbeddingCache.get(key);
+        QueryEmbeddingCacheEntry cached = readQueryEmbeddingCache(key, now);
         if (cached != null) {
             log.debug("few-shot query embedding cache hit.");
             return cached.embedding();
@@ -184,7 +189,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             return existing.join().embedding();
         }
 
-        QueryEmbeddingCacheEntry cachedAfterClaim = queryEmbeddingCache.get(key);
+        QueryEmbeddingCacheEntry cachedAfterClaim = readQueryEmbeddingCache(key, Instant.now());
         if (cachedAfterClaim != null) {
             created.complete(cachedAfterClaim);
             queryEmbeddingInFlight.remove(key, created);
@@ -198,6 +203,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
                     expiresAt()
             );
             queryEmbeddingCache.put(key, initialized);
+            maintainQueryEmbeddingCache(Instant.now());
             created.complete(initialized);
             log.debug("few-shot query embedding cache initialized.");
             return initialized.embedding();
@@ -206,6 +212,49 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             throw e;
         } finally {
             queryEmbeddingInFlight.remove(key, created);
+        }
+    }
+
+    private QueryEmbeddingCacheEntry readQueryEmbeddingCache(String key, Instant now) {
+        QueryEmbeddingCacheEntry cached = queryEmbeddingCache.get(key);
+        if (cached == null || !cached.expiresAt().isBefore(now)) {
+            return cached;
+        }
+        queryEmbeddingCache.remove(key, cached);
+        return null;
+    }
+
+    private void maintainQueryEmbeddingCache(Instant now) {
+        int maxSize = Math.max(1, properties.getQueryEmbeddingCacheMaxSize());
+        long nowMillis = now.toEpochMilli();
+        if (queryEmbeddingCache.size() < maxSize
+                && nowMillis < queryEmbeddingCacheNextCleanupAt.get()) {
+            return;
+        }
+        if (!queryEmbeddingCacheCleanupInProgress.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            int sizeBefore = queryEmbeddingCache.size();
+            queryEmbeddingCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
+            int sizeAfterExpiration = queryEmbeddingCache.size();
+            if (sizeAfterExpiration >= maxSize) {
+                int trimTarget = Math.max(1, maxSize - Math.max(1, maxSize / 10));
+                int removalCount = sizeAfterExpiration - trimTarget;
+                queryEmbeddingCache.entrySet().stream()
+                        .sorted(Comparator.comparing(entry -> entry.getValue().expiresAt()))
+                        .limit(removalCount)
+                        .forEach(entry -> queryEmbeddingCache.remove(entry.getKey(), entry.getValue()));
+            }
+            queryEmbeddingCacheNextCleanupAt.set(nowMillis + QUERY_EMBEDDING_CACHE_CLEANUP_INTERVAL_MILLIS);
+            log.debug(
+                    "few-shot query embedding cache maintained. sizeBefore={}, sizeAfter={}, maxSize={}",
+                    sizeBefore,
+                    queryEmbeddingCache.size(),
+                    maxSize
+            );
+        } finally {
+            queryEmbeddingCacheCleanupInProgress.set(false);
         }
     }
 
