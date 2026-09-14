@@ -17,6 +17,8 @@ import java.util.UUID;
 
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -28,6 +30,35 @@ class JobApplicationControllerTest {
 
     @Autowired MockMvc mockMvc;
     @Autowired UserRepository userRepository;
+    @Autowired com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationService applications;
+
+    @Test
+    void boardRouteAndPositionContract() throws Exception {
+        User owner = saveUser();
+        var card = applications.create(owner,
+                new com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationCreateRequest(
+                        "기업", "공고", "직무", null, null, null, null, null, null, null, null, null, null));
+        mockMvc.perform(get("/api/job-applications/board").with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.sort").value("MANUAL"))
+                .andExpect(jsonPath("$.result.columns.length()").value(4))
+                .andExpect(jsonPath("$.result.columns[0].count").value(1));
+        mockMvc.perform(patch("/api/job-applications/{id}/position", card.getJobApplicationId())
+                        .with(user(new UserDetailsImpl(owner))).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetStage\":\"INTERVIEW\",\"targetIndex\":0}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.columns[0].count").value(0))
+                .andExpect(jsonPath("$.result.columns[2].cards[0].jobApplicationId").value(card.getJobApplicationId()));
+        mockMvc.perform(patch("/api/job-applications/{id}/position", card.getJobApplicationId())
+                        .with(user(new UserDetailsImpl(owner))).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"targetStage\":\"INTERVIEW\"}"))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/job-applications/board").param("sort", "INVALID")
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isBadRequest());
+        mockMvc.perform(get("/api/job-applications/board"))
+                .andExpect(status().isUnauthorized());
+    }
 
     @Test
     @DisplayName("수동 등록 API는 최소 입력으로 독립 지원 카드를 반환한다")
