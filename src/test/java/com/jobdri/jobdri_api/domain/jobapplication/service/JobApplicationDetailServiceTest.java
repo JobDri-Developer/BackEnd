@@ -210,7 +210,7 @@ class JobApplicationDetailServiceTest {
                 "롤백 사용자", "detail-rollback-" + UUID.randomUUID() + "@example.com", "encoded-password"));
         JobApplicationResponse card = createCard(user, "롤백 원본");
         JobApplicationDetailUpdateRequest invalid = request(
-                card.getUpdatedAt(),
+                LocalDateTime.now().plusYears(1),
                 List.of(new JobApplicationChecklistItemRequest("저장되면 안 됨", true)),
                 Collections.singletonList(null),
                 List.of(new JobApplicationEssayRequest("저장되면 안 되는 질문", "답변")),
