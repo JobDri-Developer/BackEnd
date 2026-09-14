@@ -155,10 +155,6 @@ public class FewShotCaseStore {
             Set<String> ids = new HashSet<>();
             for (Map<String, String> row : rows) {
                 String id = value(row, "caseId");
-                if (!ids.add(id)) {
-                    log.warn("reviewed evaluation few-shot row skipped. reason=duplicate_case_id, caseId={}", id);
-                    continue;
-                }
                 if (!"true".equalsIgnoreCase(value(row, "fewShotEnabled"))) {
                     continue;
                 }
@@ -188,6 +184,10 @@ public class FewShotCaseStore {
                     }
                 } catch (IOException e) {
                     log.warn("reviewed evaluation few-shot row skipped. reason=invalid_analysis_json, caseId={}", id);
+                    continue;
+                }
+                if (!ids.add(id)) {
+                    log.warn("reviewed evaluation few-shot row skipped. reason=duplicate_case_id, caseId={}", id);
                     continue;
                 }
                 result.add(new FewShotCase(

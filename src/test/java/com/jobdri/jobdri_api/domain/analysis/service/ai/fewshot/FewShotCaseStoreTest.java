@@ -16,6 +16,34 @@ class FewShotCaseStoreTest {
     Path tempDir;
 
     @Test
+    @DisplayName("무효 행은 ID를 선점하지 않고 같은 ID의 첫 유효 행만 적재한다")
+    void retainsFirstValidRowAfterInvalidRowsWithSameCaseId() throws Exception {
+        Path csv = tempDir.resolve("duplicate-id.csv");
+        Files.writeString(csv, """
+                caseId,mainTasks,question,sanitizedAnswer,approvedAnalysisJson,fewShotEnabled,reviewStatus
+                EV-01,API 개발,경험,비활성 답변,{},false,APPROVED
+                EV-01,API 개발,경험,미승인 답변,{},true,IN_REVIEW
+                EV-01,API 개발,경험,,{},true,APPROVED
+                EV-01,API 개발,경험,잘못된 JSON 답변,{,true,APPROVED
+                EV-01,API 개발,경험,배열 JSON 답변,[],true,APPROVED
+                EV-01,API 개발,경험,첫 유효 답변,{},true,APPROVED
+                EV-01,API 개발,경험,중복 유효 답변,{},true,APPROVED
+                """);
+        FewShotProperties properties = new FewShotProperties();
+        properties.getSource().setFixedEnabled(false);
+        properties.getSource().setCuratedEnabled(false);
+        properties.getSource().setReviewedEvaluationEnabled(true);
+        properties.setReviewedEvaluationResource("");
+        properties.setReviewedEvaluationCsvPath(csv.toString());
+
+        var loaded = new FewShotCaseStore(new FewShotPromptProvider(), properties, new ObjectMapper())
+                .loadActiveCases();
+
+        assertThat(loaded).extracting(FewShotCase::id).containsExactly("EV-01");
+        assertThat(loaded.getFirst().sanitizedAnswer()).isEqualTo("첫 유효 답변");
+    }
+
+    @Test
     void preservesOptionalJdSectionsAndSkipsMalformedJsonPerRow() throws Exception {
         Path csv = tempDir.resolve("optional-jd.csv");
         Files.writeString(csv, """
