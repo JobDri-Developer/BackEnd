@@ -19,9 +19,12 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.OneToOne;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
+import jakarta.persistence.CascadeType;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -113,6 +116,19 @@ public class JobApplication extends BaseEntity {
     private String memo;
 
     private LocalDateTime archivedAt;
+
+    @OneToMany(mappedBy = "jobApplication", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("displayOrder ASC")
+    @Builder.Default
+    private List<JobApplicationEssay> essays = new ArrayList<>();
+
+    public void moveTo(JobApplicationStage stage, int stageOrder) {
+        if (stage == null || stageOrder < 0) {
+            throw new IllegalArgumentException("단계와 0 이상의 순서가 필요합니다.");
+        }
+        this.stage = stage;
+        this.stageOrder = stageOrder;
+    }
 
     public static JobApplication create(
             User user,

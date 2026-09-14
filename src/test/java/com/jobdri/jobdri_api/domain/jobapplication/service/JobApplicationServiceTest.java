@@ -25,11 +25,17 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -50,21 +56,43 @@ class JobApplicationServiceTest {
 
     @Test
     @DisplayName("최소 정보만으로 분석 엔티티 없이 PLANNED 마지막에 지원 카드를 생성한다")
-    void createMinimalCardWithoutAnalysisEntities() {
-        User user = saveUser("application-minimal@example.com");
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void createMinimalCardWithoutAnalysisEntities() throws Exception {
+        User user = userRepository.saveAndFlush(User.signup(
+                "테스트 사용자",
+                "application-minimal-" + UUID.randomUUID() + "@example.com",
+                "encoded-password"
+        ));
         long postingCount = jobPostingRepository.count();
         long mockApplyCount = mockApplyRepository.count();
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<JobApplicationResponse> firstFuture = executor.submit(
+                    () -> createAfterSignal(user, "첫 공고", ready, start));
+            Future<JobApplicationResponse> secondFuture = executor.submit(
+                    () -> createAfterSignal(user, "둘째 공고", ready, start));
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            List<JobApplicationResponse> created = List.of(
+                    firstFuture.get(20, TimeUnit.SECONDS),
+                    secondFuture.get(20, TimeUnit.SECONDS)
+            );
 
-        JobApplicationResponse first = jobApplicationService.create(user, minimalRequest("첫 공고"));
-        JobApplicationResponse second = jobApplicationService.create(user, minimalRequest("둘째 공고"));
-
-        assertThat(first.getStage()).isEqualTo(JobApplicationStage.PLANNED);
-        assertThat(first.getStageOrder()).isZero();
-        assertThat(first.getSourceJobPostingId()).isNull();
-        assertThat(first.getMockApplyId()).isNull();
-        assertThat(second.getStageOrder()).isEqualTo(1);
-        assertThat(jobPostingRepository.count()).isEqualTo(postingCount);
-        assertThat(mockApplyRepository.count()).isEqualTo(mockApplyCount);
+            assertThat(created).extracting(JobApplicationResponse::getStage)
+                    .containsOnly(JobApplicationStage.PLANNED);
+            assertThat(created).extracting(JobApplicationResponse::getStageOrder)
+                    .containsExactlyInAnyOrder(0, 1).doesNotHaveDuplicates();
+            assertThat(created).extracting(JobApplicationResponse::getSourceJobPostingId).containsOnlyNulls();
+            assertThat(created).extracting(JobApplicationResponse::getMockApplyId).containsOnlyNulls();
+            assertThat(jobPostingRepository.count()).isEqualTo(postingCount);
+            assertThat(mockApplyRepository.count()).isEqualTo(mockApplyCount);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(10, TimeUnit.SECONDS);
+        }
     }
 
     @Test
@@ -138,6 +166,19 @@ class JobApplicationServiceTest {
                 "테스트 기업", postingName, "서버 개발자", null, null,
                 null, null, null, null, null, null, null, null
         );
+    }
+
+    private JobApplicationResponse createAfterSignal(
+            User user,
+            String postingName,
+            CountDownLatch ready,
+            CountDownLatch start
+    ) throws Exception {
+        ready.countDown();
+        if (!start.await(10, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("동시 생성 시작 대기 시간이 초과되었습니다.");
+        }
+        return jobApplicationService.create(user, minimalRequest(postingName));
     }
 
     private User saveUser(String email) {

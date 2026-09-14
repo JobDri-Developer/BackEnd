@@ -66,7 +66,7 @@ public class JobApplicationService {
     @AuditLogEvent(action = "JOB_APPLICATION_CREATE_FROM_JOB_POSTING", targetType = "JOB_APPLICATION", targetId = "#result.jobApplicationId")
     public JobApplicationResponse createFromJobPosting(User user, JobApplicationFromJobPostingRequest request) {
         User validatedUser = lockValidatedUser(user);
-        JobPosting source = jobPostingService.getOwnedJobPosting(validatedUser, request.jobPostingId());
+        JobPosting source = jobPostingService.getOwnedJobPostingForUpdate(validatedUser, request.jobPostingId());
         JobApplicationStage stage = request.initialStage() == null
                 ? JobApplicationStage.PLANNED
                 : request.initialStage();
