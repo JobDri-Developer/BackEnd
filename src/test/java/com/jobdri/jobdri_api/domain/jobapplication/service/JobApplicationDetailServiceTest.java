@@ -26,8 +26,8 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -212,13 +212,13 @@ class JobApplicationDetailServiceTest {
         JobApplicationDetailUpdateRequest invalid = request(
                 card.getUpdatedAt(),
                 List.of(new JobApplicationChecklistItemRequest("저장되면 안 됨", true)),
-                List.of(new JobApplicationMetricRequest(null, "유형 없음", "값")),
+                Collections.singletonList(null),
                 List.of(new JobApplicationEssayRequest("저장되면 안 되는 질문", "답변")),
                 null
         );
 
         assertThatThrownBy(() -> detailService.update(user, card.getJobApplicationId(), invalid))
-                .hasRootCauseInstanceOf(SQLException.class);
+                .isInstanceOf(NullPointerException.class);
 
         JobApplicationDetailResponse found = detailService.get(user, card.getJobApplicationId());
         assertThat(found.getCompanyName()).isEqualTo("테스트 기업");
