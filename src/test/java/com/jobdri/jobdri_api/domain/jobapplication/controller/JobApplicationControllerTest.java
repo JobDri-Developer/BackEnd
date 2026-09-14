@@ -20,6 +20,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -153,6 +154,39 @@ class JobApplicationControllerTest {
                 .andExpect(jsonPath("$.result.requiredSkills[0]").value("Java"))
                 .andExpect(jsonPath("$.result.memo").value("면접 메모"))
                 .andExpect(jsonPath("$.result.checklistItems[0].content").value("서류 제출"));
+    }
+
+    @Test
+    @DisplayName("보관·보관함·복원·영구삭제 API 계약을 제공한다")
+    void archiveRestoreAndDeleteRoutes() throws Exception {
+        User owner = saveUser();
+        var card = applications.create(owner,
+                new com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationCreateRequest(
+                        "보관 기업", "보관 공고", "보관 직무", null, null,
+                        null, null, null, null, null, null, null, null));
+
+        mockMvc.perform(post("/api/job-applications/{id}/archive", card.getJobApplicationId())
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.archivedAt").isNotEmpty());
+        mockMvc.perform(get("/api/job-applications/archive")
+                        .param("page", "0")
+                        .param("size", "10")
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.totalElements").value(1))
+                .andExpect(jsonPath("$.result.content[0].jobApplicationId").value(card.getJobApplicationId()));
+        mockMvc.perform(post("/api/job-applications/{id}/restore", card.getJobApplicationId())
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.archivedAt").doesNotExist());
+        mockMvc.perform(delete("/api/job-applications/{id}", card.getJobApplicationId())
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk());
+        mockMvc.perform(get("/api/job-applications/{id}", card.getJobApplicationId())
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("JOB_APPLICATION_4041"));
     }
 
     private User saveUser() {

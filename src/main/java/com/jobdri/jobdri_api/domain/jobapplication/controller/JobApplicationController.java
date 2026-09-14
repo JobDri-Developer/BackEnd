@@ -1,13 +1,15 @@
 package com.jobdri.jobdri_api.domain.jobapplication.controller;
 
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationCreateRequest;
-import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationFromJobPostingRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationDetailUpdateRequest;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationFromJobPostingRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationPositionRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationSort;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationArchiveItemResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationBoardResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationDetailResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationResponse;
+import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationArchiveService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationBoardService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationDetailService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationService;
@@ -18,7 +20,9 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,6 +42,7 @@ public class JobApplicationController {
     private final UserService userService;
     private final JobApplicationBoardService jobApplicationBoardService;
     private final JobApplicationDetailService jobApplicationDetailService;
+    private final JobApplicationArchiveService jobApplicationArchiveService;
 
     @Operation(summary = "지원관리 칸반 조회", description = "활성 카드를 4개 열로 반환합니다. 회사명·공고명·직무명을 검색하며 count는 검색 결과 기준입니다. CREATED_DESC에서는 드래그를 비활성화합니다.")
     @GetMapping("/board")
@@ -59,6 +64,53 @@ public class JobApplicationController {
     ) {
         return ApiResponse.onSuccess("지원 카드 이동에 성공했습니다.",
                 jobApplicationBoardService.move(validateAuthenticatedUser(userDetails), jobApplicationId, request));
+    }
+
+    @Operation(summary = "지원 카드 보관", description = "활성 보드에서 카드를 제외하고 보관 시각을 기록합니다. 남은 열의 수동 순서는 연속으로 정리합니다.")
+    @PostMapping("/{jobApplicationId}/archive")
+    public ApiResponse<JobApplicationResponse> archive(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long jobApplicationId
+    ) {
+        return ApiResponse.onSuccess(
+                "지원 카드 보관에 성공했습니다.",
+                jobApplicationArchiveService.archive(validateAuthenticatedUser(userDetails), jobApplicationId)
+        );
+    }
+
+    @Operation(summary = "지원 카드 복원", description = "보관 전 단계를 유지하며 해당 단계의 마지막 순서로 복원합니다.")
+    @PostMapping("/{jobApplicationId}/restore")
+    public ApiResponse<JobApplicationResponse> restore(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long jobApplicationId
+    ) {
+        return ApiResponse.onSuccess(
+                "지원 카드 복원에 성공했습니다.",
+                jobApplicationArchiveService.restore(validateAuthenticatedUser(userDetails), jobApplicationId)
+        );
+    }
+
+    @Operation(summary = "지원 카드 보관함 조회", description = "보관 시각과 ID 내림차순으로 현재 사용자의 보관 카드를 페이지 조회합니다.")
+    @GetMapping("/archive")
+    public ApiResponse<Page<JobApplicationArchiveItemResponse>> archivePage(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size
+    ) {
+        return ApiResponse.onSuccess(
+                "지원 카드 보관함 조회에 성공했습니다.",
+                jobApplicationArchiveService.getArchive(validateAuthenticatedUser(userDetails), page, size)
+        );
+    }
+
+    @Operation(summary = "지원 카드 영구 삭제", description = "지원 카드와 카드가 직접 소유한 상세 데이터만 삭제합니다. 출처 공고와 연결된 모의지원은 유지합니다.")
+    @DeleteMapping("/{jobApplicationId}")
+    public ApiResponse<Void> delete(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long jobApplicationId
+    ) {
+        jobApplicationArchiveService.delete(validateAuthenticatedUser(userDetails), jobApplicationId);
+        return ApiResponse.onSuccess("지원 카드 영구 삭제에 성공했습니다.", null);
     }
 
     @Operation(summary = "지원 카드 수동 등록", description = "분석을 시작하지 않고 독립적인 지원관리 카드를 생성합니다.")
