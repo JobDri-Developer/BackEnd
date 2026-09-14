@@ -8,6 +8,7 @@ import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionAnalysisRepository;
 import com.jobdri.jobdri_api.domain.analysis.repository.QuestionRepository;
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
+import com.jobdri.jobdri_api.domain.jobapplication.repository.JobApplicationRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
@@ -68,6 +69,7 @@ public class MockApplyService {
     private final MockApplyPersistenceService mockApplyPersistenceService;
     private final MockApplySequenceService mockApplySequenceService;
     private final AnalysisAsyncTaskRepository analysisAsyncTaskRepository;
+    private final JobApplicationRepository jobApplicationRepository;
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "MOCK_APPLY_CREATE", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
@@ -298,6 +300,7 @@ public class MockApplyService {
         questionAnalysisRepository.deleteAllByMockApplyId(mockApplyId);
         analysisRepository.deleteByMockApplyId(mockApplyId);
         questionRepository.deleteAllByMockApplyId(mockApplyId);
+        jobApplicationRepository.clearMockApply(mockApplyId);
         mockApplyRepository.deleteByMockApplyId(mockApplyId);
     }
 
