@@ -14,6 +14,7 @@ import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +30,7 @@ public class JobApplicationBoardService {
     private final JobApplicationEssayRepository essays;
     private final UserService userService;
     private final UserRepository users;
+    private final EntityManager entityManager;
 
     public JobApplicationBoardResponse getBoard(User principal, String query, JobApplicationSort sort) {
         User user = userService.validateUser(principal);
@@ -86,8 +88,10 @@ public class JobApplicationBoardService {
         }
         destination.add(request.targetIndex(), card);
         reorder(destination, target);
-        // Return timestamps after JPA auditing has run.
+        // Flush auditing timestamps and reload their database-normalized precision
+        // before building the response.
         applications.flush();
+        entityManager.clear();
         return getBoard(user, null, JobApplicationSort.MANUAL);
     }
 
