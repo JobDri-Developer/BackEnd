@@ -147,6 +147,21 @@ public class JobApplication extends BaseEntity {
         this.stageOrder = stageOrder;
     }
 
+    public void archive(LocalDateTime archivedAt) {
+        if (archivedAt == null || this.archivedAt != null) {
+            throw new IllegalStateException("활성 지원 카드만 보관할 수 있습니다.");
+        }
+        this.archivedAt = archivedAt;
+    }
+
+    public void restore(int stageOrder) {
+        if (this.archivedAt == null || stageOrder < 0) {
+            throw new IllegalStateException("보관된 지원 카드와 0 이상의 순서가 필요합니다.");
+        }
+        this.archivedAt = null;
+        this.stageOrder = stageOrder;
+    }
+
     public void updateDetails(
             DetailClassification detailClassification,
             String companyName,

@@ -3,6 +3,8 @@ package com.jobdri.jobdri_api.domain.jobapplication.repository;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplication;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
@@ -50,6 +52,11 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
     @Query("select ja from JobApplication ja where ja.id = :id")
     Optional<JobApplication> findByIdForUpdate(@Param("id") Long id);
 
+    Page<JobApplication> findAllByUserIdAndArchivedAtIsNotNull(Long userId, Pageable pageable);
+
+    @Query("select distinct ja from JobApplication ja left join fetch ja.requiredSkills where ja.id in :ids")
+    List<JobApplication> findArchiveDetailsByIdIn(@Param("ids") List<Long> ids);
+
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update JobApplication ja set ja.sourceJobPosting = null where ja.sourceJobPosting.id = :jobPostingId")
     int clearSourceJobPosting(@Param("jobPostingId") Long jobPostingId);
@@ -57,4 +64,8 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update JobApplication ja set ja.mockApply = null where ja.mockApply.jobPosting.id = :jobPostingId")
     int clearMockAppliesForJobPosting(@Param("jobPostingId") Long jobPostingId);
+
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
+    @Query("update JobApplication ja set ja.mockApply = null where ja.mockApply.id = :mockApplyId")
+    int clearMockApply(@Param("mockApplyId") Long mockApplyId);
 }
