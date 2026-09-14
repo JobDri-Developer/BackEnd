@@ -8,6 +8,7 @@ import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificati
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
+import com.jobdri.jobdri_api.domain.jobapplication.repository.JobApplicationRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingUpdateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
@@ -46,6 +47,7 @@ public class JobPostingService {
     private final QuestionRepository questionRepository;
     private final AnalysisRepository analysisRepository;
     private final QuestionAnalysisRepository questionAnalysisRepository;
+    private final JobApplicationRepository jobApplicationRepository;
 
     @Transactional
     @AuditLogEvent(action = "JOB_POSTING_CREATE", targetType = "JOB_POSTING", targetId = "#result.getJobPostingId()")
@@ -138,11 +140,13 @@ public class JobPostingService {
         User validatedUser = userService.validateUser(user);
         JobPosting jobPosting = getOwnedJobPosting(validatedUser, jobPostingId);
 
+        jobApplicationRepository.clearMockAppliesForJobPosting(jobPostingId);
         questionAnalysisRepository.deleteAllByJobPostingId(jobPostingId);
         questionRepository.deleteAllByJobPostingId(jobPostingId);
         analysisRepository.deleteAllByJobPostingId(jobPostingId);
         mockApplyRepository.deleteAllByJobPostingId(jobPostingId);
         mockApplySequenceRepository.deleteAllByUserIdAndJobPostingId(validatedUser.getId(), jobPostingId);
+        jobApplicationRepository.clearSourceJobPosting(jobPostingId);
         jobPostingRepository.delete(jobPosting);
     }
 

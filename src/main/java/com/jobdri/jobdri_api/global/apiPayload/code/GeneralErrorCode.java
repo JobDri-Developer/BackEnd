@@ -41,6 +41,11 @@ public enum GeneralErrorCode implements BaseErrorCode {
     JOB_POSTING_UPDATE_CONFLICT(HttpStatus.CONFLICT, "JOB_POSTING_4091", "채용 공고가 이미 수정되었습니다."),
     WORKER_TASK_RESULT_NOT_FOUND(HttpStatus.NOT_FOUND, "WORKER_RESULT_4041", "worker 결과를 찾을 수 없습니다."),
 
+    // 지원관리 에러
+    JOB_APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "JOB_APPLICATION_4041", "지원 카드를 찾을 수 없습니다."),
+    JOB_APPLICATION_UPDATE_CONFLICT(HttpStatus.CONFLICT, "JOB_APPLICATION_4091", "지원 카드가 이미 수정되었습니다."),
+    JOB_APPLICATION_NOT_READY(HttpStatus.UNPROCESSABLE_ENTITY, "JOB_APPLICATION_NOT_READY", "모의지원 전환에 필요한 정보가 부족합니다."),
+
     // 모의 서류 지원 에러
     MOCK_APPLY_NOT_FOUND(HttpStatus.NOT_FOUND, "MOCK_APPLY_4041", "모의 서류 지원을 찾을 수 없습니다."),
     QUESTION_NOT_FOUND(HttpStatus.NOT_FOUND, "QUESTION_4041", "문항을 찾을 수 없습니다."),
