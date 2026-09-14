@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.jobapplication.repository;
 
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplication;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationArchiveItemResponse;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -52,10 +53,25 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
     @Query("select ja from JobApplication ja where ja.id = :id")
     Optional<JobApplication> findByIdForUpdate(@Param("id") Long id);
 
-    Page<JobApplication> findAllByUserIdAndArchivedAtIsNotNull(Long userId, Pageable pageable);
-
-    @Query("select distinct ja from JobApplication ja left join fetch ja.requiredSkills where ja.id in :ids")
-    List<JobApplication> findArchiveDetailsByIdIn(@Param("ids") List<Long> ids);
+    @Query(
+            value = """
+                    select new com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationArchiveItemResponse(
+                        ja.id, ja.companyName, ja.postingName, ja.jobTitle, ja.deadlineAt,
+                        ja.currentLabel, ja.currentAt, ja.stage, ja.archivedAt, ja.createdAt, ja.updatedAt
+                    )
+                    from JobApplication ja
+                    where ja.user.id = :userId and ja.archivedAt is not null
+                    """,
+            countQuery = """
+                    select count(ja)
+                    from JobApplication ja
+                    where ja.user.id = :userId and ja.archivedAt is not null
+                    """
+    )
+    Page<JobApplicationArchiveItemResponse> findArchivePageByUserId(
+            @Param("userId") Long userId,
+            Pageable pageable
+    );
 
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update JobApplication ja set ja.sourceJobPosting = null where ja.sourceJobPosting.id = :jobPostingId")

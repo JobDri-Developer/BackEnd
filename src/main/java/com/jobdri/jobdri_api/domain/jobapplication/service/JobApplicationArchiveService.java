@@ -15,7 +15,6 @@ import com.jobdri.jobdri_api.global.pagination.PaginationPolicy;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -23,9 +22,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Map;
-import java.util.function.Function;
-import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -75,20 +71,7 @@ public class JobApplicationArchiveService {
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(Sort.Order.desc("archivedAt"), Sort.Order.desc("id"))
         );
-        Page<JobApplication> applications = jobApplicationRepository
-                .findAllByUserIdAndArchivedAtIsNotNull(validatedUser.getId(), pageable);
-        if (applications.isEmpty()) {
-            return new PageImpl<>(List.of(), pageable, applications.getTotalElements());
-        }
-
-        List<Long> ids = applications.getContent().stream().map(JobApplication::getId).toList();
-        Map<Long, JobApplication> detailsById = jobApplicationRepository.findArchiveDetailsByIdIn(ids).stream()
-                .collect(Collectors.toMap(JobApplication::getId, Function.identity()));
-        List<JobApplicationArchiveItemResponse> content = ids.stream()
-                .map(detailsById::get)
-                .map(JobApplicationArchiveItemResponse::from)
-                .toList();
-        return new PageImpl<>(content, pageable, applications.getTotalElements());
+        return jobApplicationRepository.findArchivePageByUserId(validatedUser.getId(), pageable);
     }
 
     @Transactional

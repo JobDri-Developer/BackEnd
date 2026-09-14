@@ -41,12 +41,18 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.Page;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -139,6 +145,46 @@ class JobApplicationArchiveServiceTest {
     }
 
     @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("같은 단계의 보관 카드 두 개를 동시에 복원해도 순서가 중복되지 않는다")
+    void concurrentRestoresKeepContiguousUniqueOrder() throws Exception {
+        User user = saveUser();
+        JobApplicationResponse first = createCard(user, "동시 복원 1", JobApplicationStage.DOCUMENT);
+        JobApplicationResponse second = createCard(user, "동시 복원 2", JobApplicationStage.DOCUMENT);
+        archiveService.archive(user, first.getJobApplicationId());
+        archiveService.archive(user, second.getJobApplicationId());
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<JobApplicationResponse> firstRestore = executor.submit(
+                    () -> restoreAfterSignal(user, first.getJobApplicationId(), ready, start));
+            Future<JobApplicationResponse> secondRestore = executor.submit(
+                    () -> restoreAfterSignal(user, second.getJobApplicationId(), ready, start));
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(List.of(
+                    firstRestore.get(20, TimeUnit.SECONDS),
+                    secondRestore.get(20, TimeUnit.SECONDS)
+            )).extracting(JobApplicationResponse::getStageOrder)
+                    .containsExactlyInAnyOrder(0, 1)
+                    .doesNotHaveDuplicates();
+
+            JobApplicationBoardResponse board = boardService.getBoard(user, "", JobApplicationSort.MANUAL);
+            assertThat(ids(board, JobApplicationStage.DOCUMENT))
+                    .containsExactlyInAnyOrder(first.getJobApplicationId(), second.getJobApplicationId());
+            assertThat(column(board, JobApplicationStage.DOCUMENT).cards())
+                    .extracting(JobApplicationCardResponse::stageOrder)
+                    .containsExactly(0, 1)
+                    .doesNotHaveDuplicates();
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(10, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
     @DisplayName("보관과 복원은 상태 및 소유권을 검증한다")
     void rejectInvalidStateForeignAndMissingCards() {
         User owner = saveUser();
@@ -212,6 +258,19 @@ class JobApplicationArchiveServiceTest {
                 List.of(new JobApplicationMetricRequest(JobApplicationMetricType.CERTIFICATE, "자격증", "기사")),
                 List.of(new JobApplicationEssayRequest("질문", "답변"))
         );
+    }
+
+    private JobApplicationResponse restoreAfterSignal(
+            User user,
+            Long jobApplicationId,
+            CountDownLatch ready,
+            CountDownLatch start
+    ) throws Exception {
+        ready.countDown();
+        if (!start.await(10, TimeUnit.SECONDS)) {
+            throw new IllegalStateException("동시 복원 시작 대기 시간이 초과되었습니다.");
+        }
+        return archiveService.restore(user, jobApplicationId);
     }
 
     private JobApplicationResponse createCard(User user, String postingName, JobApplicationStage stage) {
