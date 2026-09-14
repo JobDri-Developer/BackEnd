@@ -31,6 +31,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -115,7 +116,23 @@ public class JobApplication extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String memo;
 
+    @Column(precision = 6, scale = 3)
+    private BigDecimal gpa;
+
+    @Column(name = "max_gpa", precision = 6, scale = 3)
+    private BigDecimal maxGpa;
+
     private LocalDateTime archivedAt;
+
+    @OneToMany(mappedBy = "jobApplication", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("displayOrder ASC")
+    @Builder.Default
+    private List<JobApplicationChecklistItem> checklistItems = new ArrayList<>();
+
+    @OneToMany(mappedBy = "jobApplication", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("displayOrder ASC")
+    @Builder.Default
+    private List<JobApplicationMetric> metrics = new ArrayList<>();
 
     @OneToMany(mappedBy = "jobApplication", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("displayOrder ASC")
@@ -128,6 +145,56 @@ public class JobApplication extends BaseEntity {
         }
         this.stage = stage;
         this.stageOrder = stageOrder;
+    }
+
+    public void updateDetails(
+            DetailClassification detailClassification,
+            String companyName,
+            String postingName,
+            String jobTitle,
+            CompanySize companySize,
+            String task,
+            String requirement,
+            String preferred,
+            List<String> requiredSkills,
+            LocalDateTime deadlineAt,
+            String currentLabel,
+            LocalDateTime currentAt,
+            String memo,
+            BigDecimal gpa,
+            BigDecimal maxGpa
+    ) {
+        this.detailClassification = detailClassification;
+        this.companyName = companyName;
+        this.postingName = postingName;
+        this.jobTitle = jobTitle;
+        this.companySize = companySize;
+        this.task = task;
+        this.requirement = requirement;
+        this.preferred = preferred;
+        this.requiredSkills.clear();
+        this.requiredSkills.addAll(requiredSkills);
+        this.deadlineAt = deadlineAt;
+        this.currentLabel = currentLabel;
+        this.currentAt = currentAt;
+        this.memo = memo;
+        this.gpa = gpa;
+        this.maxGpa = maxGpa;
+    }
+
+    public void replaceChecklistItems(List<JobApplicationChecklistItem> items) {
+        checklistItems.clear();
+        checklistItems.addAll(items);
+    }
+
+    public void replaceMetrics(List<JobApplicationMetric> newMetrics) {
+        metrics.clear();
+        metrics.addAll(newMetrics);
+    }
+
+    public void replaceEssays(List<JobApplicationEssay> newEssays) {
+        essays.clear();
+        essays.addAll(newEssays);
     }
 
     public static JobApplication create(
