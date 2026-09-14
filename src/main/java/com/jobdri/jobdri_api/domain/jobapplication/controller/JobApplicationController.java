@@ -2,11 +2,14 @@ package com.jobdri.jobdri_api.domain.jobapplication.controller;
 
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationCreateRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationFromJobPostingRequest;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationDetailUpdateRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationPositionRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationSort;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationBoardResponse;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationDetailResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationBoardService;
+import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationDetailService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationService;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
@@ -20,6 +23,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -33,6 +37,7 @@ public class JobApplicationController {
     private final JobApplicationService jobApplicationService;
     private final UserService userService;
     private final JobApplicationBoardService jobApplicationBoardService;
+    private final JobApplicationDetailService jobApplicationDetailService;
 
     @Operation(summary = "지원관리 칸반 조회", description = "활성 카드를 4개 열로 반환합니다. 회사명·공고명·직무명을 검색하며 count는 검색 결과 기준입니다. CREATED_DESC에서는 드래그를 비활성화합니다.")
     @GetMapping("/board")
@@ -79,14 +84,28 @@ public class JobApplicationController {
         );
     }
 
-    @Operation(summary = "지원 카드 단건 조회", description = "현재 로그인한 사용자의 지원 카드 스냅샷을 조회합니다.")
+    @Operation(summary = "지원 카드 상세 조회", description = "공고 스냅샷과 체크리스트·정량 스펙·실제 제출용 자기소개서를 전달된 순서대로 조회합니다.")
     @GetMapping("/{jobApplicationId}")
-    public ApiResponse<JobApplicationResponse> get(
+    public ApiResponse<JobApplicationDetailResponse> get(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @PathVariable Long jobApplicationId
     ) {
         var user = validateAuthenticatedUser(userDetails);
-        return ApiResponse.onSuccess("지원 카드 조회에 성공했습니다.", jobApplicationService.get(user, jobApplicationId));
+        return ApiResponse.onSuccess("지원 카드 상세 조회에 성공했습니다.", jobApplicationDetailService.get(user, jobApplicationId));
+    }
+
+    @Operation(summary = "지원 카드 상세 전체 저장", description = "공고 스냅샷과 세 탭 데이터를 한 트랜잭션에서 전체 교체합니다. 마지막 조회 수정 시각이 오래된 경우 409를 반환합니다.")
+    @PutMapping("/{jobApplicationId}")
+    public ApiResponse<JobApplicationDetailResponse> update(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long jobApplicationId,
+            @Valid @RequestBody JobApplicationDetailUpdateRequest request
+    ) {
+        var user = validateAuthenticatedUser(userDetails);
+        return ApiResponse.onSuccess(
+                "지원 카드 상세 저장에 성공했습니다.",
+                jobApplicationDetailService.update(user, jobApplicationId, request)
+        );
     }
 
     private com.jobdri.jobdri_api.domain.user.entity.User validateAuthenticatedUser(UserDetailsImpl userDetails) {

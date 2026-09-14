@@ -19,6 +19,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -103,6 +104,55 @@ class JobApplicationControllerTest {
                 .andExpect(jsonPath("$.isSuccess").value(false))
                 .andExpect(jsonPath("$.code").value("REQ_4002"))
                 .andExpect(jsonPath("$.error.length()").value(3));
+    }
+
+    @Test
+    @DisplayName("상세 API는 세 탭 전체 저장 후 동일한 순서로 조회한다")
+    void updateAndGetDetails() throws Exception {
+        User owner = saveUser();
+        var card = applications.create(owner,
+                new com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationCreateRequest(
+                        "기업", "공고", "직무", null, null, null, null, null, null, null, null, null, null));
+        String body = """
+                {
+                  "lastKnownUpdatedAt": "%s",
+                  "companyName": "수정 기업",
+                  "postingName": "수정 공고",
+                  "jobTitle": "수정 직무",
+                  "requiredSkills": ["Java", "Spring"],
+                  "memo": "면접 메모",
+                  "gpa": 4.1,
+                  "maxGpa": 4.5,
+                  "checklistItems": [
+                    {"content": "서류 제출", "completed": true},
+                    {"content": "면접 준비", "completed": false}
+                  ],
+                  "metrics": [
+                    {"type": "LANGUAGE", "name": "TOEIC", "value": "950"}
+                  ],
+                  "essays": [
+                    {"question": "지원 동기", "answer": "답변"}
+                  ]
+                }
+                """.formatted(card.getUpdatedAt());
+
+        mockMvc.perform(put("/api/job-applications/{id}", card.getJobApplicationId())
+                        .with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(body))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.companyName").value("수정 기업"))
+                .andExpect(jsonPath("$.result.checklistItems[0].displayOrder").value(0))
+                .andExpect(jsonPath("$.result.checklistItems[1].displayOrder").value(1))
+                .andExpect(jsonPath("$.result.metrics[0].type").value("LANGUAGE"))
+                .andExpect(jsonPath("$.result.essays[0].question").value("지원 동기"));
+
+        mockMvc.perform(get("/api/job-applications/{id}", card.getJobApplicationId())
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.requiredSkills[0]").value("Java"))
+                .andExpect(jsonPath("$.result.memo").value("면접 메모"))
+                .andExpect(jsonPath("$.result.checklistItems[0].content").value("서류 제출"));
     }
 
     private User saveUser() {

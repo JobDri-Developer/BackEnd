@@ -46,6 +46,10 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
     @EntityGraph(attributePaths = {"detailClassification", "requiredSkills"})
     Optional<JobApplication> findDetailedById(Long id);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select ja from JobApplication ja where ja.id = :id")
+    Optional<JobApplication> findByIdForUpdate(@Param("id") Long id);
+
     @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("update JobApplication ja set ja.sourceJobPosting = null where ja.sourceJobPosting.id = :jobPostingId")
     int clearSourceJobPosting(@Param("jobPostingId") Long jobPostingId);
