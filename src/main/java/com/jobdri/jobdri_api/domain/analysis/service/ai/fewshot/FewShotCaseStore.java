@@ -169,12 +169,25 @@ public class FewShotCaseStore {
                 String sanitizedAnswer = value(row, "sanitizedAnswer");
                 String approvedAnalysisJson = value(row, "approvedAnalysisJson");
                 if (!StringUtils.hasText(id)
-                        || !StringUtils.hasText(value(row, "mainTasks"))
-                        || !StringUtils.hasText(value(row, "qualifications"))
+                        || !(StringUtils.hasText(value(row, "mainTasks"))
+                            || StringUtils.hasText(value(row, "qualifications"))
+                            || StringUtils.hasText(value(row, "preferences")))
                         || !StringUtils.hasText(value(row, "question"))
                         || !StringUtils.hasText(sanitizedAnswer)
                         || !StringUtils.hasText(approvedAnalysisJson)) {
                     log.warn("reviewed evaluation few-shot row skipped. reason=missing_required_field, caseId={}", id);
+                    continue;
+                }
+                try {
+                    var analysis = objectMapper.reader()
+                            .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                            .readTree(approvedAnalysisJson);
+                    if (analysis == null || !analysis.isObject()) {
+                        log.warn("reviewed evaluation few-shot row skipped. reason=invalid_analysis_object, caseId={}", id);
+                        continue;
+                    }
+                } catch (IOException e) {
+                    log.warn("reviewed evaluation few-shot row skipped. reason=invalid_analysis_json, caseId={}", id);
                     continue;
                 }
                 result.add(new FewShotCase(
@@ -184,7 +197,8 @@ public class FewShotCaseStore {
                         true,
                         parseInt(value(row, "fewShotPriority")),
                         value(row, "jobCategorySmall"),
-                        value(row, "jobCategorySmall"),
+                        StringUtils.hasText(value(row, "jobTitle"))
+                                ? value(row, "jobTitle") : value(row, "jobCategorySmall"),
                         splitLines(value(row, "mainTasks")),
                         splitLines(value(row, "qualifications")),
                         value(row, "question"),
@@ -250,6 +264,7 @@ public class FewShotCaseStore {
                 관련 JD 요구사항:
                 - mainTask: %s
                 - qualification: %s
+                - preference: %s
 
                 평가 대상 답변:
                 - questionId: 1
@@ -262,6 +277,7 @@ public class FewShotCaseStore {
                 id,
                 value(row, "mainTasks"),
                 value(row, "qualifications"),
+                value(row, "preferences"),
                 value(row, "question"),
                 sanitizedAnswer,
                 approvedAnalysisJson

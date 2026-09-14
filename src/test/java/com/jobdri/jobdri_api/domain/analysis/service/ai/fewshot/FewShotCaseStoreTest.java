@@ -16,6 +16,36 @@ class FewShotCaseStoreTest {
     Path tempDir;
 
     @Test
+    void preservesOptionalJdSectionsAndSkipsMalformedJsonPerRow() throws Exception {
+        Path csv = tempDir.resolve("optional-jd.csv");
+        Files.writeString(csv, """
+                caseId,jobCategorySmall,jobTitle,mainTasks,qualifications,preferences,question,sanitizedAnswer,approvedAnalysisJson,fewShotEnabled,reviewStatus
+                FS-05,PA,Project Assistant,,협업 능력,Adobe,경험,답변,{},true,APPROVED
+                FS-09,BX,Brand Designer,IP 관리,,,경험,답변,{},true,APPROVED
+                PREF,디자인,,, ,Adobe,경험,답변,{},true,APPROVED
+                EMPTY,디자인,,,,,경험,답변,{},true,APPROVED
+                BROKEN,디자인,,IP 관리,,,경험,답변,{,true,APPROVED
+                ARRAY,디자인,,IP 관리,,,경험,답변,[],true,APPROVED
+                TRAILING,디자인,,IP 관리,,,경험,답변,{} garbage,true,APPROVED
+                LAST,개발,,API 개발,,,경험,답변,{},true,APPROVED
+                """);
+        FewShotProperties properties = new FewShotProperties();
+        properties.getSource().setFixedEnabled(false);
+        properties.getSource().setCuratedEnabled(false);
+        properties.getSource().setReviewedEvaluationEnabled(true);
+        properties.setReviewedEvaluationResource("");
+        properties.setReviewedEvaluationCsvPath(csv.toString());
+        var loaded = new FewShotCaseStore(new FewShotPromptProvider(), properties, new ObjectMapper())
+                .loadActiveCases();
+        assertThat(loaded).extracting(FewShotCase::id).containsExactly("FS-05", "FS-09", "PREF", "LAST");
+        assertThat(loaded.getFirst().jobTitle()).isEqualTo("Project Assistant");
+        assertThat(loaded.getFirst().mainTasks()).isEmpty();
+        assertThat(loaded.getFirst().promptBlock()).contains("- preference: Adobe");
+        assertThat(loaded.get(1).qualifications()).isEmpty();
+        assertThat(loaded.getLast().jobTitle()).isEqualTo("개발");
+    }
+
+    @Test
     @DisplayName("reviewed evaluation CSV는 승인, 활성, 비식별 답변, 승인 분석이 있는 행만 후보로 적재한다")
     void loadsOnlyApprovedReviewedEvaluationRows() throws Exception {
         Path csv = tempDir.resolve("reviewed.csv");
