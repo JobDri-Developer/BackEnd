@@ -1,5 +1,8 @@
 package com.jobdri.jobdri_api.domain.analysis.service.ai;
 
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSelectionMetadata;
+import java.util.function.Consumer;
+
 import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisCandidateResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.CandidateRecheckResponse;
@@ -169,7 +172,19 @@ public class AnalysisAiClient {
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
             Instant deadline
     ) {
+        return analyzeForEvaluationResult(promptInput, jobCategoryEvaluationCriteria, deadline, ignored -> {});
+    }
+
+    public AnalysisAiCallResult analyzeForEvaluationResult(
+            AnalysisPromptInput promptInput,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
+            Instant deadline,
+            Consumer<FewShotSelectionMetadata> recorder
+    ) {
         try {
+            if (resolveAnalysisMode() == AnalysisMode.TWO_PASS) {
+                recorder.accept(analysisPromptBuilder.fewShotNotApplied());
+            }
             return switch (resolveAnalysisMode()) {
                 case TWO_PASS -> analyzeTwoPass(
                         promptInput,
@@ -183,14 +198,16 @@ public class AnalysisAiClient {
                         emptyContext(),
                         jobCategoryEvaluationCriteria,
                         "cover-letter-analysis-evaluation",
-                        deadline
+                        deadline,
+                        recorder
                 );
                 case SINGLE_PASS -> analyzeSinglePass(
                         promptInput,
                         emptyContext(),
                         jobCategoryEvaluationCriteria,
                         "cover-letter-analysis-evaluation",
-                        deadline
+                        deadline,
+                        recorder
                 );
             };
         } catch (GeneralException e) {
@@ -211,10 +228,21 @@ public class AnalysisAiClient {
             String operationName,
             Instant deadline
     ) {
+        return analyzeSinglePass(promptInput, referenceContext, jobCategoryEvaluationCriteria, operationName, deadline, ignored -> {});
+    }
+
+    private AnalysisAiCallResult analyzeSinglePass(
+            AnalysisPromptInput promptInput,
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
+            String operationName,
+            Instant deadline,
+            Consumer<FewShotSelectionMetadata> recorder
+    ) {
         long startedAt = System.nanoTime();
         AnalysisLlmResponse response = createStructuredResponse(
                 operationName,
-                buildPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria),
+                analysisPromptBuilder.buildSinglePassPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria, recorder),
                 AnalysisLlmResponse.class,
                 deadline
         );
@@ -319,12 +347,24 @@ public class AnalysisAiClient {
             String operationName,
             Instant deadline
     ) {
+        return analyzeHybridExact(promptInput, referenceContext, jobCategoryEvaluationCriteria, operationName, deadline, ignored -> {});
+    }
+
+    private AnalysisAiCallResult analyzeHybridExact(
+            AnalysisPromptInput promptInput,
+            RetrievalContext referenceContext,
+            JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
+            String operationName,
+            Instant deadline,
+            Consumer<FewShotSelectionMetadata> recorder
+    ) {
         AnalysisAiCallResult singlePassResult = analyzeSinglePass(
                 promptInput,
                 referenceContext,
                 jobCategoryEvaluationCriteria,
                 operationName + "-single-pass",
-                deadline
+                deadline,
+                recorder
         );
         AnalysisAiCallResult twoPassResult = analyzeTwoPass(
                 promptInput,
