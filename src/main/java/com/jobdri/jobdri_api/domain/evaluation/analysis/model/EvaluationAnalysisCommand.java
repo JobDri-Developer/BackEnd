@@ -8,6 +8,16 @@ public record EvaluationAnalysisCommand(
         String qualifications,
         String preferences,
         String question,
-        String answer
+        String answer,
+        java.util.function.Consumer<String> fewShotMetadataRecorder
 ) {
+    public EvaluationAnalysisCommand {
+        fewShotMetadataRecorder = fewShotMetadataRecorder == null ? ignored -> {} : fewShotMetadataRecorder;
+    }
+
+    public EvaluationAnalysisCommand(String caseId, String jobCategoryMiddle, String jobCategorySmall,
+                                     String mainTasks, String qualifications, String preferences,
+                                     String question, String answer) {
+        this(caseId, jobCategoryMiddle, jobCategorySmall, mainTasks, qualifications, preferences, question, answer, ignored -> {});
+    }
 }

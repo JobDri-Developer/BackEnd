@@ -40,6 +40,47 @@ class EvaluationAnalysisBatchServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void sidecarRetainsSelectionOnFailureAndSeparatesRepeatedCaseIds() throws Exception {
+        EvaluationAnalysisGenerator generator = command -> {
+            if (!command.answer().equals("NO-TRACE")) {
+                command.fewShotMetadataRecorder().accept("{\"selectionMode\":\"EMBEDDING\",\"selectedCases\":[{\"id\":\"FS-02\",\"score\":0.8}]}");
+            }
+            if (command.answer().equals("FAIL")) {
+                throw new IllegalStateException("call failed");
+            }
+            return result(new AnalysisLlmResponse(80, 70, 60, "피드백", List.of(), List.of()));
+        };
+        Path input = tempDir.resolve("metadata-input.csv");
+        Path output = tempDir.resolve("metadata-output.csv");
+        Files.writeString(input, "caseId,jobCategoryMiddle,jobCategorySmall,mainTasks,qualifications,preferences,question,answer\n"
+                + "SAME,개발,백엔드,API,Java,,질문,FAIL\n"
+                + "SAME,개발,백엔드,API,Java,,질문,OK\n"
+                + "LAST,개발,백엔드,API,Java,,질문,NO-TRACE\n");
+        var service = new EvaluationAnalysisBatchService(generator, objectMapper);
+        service.run(input, output);
+        Path sidecar;
+        try (var paths = Files.list(tempDir)) {
+            sidecar = paths.filter(path -> path.getFileName().toString().contains(".fewshot.")).findFirst().orElseThrow();
+        }
+        var lines = Files.readAllLines(sidecar);
+        assertThat(lines).hasSize(3);
+        var failed = objectMapper.readTree(lines.get(0));
+        var succeeded = objectMapper.readTree(lines.get(1));
+        assertThat(failed.path("outcome").asText()).isEqualTo("FAILED");
+        assertThat(failed.path("selections").get(0).path("selectionMode").asText()).isEqualTo("EMBEDDING");
+        assertThat(succeeded.path("outcome").asText()).isEqualTo("SUCCESS");
+        assertThat(failed.path("rowIndex").asInt()).isEqualTo(1);
+        assertThat(succeeded.path("rowIndex").asInt()).isEqualTo(2);
+        assertThat(failed.path("runId")).isEqualTo(succeeded.path("runId"));
+        assertThat(objectMapper.readTree(lines.get(2)).path("metadataStatus").asText()).isEqualTo("UNAVAILABLE");
+        assertThat(EvaluationCsvSupport.readHeaders(output)).doesNotContain("selectionMode", "selections");
+        service.run(input, output);
+        try (var paths = Files.list(tempDir)) {
+            assertThat(paths.filter(path -> path.getFileName().toString().contains(".fewshot.")).count()).isEqualTo(2);
+        }
+    }
+
+    @Test
     @DisplayName("LLM 응답을 검증해 평가 결과 CSV로 저장한다")
     void runWritesSanitizedEvaluationResults() throws Exception {
         EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
