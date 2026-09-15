@@ -103,14 +103,15 @@ public class FewShotCaseStore {
             List<FewShotCase> cases = objectMapper.readValue(json, new TypeReference<>() {
             });
             return cases.stream()
+                    .filter(java.util.Objects::nonNull)
                     .map(fewShotCase -> normalizeSource(fewShotCase, expectedSource))
                     .toList();
         } catch (IOException | RuntimeException e) {
             log.warn(
-                    "few-shot resource parse failed. source={}, resource={}, message={}",
+                    "few-shot resource parse failed. source={}, resource={}, errorType={}",
                     expectedSource,
                     resourcePath,
-                    e.getMessage()
+                    e.getClass().getSimpleName()
             );
             return List.of();
         }
@@ -119,12 +120,9 @@ public class FewShotCaseStore {
     private List<FewShotCase> filterSearchable(List<FewShotCase> cases) {
         List<FewShotCase> result = new ArrayList<>();
         Set<String> ids = new HashSet<>();
+        Set<String> inputHashes = new HashSet<>();
         for (FewShotCase fewShotCase : cases) {
             if (fewShotCase == null || !StringUtils.hasText(fewShotCase.id())) {
-                continue;
-            }
-            if (!ids.add(fewShotCase.id())) {
-                log.warn("few-shot case skipped. reason=duplicate_case_id, id={}, source={}", fewShotCase.id(), fewShotCase.source());
                 continue;
             }
             if (!fewShotCase.searchable()) {
@@ -135,6 +133,25 @@ public class FewShotCaseStore {
                 log.debug("few-shot case skipped. reason=blank_prompt_block, id={}, source={}", fewShotCase.id(), fewShotCase.source());
                 continue;
             }
+            if (fewShotCase.source() == FewShotSource.REVIEWED_EVALUATION
+                    && (!StringUtils.hasText(fewShotCase.question())
+                    || !StringUtils.hasText(fewShotCase.sanitizedAnswer())
+                    || !validReviewedAnalysis(fewShotCase.approvedAnalysisJson(), fewShotCase.id()))) {
+                log.warn("few-shot case skipped. reason=invalid_reviewed_case, id={}", fewShotCase.id());
+                continue;
+            }
+            if (ids.contains(fewShotCase.id())) {
+                log.warn("few-shot case skipped. reason=duplicate_case_id, id={}, source={}", fewShotCase.id(), fewShotCase.source());
+                continue;
+            }
+            String inputHash = FewShotInputHash.of(fewShotCase.mainTasks(), fewShotCase.qualifications(),
+                    fewShotCase.question(), fewShotCase.sanitizedAnswer());
+            if (!inputHash.isEmpty() && !inputHashes.add(inputHash)) {
+                log.warn("few-shot case skipped. reason=duplicate_normalized_input, id={}, source={}",
+                        fewShotCase.id(), fewShotCase.source());
+                continue;
+            }
+            ids.add(fewShotCase.id());
             result.add(fewShotCase);
         }
         return List.copyOf(result);
@@ -152,7 +169,6 @@ public class FewShotCaseStore {
         try {
             List<Map<String, String>> rows = readCsv(path);
             List<FewShotCase> result = new ArrayList<>();
-            Set<String> ids = new HashSet<>();
             for (Map<String, String> row : rows) {
                 String id = value(row, "caseId");
                 if (!"true".equalsIgnoreCase(value(row, "fewShotEnabled"))) {
@@ -182,12 +198,12 @@ public class FewShotCaseStore {
                         log.warn("reviewed evaluation few-shot row skipped. reason=invalid_analysis_object, caseId={}", id);
                         continue;
                     }
+                    if (!ReviewedFewShotAnalysisValidator.isValid(analysis)) {
+                        log.warn("reviewed evaluation few-shot row skipped. reason=invalid_analysis_schema, caseId={}", id);
+                        continue;
+                    }
                 } catch (IOException e) {
                     log.warn("reviewed evaluation few-shot row skipped. reason=invalid_analysis_json, caseId={}", id);
-                    continue;
-                }
-                if (!ids.add(id)) {
-                    log.warn("reviewed evaluation few-shot row skipped. reason=duplicate_case_id, caseId={}", id);
                     continue;
                 }
                 result.add(new FewShotCase(
@@ -209,18 +225,33 @@ public class FewShotCaseStore {
                         buildReviewedPromptBlock(id, row, sanitizedAnswer, approvedAnalysisJson)
                 ));
             }
-            log.info("reviewed evaluation few-shot CSV loaded. rows={}, accepted={}, path={}", rows.size(), result.size(), csvPath);
+            log.info("reviewed evaluation few-shot CSV validated before deduplication. rows={}, validRows={}, path={}", rows.size(), result.size(), csvPath);
             return result;
         } catch (IOException | RuntimeException e) {
-            log.warn("reviewed evaluation few-shot CSV parse failed. path={}, message={}", csvPath, e.getMessage());
+            log.warn("reviewed evaluation few-shot CSV parse failed. path={}, errorType={}", csvPath, e.getClass().getSimpleName());
             return List.of();
         }
+    }
+
+    private boolean validReviewedAnalysis(String json, String id) {
+        try {
+            var analysis = objectMapper.reader()
+                    .with(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
+                    .readTree(json);
+            if (ReviewedFewShotAnalysisValidator.isValid(analysis)) {
+                return true;
+            }
+            log.warn("reviewed few-shot case skipped. reason=invalid_analysis_schema, caseId={}", id);
+        } catch (IOException e) {
+            log.warn("reviewed few-shot case skipped. reason=invalid_analysis_json, caseId={}", id);
+        }
+        return false;
     }
 
     private FewShotCase normalizeSource(FewShotCase fewShotCase, FewShotSource expectedSource) {
         return new FewShotCase(
                 fewShotCase.id(),
-                fewShotCase.source() == null ? expectedSource : fewShotCase.source(),
+                expectedSource,
                 fewShotCase.reviewStatus(),
                 fewShotCase.enabled(),
                 fewShotCase.priority(),
@@ -329,9 +360,21 @@ public class FewShotCaseStore {
         if (!headers.isEmpty() && !headers.getFirst().isEmpty() && headers.getFirst().charAt(0) == '\uFEFF') {
             headers.set(0, headers.getFirst().substring(1));
         }
+        if (new HashSet<>(headers).size() != headers.size()
+                || !headers.containsAll(List.of("caseId", "question", "sanitizedAnswer",
+                "approvedAnalysisJson", "fewShotEnabled", "reviewStatus"))
+                || headers.stream().noneMatch(Set.of("mainTasks", "qualifications", "preferences")::contains)) {
+            log.warn("reviewed evaluation few-shot CSV skipped. reason=invalid_csv_headers");
+            return List.of();
+        }
         List<Map<String, String>> result = new ArrayList<>();
         for (List<String> row : rows.subList(1, rows.size())) {
             if (row.stream().allMatch(String::isBlank)) {
+                continue;
+            }
+            if (row.size() != headers.size()) {
+                log.warn("reviewed evaluation few-shot row skipped. reason=invalid_column_count, expected={}, actual={}",
+                        headers.size(), row.size());
                 continue;
             }
             Map<String, String> values = new LinkedHashMap<>();
@@ -374,6 +417,9 @@ public class FewShotCaseStore {
             } else if (current != '\r') {
                 field.append(current);
             }
+        }
+        if (inQuotes) {
+            throw new IllegalArgumentException("Unclosed quoted CSV field");
         }
         row.add(field.toString());
         if (!row.isEmpty() && row.stream().anyMatch(value -> !value.isBlank())) {

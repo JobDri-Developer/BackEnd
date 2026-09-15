@@ -8,7 +8,6 @@ import org.springframework.util.StringUtils;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.text.Normalizer;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -33,7 +32,6 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private static final long QUERY_EMBEDDING_CACHE_CLEANUP_INTERVAL_MILLIS = 60_000L;
     private static final long DEFAULT_QUERY_EMBEDDING_IN_FLIGHT_WAIT_TIMEOUT_MILLIS = 20_000L;
     private static final Pattern TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{IsAlphabetic}\\p{IsDigit}가-힣]+");
-    private static final Pattern NORMALIZED_INPUT_WHITESPACE_PATTERN = Pattern.compile("[\\p{Z}\\s]+");
 
     private final FewShotCaseStore caseStore;
     private final FewShotSearchTextBuilder textBuilder;
@@ -383,7 +381,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
 
     private List<FewShotCase> localPrefilter(List<FewShotCase> activeCases, FewShotSearchQuery query) {
         int limit = Math.max(1, properties.getSearch().getCandidateLimit());
-        String queryInputHash = normalizedInputHash(
+        String queryInputHash = FewShotInputHash.of(
                 query.mainTasks(),
                 query.qualifications(),
                 query.question(),
@@ -509,7 +507,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         if (!StringUtils.hasText(queryInputHash)) {
             return false;
         }
-        String candidateInputHash = normalizedInputHash(
+        String candidateInputHash = FewShotInputHash.of(
                 fewShotCase.mainTasks(),
                 fewShotCase.qualifications(),
                 fewShotCase.question(),
@@ -518,42 +516,6 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         return queryInputHash.equals(candidateInputHash);
     }
 
-    private static String normalizedInputHash(
-            List<String> mainTasks,
-            List<String> qualifications,
-            String question,
-            String answer
-    ) {
-        String normalizedMainTasks = normalizeInputSection(mainTasks == null ? "" : String.join("\n", mainTasks));
-        String normalizedQualifications = normalizeInputSection(
-                qualifications == null ? "" : String.join("\n", qualifications)
-        );
-        String normalizedQuestion = normalizeInputSection(question);
-        String normalizedAnswer = normalizeInputSection(answer);
-        if (normalizedMainTasks.isEmpty()
-                && normalizedQualifications.isEmpty()
-                && normalizedQuestion.isEmpty()
-                && normalizedAnswer.isEmpty()) {
-            return "";
-        }
-        return sha256(
-                normalizedMainTasks + '\u001f'
-                        + normalizedQualifications + '\u001f'
-                        + normalizedQuestion + '\u001f'
-                        + normalizedAnswer
-        );
-    }
-
-    private static String normalizeInputSection(String value) {
-        if (!StringUtils.hasText(value)) {
-            return "";
-        }
-        String unicodeNormalized = Normalizer.normalize(value, Normalizer.Form.NFKC);
-        return NORMALIZED_INPUT_WHITESPACE_PATTERN.matcher(unicodeNormalized)
-                .replaceAll(" ")
-                .trim()
-                .toLowerCase(Locale.ROOT);
-    }
 
     private static String defaultString(String value) {
         return value == null ? "" : value;

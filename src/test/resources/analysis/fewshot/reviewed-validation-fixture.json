@@ -1,0 +1,154 @@
+[
+  {
+    "id": "VALID",
+    "source": "FIXED",
+    "reviewStatus": "APPROVED",
+    "enabled": true,
+    "priority": 1,
+    "jobCategory": "개발",
+    "jobTitle": "개발",
+    "mainTasks": [
+      "API"
+    ],
+    "qualifications": [],
+    "question": "경험",
+    "sanitizedAnswer": "정상 답변",
+    "approvedAnalysisJson": "{}",
+    "tags": [],
+    "datasetVersion": "test",
+    "promptBlock": "test"
+  },
+  {
+    "id": "VALID",
+    "source": "REVIEWED_EVALUATION",
+    "reviewStatus": "APPROVED",
+    "enabled": false,
+    "priority": 1,
+    "jobCategory": "개발",
+    "jobTitle": "개발",
+    "mainTasks": [
+      "API"
+    ],
+    "qualifications": [],
+    "question": "경험",
+    "sanitizedAnswer": "정상 답변",
+    "approvedAnalysisJson": "{\"keyStrengths\":[],\"missingKeywords\":[],\"questionAnalyses\":[]}",
+    "tags": [],
+    "datasetVersion": "test",
+    "promptBlock": "test"
+  },
+  {
+    "id": "VALID",
+    "source": "REVIEWED_EVALUATION",
+    "reviewStatus": "IN_REVIEW",
+    "enabled": true,
+    "priority": 1,
+    "jobCategory": "개발",
+    "jobTitle": "개발",
+    "mainTasks": [
+      "API"
+    ],
+    "qualifications": [],
+    "question": "경험",
+    "sanitizedAnswer": "정상 답변",
+    "approvedAnalysisJson": "{\"keyStrengths\":[],\"missingKeywords\":[],\"questionAnalyses\":[]}",
+    "tags": [],
+    "datasetVersion": "test",
+    "promptBlock": "test"
+  },
+  {
+    "id": "VALID",
+    "source": "REVIEWED_EVALUATION",
+    "reviewStatus": "APPROVED",
+    "enabled": true,
+    "priority": 1,
+    "jobCategory": "개발",
+    "jobTitle": "개발",
+    "mainTasks": [
+      "API"
+    ],
+    "qualifications": [],
+    "question": "경험",
+    "sanitizedAnswer": "정상 답변",
+    "approvedAnalysisJson": "{",
+    "tags": [],
+    "datasetVersion": "test",
+    "promptBlock": "test"
+  },
+  {
+    "id": "VALID",
+    "source": "REVIEWED_EVALUATION",
+    "reviewStatus": "APPROVED",
+    "enabled": true,
+    "priority": 1,
+    "jobCategory": "개발",
+    "jobTitle": "개발",
+    "mainTasks": [
+      "API"
+    ],
+    "qualifications": [],
+    "question": "경험",
+    "sanitizedAnswer": "정상 답변",
+    "approvedAnalysisJson": "{\"keyStrengths\":[],\"missingKeywords\":[],\"questionAnalyses\":[]}",
+    "tags": [],
+    "datasetVersion": "test",
+    "promptBlock": "test"
+  },
+  {
+    "id": "VALID",
+    "source": "REVIEWED_EVALUATION",
+    "reviewStatus": "APPROVED",
+    "enabled": true,
+    "priority": 1,
+    "jobCategory": "개발",
+    "jobTitle": "개발",
+    "mainTasks": [
+      "API"
+    ],
+    "qualifications": [],
+    "question": "경험",
+    "sanitizedAnswer": "후속 중복 답변",
+    "approvedAnalysisJson": "{\"keyStrengths\":[],\"missingKeywords\":[],\"questionAnalyses\":[]}",
+    "tags": [],
+    "datasetVersion": "test",
+    "promptBlock": "test"
+  },
+  {
+    "id": "SAME-INPUT",
+    "source": "REVIEWED_EVALUATION",
+    "reviewStatus": "APPROVED",
+    "enabled": true,
+    "priority": 1,
+    "jobCategory": "개발",
+    "jobTitle": "개발",
+    "mainTasks": [
+      "API"
+    ],
+    "qualifications": [],
+    "question": "경험",
+    "sanitizedAnswer": " 정상　답변 ",
+    "approvedAnalysisJson": "{\"keyStrengths\":[],\"missingKeywords\":[],\"questionAnalyses\":[]}",
+    "tags": [],
+    "datasetVersion": "test",
+    "promptBlock": "test"
+  },
+  {
+    "id": "BROKEN",
+    "source": "REVIEWED_EVALUATION",
+    "reviewStatus": "APPROVED",
+    "enabled": true,
+    "priority": 1,
+    "jobCategory": "개발",
+    "jobTitle": "개발",
+    "mainTasks": [
+      "API"
+    ],
+    "qualifications": [],
+    "question": "경험",
+    "sanitizedAnswer": "정상 답변",
+    "approvedAnalysisJson": "{}",
+    "tags": [],
+    "datasetVersion": "test",
+    "promptBlock": "test"
+  }
+]

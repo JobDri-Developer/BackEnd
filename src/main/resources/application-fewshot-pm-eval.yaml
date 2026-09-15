@@ -1,0 +1,13 @@
+# Explicit opt-in, used together with analysis-eval. Never add to default profiles.
+analysis:
+  mode: single-pass
+  few-shot:
+    dynamic-selection-enabled: true
+    dataset-version: fewshot-pm-reviewed-20260914-v2
+    reviewed-evaluation-resource: analysis/fewshot/reviewed-fewshot-cases-pm-20260914-v2.json
+    reviewed-evaluation-csv-path: ""
+    source:
+      fixed-enabled: false
+      curated-enabled: false
+      reviewed-evaluation-enabled: true
+      reviewed-production-enabled: false

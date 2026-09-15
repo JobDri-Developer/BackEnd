@@ -16,18 +16,38 @@ class FewShotCaseStoreTest {
     Path tempDir;
 
     @Test
+    void rejectsAmbiguousCsvHeadersAndMalformedRows() throws Exception {
+        String header = "caseId,mainTasks,question,sanitizedAnswer,approvedAnalysisJson,fewShotEnabled,reviewStatus";
+        var properties = new FewShotProperties();
+        properties.getSource().setFixedEnabled(false);
+        properties.getSource().setCuratedEnabled(false);
+        properties.getSource().setReviewedEvaluationEnabled(true);
+        properties.setReviewedEvaluationResource("");
+        Path csv = tempDir.resolve("malformed.csv");
+        properties.setReviewedEvaluationCsvPath(csv.toString());
+        var store = new FewShotCaseStore(new FewShotPromptProvider(), properties, new ObjectMapper());
+        for (String content : java.util.List.of(
+                header + ",caseId\nEV-01,API,경험,답변,{},true,APPROVED,EV-02",
+                header + "\nEV-01,API,경험,답변,{},true,APPROVED,extra",
+                header + "\nEV-01,API,경험,\"unclosed")) {
+            Files.writeString(csv, content);
+            assertThat(store.loadActiveCases()).isEmpty();
+        }
+    }
+
+    @Test
     @DisplayName("무효 행은 ID를 선점하지 않고 같은 ID의 첫 유효 행만 적재한다")
     void retainsFirstValidRowAfterInvalidRowsWithSameCaseId() throws Exception {
         Path csv = tempDir.resolve("duplicate-id.csv");
         Files.writeString(csv, """
                 caseId,mainTasks,question,sanitizedAnswer,approvedAnalysisJson,fewShotEnabled,reviewStatus
-                EV-01,API 개발,경험,비활성 답변,{},false,APPROVED
-                EV-01,API 개발,경험,미승인 답변,{},true,IN_REVIEW
-                EV-01,API 개발,경험,,{},true,APPROVED
+                EV-01,API 개발,경험,비활성 답변,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",false,APPROVED
+                EV-01,API 개발,경험,미승인 답변,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",true,IN_REVIEW
+                EV-01,API 개발,경험,,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",true,APPROVED
                 EV-01,API 개발,경험,잘못된 JSON 답변,{,true,APPROVED
                 EV-01,API 개발,경험,배열 JSON 답변,[],true,APPROVED
-                EV-01,API 개발,경험,첫 유효 답변,{},true,APPROVED
-                EV-01,API 개발,경험,중복 유효 답변,{},true,APPROVED
+                EV-01,API 개발,경험,첫 유효 답변,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",true,APPROVED
+                EV-01,API 개발,경험,중복 유효 답변,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",true,APPROVED
                 """);
         FewShotProperties properties = new FewShotProperties();
         properties.getSource().setFixedEnabled(false);
@@ -44,18 +64,38 @@ class FewShotCaseStoreTest {
     }
 
     @Test
+    void duplicateInputDoesNotReserveIdOfLaterDistinctInput() throws Exception {
+        Path csv = tempDir.resolve("duplicate-input.csv");
+        String analysis = "\"{\"\"keyStrengths\"\":[],\"\"missingKeywords\"\":[],\"\"questionAnalyses\"\":[]}\"";
+        Files.writeString(csv,
+                "caseId,mainTasks,question,sanitizedAnswer,approvedAnalysisJson,fewShotEnabled,reviewStatus\n"
+                        + "FIRST,API,경험,답변," + analysis + ",true,APPROVED\n"
+                        + "SECOND,API,경험, 답변 ," + analysis + ",true,APPROVED\n"
+                        + "SECOND,API,경험,다른 답변," + analysis + ",true,APPROVED\n");
+        var properties = new FewShotProperties();
+        properties.getSource().setFixedEnabled(false);
+        properties.getSource().setCuratedEnabled(false);
+        properties.getSource().setReviewedEvaluationEnabled(true);
+        properties.setReviewedEvaluationResource("");
+        properties.setReviewedEvaluationCsvPath(csv.toString());
+        var loaded = new FewShotCaseStore(new FewShotPromptProvider(), properties, new ObjectMapper()).loadActiveCases();
+        assertThat(loaded).extracting(FewShotCase::id).containsExactly("FIRST", "SECOND");
+        assertThat(loaded.getLast().sanitizedAnswer()).isEqualTo("다른 답변");
+    }
+
+    @Test
     void preservesOptionalJdSectionsAndSkipsMalformedJsonPerRow() throws Exception {
         Path csv = tempDir.resolve("optional-jd.csv");
         Files.writeString(csv, """
                 caseId,jobCategorySmall,jobTitle,mainTasks,qualifications,preferences,question,sanitizedAnswer,approvedAnalysisJson,fewShotEnabled,reviewStatus
-                FS-05,PA,Project Assistant,,협업 능력,Adobe,경험,답변,{},true,APPROVED
-                FS-09,BX,Brand Designer,IP 관리,,,경험,답변,{},true,APPROVED
-                PREF,디자인,,, ,Adobe,경험,답변,{},true,APPROVED
-                EMPTY,디자인,,,,,경험,답변,{},true,APPROVED
+                FS-05,PA,Project Assistant,,협업 능력,Adobe,경험,답변,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",true,APPROVED
+                FS-09,BX,Brand Designer,IP 관리,,,경험,답변,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",true,APPROVED
+                PREF,디자인,,, ,Adobe,경험,답변,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",true,APPROVED
+                EMPTY,디자인,,,,,경험,답변,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",true,APPROVED
                 BROKEN,디자인,,IP 관리,,,경험,답변,{,true,APPROVED
                 ARRAY,디자인,,IP 관리,,,경험,답변,[],true,APPROVED
                 TRAILING,디자인,,IP 관리,,,경험,답변,{} garbage,true,APPROVED
-                LAST,개발,,API 개발,,,경험,답변,{},true,APPROVED
+                LAST,개발,,API 개발,,,경험,답변,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",true,APPROVED
                 """);
         FewShotProperties properties = new FewShotProperties();
         properties.getSource().setFixedEnabled(false);
@@ -79,10 +119,10 @@ class FewShotCaseStoreTest {
         Path csv = tempDir.resolve("reviewed.csv");
         Files.writeString(csv, """
                 caseId,jobCategorySmall,mainTasks,qualifications,question,answer,sanitizedAnswer,approvedAnalysisJson,fewShotEnabled,reviewStatus,fewShotPriority,fewShotTags
-                EV-01,백엔드,API 개발,Spring Boot,직무 경험,원본 답변,비식별 답변,"{""questionAnalyses"":[]}",true,APPROVED,100,"spring,api"
-                EV-02,백엔드,API 개발,Spring Boot,직무 경험,원본 답변,,"{""questionAnalyses"":[]}",true,APPROVED,100,spring
-                EV-03,백엔드,API 개발,Spring Boot,직무 경험,원본 답변,비식별 답변,"{""questionAnalyses"":[]}",false,APPROVED,100,spring
-                EV-04,백엔드,API 개발,Spring Boot,직무 경험,원본 답변,비식별 답변,"{""questionAnalyses"":[]}",true,IN_REVIEW,100,spring
+                EV-01,백엔드,API 개발,Spring Boot,직무 경험,원본 답변,비식별 답변,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",true,APPROVED,100,"spring,api"
+                EV-02,백엔드,API 개발,Spring Boot,직무 경험,원본 답변,,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",true,APPROVED,100,spring
+                EV-03,백엔드,API 개발,Spring Boot,직무 경험,원본 답변,비식별 답변,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",false,APPROVED,100,spring
+                EV-04,백엔드,API 개발,Spring Boot,직무 경험,원본 답변,비식별 답변,"{""keyStrengths"":[],""missingKeywords"":[],""questionAnalyses"":[]}",true,IN_REVIEW,100,spring
                 """);
         FewShotProperties properties = new FewShotProperties();
         properties.getSource().setFixedEnabled(false);
