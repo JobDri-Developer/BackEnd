@@ -19,6 +19,7 @@ public class FewShotProperties {
     private int selectionCacheMaxSize = 1_000;
     private int queryEmbeddingCacheMaxSize = 1_000;
     private int documentEmbeddingCacheMaxSize = 5_000;
+    private Duration selectionInFlightWaitTimeout = Duration.ofSeconds(20);
     private Duration queryEmbeddingInFlightWaitTimeout = Duration.ofSeconds(20);
     private Source source = new Source();
     private Search search = new Search();
@@ -113,6 +114,14 @@ public class FewShotProperties {
 
     public Duration getQueryEmbeddingInFlightWaitTimeout() {
         return queryEmbeddingInFlightWaitTimeout;
+    }
+
+    public Duration getSelectionInFlightWaitTimeout() {
+        return selectionInFlightWaitTimeout;
+    }
+
+    public void setSelectionInFlightWaitTimeout(Duration selectionInFlightWaitTimeout) {
+        this.selectionInFlightWaitTimeout = selectionInFlightWaitTimeout;
     }
 
     public void setQueryEmbeddingInFlightWaitTimeout(Duration queryEmbeddingInFlightWaitTimeout) {

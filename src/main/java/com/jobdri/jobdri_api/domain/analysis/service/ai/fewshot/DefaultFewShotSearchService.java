@@ -31,6 +31,7 @@ import java.util.regex.Pattern;
 @Slf4j
 public class DefaultFewShotSearchService implements FewShotSearchService {
     private static final long QUERY_EMBEDDING_CACHE_CLEANUP_INTERVAL_MILLIS = 60_000L;
+    private static final long DEFAULT_SELECTION_IN_FLIGHT_WAIT_TIMEOUT_MILLIS = 20_000L;
     private static final long DEFAULT_QUERY_EMBEDDING_IN_FLIGHT_WAIT_TIMEOUT_MILLIS = 20_000L;
     private static final Pattern TOKEN_SPLIT_PATTERN = Pattern.compile("[^\\p{IsAlphabetic}\\p{IsDigit}가-힣]+");
 
@@ -42,6 +43,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private final Map<String, SelectionCacheEntry> selectionCache = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<SelectionCacheEntry>> selectionInFlight = new ConcurrentHashMap<>();
     private final AtomicBoolean selectionCacheCleanupInProgress = new AtomicBoolean();
+    private final AtomicBoolean selectionCacheCleanupRequested = new AtomicBoolean();
     private final Map<String, QueryEmbeddingCacheEntry> queryEmbeddingCache = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<QueryEmbeddingCacheEntry>> queryEmbeddingInFlight =
             new ConcurrentHashMap<>();
@@ -51,6 +53,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private final Map<String, CompletableFuture<DocumentEmbeddingCacheEntry>> documentEmbeddingInFlight =
             new ConcurrentHashMap<>();
     private final AtomicBoolean documentEmbeddingCacheCleanupInProgress = new AtomicBoolean();
+    private final AtomicBoolean documentEmbeddingCacheCleanupRequested = new AtomicBoolean();
 
     @Autowired
     public DefaultFewShotSearchService(
@@ -86,7 +89,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         CompletableFuture<SelectionCacheEntry> created = new CompletableFuture<>();
         CompletableFuture<SelectionCacheEntry> existing = selectionInFlight.putIfAbsent(cacheKey, created);
         if (existing != null) {
-            return cachedSelection(existing.join(), startedAt, "in-flight reuse");
+            return cachedSelection(awaitSelection(existing), startedAt, "in-flight reuse");
         }
         SelectionCacheEntry cachedAfterClaim = readSelectionCache(cacheKey, false);
         if (cachedAfterClaim != null) {
@@ -154,6 +157,22 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
                 properties.getDatasetVersion()
         );
         return cached.selectedCases();
+    }
+
+    private SelectionCacheEntry awaitSelection(CompletableFuture<SelectionCacheEntry> existing) {
+        long timeoutMillis = properties.getSelectionInFlightWaitTimeout() == null
+                ? DEFAULT_SELECTION_IN_FLIGHT_WAIT_TIMEOUT_MILLIS
+                : Math.max(1L, properties.getSelectionInFlightWaitTimeout().toMillis());
+        try {
+            return existing.get(timeoutMillis, TimeUnit.MILLISECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("공유된 Few-shot selection 대기 중 인터럽트되었습니다.", e);
+        } catch (ExecutionException e) {
+            throw new IllegalStateException("공유된 Few-shot selection 생성에 실패했습니다.", e.getCause());
+        } catch (TimeoutException e) {
+            throw new IllegalStateException("공유된 Few-shot selection 대기 시간이 초과되었습니다.", e);
+        }
     }
 
     private void recordMetrics(
@@ -376,6 +395,12 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         for (int i = 0; i < candidates.size(); i++) {
             String key = documentEmbeddingCacheKey(candidates.get(i), documents.get(i));
             DocumentEmbeddingCacheEntry cached = documentEmbeddingCache.get(key);
+            if (cached != null && cached.expiresAt().isBefore(now)) {
+                if (documentEmbeddingCache.remove(key, cached)) {
+                    metricsRecorder.recordCacheEvent("document_embedding", "expired", 1L);
+                }
+                cached = null;
+            }
             if (cached != null) {
                 DocumentEmbeddingCacheEntry accessed = cached.accessedAt(now);
                 documentEmbeddingCache.replace(key, cached, accessed);
@@ -391,6 +416,12 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             boolean owner = existing == null;
             if (owner) {
                 DocumentEmbeddingCacheEntry cachedAfterClaim = documentEmbeddingCache.get(key);
+                if (cachedAfterClaim != null && cachedAfterClaim.expiresAt().isBefore(Instant.now())) {
+                    if (documentEmbeddingCache.remove(key, cachedAfterClaim)) {
+                        metricsRecorder.recordCacheEvent("document_embedding", "expired", 1L);
+                    }
+                    cachedAfterClaim = null;
+                }
                 if (cachedAfterClaim != null) {
                     created.complete(cachedAfterClaim);
                     documentEmbeddingInFlight.remove(key, created);
@@ -430,27 +461,35 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private void maintainDocumentEmbeddingCache(Instant now) {
         int maxSize = Math.max(1, properties.getDocumentEmbeddingCacheMaxSize());
         if (!documentEmbeddingCacheCleanupInProgress.compareAndSet(false, true)) {
+            documentEmbeddingCacheCleanupRequested.set(true);
             return;
         }
         try {
-            int sizeBefore = documentEmbeddingCache.size();
-            documentEmbeddingCache.entrySet().removeIf(entry ->
-                    entry.getValue().expiresAt().isBefore(now)
-                            && !documentEmbeddingInFlight.containsKey(entry.getKey()));
-            int sizeAfterExpiration = documentEmbeddingCache.size();
-            metricsRecorder.recordCacheEvent("document_embedding", "expired", sizeBefore - sizeAfterExpiration);
-            if (sizeAfterExpiration > maxSize) {
-                int removalCount = sizeAfterExpiration - maxSize;
-                documentEmbeddingCache.entrySet().stream()
-                        .filter(entry -> !documentEmbeddingInFlight.containsKey(entry.getKey()))
-                        .sorted(Comparator.comparing(entry -> entry.getValue().lastAccessedAt()))
-                        .limit(removalCount)
-                        .forEach(entry -> documentEmbeddingCache.remove(entry.getKey(), entry.getValue()));
-            }
-            metricsRecorder.recordCacheEvent(
-                    "document_embedding", "evicted", sizeAfterExpiration - documentEmbeddingCache.size());
+            do {
+                documentEmbeddingCacheCleanupRequested.set(false);
+                Instant cleanupTime = Instant.now();
+                int sizeBefore = documentEmbeddingCache.size();
+                documentEmbeddingCache.entrySet().removeIf(entry ->
+                        entry.getValue().expiresAt().isBefore(cleanupTime)
+                                && !documentEmbeddingInFlight.containsKey(entry.getKey()));
+                int sizeAfterExpiration = documentEmbeddingCache.size();
+                metricsRecorder.recordCacheEvent("document_embedding", "expired", sizeBefore - sizeAfterExpiration);
+                if (sizeAfterExpiration > maxSize) {
+                    int removalCount = sizeAfterExpiration - maxSize;
+                    documentEmbeddingCache.entrySet().stream()
+                            .filter(entry -> !documentEmbeddingInFlight.containsKey(entry.getKey()))
+                            .sorted(Comparator.comparing(entry -> entry.getValue().lastAccessedAt()))
+                            .limit(removalCount)
+                            .forEach(entry -> documentEmbeddingCache.remove(entry.getKey(), entry.getValue()));
+                }
+                metricsRecorder.recordCacheEvent(
+                        "document_embedding", "evicted", sizeAfterExpiration - documentEmbeddingCache.size());
+            } while (documentEmbeddingCacheCleanupRequested.getAndSet(false));
         } finally {
             documentEmbeddingCacheCleanupInProgress.set(false);
+            if (documentEmbeddingCacheCleanupRequested.getAndSet(false)) {
+                maintainDocumentEmbeddingCache(Instant.now());
+            }
         }
     }
 
@@ -595,24 +634,32 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private void maintainSelectionCache(Instant now) {
         int maxSize = Math.max(1, properties.getSelectionCacheMaxSize());
         if (!selectionCacheCleanupInProgress.compareAndSet(false, true)) {
+            selectionCacheCleanupRequested.set(true);
             return;
         }
         try {
-            int sizeBefore = selectionCache.size();
-            selectionCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
-            int sizeAfterExpiration = selectionCache.size();
-            metricsRecorder.recordCacheEvent("selection", "expired", sizeBefore - sizeAfterExpiration);
-            if (sizeAfterExpiration > maxSize) {
-                int removalCount = sizeAfterExpiration - maxSize;
-                selectionCache.entrySet().stream()
-                        .filter(entry -> !selectionInFlight.containsKey(entry.getKey()))
-                        .sorted(Comparator.comparing(entry -> entry.getValue().lastAccessedAt()))
-                        .limit(removalCount)
-                        .forEach(entry -> selectionCache.remove(entry.getKey(), entry.getValue()));
-            }
-            metricsRecorder.recordCacheEvent("selection", "evicted", sizeAfterExpiration - selectionCache.size());
+            do {
+                selectionCacheCleanupRequested.set(false);
+                Instant cleanupTime = Instant.now();
+                int sizeBefore = selectionCache.size();
+                selectionCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(cleanupTime));
+                int sizeAfterExpiration = selectionCache.size();
+                metricsRecorder.recordCacheEvent("selection", "expired", sizeBefore - sizeAfterExpiration);
+                if (sizeAfterExpiration > maxSize) {
+                    int removalCount = sizeAfterExpiration - maxSize;
+                    selectionCache.entrySet().stream()
+                            .filter(entry -> !selectionInFlight.containsKey(entry.getKey()))
+                            .sorted(Comparator.comparing(entry -> entry.getValue().lastAccessedAt()))
+                            .limit(removalCount)
+                            .forEach(entry -> selectionCache.remove(entry.getKey(), entry.getValue()));
+                }
+                metricsRecorder.recordCacheEvent("selection", "evicted", sizeAfterExpiration - selectionCache.size());
+            } while (selectionCacheCleanupRequested.getAndSet(false));
         } finally {
             selectionCacheCleanupInProgress.set(false);
+            if (selectionCacheCleanupRequested.getAndSet(false)) {
+                maintainSelectionCache(Instant.now());
+            }
         }
     }
 
