@@ -18,6 +18,7 @@ Prometheus endpoint는 관리 포트의 `/actuator/prometheus`입니다.
 | `fewshot_selection_selected_candidates_count/_sum` | `mode`, `cache_hit` | 선택 후보 수 분포 |
 | `fewshot_cohere_logical_calls_total` | 없음 | Few-shot이 발생시킨 Cohere 논리 호출량 |
 | `fewshot_cohere_failure_count_total` | `reason` | Cohere 검색 실패 유형 |
+| `fewshot_cache_events_total` | `cache`, `outcome` | 캐시별 hit·miss·expired·evicted 횟수 |
 
 원문 JD·답변·검색 텍스트·embedding은 지표 태그나 로그에 넣지 않습니다. `reason`은 정해진 예외
 분류만 허용하고 그 외 값은 `Other`로 묶어 tag cardinality 증가를 방지합니다.

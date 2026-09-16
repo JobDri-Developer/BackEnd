@@ -15,6 +15,7 @@ class FewShotMetricsRecorderTest {
         recorder.recordSelection(FewShotSelectionMode.EMBEDDING, false, 3, 42);
         recorder.recordCohereLogicalCalls(2);
         recorder.recordCohereFailure("UnexpectedVendorException");
+        recorder.recordCacheEvent("selection", "evicted", 2);
 
         assertThat(registry.get("fewshot.selection.count")
                 .tags("mode", "EMBEDDING", "cache_hit", "false").counter().count()).isEqualTo(1.0);
@@ -25,5 +26,7 @@ class FewShotMetricsRecorderTest {
         assertThat(registry.get("fewshot.cohere.logical.calls").counter().count()).isEqualTo(2.0);
         assertThat(registry.get("fewshot.cohere.failure.count")
                 .tag("reason", "Other").counter().count()).isEqualTo(1.0);
+        assertThat(registry.get("fewshot.cache.events")
+                .tags("cache", "selection", "outcome", "evicted").counter().count()).isEqualTo(2.0);
     }
 }

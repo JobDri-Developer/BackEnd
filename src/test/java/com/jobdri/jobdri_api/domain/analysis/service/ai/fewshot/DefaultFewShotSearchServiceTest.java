@@ -283,6 +283,48 @@ class DefaultFewShotSearchServiceTest {
     }
 
     @Test
+    @DisplayName("동일한 selection 키의 동시 요청은 하나의 외부 호출 결과를 공유한다")
+    void reusesInFlightSelectionForSameKey() throws Exception {
+        properties.setDynamicSelectionEnabled(true);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(caseItem("FS-1", "Spring Boot API 개발", 0)));
+        CountDownLatch embeddingStarted = new CountDownLatch(1);
+        CountDownLatch releaseEmbedding = new CountDownLatch(1);
+        when(cohereEmbeddingClient.embedQuery(any())).thenAnswer(invocation -> {
+            embeddingStarted.countDown();
+            if (!releaseEmbedding.await(3, TimeUnit.SECONDS)) {
+                throw new IllegalStateException("selection embedding did not finish in time");
+            }
+            return new float[]{1, 0};
+        });
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(new float[]{1, 0}));
+        FewShotSearchQuery query = query("EV-01", "same selection request");
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<List<SelectedFewShotCase>> owner = executor.submit(
+                    () -> service.searchRelevantFewShots(query, 1)
+            );
+            assertThat(embeddingStarted.await(2, TimeUnit.SECONDS)).isTrue();
+            Future<List<SelectedFewShotCase>> waiter = executor.submit(
+                    () -> service.searchRelevantFewShots(query, 1)
+            );
+            assertThatThrownBy(() -> waiter.get(100, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(java.util.concurrent.TimeoutException.class);
+            releaseEmbedding.countDown();
+
+            assertThat(owner.get(2, TimeUnit.SECONDS)).hasSize(1);
+            assertThat(waiter.get(2, TimeUnit.SECONDS)).hasSize(1);
+            verify(cohereEmbeddingClient, times(1)).embedQuery(any());
+            verify(cohereEmbeddingClient, times(1)).embedDocuments(any());
+            Map<?, ?> selectionInFlight = (Map<?, ?>) ReflectionTestUtils.getField(service, "selectionInFlight");
+            assertThat(selectionInFlight).isEmpty();
+        } finally {
+            releaseEmbedding.countDown();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     @DisplayName("공유 query embedding 대기가 제한 시간을 넘으면 로컬 fallback한다")
     void fallsBackLocallyWhenSharedQueryEmbeddingWaitTimesOut() throws Exception {
         properties.setDynamicSelectionEnabled(true);
@@ -400,6 +442,30 @@ class DefaultFewShotSearchServiceTest {
 
         Map<?, ?> queryEmbeddingCache = (Map<?, ?>) ReflectionTestUtils.getField(service, "queryEmbeddingCache");
         assertThat(queryEmbeddingCache).hasSizeLessThanOrEqualTo(3);
+    }
+
+    @Test
+    @DisplayName("selection과 document embedding 캐시는 각각 설정된 최대 크기를 넘지 않는다")
+    void boundsSelectionAndDocumentEmbeddingCaches() {
+        properties.setDynamicSelectionEnabled(true);
+        properties.setSelectionCacheMaxSize(2);
+        properties.setQueryEmbeddingCacheMaxSize(2);
+        properties.setDocumentEmbeddingCacheMaxSize(2);
+        AtomicInteger candidateSequence = new AtomicInteger();
+        when(caseStore.loadActiveCases()).thenAnswer(invocation -> {
+            int sequence = candidateSequence.incrementAndGet();
+            return List.of(caseItem("FS-" + sequence, "Spring Boot API 개발 " + sequence, 0));
+        });
+        when(cohereEmbeddingClient.embedQuery(any())).thenReturn(new float[]{1, 0});
+        when(cohereEmbeddingClient.embedDocuments(any())).thenReturn(List.of(new float[]{1, 0}));
+
+        for (int i = 0; i < 5; i++) {
+            service.searchRelevantFewShots(query("EV-" + i, "bounded request " + i), 1);
+        }
+
+        assertThat(service.selectionCacheSize()).isLessThanOrEqualTo(2);
+        assertThat(service.queryEmbeddingCacheSize()).isLessThanOrEqualTo(2);
+        assertThat(service.documentEmbeddingCacheSize()).isLessThanOrEqualTo(2);
     }
 
     @Test
@@ -549,7 +615,7 @@ class DefaultFewShotSearchServiceTest {
         service.searchRelevantFewShots(query("EV-02", "두 번째 요청"), 1);
 
         Map<?, ?> selectionCache = (Map<?, ?>) ReflectionTestUtils.getField(service, "selectionCache");
-        assertThat(selectionCache).hasSize(1);
+        assertThat(selectionCache).isEmpty();
     }
 
     private static FewShotSearchQuery query(String caseId) {
