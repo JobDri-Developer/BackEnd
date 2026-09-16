@@ -44,6 +44,7 @@ class FewShotMetadataPromptTest {
         properties.setDatasetVersion("version-2");
         properties.getSearch().setTopK(2);
         properties.getSearch().setMinSimilarity(0.3);
+        when(search.cohereApiCallCount()).thenReturn(10L, 12L);
         when(search.searchRelevantFewShots(any(), anyInt())).thenReturn(List.of(
                 selected("A", 0.4, "cohere-embedding"), selected("B", 0.8, "cohere-embedding")));
         assertThat(build()).contains("BLOCK-A", "BLOCK-B").doesNotContain(provider.getPrompt());
@@ -56,6 +57,7 @@ class FewShotMetadataPromptTest {
         assertThat(meta.datasetVersion()).isEqualTo("version-2");
         assertThat(meta.minSimilarity()).isEqualTo(0.3);
         assertThat(meta.topK()).isEqualTo(2);
+        assertThat(meta.cohereApiCallCount()).isEqualTo(2);
         assertThat(meta.selectedCases()).extracting(FewShotSelectionMetadata.Candidate::id).containsExactly("A", "B");
         assertThat(new ObjectMapper().writeValueAsString(meta)).doesNotContain("비밀 원문", "BLOCK-", "sanitizedAnswer", "promptBlock");
         verify(search, times(1)).searchRelevantFewShots(any(), anyInt());

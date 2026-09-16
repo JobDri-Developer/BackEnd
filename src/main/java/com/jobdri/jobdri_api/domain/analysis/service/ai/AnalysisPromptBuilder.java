@@ -621,6 +621,7 @@ public class AnalysisPromptBuilder {
         if (fewShotSearchService == null || fewShotProperties == null || !fewShotProperties.isDynamicSelectionEnabled()) {
             return staticSelection("STATIC", "dynamic_disabled");
         }
+        long cohereCallsBefore = fewShotSearchService.cohereApiCallCount();
         try {
             List<SelectedFewShotCase> selectedFewShots = fewShotSearchService.searchRelevantFewShots(
                     FewShotSearchQuery.from(promptInput),
@@ -633,7 +634,8 @@ public class AnalysisPromptBuilder {
                         promptInput.caseId(),
                         fewShotProperties.getDatasetVersion()
                 );
-                return staticSelection("STATIC_FALLBACK", "empty_selection");
+                return staticSelection("STATIC_FALLBACK", "empty_selection",
+                        fewShotSearchService.cohereApiCallCount() - cohereCallsBefore);
             }
             log.debug(
                     "dynamic few-shot prompt selected. caseId={}, selectedIds={}, sources={}, scores={}, datasetVersion={}",
@@ -646,10 +648,12 @@ public class AnalysisPromptBuilder {
             if (selectedFewShots.stream().anyMatch(item -> item == null || item.fewShotCase() == null
                     || !org.springframework.util.StringUtils.hasText(item.fewShotCase().promptBlock())
                     || !Double.isFinite(item.score()))) {
-                return staticSelection("STATIC_FALLBACK", "invalid_selection");
+                return staticSelection("STATIC_FALLBACK", "invalid_selection",
+                        fewShotSearchService.cohereApiCallCount() - cohereCallsBefore);
             }
             return new FewShotPromptSelection(fewShotPromptProvider.buildPromptBlock(selectedFewShots),
-                    FewShotSelectionMetadata.selected(selectedFewShots, fewShotProperties));
+                    FewShotSelectionMetadata.selected(selectedFewShots, fewShotProperties,
+                            fewShotSearchService.cohereApiCallCount() - cohereCallsBefore));
         } catch (Exception e) {
             log.warn(
                     "dynamic few-shot selection failed. selectionMode={}, caseId={}, datasetVersion={}, reason={}, message={}",
@@ -660,18 +664,23 @@ public class AnalysisPromptBuilder {
                     e.getMessage()
             );
             log.debug("dynamic few-shot selection exception", e);
-            return staticSelection("STATIC_FALLBACK", "selection_exception");
+            return staticSelection("STATIC_FALLBACK", "selection_exception",
+                    fewShotSearchService.cohereApiCallCount() - cohereCallsBefore);
         }
     }
 
     private FewShotPromptSelection staticSelection(String mode, String reason) {
+        return staticSelection(mode, reason, 0L);
+    }
+
+    private FewShotPromptSelection staticSelection(String mode, String reason, long cohereApiCallCount) {
         return new FewShotPromptSelection(fewShotPromptProvider.getPrompt(),
                 FewShotSelectionMetadata.staticSelection(mode, reason,
-                        fewShotPromptProvider.getFixedExampleBlocks().size(), fewShotProperties));
+                        fewShotPromptProvider.getFixedExampleBlocks().size(), fewShotProperties, cohereApiCallCount));
     }
 
     FewShotSelectionMetadata fewShotNotApplied() {
-        return FewShotSelectionMetadata.staticSelection("NOT_APPLIED", "two_pass", 0, fewShotProperties);
+        return FewShotSelectionMetadata.staticSelection("NOT_APPLIED", "two_pass", 0, fewShotProperties, 0L);
     }
 
     private record FewShotPromptSelection(String prompt, FewShotSelectionMetadata metadata) {

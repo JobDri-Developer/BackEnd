@@ -73,15 +73,26 @@ DYNAMIC의 overall usefulness가 2점으로 내려갔습니다. 4번 튜닝에�
 - 케이스별 top similarity 평균: 0.4778
 - 케이스별 bottom similarity 평균: 0.3503
 - minSimilarity=-1.0, topK=5라서 모든 케이스에 후보 5건이 들어갔습니다.
-- Cohere HTTP 호출 수: STATIC 0회, DYNAMIC 21회로 계산됩니다.
-  첫 케이스의 query 1회+document batch 1회, 이후 query 19회이며 document embedding은
-  dataset cache를 재사용했습니다. 현재 sidecar가 직접 센 값은 아니므로 4번 전에 호출 카운터
-  계측을 추가하는 것이 안전합니다.
+- 최초 품질 실행에서 예상한 Cohere 호출 수는 STATIC 0회, DYNAMIC 21회였습니다. 아래 계측
+  재실행에서 sidecar의 논리 호출 수가 같은 값임을 확인했습니다.
 - Judge 토큰: STATIC input 116,728 / output 9,226,
   DYNAMIC input 115,906 / output 8,278.
-- 분석 OpenAI 토큰은 기존 분석 adapter가 usage를 결과에 전달하지 않아 이번 실행에서
-  수집하지 못했습니다. 기존 CSV의 token 컬럼도 비어 있습니다. 비용 비교 완료 전
-  분석 usage 계측을 추가해야 합니다.
+- 분석 usage와 케이스별 논리적 Cohere 호출 수 계측을 추가한 뒤 동일 입력·설정으로 분석만
+  재실행했습니다(양쪽 20/20 성공).
+
+| 계측 재실행 | STATIC | DYNAMIC | 변화 |
+| --- | ---: | ---: | ---: |
+| 분석 input tokens | 160,941 | 311,081 | +150,140 (+93.3%) |
+| 분석 output tokens | 10,438 | 9,903 | -535 (-5.1%) |
+| 분석 total tokens | 171,379 | 320,984 | +149,605 (+87.3%) |
+| Cohere 논리 호출 | 0 | 21 | +21 |
+| 평균 분석 지연 | 5,511ms | 5,880ms | +369ms (+6.7%) |
+| P95 분석 지연 | 8,344ms | 10,350ms | +2,006ms (+24.0%) |
+
+논리적 Cohere 호출은 애플리케이션의 embedding 요청 횟수이며 HTTP 계층의 내부 재전송은
+포함하지 않습니다. DYNAMIC의 첫 케이스는 query 1회와 document batch 1회, 이후 19건은
+query 1회씩 호출됐습니다. 재실행은 사용량 계측 목적이라 Judge를 다시 실행하지 않았으며,
+품질 수치는 앞선 동일 조건 20건 비교 결과를 사용합니다.
 
 ## 실행 중 발견하고 수정한 문제
 
@@ -102,12 +113,15 @@ DYNAMIC의 overall usefulness가 2점으로 내려갔습니다. 4번 튜닝에�
 - `judge-comparison.csv`
 - 각 실행 로그
 
+사용량 계측 재실행 결과는 `build/evaluation/fewshot-comparison-20260916/usage-metrics/`의
+`static-analysis.csv`, `dynamic-analysis.csv`, 각 sidecar와 로그에 있습니다.
+
 `build/`는 Git 추적 대상이 아닙니다. 결과 재현이 필요하면 동일 holdout과 설정으로 다시
 실행하거나, 개인정보 보관 정책을 확인한 후 별도 안전한 저장소에 보관해야 합니다.
 
 ## 다음 결정
 
-3번의 품질 비교는 완료됐고 결과는 DYNAMIC의 튜닝 진행을 지지합니다. 다만 완료 조건의 비용
-항목 중 분석 OpenAI 토큰 실측이 남아 있으므로, 이 계측을 추가하기 전에는 3번을 완전 완료로
-닫지 않습니다. 다음 작업은 분석 usage와 Cohere 호출 수 계측을 추가한 뒤 4번 임계값·top-k
-튜닝 실험을 설계하는 것입니다.
+3번의 품질·지연·토큰·Cohere 호출량 비교와 계측을 완료했습니다. DYNAMIC은 품질이 좋아졌지만
+분석 input token이 93.3% 증가했으므로 그대로 운영 활성화하지 않습니다. 다음은 4번
+`min-similarity`, `top-k`, `minimum-selected-count` 튜닝으로 품질 이득을 유지하면서 낮은 유사도
+후보와 토큰 비용을 줄이는 실험입니다.

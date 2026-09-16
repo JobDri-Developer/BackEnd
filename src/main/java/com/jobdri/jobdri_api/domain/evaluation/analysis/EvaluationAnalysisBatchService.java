@@ -202,16 +202,24 @@ public class EvaluationAnalysisBatchService {
                 generatedResult.finalCallLatencyMs(),
                 generatedResult.candidateCallLatencyMs(),
                 generatedResult.finalCallLatencyMs(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
+                generatedResult.candidateInputTokens(),
+                generatedResult.candidateOutputTokens(),
+                generatedResult.finalInputTokens(),
+                generatedResult.finalOutputTokens(),
+                sumTokens(generatedResult.candidateInputTokens(), generatedResult.finalInputTokens()),
+                sumTokens(generatedResult.candidateOutputTokens(), generatedResult.finalOutputTokens()),
                 "",
                 "",
                 createdAt()
         );
+    }
+
+    private Integer sumTokens(Integer left, Integer right) {
+        if (left == null && right == null) {
+            return null;
+        }
+        long sum = (left == null ? 0L : left.longValue()) + (right == null ? 0L : right.longValue());
+        return sum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
     }
 
     private List<EvaluationMissingKeyword> buildMissingKeywords(

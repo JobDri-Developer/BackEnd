@@ -157,6 +157,31 @@ class EvaluationAnalysisBatchServiceTest {
     }
 
     @Test
+    @DisplayName("분석 호출 토큰 사용량과 합계를 평가 CSV에 기록한다")
+    void runWritesAnalysisTokenUsage() throws Exception {
+        EvaluationGeneratedResult generatedResult = result(
+                new AnalysisLlmResponse(80, 70, 60, "피드백", List.of(), List.of()),
+                null, null, 10, 20, 100, 30, 200, 40
+        );
+        EvaluationAnalysisGenerator generator = command -> generatedResult;
+        Path input = tempDir.resolve("token-input.csv");
+        Path output = tempDir.resolve("token-output.csv");
+        Files.writeString(input,
+                "caseId,jobCategoryMiddle,jobCategorySmall,mainTasks,qualifications,preferences,question,answer\n"
+                        + "EV-01,개발,백엔드,API,Java,,질문,답변\n");
+
+        new EvaluationAnalysisBatchService(generator, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("candidateInputTokens")).isEqualTo("100");
+        assertThat(row.get("candidateOutputTokens")).isEqualTo("30");
+        assertThat(row.get("finalInputTokens")).isEqualTo("200");
+        assertThat(row.get("finalOutputTokens")).isEqualTo("40");
+        assertThat(row.get("totalInputTokens")).isEqualTo("300");
+        assertThat(row.get("totalOutputTokens")).isEqualTo("70");
+    }
+
+    @Test
     @DisplayName("CSV 입력 순서대로 evaluation command를 generator에 전달한다")
     void runPassesEvaluationCommandsInCsvOrder() throws Exception {
         EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
@@ -623,6 +648,21 @@ class EvaluationAnalysisBatchServiceTest {
             long candidateCallLatencyMs,
             long finalCallLatencyMs
     ) throws Exception {
+        return result(response, sanitizedCandidateResponse, candidateReviewResponse,
+                candidateCallLatencyMs, finalCallLatencyMs, null, null, null, null);
+    }
+
+    private EvaluationGeneratedResult result(
+            AnalysisLlmResponse response,
+            AnalysisCandidateResponse sanitizedCandidateResponse,
+            CandidateReviewResponse candidateReviewResponse,
+            long candidateCallLatencyMs,
+            long finalCallLatencyMs,
+            Integer candidateInputTokens,
+            Integer candidateOutputTokens,
+            Integer finalInputTokens,
+            Integer finalOutputTokens
+    ) throws Exception {
         String rawLlmResponseJson = objectMapper.writeValueAsString(response == null ? List.of() : response);
         String rawCandidateResponseJson = objectMapper.writeValueAsString(List.of());
         String sanitizedCandidateResponseJson = objectMapper.writeValueAsString(
@@ -644,7 +684,11 @@ class EvaluationAnalysisBatchServiceTest {
                 candidateReviewResponseJson,
                 new EvaluationCandidateReviewSnapshotParser(objectMapper).parse(candidateReviewResponseJson),
                 candidateCallLatencyMs,
-                finalCallLatencyMs
+                finalCallLatencyMs,
+                candidateInputTokens,
+                candidateOutputTokens,
+                finalInputTokens,
+                finalOutputTokens
         );
     }
 }

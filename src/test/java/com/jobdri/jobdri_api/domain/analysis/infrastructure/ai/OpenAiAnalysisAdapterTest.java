@@ -6,12 +6,14 @@ import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
 import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.openai.client.OpenAIClient;
 import com.openai.models.responses.StructuredResponse;
+import com.openai.models.responses.ResponseUsage;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -55,6 +57,26 @@ class OpenAiAnalysisAdapterTest {
         verify(llmConcurrencyLimiter).execute(eq("analysis"), any());
         verify(asyncMetricsRecorder).recordLlmRequest(eq("analysis"), eq("success"), any(Long.class));
         verify(asyncMetricsRecorder, never()).recordLlmRequest(eq("analysis"), eq("error"), any(Long.class));
+    }
+
+    @Test
+    @DisplayName("구조화 응답의 입력·출력 토큰 사용량을 함께 반환한다")
+    void createStructuredResponseWithUsageReturnsTokenCounts() throws Exception {
+        StructuredResponse<String> response = mock(StructuredResponse.class);
+        ResponseUsage usage = mock(ResponseUsage.class);
+        when(usage.inputTokens()).thenReturn(123L);
+        when(usage.outputTokens()).thenReturn(45L);
+        when(response.usage()).thenReturn(Optional.of(usage));
+        when(llmConcurrencyLimiter.execute(eq("analysis"), any())).thenReturn(response);
+        when(analysisResponseParser.extractStructuredContent(response)).thenReturn("ok");
+
+        var result = openAiAnalysisAdapter.createStructuredResponseWithUsage(
+                "analysis", "prompt", String.class, null
+        );
+
+        assertThat(result.content()).isEqualTo("ok");
+        assertThat(result.inputTokens()).isEqualTo(123);
+        assertThat(result.outputTokens()).isEqualTo(45);
     }
 
     @Test

@@ -617,4 +617,9 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             return embedding.clone();
         }
     }
+
+    @Override
+    public long cohereApiCallCount() {
+        return cohereEmbeddingClient.apiCallCount();
+    }
 }

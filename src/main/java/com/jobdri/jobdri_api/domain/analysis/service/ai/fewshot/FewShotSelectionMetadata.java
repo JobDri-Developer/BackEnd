@@ -12,6 +12,7 @@ public record FewShotSelectionMetadata(
         int topK,
         int minimumSelectedCount,
         String scoreType,
+        long cohereApiCallCount,
         List<Candidate> selectedCases,
         Double topScore,
         Double bottomScore,
@@ -24,24 +25,29 @@ public record FewShotSelectionMetadata(
     public record Candidate(String id, String source, Double score, String datasetVersion) {
     }
 
-    public static FewShotSelectionMetadata selected(List<SelectedFewShotCase> selected, FewShotProperties properties) {
+    public static FewShotSelectionMetadata selected(
+            List<SelectedFewShotCase> selected,
+            FewShotProperties properties,
+            long cohereApiCallCount
+    ) {
         boolean embedding = selected.stream().allMatch(item -> "cohere-embedding".equals(item.selectionMethod()));
         var scores = selected.stream().mapToDouble(SelectedFewShotCase::score).summaryStatistics();
         return new FewShotSelectionMetadata(
                 embedding ? "EMBEDDING" : "LOCAL_FALLBACK", "", properties.getDatasetVersion(),
                 properties.getSearch().getMinSimilarity(), properties.getSearch().getTopK(),
                 properties.getSearch().getMinimumSelectedCount(), embedding ? "COSINE_SIMILARITY" : "LOCAL_HEURISTIC",
+                cohereApiCallCount,
                 selected.stream().map(item -> new Candidate(item.fewShotCase().id(),
                         item.fewShotCase().source().name(), item.score(), item.fewShotCase().datasetVersion())).toList(),
                 scores.getMax(), scores.getMin(), scores.getAverage());
     }
 
     public static FewShotSelectionMetadata staticSelection(String mode, String reason, int exampleCount,
-                                                           FewShotProperties configured) {
+                                                           FewShotProperties configured, long cohereApiCallCount) {
         var properties = configured == null ? new FewShotProperties() : configured;
         return new FewShotSelectionMetadata(mode, reason, properties.getDatasetVersion(),
                 properties.getSearch().getMinSimilarity(), properties.getSearch().getTopK(),
-                properties.getSearch().getMinimumSelectedCount(), "NONE",
+                properties.getSearch().getMinimumSelectedCount(), "NONE", cohereApiCallCount,
                 IntStream.rangeClosed(1, exampleCount)
                         .mapToObj(i -> new Candidate("FS-FIXED-" + i, "FIXED", null, "static-resource")).toList(),
                 null, null, null);
