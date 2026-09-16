@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmRespons
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -37,8 +38,12 @@ class NlgEvaluationBatchServiceTest {
 
         var summary = new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
 
+        ArgumentCaptor<NlgEvaluationAiClient.NlgJudgeInput> inputCaptor =
+                ArgumentCaptor.forClass(NlgEvaluationAiClient.NlgJudgeInput.class);
+        verify(aiClient).evaluate(inputCaptor.capture());
         assertThat(summary.successCount()).isEqualTo(1);
         assertThat(EvaluationCsvSupport.read(output).getFirst().get("failureStage")).isEmpty();
+        assertThat(inputCaptor.getValue().validatedMissingKeywordCandidateCount()).isZero();
     }
 
     @Test
