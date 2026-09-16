@@ -16,7 +16,10 @@ public class FewShotProperties {
     private boolean fallbackEnabled = true;
     private boolean cacheEnabled = true;
     private Duration cacheTtl = Duration.ofMinutes(30);
+    private int selectionCacheMaxSize = 1_000;
     private int queryEmbeddingCacheMaxSize = 1_000;
+    private int documentEmbeddingCacheMaxSize = 5_000;
+    private Duration selectionInFlightWaitTimeout = Duration.ofSeconds(20);
     private Duration queryEmbeddingInFlightWaitTimeout = Duration.ofSeconds(20);
     private Source source = new Source();
     private Search search = new Search();
@@ -89,12 +92,36 @@ public class FewShotProperties {
         return queryEmbeddingCacheMaxSize;
     }
 
+    public int getSelectionCacheMaxSize() {
+        return selectionCacheMaxSize;
+    }
+
+    public void setSelectionCacheMaxSize(int selectionCacheMaxSize) {
+        this.selectionCacheMaxSize = selectionCacheMaxSize;
+    }
+
+    public int getDocumentEmbeddingCacheMaxSize() {
+        return documentEmbeddingCacheMaxSize;
+    }
+
+    public void setDocumentEmbeddingCacheMaxSize(int documentEmbeddingCacheMaxSize) {
+        this.documentEmbeddingCacheMaxSize = documentEmbeddingCacheMaxSize;
+    }
+
     public void setQueryEmbeddingCacheMaxSize(int queryEmbeddingCacheMaxSize) {
         this.queryEmbeddingCacheMaxSize = queryEmbeddingCacheMaxSize;
     }
 
     public Duration getQueryEmbeddingInFlightWaitTimeout() {
         return queryEmbeddingInFlightWaitTimeout;
+    }
+
+    public Duration getSelectionInFlightWaitTimeout() {
+        return selectionInFlightWaitTimeout;
+    }
+
+    public void setSelectionInFlightWaitTimeout(Duration selectionInFlightWaitTimeout) {
+        this.selectionInFlightWaitTimeout = selectionInFlightWaitTimeout;
     }
 
     public void setQueryEmbeddingInFlightWaitTimeout(Duration queryEmbeddingInFlightWaitTimeout) {

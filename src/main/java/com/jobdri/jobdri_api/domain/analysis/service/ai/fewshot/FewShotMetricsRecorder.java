@@ -54,6 +54,16 @@ public class FewShotMetricsRecorder {
                 .increment();
     }
 
+    public void recordCacheEvent(String cache, String outcome, long count) {
+        if (count <= 0) {
+            return;
+        }
+        Counter.builder("fewshot.cache.events")
+                .tags("cache", cache, "outcome", outcome)
+                .register(meterRegistry)
+                .increment(count);
+    }
+
     private String normalizeReason(String reason) {
         if (reason == null || reason.isBlank()) {
             return "Unknown";

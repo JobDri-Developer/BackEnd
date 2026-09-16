@@ -169,7 +169,10 @@ analysis:
     fallback-enabled: ${ANALYSIS_FEW_SHOT_FALLBACK_ENABLED:true}
     cache-enabled: ${ANALYSIS_FEW_SHOT_CACHE_ENABLED:true}
     cache-ttl: ${ANALYSIS_FEW_SHOT_CACHE_TTL:30m}
+    selection-cache-max-size: ${ANALYSIS_FEW_SHOT_SELECTION_CACHE_MAX_SIZE:1000}
     query-embedding-cache-max-size: ${ANALYSIS_FEW_SHOT_QUERY_EMBEDDING_CACHE_MAX_SIZE:1000}
+    document-embedding-cache-max-size: ${ANALYSIS_FEW_SHOT_DOCUMENT_EMBEDDING_CACHE_MAX_SIZE:5000}
+    selection-in-flight-wait-timeout: ${ANALYSIS_FEW_SHOT_SELECTION_IN_FLIGHT_WAIT_TIMEOUT:20s}
     query-embedding-in-flight-wait-timeout: ${ANALYSIS_FEW_SHOT_QUERY_EMBEDDING_IN_FLIGHT_WAIT_TIMEOUT:20s}
     source:
       fixed-enabled: ${ANALYSIS_FEW_SHOT_FIXED_ENABLED:true}
