@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot;
 
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.HtmlUtils;
 
@@ -26,6 +27,17 @@ public class FewShotSearchTextBuilder {
     private static final Pattern HTML_COMMENT_PATTERN = Pattern.compile("(?s)<!--.*?-->");
     private static final Pattern HTML_TAG_PATTERN = Pattern.compile("(?is)</?[a-z][a-z0-9:-]*\\b[^>]*>");
     private static final Pattern WHITESPACE_PATTERN = Pattern.compile("[\\p{Z}\\s]+");
+
+    private final FewShotPrivacyMasker privacyMasker;
+
+    FewShotSearchTextBuilder() {
+        this(new FewShotPrivacyMasker());
+    }
+
+    @Autowired
+    public FewShotSearchTextBuilder(FewShotPrivacyMasker privacyMasker) {
+        this.privacyMasker = privacyMasker;
+    }
 
     public String buildQueryText(FewShotSearchQuery query) {
         return """
@@ -95,36 +107,36 @@ public class FewShotSearchTextBuilder {
         );
     }
 
-    private static String lines(List<String> values, int maxLength) {
+    private String lines(List<String> values, int maxLength) {
         if (values == null || values.isEmpty()) {
             return "";
         }
         String joined = values.stream()
                 .filter(StringUtils::hasText)
-                .map(FewShotSearchTextBuilder::normalize)
+                .map(this::normalize)
                 .filter(StringUtils::hasText)
                 .map(line -> line.startsWith("-") ? line : "- " + line)
                 .collect(Collectors.joining("\n"));
         return truncate(joined, maxLength);
     }
 
-    private static String values(List<String> values, int maxLength) {
+    private String values(List<String> values, int maxLength) {
         if (values == null || values.isEmpty()) {
             return "";
         }
         String joined = values.stream()
                 .filter(StringUtils::hasText)
-                .map(FewShotSearchTextBuilder::normalize)
+                .map(this::normalize)
                 .filter(StringUtils::hasText)
                 .collect(Collectors.joining(", "));
         return truncate(joined, maxLength);
     }
 
-    private static String value(String value, int maxLength) {
+    private String value(String value, int maxLength) {
         return truncate(normalize(value), maxLength);
     }
 
-    private static String normalize(String value) {
+    private String normalize(String value) {
         if (!StringUtils.hasText(value)) {
             return "";
         }
@@ -133,7 +145,8 @@ public class FewShotSearchTextBuilder {
         String withoutComments = HTML_COMMENT_PATTERN.matcher(withoutExecutableContent).replaceAll(" ");
         String withBlockSeparators = BLOCK_HTML_TAG_PATTERN.matcher(withoutComments).replaceAll(" ");
         String withoutTags = HTML_TAG_PATTERN.matcher(withBlockSeparators).replaceAll("");
-        return WHITESPACE_PATTERN.matcher(withoutTags).replaceAll(" ").trim();
+        String privacyMasked = privacyMasker.mask(withoutTags);
+        return WHITESPACE_PATTERN.matcher(privacyMasked).replaceAll(" ").trim();
     }
 
     private static String truncate(String value, int maxLength) {

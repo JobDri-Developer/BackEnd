@@ -108,4 +108,26 @@ class FewShotSearchTextBuilderTest {
                 .isPositive()
                 .isLessThanOrEqualTo(FewShotSearchTextBuilder.MAX_ANSWER_LENGTH);
     }
+
+    @Test
+    @DisplayName("실시간 질의와 승인 후보 문서를 embedding 전에 동일하게 마스킹한다")
+    void masksPrivacyInQueryAndCandidateDocument() {
+        String queryText = builder.buildQueryText(new FewShotSearchQuery(
+                "EV-01", "개발", "백엔드", List.of("API 개발"), List.of("Java"), "경험",
+                "이름: 홍길동\n연락처 010-1234-5678, test@example.com"
+        ));
+        FewShotCase candidate = new FewShotCase(
+                "FS-01", FewShotSource.REVIEWED_EVALUATION, FewShotReviewStatus.APPROVED, true, 1,
+                "개발", "백엔드", List.of("API 개발"), List.of("Java"), "경험",
+                "주소: 서울시 강남구\nhttps://portfolio.example.com/me", "{}", List.of(), "v1", "prompt"
+        );
+        String candidateText = builder.buildCandidateDocument(candidate);
+
+        assertThat(queryText)
+                .contains("[NAME]", "[PHONE]", "[EMAIL]")
+                .doesNotContain("홍길동", "010-1234-5678", "test@example.com");
+        assertThat(candidateText)
+                .contains("[ADDRESS]", "[URL]")
+                .doesNotContain("강남구", "portfolio.example.com");
+    }
 }

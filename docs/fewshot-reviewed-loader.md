@@ -52,7 +52,8 @@ analysis.few-shot.reviewed-evaluation-csv-path=/absolute/path/fewshot_candidates
 - 기존 점수는 예시에 넣지 않았으며 보류 사례·문장도 다시 활성화하지 않았습니다.
 - 데이터 및 프롬프트의 이메일·국내 휴대전화·HTTP URL 패턴 검사에서 일치 항목이 없었습니다.
   이는 이름·소속·경험 조합을 통한 재식별 위험까지 보장하는 개인정보 정책 검증은 아닙니다.
-  원본 승인 범위는 유지하며 5번 이슈에서 정책을 별도로 확정해야 합니다.
+  원본 승인 범위는 유지합니다. 검색 입력 자동 마스킹과 수동 검수 범위는
+  `docs/fewshot-privacy-masking.md`에 정의했습니다.
 
 ### 부분 분석 계약
 
