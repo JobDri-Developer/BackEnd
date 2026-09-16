@@ -46,7 +46,7 @@ class ReviewedFewShotDatasetTest {
         var store = store();
         var candidate = store.loadActiveCases().getFirst();
         var service = new DefaultFewShotSearchService(store, new FewShotSearchTextBuilder(),
-                mock(CohereEmbeddingClient.class), properties);
+                mock(CohereEmbeddingClient.class), properties, mock(FewShotMetricsRecorder.class));
         var query = new FewShotSearchQuery("HOLDOUT-COPY", candidate.jobCategory(), candidate.jobTitle(),
                 candidate.mainTasks(), candidate.qualifications(), candidate.question(),
                 "  " + candidate.sanitizedAnswer().replace("\n", "  ") + " ");

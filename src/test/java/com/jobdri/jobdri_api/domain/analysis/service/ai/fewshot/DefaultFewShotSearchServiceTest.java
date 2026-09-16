@@ -18,6 +18,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -28,12 +30,14 @@ class DefaultFewShotSearchServiceTest {
     private final FewShotCaseStore caseStore = mock(FewShotCaseStore.class);
     private final FewShotSearchTextBuilder textBuilder = new FewShotSearchTextBuilder();
     private final CohereEmbeddingClient cohereEmbeddingClient = mock(CohereEmbeddingClient.class);
+    private final FewShotMetricsRecorder metricsRecorder = mock(FewShotMetricsRecorder.class);
     private final FewShotProperties properties = new FewShotProperties();
     private final DefaultFewShotSearchService service = new DefaultFewShotSearchService(
             caseStore,
             textBuilder,
             cohereEmbeddingClient,
-            properties
+            properties,
+            metricsRecorder
     );
 
     @Test
@@ -96,6 +100,9 @@ class DefaultFewShotSearchServiceTest {
 
         assertThat(result).hasSize(1);
         assertThat(result.getFirst().selectionMethod()).isEqualTo("local-fallback");
+        verify(metricsRecorder).recordCohereLogicalCalls(1L);
+        verify(metricsRecorder).recordCohereFailure("RuntimeException");
+        verify(metricsRecorder).recordSelection(eq(FewShotSelectionMode.LOCAL_FALLBACK), eq(false), eq(1), anyLong());
     }
 
     @Test
