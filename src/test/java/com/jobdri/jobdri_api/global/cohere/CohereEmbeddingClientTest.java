@@ -263,7 +263,11 @@ class CohereEmbeddingClientTest {
         }
         return objectMapper.writeValueAsString(java.util.Map.of(
                 "embeddings",
-                java.util.Map.of("float", embeddings)
+                java.util.Map.of("float", embeddings, "int8", List.of()),
+                "id", "response-id",
+                "response_type", "embeddings_floats",
+                "texts", List.of("text"),
+                "meta", java.util.Map.of("billed_units", java.util.Map.of("input_tokens", 1))
         ));
     }
 
