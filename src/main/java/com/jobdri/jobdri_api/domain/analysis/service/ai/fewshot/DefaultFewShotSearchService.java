@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot;
 
 import com.jobdri.jobdri_api.global.cohere.CohereEmbeddingClient;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -37,6 +38,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private final FewShotSearchTextBuilder textBuilder;
     private final CohereEmbeddingClient cohereEmbeddingClient;
     private final FewShotProperties properties;
+    private final FewShotMetricsRecorder metricsRecorder;
     private final Map<String, SelectionCacheEntry> selectionCache = new ConcurrentHashMap<>();
     private final Map<String, QueryEmbeddingCacheEntry> queryEmbeddingCache = new ConcurrentHashMap<>();
     private final Map<String, CompletableFuture<QueryEmbeddingCacheEntry>> queryEmbeddingInFlight =
@@ -47,16 +49,19 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     private final Map<String, CompletableFuture<DocumentEmbeddingCacheEntry>> documentEmbeddingInFlight =
             new ConcurrentHashMap<>();
 
+    @Autowired
     public DefaultFewShotSearchService(
             FewShotCaseStore caseStore,
             FewShotSearchTextBuilder textBuilder,
             CohereEmbeddingClient cohereEmbeddingClient,
-            FewShotProperties properties
+            FewShotProperties properties,
+            FewShotMetricsRecorder metricsRecorder
     ) {
         this.caseStore = caseStore;
         this.textBuilder = textBuilder;
         this.cohereEmbeddingClient = cohereEmbeddingClient;
         this.properties = properties;
+        this.metricsRecorder = metricsRecorder;
     }
 
     @Override
@@ -66,11 +71,13 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             return List.of();
         }
         int requestedTopK = topK > 0 ? topK : properties.getSearch().getTopK();
+        long startedAt = System.nanoTime();
         List<FewShotCase> activeCases = caseStore.loadActiveCases();
         String datasetFingerprint = datasetFingerprint(activeCases);
         String cacheKey = selectionCacheKey(query, requestedTopK, datasetFingerprint);
         SelectionCacheEntry cached = readSelectionCache(cacheKey);
         if (cached != null) {
+            recordMetrics(cached.selectionMode(), true, cached.selectedCases().size(), startedAt);
             log.debug(
                     "few-shot selection cache hit. selectionMode={}, selectedCount={}, datasetVersion={}",
                     cached.selectionMode(),
@@ -80,7 +87,6 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             return cached.selectedCases();
         }
 
-        long startedAt = System.nanoTime();
         List<FewShotCase> candidates = localPrefilter(activeCases, query);
         List<SelectedFewShotCase> selected = selectWithCohere(query, candidates, requestedTopK);
         FewShotSelectionMode selectionMode = selected.isEmpty()
@@ -99,6 +105,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         if (properties.isCacheEnabled()) {
             selectionCache.put(cacheKey, new SelectionCacheEntry(selected, selectionMode, expiresAt()));
         }
+        recordMetrics(selectionMode, false, selected.size(), startedAt);
         log.info(
                 "dynamic few-shot selection completed. enabled=true, selectionMode={}, totalCandidates={}, filteredCandidates={}, selectedIds={}, sources={}, scores={}, latencyMs={}",
                 selectionMode,
@@ -110,6 +117,20 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
                 (System.nanoTime() - startedAt) / 1_000_000
         );
         return selected;
+    }
+
+    private void recordMetrics(
+            FewShotSelectionMode selectionMode,
+            boolean cacheHit,
+            int selectedCount,
+            long startedAt
+    ) {
+        metricsRecorder.recordSelection(
+                selectionMode,
+                cacheHit,
+                selectedCount,
+                (System.nanoTime() - startedAt) / 1_000_000
+        );
     }
 
     private List<SelectedFewShotCase> selectWithCohere(
@@ -143,6 +164,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
                     .thenComparing(item -> item.fewShotCase().id()));
             return diversify(ranked, topK);
         } catch (Exception e) {
+            metricsRecorder.recordCohereFailure(e.getClass().getSimpleName());
             log.warn("dynamic few-shot Cohere selection failed. fallback=local, reason={}, message={}", e.getClass().getSimpleName(), e.getMessage());
             log.debug("dynamic few-shot Cohere exception", e);
             return List.of();
@@ -173,7 +195,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
 
     private float[] resolveQueryEmbedding(String queryText) {
         if (!properties.isCacheEnabled()) {
-            return cohereEmbeddingClient.embedQuery(queryText);
+            return embedQuery(queryText);
         }
         Instant now = Instant.now();
         maintainQueryEmbeddingCache(now);
@@ -201,7 +223,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
 
         try {
             QueryEmbeddingCacheEntry initialized = new QueryEmbeddingCacheEntry(
-                    cohereEmbeddingClient.embedQuery(queryText),
+                    embedQuery(queryText),
                     expiresAt()
             );
             queryEmbeddingCache.put(key, initialized);
@@ -288,7 +310,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             List<String> documents
     ) {
         if (!properties.isCacheEnabled()) {
-            return cohereEmbeddingClient.embedDocuments(documents);
+            return embedDocuments(documents);
         }
         Instant now = Instant.now();
         documentEmbeddingCache.entrySet().removeIf(entry -> entry.getValue().expiresAt().isBefore(now));
@@ -355,7 +377,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             return;
         }
         try {
-            List<float[]> embeddedDocuments = cohereEmbeddingClient.embedDocuments(
+            List<float[]> embeddedDocuments = embedDocuments(
                     owned.stream().map(PendingDocumentEmbedding::document).toList()
             );
             if (embeddedDocuments.size() != owned.size()) {
@@ -621,5 +643,15 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
     @Override
     public long cohereApiCallCount() {
         return cohereEmbeddingClient.apiCallCount();
+    }
+
+    private float[] embedQuery(String queryText) {
+        metricsRecorder.recordCohereLogicalCalls(1L);
+        return cohereEmbeddingClient.embedQuery(queryText);
+    }
+
+    private List<float[]> embedDocuments(List<String> documents) {
+        metricsRecorder.recordCohereLogicalCalls(1L);
+        return cohereEmbeddingClient.embedDocuments(documents);
     }
 }
