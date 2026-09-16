@@ -45,6 +45,7 @@ class CohereEmbeddingClientTest {
             assertThat(requestJson.get().get("embedding_types").get(0).asText()).isEqualTo("float");
             assertThat(requestJson.get().get("texts")).hasSize(2);
             assertThat(server.authorizationHeader()).isEqualTo("Bearer test-api-key");
+            assertThat(client.apiCallCount()).isEqualTo(1);
         }
     }
 
@@ -60,6 +61,7 @@ class CohereEmbeddingClientTest {
             assertThat(embedding).hasSize(3);
             assertThat(requestJson.get().get("input_type").asText()).isEqualTo("search_query");
             assertThat(requestJson.get().get("texts")).hasSize(1);
+            assertThat(client.apiCallCount()).isEqualTo(1);
         }
     }
 
@@ -134,8 +136,22 @@ class CohereEmbeddingClientTest {
 
             assertThat(embedding).hasSize(3);
             assertThat(server.requestCount()).isEqualTo(2);
+            assertThat(client.apiCallCount()).isEqualTo(1);
             assertThat(requestJson.get().get("input_type").asText()).isEqualTo("search_query");
         }
+    }
+
+    @Test
+    @DisplayName("서버 Retry-After 값은 최대 재시도 대기 시간을 넘지 않는다")
+    void capsRetryAfterDelay() {
+        assertThat(CohereEmbeddingClient.boundedRetryDelay(
+                Duration.ofHours(1),
+                Duration.ofMillis(200)
+        )).isEqualTo(Duration.ofSeconds(2));
+        assertThat(CohereEmbeddingClient.boundedRetryDelay(
+                null,
+                Duration.ofMillis(200)
+        )).isEqualTo(Duration.ofMillis(200));
     }
 
     @Test
@@ -250,7 +266,11 @@ class CohereEmbeddingClientTest {
         }
         return objectMapper.writeValueAsString(java.util.Map.of(
                 "embeddings",
-                java.util.Map.of("float", embeddings)
+                java.util.Map.of("float", embeddings, "int8", List.of()),
+                "id", "response-id",
+                "response_type", "embeddings_floats",
+                "texts", List.of("text"),
+                "meta", java.util.Map.of("billed_units", java.util.Map.of("input_tokens", 1))
         ));
     }
 

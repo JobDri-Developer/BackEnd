@@ -40,6 +40,21 @@ import static org.mockito.Mockito.when;
 
 class AnalysisAiClientTest {
 
+    @Test
+    void evaluationRecordsSelectionBeforeFailureAcrossModes() {
+        for (String mode : List.of("single-pass", "hybrid-exact", "two-pass")) {
+            ReflectionTestUtils.setField(analysisAiClient, "analysisMode", mode);
+            var recorded = new java.util.ArrayList<com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSelectionMetadata>();
+            var input = new AnalysisPromptInput("EV", "회사", "개발", "API", "Java", "",
+                    List.of(new AnalysisPromptInput.QuestionAnswer(1L, "질문", "답변")));
+            assertThatThrownBy(() -> analysisAiClient.analyzeForEvaluationResult(
+                    input, null, java.time.Instant.EPOCH, recorded::add)).isInstanceOf(RuntimeException.class);
+            assertThat(recorded).hasSize(1);
+            assertThat(recorded.getFirst().selectionMode()).isEqualTo(mode.equals("two-pass") ? "NOT_APPLIED" : "STATIC");
+        }
+        org.mockito.Mockito.verifyNoInteractions(openAiAnalysisAdapter);
+    }
+
     private final FewShotSearchService fewShotSearchService = mock(FewShotSearchService.class);
     private final FewShotProperties fewShotProperties = new FewShotProperties();
     private final ObjectMapper objectMapper = new ObjectMapper();

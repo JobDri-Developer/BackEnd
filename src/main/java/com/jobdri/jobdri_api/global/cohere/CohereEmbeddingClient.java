@@ -29,6 +29,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 @Slf4j
@@ -45,6 +46,7 @@ public class CohereEmbeddingClient {
 
     private final CohereProperties properties;
     private final RestClient restClient;
+    private final AtomicLong apiCallCount = new AtomicLong();
 
     public CohereEmbeddingClient(CohereProperties properties, RestClient.Builder restClientBuilder) {
         this.properties = properties;
@@ -94,7 +96,7 @@ public class CohereEmbeddingClient {
                 if (attempt == MAX_TRANSIENT_ATTEMPTS) {
                     throw unavailable("Cohere Embed API가 일시적으로 응답할 수 없습니다.", e);
                 }
-                Duration delay = e.retryAfter() != null ? e.retryAfter() : backoff;
+                Duration delay = boundedRetryDelay(e.retryAfter(), backoff);
                 log.warn(
                         "Cohere Embed API transient failure. attempt={}, maxAttempts={}, retryAfterMs={}, message={}",
                         attempt,
@@ -110,6 +112,7 @@ public class CohereEmbeddingClient {
     }
 
     private CohereEmbeddingResponse callCohereOnce(CohereEmbeddingRequest request) {
+        apiCallCount.incrementAndGet();
         try {
             return restClient.post()
                     .uri("/v2/embed")
@@ -148,6 +151,10 @@ public class CohereEmbeddingClient {
             log.warn("Cohere Embed API call failed. reason=rest_client_failure, message={}", e.getMessage());
             throw unavailable("Cohere Embed API 호출에 실패했습니다.", e);
         }
+    }
+
+    public long apiCallCount() {
+        return apiCallCount.get();
     }
 
     private List<float[]> validateResponse(CohereEmbeddingResponse response, int expectedCount) {
@@ -258,6 +265,11 @@ public class CohereEmbeddingClient {
     private static Duration nextBackoff(Duration current) {
         Duration next = current.multipliedBy(2);
         return next.compareTo(MAX_RETRY_BACKOFF) > 0 ? MAX_RETRY_BACKOFF : next;
+    }
+
+    static Duration boundedRetryDelay(Duration retryAfter, Duration backoff) {
+        Duration requested = retryAfter != null ? retryAfter : backoff;
+        return requested.compareTo(MAX_RETRY_BACKOFF) > 0 ? MAX_RETRY_BACKOFF : requested;
     }
 
     private static void sleepBeforeRetry(Duration delay) {

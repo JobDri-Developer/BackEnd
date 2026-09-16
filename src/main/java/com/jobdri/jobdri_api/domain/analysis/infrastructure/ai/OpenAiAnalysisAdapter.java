@@ -7,6 +7,7 @@ import com.openai.client.OpenAIClient;
 import com.openai.core.RequestOptions;
 import com.openai.models.responses.ResponseCreateParams;
 import com.openai.models.responses.StructuredResponse;
+import com.openai.models.responses.ResponseUsage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -34,6 +35,15 @@ public class OpenAiAnalysisAdapter {
             Class<T> responseType,
             Duration timeout
     ) {
+        return createStructuredResponseWithUsage(operationName, prompt, responseType, timeout).content();
+    }
+
+    public <T> StructuredCallResult<T> createStructuredResponseWithUsage(
+            String operationName,
+            String prompt,
+            Class<T> responseType,
+            Duration timeout
+    ) {
         var params = ResponseCreateParams.builder()
                 .model(analysisModel)
                 .input(prompt)
@@ -53,8 +63,13 @@ public class OpenAiAnalysisAdapter {
                             : openAIClient.responses().create(params, requestOptions)
             );
             T structuredContent = analysisResponseParser.extractStructuredContent(response);
+            ResponseUsage usage = response.usage().orElse(null);
             success = true;
-            return structuredContent;
+            return new StructuredCallResult<>(
+                    structuredContent,
+                    toIntegerTokenCount(usage == null ? null : usage.inputTokens()),
+                    toIntegerTokenCount(usage == null ? null : usage.outputTokens())
+            );
         } finally {
             asyncMetricsRecorder.recordLlmRequest(
                     operationName,
@@ -62,6 +77,16 @@ public class OpenAiAnalysisAdapter {
                     elapsedMillis(startedAt)
             );
         }
+    }
+
+    private Integer toIntegerTokenCount(Long tokens) {
+        if (tokens == null) {
+            return null;
+        }
+        return tokens > Integer.MAX_VALUE ? Integer.MAX_VALUE : tokens.intValue();
+    }
+
+    public record StructuredCallResult<T>(T content, Integer inputTokens, Integer outputTokens) {
     }
 
     private long elapsedMillis(long startedAt) {

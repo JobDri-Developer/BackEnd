@@ -74,7 +74,8 @@ public class AnalysisAiEvaluationAnalysisGenerator implements EvaluationAnalysis
                 jobCategoryEvaluationCriteriaProvider
                         .findByMiddleName(command.jobCategoryMiddle())
                         .orElse(null),
-                deadline
+                deadline,
+                metadata -> command.fewShotMetadataRecorder().accept(writeJson(metadata))
         );
         String rawLlmResponseJson = writeJson(aiCallResult.response());
         String rawCandidateResponseJson = writeJson(aiCallResult.rawCandidateResponse());
@@ -93,7 +94,11 @@ public class AnalysisAiEvaluationAnalysisGenerator implements EvaluationAnalysis
                 candidateReviewResponseJson,
                 reviewSnapshotParser.parse(candidateReviewResponseJson),
                 aiCallResult.candidateCallLatencyMs(),
-                aiCallResult.finalCallLatencyMs()
+                aiCallResult.finalCallLatencyMs(),
+                aiCallResult.candidateInputTokens(),
+                aiCallResult.candidateOutputTokens(),
+                aiCallResult.finalInputTokens(),
+                aiCallResult.finalOutputTokens()
         );
     }
 

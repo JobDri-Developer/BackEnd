@@ -40,6 +40,47 @@ class EvaluationAnalysisBatchServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
+    void sidecarRetainsSelectionOnFailureAndSeparatesRepeatedCaseIds() throws Exception {
+        EvaluationAnalysisGenerator generator = command -> {
+            if (!command.answer().equals("NO-TRACE")) {
+                command.fewShotMetadataRecorder().accept("{\"selectionMode\":\"EMBEDDING\",\"selectedCases\":[{\"id\":\"FS-02\",\"score\":0.8}]}");
+            }
+            if (command.answer().equals("FAIL")) {
+                throw new IllegalStateException("call failed");
+            }
+            return result(new AnalysisLlmResponse(80, 70, 60, "피드백", List.of(), List.of()));
+        };
+        Path input = tempDir.resolve("metadata-input.csv");
+        Path output = tempDir.resolve("metadata-output.csv");
+        Files.writeString(input, "caseId,jobCategoryMiddle,jobCategorySmall,mainTasks,qualifications,preferences,question,answer\n"
+                + "SAME,개발,백엔드,API,Java,,질문,FAIL\n"
+                + "SAME,개발,백엔드,API,Java,,질문,OK\n"
+                + "LAST,개발,백엔드,API,Java,,질문,NO-TRACE\n");
+        var service = new EvaluationAnalysisBatchService(generator, objectMapper);
+        service.run(input, output);
+        Path sidecar;
+        try (var paths = Files.list(tempDir)) {
+            sidecar = paths.filter(path -> path.getFileName().toString().contains(".fewshot.")).findFirst().orElseThrow();
+        }
+        var lines = Files.readAllLines(sidecar);
+        assertThat(lines).hasSize(3);
+        var failed = objectMapper.readTree(lines.get(0));
+        var succeeded = objectMapper.readTree(lines.get(1));
+        assertThat(failed.path("outcome").asText()).isEqualTo("FAILED");
+        assertThat(failed.path("selections").get(0).path("selectionMode").asText()).isEqualTo("EMBEDDING");
+        assertThat(succeeded.path("outcome").asText()).isEqualTo("SUCCESS");
+        assertThat(failed.path("rowIndex").asInt()).isEqualTo(1);
+        assertThat(succeeded.path("rowIndex").asInt()).isEqualTo(2);
+        assertThat(failed.path("runId")).isEqualTo(succeeded.path("runId"));
+        assertThat(objectMapper.readTree(lines.get(2)).path("metadataStatus").asText()).isEqualTo("UNAVAILABLE");
+        assertThat(EvaluationCsvSupport.readHeaders(output)).doesNotContain("selectionMode", "selections");
+        service.run(input, output);
+        try (var paths = Files.list(tempDir)) {
+            assertThat(paths.filter(path -> path.getFileName().toString().contains(".fewshot.")).count()).isEqualTo(2);
+        }
+    }
+
+    @Test
     @DisplayName("LLM 응답을 검증해 평가 결과 CSV로 저장한다")
     void runWritesSanitizedEvaluationResults() throws Exception {
         EvaluationAnalysisGenerator generator = mock(EvaluationAnalysisGenerator.class);
@@ -113,6 +154,31 @@ class EvaluationAnalysisBatchServiceTest {
         assertThat(commandCaptor.getValue().jobCategorySmall()).isEqualTo("백엔드");
         assertThat(commandCaptor.getValue().question()).isEqualTo("경험을 쓰세요");
         assertThat(commandCaptor.getValue().answer()).isEqualTo("데이터 처리 경험이 있습니다.");
+    }
+
+    @Test
+    @DisplayName("분석 호출 토큰 사용량과 합계를 평가 CSV에 기록한다")
+    void runWritesAnalysisTokenUsage() throws Exception {
+        EvaluationGeneratedResult generatedResult = result(
+                new AnalysisLlmResponse(80, 70, 60, "피드백", List.of(), List.of()),
+                null, null, 10, 20, 100, 30, 200, 40
+        );
+        EvaluationAnalysisGenerator generator = command -> generatedResult;
+        Path input = tempDir.resolve("token-input.csv");
+        Path output = tempDir.resolve("token-output.csv");
+        Files.writeString(input,
+                "caseId,jobCategoryMiddle,jobCategorySmall,mainTasks,qualifications,preferences,question,answer\n"
+                        + "EV-01,개발,백엔드,API,Java,,질문,답변\n");
+
+        new EvaluationAnalysisBatchService(generator, objectMapper).run(input, output);
+
+        Map<String, String> row = EvaluationCsvSupport.read(output).getFirst();
+        assertThat(row.get("candidateInputTokens")).isEqualTo("100");
+        assertThat(row.get("candidateOutputTokens")).isEqualTo("30");
+        assertThat(row.get("finalInputTokens")).isEqualTo("200");
+        assertThat(row.get("finalOutputTokens")).isEqualTo("40");
+        assertThat(row.get("totalInputTokens")).isEqualTo("300");
+        assertThat(row.get("totalOutputTokens")).isEqualTo("70");
     }
 
     @Test
@@ -582,6 +648,21 @@ class EvaluationAnalysisBatchServiceTest {
             long candidateCallLatencyMs,
             long finalCallLatencyMs
     ) throws Exception {
+        return result(response, sanitizedCandidateResponse, candidateReviewResponse,
+                candidateCallLatencyMs, finalCallLatencyMs, null, null, null, null);
+    }
+
+    private EvaluationGeneratedResult result(
+            AnalysisLlmResponse response,
+            AnalysisCandidateResponse sanitizedCandidateResponse,
+            CandidateReviewResponse candidateReviewResponse,
+            long candidateCallLatencyMs,
+            long finalCallLatencyMs,
+            Integer candidateInputTokens,
+            Integer candidateOutputTokens,
+            Integer finalInputTokens,
+            Integer finalOutputTokens
+    ) throws Exception {
         String rawLlmResponseJson = objectMapper.writeValueAsString(response == null ? List.of() : response);
         String rawCandidateResponseJson = objectMapper.writeValueAsString(List.of());
         String sanitizedCandidateResponseJson = objectMapper.writeValueAsString(
@@ -603,7 +684,11 @@ class EvaluationAnalysisBatchServiceTest {
                 candidateReviewResponseJson,
                 new EvaluationCandidateReviewSnapshotParser(objectMapper).parse(candidateReviewResponseJson),
                 candidateCallLatencyMs,
-                finalCallLatencyMs
+                finalCallLatencyMs,
+                candidateInputTokens,
+                candidateOutputTokens,
+                finalInputTokens,
+                finalOutputTokens
         );
     }
 }

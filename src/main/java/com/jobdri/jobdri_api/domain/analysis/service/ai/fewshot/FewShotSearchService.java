@@ -4,4 +4,8 @@ import java.util.List;
 
 public interface FewShotSearchService {
     List<SelectedFewShotCase> searchRelevantFewShots(FewShotSearchQuery query, int topK);
+
+    default long cohereApiCallCount() {
+        return 0L;
+    }
 }

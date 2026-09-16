@@ -8,6 +8,7 @@ import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificati
 import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.company.repository.CompanyRepository;
+import com.jobdri.jobdri_api.domain.jobapplication.repository.JobApplicationRepository;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingUpdateRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingResponse;
@@ -16,6 +17,7 @@ import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplySequenceRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
+import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
@@ -46,6 +48,8 @@ public class JobPostingService {
     private final QuestionRepository questionRepository;
     private final AnalysisRepository analysisRepository;
     private final QuestionAnalysisRepository questionAnalysisRepository;
+    private final JobApplicationRepository jobApplicationRepository;
+    private final UserRepository userRepository;
 
     @Transactional
     @AuditLogEvent(action = "JOB_POSTING_CREATE", targetType = "JOB_POSTING", targetId = "#result.getJobPostingId()")
@@ -135,14 +139,16 @@ public class JobPostingService {
     @Transactional
     @AuditLogEvent(action = "JOB_POSTING_DELETE", targetType = "JOB_POSTING", targetId = "#arg1")
     public void deleteJobPosting(User user, Long jobPostingId) {
-        User validatedUser = userService.validateUser(user);
-        JobPosting jobPosting = getOwnedJobPosting(validatedUser, jobPostingId);
+        User validatedUser = lockValidatedUser(user);
+        JobPosting jobPosting = getOwnedJobPostingForUpdate(validatedUser, jobPostingId);
 
+        jobApplicationRepository.clearMockAppliesForJobPosting(jobPostingId);
         questionAnalysisRepository.deleteAllByJobPostingId(jobPostingId);
         questionRepository.deleteAllByJobPostingId(jobPostingId);
         analysisRepository.deleteAllByJobPostingId(jobPostingId);
         mockApplyRepository.deleteAllByJobPostingId(jobPostingId);
         mockApplySequenceRepository.deleteAllByUserIdAndJobPostingId(validatedUser.getId(), jobPostingId);
+        jobApplicationRepository.clearSourceJobPosting(jobPostingId);
         jobPostingRepository.delete(jobPosting);
     }
 
@@ -158,6 +164,24 @@ public class JobPostingService {
         }
 
         return jobPosting;
+    }
+
+    public JobPosting getOwnedJobPostingForUpdate(User user, Long jobPostingId) {
+        JobPosting jobPosting = jobPostingRepository.findByIdForUpdate(jobPostingId)
+                .orElseThrow(() -> new GeneralException(
+                        GeneralErrorCode.JOB_POSTING_NOT_FOUND,
+                        "해당 공고를 찾을 수 없습니다. jobPostingId=" + jobPostingId
+                ));
+        if (!jobPosting.getUser().getId().equals(user.getId())) {
+            throw new GeneralException(GeneralErrorCode.FORBIDDEN, "해당 공고에 접근할 수 없습니다.");
+        }
+        return jobPosting;
+    }
+
+    private User lockValidatedUser(User user) {
+        User validatedUser = userService.validateUser(user);
+        return userRepository.findByIdForUpdate(validatedUser.getId())
+                .orElseThrow(() -> new GeneralException(GeneralErrorCode.USER_NOT_FOUND));
     }
 
     private Company findOrCreateCompany(String companyName, com.jobdri.jobdri_api.domain.company.entity.CompanySize companySize) {

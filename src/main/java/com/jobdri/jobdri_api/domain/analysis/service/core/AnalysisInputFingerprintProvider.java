@@ -114,6 +114,8 @@ public class AnalysisInputFingerprintProvider {
         fewShotPolicy.put("datasetVersion", fewShotProperties.getDatasetVersion());
         fewShotPolicy.put("topK", fewShotProperties.getSearch().getTopK());
         fewShotPolicy.put("candidateLimit", fewShotProperties.getSearch().getCandidateLimit());
+        fewShotPolicy.put("minSimilarity", fewShotProperties.getSearch().getMinSimilarity());
+        fewShotPolicy.put("minimumSelectedCount", fewShotProperties.getSearch().getMinimumSelectedCount());
         fewShotPolicy.put("reviewedEvaluationEnabled", fewShotProperties.getSource().isReviewedEvaluationEnabled());
         return fewShotPolicy;
     }

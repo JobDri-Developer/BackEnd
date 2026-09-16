@@ -616,6 +616,9 @@ class NlgEvaluationBatchService {
         try {
             Map<String, Object> values = objectMapper.readValue(sanitizedCandidateResponseJson, new TypeReference<>() {
             });
+            if (values == null) {
+                return 0;
+            }
             Object candidates = values.get("missingKeywordCandidates");
             if (candidates instanceof List<?> list) {
                 return list.size();

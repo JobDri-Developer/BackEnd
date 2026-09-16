@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmRespons
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -27,6 +28,23 @@ class NlgEvaluationBatchServiceTest {
 
     @TempDir
     Path tempDir;
+
+    @Test
+    void acceptsSinglePassNullCandidateSnapshot() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        stubJudge(aiClient, "SINGLE-PASS");
+        Path input = writeJudgeInputWithMissingKeywordState("SINGLE-PASS", "[]", "null", "[]");
+        Path output = tempDir.resolve("single-pass-judge.csv");
+
+        var summary = new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        ArgumentCaptor<NlgEvaluationAiClient.NlgJudgeInput> inputCaptor =
+                ArgumentCaptor.forClass(NlgEvaluationAiClient.NlgJudgeInput.class);
+        verify(aiClient).evaluate(inputCaptor.capture());
+        assertThat(summary.successCount()).isEqualTo(1);
+        assertThat(EvaluationCsvSupport.read(output).getFirst().get("failureStage")).isEmpty();
+        assertThat(inputCaptor.getValue().validatedMissingKeywordCandidateCount()).isZero();
+    }
 
     @Test
     @DisplayName("judge 점수 범위를 검증하고 유효한 결과만 평균에 반영한다")

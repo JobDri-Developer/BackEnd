@@ -75,23 +75,36 @@ public class EvaluationAnalysisBatchService {
         List<EvaluationAnalysisResult> results = new ArrayList<>();
         int successCount = 0;
 
-        for (int i = 0; i < cases.size(); i++) {
-            EvaluationAnalysisCase evaluationCase = cases.get(i);
-            log.info("[{}/{}] {} analyzing...", i + 1, cases.size(), evaluationCase.caseId());
+        try (var sidecar = new EvaluationFewShotSidecar(outputPath, objectMapper)) {
+            log.info("Few-shot evaluation metadata output: {}", sidecar.path());
+            for (int i = 0; i < cases.size(); i++) {
+                EvaluationAnalysisCase evaluationCase = cases.get(i);
+                log.info("[{}/{}] {} analyzing...", i + 1, cases.size(), evaluationCase.caseId());
 
-            try {
-                EvaluationAnalysisResult result = analyzeCase(evaluationCase);
-                results.add(result);
-                if (!StringUtils.hasText(result.errorMessage())) {
-                    successCount++;
+                List<com.fasterxml.jackson.databind.JsonNode> selections = new ArrayList<>();
+                boolean success = false;
+                try {
+                    EvaluationAnalysisResult result = analyzeCase(evaluationCase, json -> {
+                        try {
+                            selections.add(objectMapper.readTree(json));
+                        } catch (JsonProcessingException e) {
+                            throw new IllegalArgumentException("Invalid few-shot metadata JSON", e);
+                        }
+                    });
+                    results.add(result);
+                    if (!StringUtils.hasText(result.errorMessage())) {
+                        successCount++;
+                        success = true;
+                    }
+                } catch (Exception e) {
+                    log.warn("[{}/{}] {} failed. message={}", i + 1, cases.size(), evaluationCase.caseId(), e.getMessage());
+                    results.add(EvaluationAnalysisResult.failed(
+                            evaluationCase,
+                            safeErrorMessage(e),
+                            createdAt()
+                    ));
                 }
-            } catch (Exception e) {
-                log.warn("[{}/{}] {} failed. message={}", i + 1, cases.size(), evaluationCase.caseId(), e.getMessage());
-                results.add(EvaluationAnalysisResult.failed(
-                        evaluationCase,
-                        safeErrorMessage(e),
-                        createdAt()
-                ));
+                sidecar.write(i + 1, evaluationCase.caseId(), success, selections);
             }
         }
 
@@ -125,7 +138,8 @@ public class EvaluationAnalysisBatchService {
         }
     }
 
-    private EvaluationAnalysisResult analyzeCase(EvaluationAnalysisCase evaluationCase) {
+    private EvaluationAnalysisResult analyzeCase(EvaluationAnalysisCase evaluationCase,
+                                                  java.util.function.Consumer<String> recorder) {
         EvaluationGeneratedResult generatedResult = evaluationAnalysisGenerator.generate(new EvaluationAnalysisCommand(
                 evaluationCase.caseId(),
                 evaluationCase.jobCategoryMiddle(),
@@ -134,7 +148,8 @@ public class EvaluationAnalysisBatchService {
                 evaluationCase.qualifications(),
                 evaluationCase.preferences(),
                 evaluationCase.question(),
-                evaluationCase.answer()
+                evaluationCase.answer(),
+                recorder
         ));
         EvaluationLlmSnapshot llmResponse = generatedResult.responseSnapshot();
 
@@ -187,16 +202,24 @@ public class EvaluationAnalysisBatchService {
                 generatedResult.finalCallLatencyMs(),
                 generatedResult.candidateCallLatencyMs(),
                 generatedResult.finalCallLatencyMs(),
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
+                generatedResult.candidateInputTokens(),
+                generatedResult.candidateOutputTokens(),
+                generatedResult.finalInputTokens(),
+                generatedResult.finalOutputTokens(),
+                sumTokens(generatedResult.candidateInputTokens(), generatedResult.finalInputTokens()),
+                sumTokens(generatedResult.candidateOutputTokens(), generatedResult.finalOutputTokens()),
                 "",
                 "",
                 createdAt()
         );
+    }
+
+    private Integer sumTokens(Integer left, Integer right) {
+        if (left == null && right == null) {
+            return null;
+        }
+        long sum = (left == null ? 0L : left.longValue()) + (right == null ? 0L : right.longValue());
+        return sum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
     }
 
     private List<EvaluationMissingKeyword> buildMissingKeywords(
