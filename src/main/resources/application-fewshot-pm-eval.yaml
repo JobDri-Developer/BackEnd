@@ -6,6 +6,10 @@ analysis:
     dataset-version: fewshot-pm-reviewed-20260914-v2
     reviewed-evaluation-resource: analysis/fewshot/reviewed-fewshot-cases-pm-20260914-v2.json
     reviewed-evaluation-csv-path: ""
+    search:
+      top-k: 5
+      min-similarity: 0.40
+      minimum-selected-count: 2
     source:
       fixed-enabled: false
       curated-enabled: false
