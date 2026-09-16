@@ -29,6 +29,19 @@ class NlgEvaluationBatchServiceTest {
     Path tempDir;
 
     @Test
+    void acceptsSinglePassNullCandidateSnapshot() throws Exception {
+        NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
+        stubJudge(aiClient, "SINGLE-PASS");
+        Path input = writeJudgeInputWithMissingKeywordState("SINGLE-PASS", "[]", "null", "[]");
+        Path output = tempDir.resolve("single-pass-judge.csv");
+
+        var summary = new NlgEvaluationBatchService(aiClient, objectMapper).run(input, output);
+
+        assertThat(summary.successCount()).isEqualTo(1);
+        assertThat(EvaluationCsvSupport.read(output).getFirst().get("failureStage")).isEmpty();
+    }
+
+    @Test
     @DisplayName("judge 점수 범위를 검증하고 유효한 결과만 평균에 반영한다")
     void validatesScoreRange() throws Exception {
         NlgEvaluationAiClient aiClient = mock(NlgEvaluationAiClient.class);
