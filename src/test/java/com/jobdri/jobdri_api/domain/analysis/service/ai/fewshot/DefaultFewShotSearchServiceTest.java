@@ -15,6 +15,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -560,6 +561,34 @@ class DefaultFewShotSearchServiceTest {
     }
 
     @Test
+    @DisplayName("조회가 진행 중인 캐시 정리와 겹쳐도 후속 정리를 예약하지 않는다")
+    void doesNotRequestFollowUpCleanupForReads() {
+        AtomicBoolean selectionInProgress = cleanupFlag("selectionCacheCleanupInProgress");
+        AtomicBoolean selectionRequested = cleanupFlag("selectionCacheCleanupRequested");
+        AtomicBoolean documentInProgress = cleanupFlag("documentEmbeddingCacheCleanupInProgress");
+        AtomicBoolean documentRequested = cleanupFlag("documentEmbeddingCacheCleanupRequested");
+        selectionInProgress.set(true);
+        documentInProgress.set(true);
+
+        try {
+            ReflectionTestUtils.invokeMethod(service, "readSelectionCache", "missing-key");
+            List<float[]> embeddings = ReflectionTestUtils.invokeMethod(
+                    service,
+                    "resolveDocumentEmbeddings",
+                    List.of(),
+                    List.of()
+            );
+
+            assertThat(embeddings).isEmpty();
+            assertThat(selectionRequested).isFalse();
+            assertThat(documentRequested).isFalse();
+        } finally {
+            selectionInProgress.set(false);
+            documentInProgress.set(false);
+        }
+    }
+
+    @Test
     @DisplayName("만료된 query embedding은 동일 질의 재요청에 사용하지 않는다")
     void doesNotReuseExpiredQueryEmbedding() {
         properties.setDynamicSelectionEnabled(true);
@@ -708,6 +737,10 @@ class DefaultFewShotSearchServiceTest {
 
         Map<?, ?> selectionCache = (Map<?, ?>) ReflectionTestUtils.getField(service, "selectionCache");
         assertThat(selectionCache).isEmpty();
+    }
+
+    private AtomicBoolean cleanupFlag(String fieldName) {
+        return (AtomicBoolean) ReflectionTestUtils.getField(service, fieldName);
     }
 
     private static FewShotSearchQuery query(String caseId) {

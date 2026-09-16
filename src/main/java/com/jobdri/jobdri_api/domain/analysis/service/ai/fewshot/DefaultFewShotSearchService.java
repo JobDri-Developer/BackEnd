@@ -117,7 +117,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             SelectionCacheEntry entry = new SelectionCacheEntry(selected, selectionMode, expiresAt());
             if (properties.isCacheEnabled()) {
                 selectionCache.put(cacheKey, entry);
-                maintainSelectionCache(Instant.now());
+                maintainSelectionCache(true);
             }
             created.complete(entry);
             recordMetrics(selectionMode, false, selected.size(), startedAt);
@@ -138,7 +138,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         } finally {
             selectionInFlight.remove(cacheKey, created);
             if (properties.isCacheEnabled()) {
-                maintainSelectionCache(Instant.now());
+                maintainSelectionCache(true);
             }
         }
     }
@@ -385,7 +385,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             return embedDocuments(documents);
         }
         Instant now = Instant.now();
-        maintainDocumentEmbeddingCache(now);
+        maintainDocumentEmbeddingCache(false);
 
         List<float[]> result = new ArrayList<>(java.util.Collections.nCopies(candidates.size(), null));
         List<PendingDocumentEmbedding> pending = new ArrayList<>();
@@ -458,10 +458,12 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         return List.copyOf(result);
     }
 
-    private void maintainDocumentEmbeddingCache(Instant now) {
+    private void maintainDocumentEmbeddingCache(boolean requestFollowUpIfBusy) {
         int maxSize = Math.max(1, properties.getDocumentEmbeddingCacheMaxSize());
         if (!documentEmbeddingCacheCleanupInProgress.compareAndSet(false, true)) {
-            documentEmbeddingCacheCleanupRequested.set(true);
+            if (requestFollowUpIfBusy) {
+                documentEmbeddingCacheCleanupRequested.set(true);
+            }
             return;
         }
         try {
@@ -488,7 +490,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         } finally {
             documentEmbeddingCacheCleanupInProgress.set(false);
             if (documentEmbeddingCacheCleanupRequested.getAndSet(false)) {
-                maintainDocumentEmbeddingCache(Instant.now());
+                maintainDocumentEmbeddingCache(true);
             }
         }
     }
@@ -522,7 +524,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             throw e;
         } finally {
             owned.forEach(item -> documentEmbeddingInFlight.remove(item.key(), item.future()));
-            maintainDocumentEmbeddingCache(Instant.now());
+            maintainDocumentEmbeddingCache(true);
         }
     }
 
@@ -608,7 +610,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             return null;
         }
         Instant now = Instant.now();
-        maintainSelectionCache(now);
+        maintainSelectionCache(false);
         SelectionCacheEntry cached = selectionCache.get(key);
         if (cached == null) {
             if (recordEvent) {
@@ -631,10 +633,12 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         return accessed;
     }
 
-    private void maintainSelectionCache(Instant now) {
+    private void maintainSelectionCache(boolean requestFollowUpIfBusy) {
         int maxSize = Math.max(1, properties.getSelectionCacheMaxSize());
         if (!selectionCacheCleanupInProgress.compareAndSet(false, true)) {
-            selectionCacheCleanupRequested.set(true);
+            if (requestFollowUpIfBusy) {
+                selectionCacheCleanupRequested.set(true);
+            }
             return;
         }
         try {
@@ -658,7 +662,7 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
         } finally {
             selectionCacheCleanupInProgress.set(false);
             if (selectionCacheCleanupRequested.getAndSet(false)) {
-                maintainSelectionCache(Instant.now());
+                maintainSelectionCache(true);
             }
         }
     }
