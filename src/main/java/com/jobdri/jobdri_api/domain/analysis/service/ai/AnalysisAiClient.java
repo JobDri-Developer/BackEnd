@@ -240,14 +240,20 @@ public class AnalysisAiClient {
             Consumer<FewShotSelectionMetadata> recorder
     ) {
         long startedAt = System.nanoTime();
-        AnalysisLlmResponse response = createStructuredResponse(
+        var callResult = createStructuredResponseWithUsage(
                 operationName,
                 analysisPromptBuilder.buildSinglePassPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria, recorder),
                 AnalysisLlmResponse.class,
                 deadline
         );
+        AnalysisLlmResponse response = callResult.content();
         response = analysisResponseParser.sanitizeSinglePassSubheadings(promptInput, response);
-        return AnalysisAiCallResult.singlePass(response, elapsedMillis(startedAt));
+        return AnalysisAiCallResult.singlePass(
+                response,
+                elapsedMillis(startedAt),
+                callResult.inputTokens(),
+                callResult.outputTokens()
+        );
     }
 
     private AnalysisAiCallResult analyzeTwoPass(
@@ -258,12 +264,13 @@ public class AnalysisAiClient {
             Instant deadline
     ) {
         long candidateStartedAt = System.nanoTime();
-        AnalysisCandidateResponse rawCandidates = createStructuredResponse(
+        var candidateCallResult = createStructuredResponseWithUsage(
                 operationName + "-candidates",
                 buildCandidatePrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria),
                 AnalysisCandidateResponse.class,
                 deadline
         );
+        AnalysisCandidateResponse rawCandidates = candidateCallResult.content();
         long candidateLatencyMs = elapsedMillis(candidateStartedAt);
         AnalysisCandidateResponse sanitizedCandidates = sanitizeCandidates(promptInput, rawCandidates);
         log.debug(
@@ -280,12 +287,13 @@ public class AnalysisAiClient {
         );
 
         long finalStartedAt = System.nanoTime();
-        CandidateReviewResponse reviewResponse = createStructuredResponse(
+        var finalCallResult = createStructuredResponseWithUsage(
                 operationName + "-final",
                 buildFinalPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria, sanitizedCandidates),
                 CandidateReviewResponse.class,
                 deadline
         );
+        CandidateReviewResponse reviewResponse = finalCallResult.content();
         CandidateReviewResponse validatedReviewResponse = validateCandidateReview(
                 promptInput,
                 sanitizedCandidates,
@@ -300,7 +308,7 @@ public class AnalysisAiClient {
                 rejectedDecisionCount(validatedReviewResponse),
                 rejectionCodeCounts(validatedReviewResponse)
         );
-        CandidateReviewResponse recheckedReviewResponse = recheckWhenAllCandidatesRejected(
+        RecheckCallResult recheckCallResult = recheckWhenAllCandidatesRejected(
                 promptInput,
                 referenceContext,
                 jobCategoryEvaluationCriteria,
@@ -309,6 +317,7 @@ public class AnalysisAiClient {
                 operationName,
                 deadline
         );
+        CandidateReviewResponse recheckedReviewResponse = recheckCallResult.reviewResponse();
         AnalysisLlmResponse response = buildFinalResponse(promptInput, sanitizedCandidates, recheckedReviewResponse);
         long finalLatencyMs = elapsedMillis(finalStartedAt);
         logQuestionFlowStats(sanitizedCandidates, recheckedReviewResponse, response);
@@ -336,7 +345,11 @@ public class AnalysisAiClient {
                 sanitizedCandidates,
                 recheckedReviewResponse,
                 candidateLatencyMs,
-                finalLatencyMs
+                finalLatencyMs,
+                candidateCallResult.inputTokens(),
+                candidateCallResult.outputTokens(),
+                sumTokens(finalCallResult.inputTokens(), recheckCallResult.inputTokens()),
+                sumTokens(finalCallResult.outputTokens(), recheckCallResult.outputTokens())
         );
     }
 
@@ -392,22 +405,22 @@ public class AnalysisAiClient {
                 twoPassResult.sanitizedCandidateResponse(),
                 twoPassResult.candidateReviewResponse(),
                 twoPassResult.candidateCallLatencyMs(),
-                singlePassResult.finalCallLatencyMs() + twoPassResult.finalCallLatencyMs()
+                singlePassResult.finalCallLatencyMs() + twoPassResult.finalCallLatencyMs(),
+                twoPassResult.candidateInputTokens(),
+                twoPassResult.candidateOutputTokens(),
+                sumTokens(singlePassResult.finalInputTokens(), twoPassResult.finalInputTokens()),
+                sumTokens(singlePassResult.finalOutputTokens(), twoPassResult.finalOutputTokens())
         );
     }
 
-    private <T> T createStructuredResponse(String operationName, String prompt, Class<T> responseType) {
-        return openAiAnalysisAdapter.createStructuredResponse(operationName, prompt, responseType);
-    }
-
-    private <T> T createStructuredResponse(
+    private <T> OpenAiAnalysisAdapter.StructuredCallResult<T> createStructuredResponseWithUsage(
             String operationName,
             String prompt,
             Class<T> responseType,
             Instant deadline
     ) {
         if (deadline == null) {
-            return openAiAnalysisAdapter.createStructuredResponse(operationName, prompt, responseType);
+            return openAiAnalysisAdapter.createStructuredResponseWithUsage(operationName, prompt, responseType, null);
         }
         Duration remaining = Duration.between(Instant.now(), deadline);
         if (remaining.isZero() || remaining.isNegative()) {
@@ -416,11 +429,15 @@ public class AnalysisAiClient {
                     "평가 사례 처리 시간이 제한을 초과했습니다."
             );
         }
-        return openAiAnalysisAdapter.createStructuredResponse(operationName, prompt, responseType, remaining);
+        return openAiAnalysisAdapter.createStructuredResponseWithUsage(operationName, prompt, responseType, remaining);
     }
 
-    private <T> T createStructuredResponse(String operationName, String prompt, Class<T> responseType, Duration timeout) {
-        return openAiAnalysisAdapter.createStructuredResponse(operationName, prompt, responseType);
+    private Integer sumTokens(Integer left, Integer right) {
+        if (left == null && right == null) {
+            return null;
+        }
+        long sum = (left == null ? 0L : left.longValue()) + (right == null ? 0L : right.longValue());
+        return sum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
     }
 
     String buildPrompt(
@@ -635,7 +652,7 @@ public class AnalysisAiClient {
         );
     }
 
-    CandidateReviewResponse recheckWhenAllCandidatesRejected(
+    private RecheckCallResult recheckWhenAllCandidatesRejected(
             AnalysisPromptInput promptInput,
             RetrievalContext referenceContext,
             JobCategoryEvaluationCriteria jobCategoryEvaluationCriteria,
@@ -649,7 +666,7 @@ public class AnalysisAiClient {
                 : sanitizedCandidates.analysisCandidates().size();
         int acceptedCandidates = acceptedDecisionCount(reviewResponse);
         if (firstPassCandidates == 0 || acceptedCandidates > 0) {
-            return reviewResponse;
+            return new RecheckCallResult(reviewResponse, null, null);
         }
 
         log.debug(
@@ -659,12 +676,13 @@ public class AnalysisAiClient {
                 rejectedDecisionCount(reviewResponse),
                 rejectionCodeCounts(reviewResponse)
         );
-        CandidateRecheckResponse recheckResponse = createStructuredResponse(
+        var recheckCallResult = createStructuredResponseWithUsage(
                 operationName + "-recheck",
                 buildRecheckPrompt(promptInput, referenceContext, jobCategoryEvaluationCriteria, sanitizedCandidates, reviewResponse),
                 CandidateRecheckResponse.class,
                 deadline
         );
+        CandidateRecheckResponse recheckResponse = recheckCallResult.content();
         CandidateReviewResponse rechecked = applyRecheckResponse(promptInput, sanitizedCandidates, reviewResponse, recheckResponse);
         int recoveredMentionedCount = recoveredDecisionCount(rechecked, QuestionAnalysisStatus.MENTIONED);
         int recoveredFabricatedCount = recoveredDecisionCount(rechecked, QuestionAnalysisStatus.FABRICATED);
@@ -682,7 +700,11 @@ public class AnalysisAiClient {
                 recheckResponse != null && StringUtils.hasText(recheckResponse.candidateId()),
                 rejectedDecisionCount(rechecked)
         );
-        return rechecked;
+        return new RecheckCallResult(
+                rechecked,
+                recheckCallResult.inputTokens(),
+                recheckCallResult.outputTokens()
+        );
     }
 
     CandidateReviewResponse applyRecheckResponse(
@@ -1759,6 +1781,13 @@ public class AnalysisAiClient {
         INVALID_FABRICATED
     }
 
+    private record RecheckCallResult(
+            CandidateReviewResponse reviewResponse,
+            Integer inputTokens,
+            Integer outputTokens
+    ) {
+    }
+
     public record AnalysisAiCallResult(
             AnalysisLlmResponse response,
             AnalysisCandidateResponse rawCandidateResponse,
@@ -1766,10 +1795,22 @@ public class AnalysisAiClient {
             CandidateReviewResponse candidateReviewResponse,
             boolean twoPassEnabled,
             long candidateCallLatencyMs,
-            long finalCallLatencyMs
+            long finalCallLatencyMs,
+            Integer candidateInputTokens,
+            Integer candidateOutputTokens,
+            Integer finalInputTokens,
+            Integer finalOutputTokens
     ) {
-        static AnalysisAiCallResult singlePass(AnalysisLlmResponse response, long latencyMs) {
-            return new AnalysisAiCallResult(response, null, null, null, false, 0, latencyMs);
+        static AnalysisAiCallResult singlePass(
+                AnalysisLlmResponse response,
+                long latencyMs,
+                Integer inputTokens,
+                Integer outputTokens
+        ) {
+            return new AnalysisAiCallResult(
+                    response, null, null, null, false, 0, latencyMs,
+                    null, null, inputTokens, outputTokens
+            );
         }
 
         static AnalysisAiCallResult twoPass(
@@ -1778,7 +1819,11 @@ public class AnalysisAiClient {
                 AnalysisCandidateResponse sanitizedCandidateResponse,
                 CandidateReviewResponse candidateReviewResponse,
                 long candidateCallLatencyMs,
-                long finalCallLatencyMs
+                long finalCallLatencyMs,
+                Integer candidateInputTokens,
+                Integer candidateOutputTokens,
+                Integer finalInputTokens,
+                Integer finalOutputTokens
         ) {
             return new AnalysisAiCallResult(
                     response,
@@ -1787,7 +1832,11 @@ public class AnalysisAiClient {
                     candidateReviewResponse,
                     true,
                     candidateCallLatencyMs,
-                    finalCallLatencyMs
+                    finalCallLatencyMs,
+                    candidateInputTokens,
+                    candidateOutputTokens,
+                    finalInputTokens,
+                    finalOutputTokens
             );
         }
 
@@ -1797,7 +1846,11 @@ public class AnalysisAiClient {
                 AnalysisCandidateResponse sanitizedCandidateResponse,
                 CandidateReviewResponse candidateReviewResponse,
                 long candidateCallLatencyMs,
-                long finalCallLatencyMs
+                long finalCallLatencyMs,
+                Integer candidateInputTokens,
+                Integer candidateOutputTokens,
+                Integer finalInputTokens,
+                Integer finalOutputTokens
         ) {
             return new AnalysisAiCallResult(
                     response,
@@ -1806,7 +1859,11 @@ public class AnalysisAiClient {
                     candidateReviewResponse,
                     true,
                     candidateCallLatencyMs,
-                    finalCallLatencyMs
+                    finalCallLatencyMs,
+                    candidateInputTokens,
+                    candidateOutputTokens,
+                    finalInputTokens,
+                    finalOutputTokens
             );
         }
     }

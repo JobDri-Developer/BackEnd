@@ -29,6 +29,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 @Slf4j
@@ -45,6 +46,7 @@ public class CohereEmbeddingClient {
 
     private final CohereProperties properties;
     private final RestClient restClient;
+    private final AtomicLong apiCallCount = new AtomicLong();
 
     public CohereEmbeddingClient(CohereProperties properties, RestClient.Builder restClientBuilder) {
         this.properties = properties;
@@ -110,6 +112,7 @@ public class CohereEmbeddingClient {
     }
 
     private CohereEmbeddingResponse callCohereOnce(CohereEmbeddingRequest request) {
+        apiCallCount.incrementAndGet();
         try {
             return restClient.post()
                     .uri("/v2/embed")
@@ -148,6 +151,10 @@ public class CohereEmbeddingClient {
             log.warn("Cohere Embed API call failed. reason=rest_client_failure, message={}", e.getMessage());
             throw unavailable("Cohere Embed API 호출에 실패했습니다.", e);
         }
+    }
+
+    public long apiCallCount() {
+        return apiCallCount.get();
     }
 
     private List<float[]> validateResponse(CohereEmbeddingResponse response, int expectedCount) {

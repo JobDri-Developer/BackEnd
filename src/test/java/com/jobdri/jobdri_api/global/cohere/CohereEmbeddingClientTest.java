@@ -45,6 +45,7 @@ class CohereEmbeddingClientTest {
             assertThat(requestJson.get().get("embedding_types").get(0).asText()).isEqualTo("float");
             assertThat(requestJson.get().get("texts")).hasSize(2);
             assertThat(server.authorizationHeader()).isEqualTo("Bearer test-api-key");
+            assertThat(client.apiCallCount()).isEqualTo(1);
         }
     }
 
@@ -60,6 +61,7 @@ class CohereEmbeddingClientTest {
             assertThat(embedding).hasSize(3);
             assertThat(requestJson.get().get("input_type").asText()).isEqualTo("search_query");
             assertThat(requestJson.get().get("texts")).hasSize(1);
+            assertThat(client.apiCallCount()).isEqualTo(1);
         }
     }
 
@@ -134,6 +136,7 @@ class CohereEmbeddingClientTest {
 
             assertThat(embedding).hasSize(3);
             assertThat(server.requestCount()).isEqualTo(2);
+            assertThat(client.apiCallCount()).isEqualTo(1);
             assertThat(requestJson.get().get("input_type").asText()).isEqualTo("search_query");
         }
     }

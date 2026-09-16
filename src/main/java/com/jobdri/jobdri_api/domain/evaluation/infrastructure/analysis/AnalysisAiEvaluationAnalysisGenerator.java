@@ -94,7 +94,11 @@ public class AnalysisAiEvaluationAnalysisGenerator implements EvaluationAnalysis
                 candidateReviewResponseJson,
                 reviewSnapshotParser.parse(candidateReviewResponseJson),
                 aiCallResult.candidateCallLatencyMs(),
-                aiCallResult.finalCallLatencyMs()
+                aiCallResult.finalCallLatencyMs(),
+                aiCallResult.candidateInputTokens(),
+                aiCallResult.candidateOutputTokens(),
+                aiCallResult.finalInputTokens(),
+                aiCallResult.finalOutputTokens()
         );
     }
 

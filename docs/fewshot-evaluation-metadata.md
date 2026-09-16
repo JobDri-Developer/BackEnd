@@ -39,6 +39,8 @@ sidecar 저장 실패는 평가 실행 실패로 전파됩니다.
   프롬프트 순서와 최대·최소 점수 순서는 다를 수 있습니다.
 - `datasetVersion/minSimilarity/topK/minimumSelectedCount`: 실행의 선택 설정.
   topK는 설정한 요청 개수이며 실제 개수는 selectedCases 배열 길이입니다.
+- `cohereApiCallCount`: 해당 프롬프트 선택 중 발생한 논리적 Cohere embedding 호출 수.
+  캐시 적중 시 0이며, SDK/HTTP 계층의 내부 재전송 횟수와는 구분합니다.
 - `reason`: 정적 선택·fallback·미적용 사유 코드. 예외 메시지 원문은 넣지 않습니다.
 
 정적 예시 ID는 기존 로더와 같은 `FS-FIXED-1..N`입니다.
@@ -61,11 +63,12 @@ STATIC으로 추정하지 않습니다.
 선택 스냅샷에는 자소서 원문, JD, 프롬프트 본문, 임베딩 벡터를 넣지 않습니다.
 기존 평가 CSV의 원문 보존 동작은 바꾸지 않았으므로 CSV 접근 권한은 기존대로 관리해야 합니다.
 
-## 다음 작업
+## 분석 사용량
 
-3번 STATIC/DYNAMIC 비교 평가에서는 동일 모델·temperature·holdout·Judge 조건을 유지하고
-각 실행의 CSV와 sidecar를 함께 보관합니다.
-토큰 사용량·Cohere 호출 수·전체 비용 수집 및 실제 품질 비교는 이번 변경에 포함하지 않습니다.
+평가 CSV의 `candidateInputTokens`, `candidateOutputTokens`, `finalInputTokens`,
+`finalOutputTokens`, `totalInputTokens`, `totalOutputTokens`에는 OpenAI 응답 usage를 기록합니다.
+single-pass 사용량은 final 컬럼에 기록되고 candidate 컬럼은 비어 있습니다. two-pass는 후보와
+최종 검토를 나눠 기록하며, 선택적으로 실행되는 recheck 사용량은 final에 합산합니다.
 
 ## 검증
 
