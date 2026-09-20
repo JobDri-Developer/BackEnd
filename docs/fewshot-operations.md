@@ -42,6 +42,23 @@ sum(rate(fewshot_cohere_failure_count_total[10m])) by (reason)
 sum(increase(fewshot_cohere_logical_calls_total[1h]))
 ```
 
+## Grafana Cloud 대시보드
+
+저장소의 `ops/observability/grafana/fewshot-dashboard.json`을 Grafana Cloud의
+**Dashboards > New > Import**에서 업로드하고, 가져오기 화면에서 운영 Prometheus datasource를
+선택합니다. 이 대시보드는 다음 항목을 한 화면에서 확인합니다.
+
+- selection mode별 요청률과 10분 fallback 비율
+- selection P95와 mode별 지연 추이
+- Cohere 실패 reason과 시간당 논리 호출량
+- 평균 선택 후보 수
+- 캐시별 hit 비율과 expired·evicted 건수
+
+패널이 `No data`이면 먼저 Grafana **Explore**에서 `fewshot_selection_count_total`을 조회합니다.
+지표 자체가 없으면 해당 인스턴스에서 동적 Few-shot 요청이 발생했는지와 Grafana Cloud로
+`/actuator/prometheus`가 수집되고 있는지를 확인합니다. 대시보드의 datasource 변수는 Grafana
+Cloud에 등록된 Prometheus datasource를 사용하므로 별도 모니터링 시스템을 추가로 띄우지 않습니다.
+
 ## 단계적 활성화
 
 애플리케이션 feature flag는 boolean이므로 트래픽 비율은 배포 플랫폼의 인스턴스 또는 라우팅
