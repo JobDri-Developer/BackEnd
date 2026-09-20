@@ -27,6 +27,16 @@ ANALYSIS_FEW_SHOT_MIN_SIMILARITY=0.40
 ANALYSIS_FEW_SHOT_MINIMUM_SELECTED_COUNT=2
 ```
 
+같은 설정을 전용 profile로 적용하려면 canary 인스턴스에만 다음을 지정합니다.
+
+```text
+SPRING_PROFILES_ACTIVE=prod,fewshot-canary
+```
+
+`fewshot-canary` profile은 `single-pass`를 명시하고 위 소스·검색값을 함께 적용합니다.
+일반 운영 인스턴스의 profile에는 추가하지 않습니다. 환경변수로 각 값을 지정하는
+방식과 profile 방식 중 하나만 선택해 배포 기록에 남깁니다.
+
 ## 내부 환경
 
 - [ ] 운영 트래픽을 받지 않는 내부 인스턴스에서 먼저 활성화한다.
