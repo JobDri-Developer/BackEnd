@@ -56,7 +56,9 @@ and
 sum(increase(fewshot_selection_count_total[10m])) >= 20
 ```
 
-`STATIC_FALLBACK`은 동적·로컬 선택이 모두 빈 결과를 반환한 경우이므로 local fallback과
+`STATIC_FALLBACK`은 `AnalysisPromptBuilder.resolveFewShotPromptBlock`에서 동적 선택 결과가
+비어 있거나, 선택 항목·prompt block·score가 유효하지 않거나, 선택 처리 중 예외가 발생해
+기존 정적 Few-shot 블록으로 전환된 경우입니다. 원인 범위가 넓으므로 local fallback과
 분리해 관측합니다.
 
 추가 라벨: `signal=static_fallback`
