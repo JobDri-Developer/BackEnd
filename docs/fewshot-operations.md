@@ -59,6 +59,9 @@ sum(increase(fewshot_cohere_logical_calls_total[1h]))
 `/actuator/prometheus`가 수집되고 있는지를 확인합니다. 대시보드의 datasource 변수는 Grafana
 Cloud에 등록된 Prometheus datasource를 사용하므로 별도 모니터링 시스템을 추가로 띄우지 않습니다.
 
+Grafana-managed alert rule은 dashboard JSON과 별도로 등록합니다. 경보별 PromQL과
+평가 주기·Pending·No Data 정책은 `docs/fewshot-alerting.md`를 따릅니다.
+
 ## 단계적 활성화
 
 애플리케이션 feature flag는 boolean이므로 트래픽 비율은 배포 플랫폼의 인스턴스 또는 라우팅
