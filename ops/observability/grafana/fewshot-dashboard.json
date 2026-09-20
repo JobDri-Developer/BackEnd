@@ -44,8 +44,8 @@
             "mode": "absolute",
             "steps": [
               { "color": "green", "value": null },
-              { "color": "yellow", "value": 5 },
-              { "color": "red", "value": 10 }
+              { "color": "yellow", "value": 15 },
+              { "color": "red", "value": 25 }
             ]
           },
           "unit": "percent"
@@ -65,13 +65,13 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "100 * sum(rate(fewshot_selection_count_total{mode=~\"LOCAL_FALLBACK|STATIC_FALLBACK\"}[10m])) / clamp_min(sum(rate(fewshot_selection_count_total[10m])), 0.000000001)",
+          "expr": "100 * sum(rate(fewshot_selection_count_total{mode=\"LOCAL_FALLBACK\"}[10m])) / clamp_min(sum(rate(fewshot_selection_count_total[10m])), 0.000000001)",
           "instant": true,
           "range": false,
           "refId": "A"
         }
       ],
-      "title": "Fallback ratio (10m)",
+      "title": "Local fallback ratio (10m)",
       "type": "stat"
     },
     {
@@ -241,6 +241,44 @@
       ],
       "title": "Cache expiration and eviction",
       "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "${datasource}" },
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1 }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": { "h": 6, "w": 8, "x": 0, "y": 24 },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(increase(fewshot_selection_count_total{mode=\"STATIC_FALLBACK\"}[10m])) or vector(0)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Static fallback count (10m)",
+      "type": "stat"
     }
   ],
   "refresh": "30s",
@@ -269,6 +307,6 @@
   "timezone": "browser",
   "title": "JobDri / Dynamic Few-shot",
   "uid": "jobdri-fewshot",
-  "version": 1,
+  "version": 2,
   "weekStart": ""
 }

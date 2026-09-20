@@ -28,9 +28,11 @@ Prometheus endpoint는 관리 포트의 `/actuator/prometheus`입니다.
 ```promql
 sum(rate(fewshot_selection_count_total[10m])) by (mode)
 
-sum(rate(fewshot_selection_count_total{mode=~"LOCAL_FALLBACK|STATIC_FALLBACK"}[10m]))
+sum(rate(fewshot_selection_count_total{mode="LOCAL_FALLBACK"}[10m]))
 /
 sum(rate(fewshot_selection_count_total[10m]))
+
+sum(increase(fewshot_selection_count_total{mode="STATIC_FALLBACK"}[10m]))
 
 histogram_quantile(
   0.95,
@@ -48,7 +50,7 @@ sum(increase(fewshot_cohere_logical_calls_total[1h]))
 **Dashboards > New > Import**에서 업로드하고, 가져오기 화면에서 운영 Prometheus datasource를
 선택합니다. 이 대시보드는 다음 항목을 한 화면에서 확인합니다.
 
-- selection mode별 요청률과 10분 fallback 비율
+- selection mode별 요청률, 10분 LOCAL fallback 비율, STATIC fallback 건수
 - selection P95와 mode별 지연 추이
 - Cohere 실패 reason과 시간당 논리 호출량
 - 평균 선택 후보 수
@@ -96,7 +98,8 @@ ANALYSIS_FEW_SHOT_MINIMUM_SELECTED_COUNT=2
 
 초기 canary에서는 다음 중 하나면 확대를 멈추고 원인을 확인합니다.
 
-- 10분간 LOCAL_FALLBACK + STATIC_FALLBACK 비율이 10% 초과
+- 10분간 LOCAL_FALLBACK 비율이 25% 초과
+- 최소 20건 표본에서 10분간 STATIC_FALLBACK이 1건 이상 발생
 - 10분간 Cohere 실패가 Few-shot 선택 요청의 5% 초과
 - Few-shot 선택 P95가 2초 초과 또는 기존 기준 대비 30% 이상 증가
 - 분석 전체 P95가 기존 기준 대비 20% 이상 증가

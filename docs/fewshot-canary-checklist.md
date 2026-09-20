@@ -57,7 +57,7 @@ SPRING_PROFILES_ACTIVE=prod,fewshot-canary
 - [ ] 선택 source가 `REVIEWED_PRODUCTION`인지 로그 또는 평가 메타데이터로 확인한다.
 - [ ] 선택 ID가 FS-02, FS-03, FS-05, FS-08, FS-09 범위인지 확인한다.
 - [ ] 원문 JD·답변·embedding이 로그나 metric label에 노출되지 않는지 확인한다.
-- [ ] 세 Grafana 경보의 Preview가 오류 없이 평가되는지 확인한다.
+- [ ] 네 Grafana 경보의 Preview가 오류 없이 평가되는지 확인한다.
 - [ ] feature flag를 끈 뒤 기존 정적 Few-shot 경로로 복귀하는지 한 번 검증한다.
 
 ## 운영 5% Canary
@@ -66,7 +66,8 @@ SPRING_PROFILES_ACTIVE=prod,fewshot-canary
 - [ ] 배포 시각, 인스턴스, datasetVersion, 검색 설정, 담당자를 기록한다.
 - [ ] 최소 1일 및 하나의 일간 피크 구간을 관측한다.
 - [ ] 최근 10분 selection 표본이 20건 이상인지 함께 확인한다.
-- [ ] fallback 비율이 10% 이하인지 확인한다.
+- [ ] LOCAL_FALLBACK 비율이 25% 이하인지 확인한다.
+- [ ] STATIC_FALLBACK이 0건인지 확인한다.
 - [ ] Cohere 실패 비율이 5% 이하인지 확인한다.
 - [ ] selection P95가 2초 이하인지 확인한다.
 - [ ] 분석 전체 P95가 기존 기준보다 20% 이상 증가하지 않았는지 확인한다.
