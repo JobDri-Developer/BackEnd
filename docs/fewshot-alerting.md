@@ -15,7 +15,7 @@ alert rule을 생성합니다. datasource는 Few-shot 대시보드에서 사용�
 | Evaluation interval | `1m` |
 | No Data | Normal |
 | Error/Timeout | Keep Last State |
-| Label | `service=jobdri-api`, `component=fewshot` |
+| Label | `service=jobdri-api`, `component=fewshot`, `environment=production`, `severity=warning` |
 
 동적 Few-shot이 꺼져 있거나 요청이 없는 동안에는 지표가 없을 수 있으므로 No Data를 장애로
 처리하지 않습니다. 알림 contact point와 notification policy는 기존 운영 알림 채널을
@@ -41,6 +41,8 @@ sum(increase(fewshot_selection_count_total[10m])) >= 20
 10분간 selection이 20건 이상이면서 fallback 비율이 10%를 초과한 상태가 5분간 지속되면
 발동합니다.
 
+추가 라벨: `signal=fallback_ratio`
+
 ## 2. Cohere 실패 비율 경보
 
 - 이름: `JobDri Few-shot Cohere failure ratio high`
@@ -61,6 +63,8 @@ sum(increase(fewshot_selection_count_total[10m])) >= 20
 10분간 selection이 20건 이상이면서 Cohere 선택 실패가 selection 요청의 5%를 초과한 상태가
 3분간 지속되면 발동합니다.
 
+추가 라벨: `signal=cohere_failure`, `dependency=cohere`
+
 ## 3. Few-shot 선택 P95 지연 경보
 
 - 이름: `JobDri Few-shot selection P95 latency high`
@@ -78,6 +82,11 @@ sum(increase(fewshot_selection_count_total[10m])) >= 20
 ```
 
 10분 구간의 selection P95가 2초를 초과한 상태가 5분간 지속되면 발동합니다.
+
+추가 라벨: `signal=selection_latency`
+
+Discord를 직접 연결한 경우 각 규칙의 **Configure notifications > Select contact point**에서
+`jobdri-discord-alerts`를 선택합니다. 세 규칙이 같은 contact point를 공유해도 됩니다.
 
 ## 등록 전 확인
 

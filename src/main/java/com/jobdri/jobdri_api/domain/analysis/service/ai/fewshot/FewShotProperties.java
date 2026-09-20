@@ -13,6 +13,7 @@ public class FewShotProperties {
     private String curatedResource = "analysis/fewshot/curated-fewshot-cases.json";
     private String reviewedEvaluationResource = "analysis/fewshot/reviewed-fewshot-cases.json";
     private String reviewedEvaluationCsvPath = "";
+    private String reviewedProductionResource = "";
     private boolean fallbackEnabled = true;
     private boolean cacheEnabled = true;
     private Duration cacheTtl = Duration.ofMinutes(30);
@@ -62,6 +63,14 @@ public class FewShotProperties {
 
     public void setReviewedEvaluationCsvPath(String reviewedEvaluationCsvPath) {
         this.reviewedEvaluationCsvPath = reviewedEvaluationCsvPath;
+    }
+
+    public String getReviewedProductionResource() {
+        return reviewedProductionResource;
+    }
+
+    public void setReviewedProductionResource(String reviewedProductionResource) {
+        this.reviewedProductionResource = reviewedProductionResource;
     }
 
     public boolean isFallbackEnabled() {
