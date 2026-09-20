@@ -37,6 +37,17 @@ SPRING_PROFILES_ACTIVE=prod,fewshot-canary
 일반 운영 인스턴스의 profile에는 추가하지 않습니다. 환경변수로 각 값을 지정하는
 방식과 profile 방식 중 하나만 선택해 배포 기록에 남깁니다.
 
+인스턴스 시작 시 전용 검증기가 다음을 확인합니다.
+
+- dynamic selection과 `single-pass`가 활성화됐는지
+- `REVIEWED_PRODUCTION` 외 소스가 꺼져 있는지
+- 유효한 운영 승인 후보가 하나 이상인지
+- 후보의 datasetVersion이 설정값과 같은지
+
+하나라도 충족하지 않으면 canary 인스턴스는 시작을 중단합니다. 정상적으로
+시작하면 `fewshot-canary readiness validated` 로그에 datasetVersion, 후보 수, ID가
+남습니다. 답변 원문과 embedding은 로그에 남지 않습니다.
+
 ## 내부 환경
 
 - [ ] 운영 트래픽을 받지 않는 내부 인스턴스에서 먼저 활성화한다.
