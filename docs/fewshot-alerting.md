@@ -21,29 +21,47 @@ alert rule을 생성합니다. datasource는 Few-shot 대시보드에서 사용�
 처리하지 않습니다. 알림 contact point와 notification policy는 기존 운영 알림 채널을
 사용합니다.
 
-## 1. Fallback 비율 경보
+## 1. Local fallback 비율 경보
 
-- 이름: `JobDri Few-shot fallback ratio high`
+- 이름: `JobDri Few-shot local fallback ratio high`
 - 심각도: `warning`
 - Pending period: `5m`
 - 복구 기준: 아래 조건이 더 이상 성립하지 않을 때
 
 ```promql
 (
-  sum(increase(fewshot_selection_count_total{mode=~"LOCAL_FALLBACK|STATIC_FALLBACK"}[10m]))
+  sum(increase(fewshot_selection_count_total{mode="LOCAL_FALLBACK"}[10m]))
   /
   clamp_min(sum(increase(fewshot_selection_count_total[10m])), 1)
-) > 0.10
+) > 0.25
 and
 sum(increase(fewshot_selection_count_total[10m])) >= 20
 ```
 
-10분간 selection이 20건 이상이면서 fallback 비율이 10%를 초과한 상태가 5분간 지속되면
-발동합니다.
+10분간 selection이 20건 이상이면서 local fallback 비율이 25%를 초과한 상태가
+5분간 지속되면 발동합니다. 내부 smoke 기준선은 15%입니다.
 
-추가 라벨: `signal=fallback_ratio`
+추가 라벨: `signal=local_fallback_ratio`
 
-## 2. Cohere 실패 비율 경보
+## 2. Static fallback 발생 경보
+
+- 이름: `JobDri Few-shot static fallback detected`
+- 심각도: `warning`
+- Pending period: `3m`
+- 복구 기준: 10분 구간의 static fallback이 0건으로 돌아올 때
+
+```promql
+sum(increase(fewshot_selection_count_total{mode="STATIC_FALLBACK"}[10m])) > 0
+and
+sum(increase(fewshot_selection_count_total[10m])) >= 20
+```
+
+`STATIC_FALLBACK`은 동적·로컬 선택이 모두 빈 결과를 반환한 경우이므로 local fallback과
+분리해 관측합니다.
+
+추가 라벨: `signal=static_fallback`
+
+## 3. Cohere 실패 비율 경보
 
 - 이름: `JobDri Few-shot Cohere failure ratio high`
 - 심각도: `warning`
@@ -65,7 +83,7 @@ sum(increase(fewshot_selection_count_total[10m])) >= 20
 
 추가 라벨: `signal=cohere_failure`, `dependency=cohere`
 
-## 3. Few-shot 선택 P95 지연 경보
+## 4. Few-shot 선택 P95 지연 경보
 
 - 이름: `JobDri Few-shot selection P95 latency high`
 - 심각도: `warning`
@@ -86,7 +104,7 @@ sum(increase(fewshot_selection_count_total[10m])) >= 20
 추가 라벨: `signal=selection_latency`
 
 Discord를 직접 연결한 경우 각 규칙의 **Configure notifications > Select contact point**에서
-`jobdri-discord-alerts`를 선택합니다. 세 규칙이 같은 contact point를 공유해도 됩니다.
+`jobdri-discord-alerts`를 선택합니다. 네 규칙이 같은 contact point를 공유해도 됩니다.
 
 ## 등록 전 확인
 
