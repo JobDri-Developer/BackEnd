@@ -50,6 +50,7 @@ SPRING_PROFILES_ACTIVE=prod,fewshot-canary
 
 ## 내부 환경
 
+- [ ] `docs/fewshot-canary-smoke.md`의 절차로 내부 smoke 평가를 실행한다.
 - [ ] 운영 트래픽을 받지 않는 내부 인스턴스에서 먼저 활성화한다.
 - [ ] 서로 다른 직무·문항의 테스트 분석을 최소 20건 실행한다.
 - [ ] selection mode에 `EMBEDDING` 또는 의도된 `LOCAL_FALLBACK`이 기록되는지 확인한다.
