@@ -41,8 +41,9 @@ class FewShotCanaryReadinessValidator implements SmartInitializingSingleton {
             throw new IllegalStateException("fewshot-canary case datasetVersion must match the configured datasetVersion.");
         }
         log.info(
-                "fewshot-canary readiness validated. datasetVersion={}, candidateCount={}, candidateIds={}",
+                "fewshot-canary readiness validated. datasetVersion={}, workerRolloutPercentage={}, candidateCount={}, candidateIds={}",
                 properties.getDatasetVersion(),
+                properties.getWorkerRolloutPercentage(),
                 activeCases.size(),
                 activeCases.stream().map(FewShotCase::id).toList()
         );
@@ -54,6 +55,10 @@ class FewShotCanaryReadinessValidator implements SmartInitializingSingleton {
         }
         if (!properties.isDynamicSelectionEnabled()) {
             throw new IllegalStateException("fewshot-canary requires dynamic selection to be enabled.");
+        }
+        if (properties.getWorkerRolloutPercentage() <= 0
+                || properties.getWorkerRolloutPercentage() > 100) {
+            throw new IllegalStateException("fewshot-canary requires worker rollout percentage between 1 and 100.");
         }
         if (properties.getSource().isFixedEnabled()
                 || properties.getSource().isCuratedEnabled()

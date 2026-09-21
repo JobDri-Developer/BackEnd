@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmRespons
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerCompleteRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerResultStoreRequest;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerFewShotContext;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.SimilarJobPostingContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
 import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncCreditStatus;
@@ -14,6 +15,9 @@ import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskReposit
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
 import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.AnalysisWorkerFewShotSelector;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotProperties;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSelectionMetadata;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.company.entity.Company;
 import com.jobdri.jobdri_api.domain.corpus.service.CorpusRetrievalService.RetrievalContext;
@@ -92,6 +96,9 @@ class AnalysisWorkerBridgeServiceTest {
     private AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
 
     @Mock
+    private AnalysisWorkerFewShotSelector analysisWorkerFewShotSelector;
+
+    @Mock
     private TransactionTemplate transactionTemplate;
 
     @Spy
@@ -110,6 +117,7 @@ class AnalysisWorkerBridgeServiceTest {
                 userService,
                 workerTaskResultService,
                 analysisInputFingerprintProvider,
+                analysisWorkerFewShotSelector,
                 objectMapper,
                 transactionTemplate
         );
@@ -233,6 +241,17 @@ class AnalysisWorkerBridgeServiceTest {
         when(analysisCreditService.createAsyncReferenceId(task.getTaskId(), 1))
                 .thenReturn("analysisTaskId=" + task.getTaskId() + ":creditVersion=1");
         when(analysisInputFingerprintProvider.create(payload)).thenReturn("initial-fingerprint");
+        AnalysisWorkerFewShotContext fewShot = new AnalysisWorkerFewShotContext(
+                "## 예시 FS-02\n승인된 예시",
+                FewShotSelectionMetadata.staticSelection(
+                        "STATIC_FALLBACK",
+                        "test",
+                        1,
+                        new FewShotProperties(),
+                        0
+                )
+        );
+        when(analysisWorkerFewShotSelector.select(task.getTaskId(), payload)).thenReturn(fewShot);
 
         var firstContext = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
         var secondContext = analysisWorkerBridgeService.getContext(task.getTaskId(), 1L, 10L);
@@ -245,6 +264,8 @@ class AnalysisWorkerBridgeServiceTest {
         assertThat(firstContext.corpusReferences()).hasSize(1);
         assertThat(firstContext.corpusReferences().getFirst().corpusId()).isEqualTo(11L);
         assertThat(firstContext.similarJobPostings()).containsExactly(similarContext);
+        assertThat(firstContext.fewShot()).isEqualTo(fewShot);
+        verify(analysisWorkerFewShotSelector, times(1)).select(task.getTaskId(), payload);
     }
 
     @Test

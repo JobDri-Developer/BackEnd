@@ -47,6 +47,18 @@ public record AnalysisPromptInput(
         );
     }
 
+    public AnalysisPromptInput withCaseId(String newCaseId) {
+        return new AnalysisPromptInput(
+                newCaseId,
+                companyName,
+                jobName,
+                mainTasks,
+                qualifications,
+                preferences,
+                questions
+        );
+    }
+
     public record QuestionAnswer(
             Long questionId,
             String question,

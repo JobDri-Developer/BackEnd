@@ -21,7 +21,7 @@ services:
     env_file:
       - .env
     environment:
-      SPRING_PROFILES_ACTIVE: prod
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-prod}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       RABBITMQ_HOST: rabbitmq
       APP_LOG_PATH: ${APP_LOG_PATH:-/var/log/spring-boot}

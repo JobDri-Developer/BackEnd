@@ -57,6 +57,19 @@ class FewShotCanaryReadinessValidatorTest {
     }
 
     @Test
+    @DisplayName("worker rollout이 0이면 canary 시작을 거부한다")
+    void rejectsDisabledWorkerRollout() {
+        FewShotProperties properties = canaryProperties();
+        properties.setWorkerRolloutPercentage(0);
+
+        var validator = new FewShotCanaryReadinessValidator(mock(FewShotCaseStore.class), properties, "single-pass");
+
+        assertThatThrownBy(validator::afterSingletonsInstantiated)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("fewshot-canary requires worker rollout percentage between 1 and 100.");
+    }
+
+    @Test
     @DisplayName("후보 datasetVersion이 설정과 다르면 시작을 거부한다")
     void rejectsMismatchedDatasetVersion() {
         FewShotProperties properties = canaryProperties();
@@ -85,6 +98,7 @@ class FewShotCanaryReadinessValidatorTest {
     private FewShotProperties canaryProperties() {
         FewShotProperties properties = new FewShotProperties();
         properties.setDynamicSelectionEnabled(true);
+        properties.setWorkerRolloutPercentage(5);
         properties.setDatasetVersion("fewshot-pm-reviewed-20260914-v2");
         properties.setReviewedProductionResource(
                 "analysis/fewshot/reviewed-fewshot-cases-pm-20260914-v2.json"
