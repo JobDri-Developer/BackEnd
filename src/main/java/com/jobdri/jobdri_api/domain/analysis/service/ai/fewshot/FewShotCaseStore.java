@@ -50,6 +50,9 @@ public class FewShotCaseStore {
             cases.addAll(loadJsonCases(properties.getReviewedEvaluationResource(), FewShotSource.REVIEWED_EVALUATION));
             cases.addAll(loadReviewedEvaluationCsvCases(properties.getReviewedEvaluationCsvPath()));
         }
+        if (properties.getSource().isReviewedProductionEnabled()) {
+            cases.addAll(loadJsonCases(properties.getReviewedProductionResource(), FewShotSource.REVIEWED_PRODUCTION));
+        }
         List<FewShotCase> validCases = filterSearchable(cases);
         log.debug(
                 "few-shot cases loaded. total={}, active={}, datasetVersion={}",
@@ -133,7 +136,7 @@ public class FewShotCaseStore {
                 log.debug("few-shot case skipped. reason=blank_prompt_block, id={}, source={}", fewShotCase.id(), fewShotCase.source());
                 continue;
             }
-            if (fewShotCase.source() == FewShotSource.REVIEWED_EVALUATION
+            if (isReviewedSource(fewShotCase.source())
                     && (!StringUtils.hasText(fewShotCase.question())
                     || !StringUtils.hasText(fewShotCase.sanitizedAnswer())
                     || !validReviewedAnalysis(fewShotCase.approvedAnalysisJson(), fewShotCase.id()))) {
@@ -155,6 +158,10 @@ public class FewShotCaseStore {
             result.add(fewShotCase);
         }
         return List.copyOf(result);
+    }
+
+    private boolean isReviewedSource(FewShotSource source) {
+        return source == FewShotSource.REVIEWED_EVALUATION || source == FewShotSource.REVIEWED_PRODUCTION;
     }
 
     private List<FewShotCase> loadReviewedEvaluationCsvCases(String csvPath) {

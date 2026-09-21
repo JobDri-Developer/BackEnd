@@ -2,16 +2,34 @@ package com.jobdri.jobdri_api.domain.analysis.dto.internal.worker;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotProperties;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.FewShotSelectionMetadata;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AnalysisWorkerContextResponseTest {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Test
+    @DisplayName("worker Few-shot prompt block은 Backend 계약 최대 길이를 초과할 수 없다")
+    void rejectOversizedFewShotPromptBlock() {
+        FewShotSelectionMetadata metadata = FewShotSelectionMetadata.staticSelection(
+                "STATIC_FALLBACK", "test", 1, new FewShotProperties(), 0
+        );
+
+        assertThatThrownBy(() -> new AnalysisWorkerFewShotContext(
+                "x".repeat(AnalysisWorkerFewShotContext.MAX_PROMPT_BLOCK_LENGTH + 1),
+                metadata
+        ))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("promptBlock exceeds max length");
+    }
 
     @Test
     @DisplayName("worker context JSON에 유사 공고 context를 포함하고 embedding과 소유자 정보는 노출하지 않는다")

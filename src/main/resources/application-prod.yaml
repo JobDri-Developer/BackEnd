@@ -168,6 +168,7 @@ analysis:
     curated-resource: ${ANALYSIS_FEW_SHOT_CURATED_RESOURCE:analysis/fewshot/curated-fewshot-cases.json}
     reviewed-evaluation-resource: ${ANALYSIS_FEW_SHOT_REVIEWED_EVALUATION_RESOURCE:analysis/fewshot/reviewed-fewshot-cases.json}
     reviewed-evaluation-csv-path: ${ANALYSIS_FEW_SHOT_REVIEWED_EVALUATION_CSV_PATH:}
+    reviewed-production-resource: ${ANALYSIS_FEW_SHOT_REVIEWED_PRODUCTION_RESOURCE:}
     fallback-enabled: ${ANALYSIS_FEW_SHOT_FALLBACK_ENABLED:true}
     cache-enabled: ${ANALYSIS_FEW_SHOT_CACHE_ENABLED:true}
     cache-ttl: ${ANALYSIS_FEW_SHOT_CACHE_TTL:30m}

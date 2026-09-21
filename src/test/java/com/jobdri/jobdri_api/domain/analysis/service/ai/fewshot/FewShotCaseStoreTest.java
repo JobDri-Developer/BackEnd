@@ -16,6 +16,30 @@ class FewShotCaseStoreTest {
     Path tempDir;
 
     @Test
+    @DisplayName("운영 검수 소스를 켜면 평가 소스와 분리해 승인 후보를 적재한다")
+    void loadsReviewedProductionCasesIndependently() {
+        FewShotProperties properties = new FewShotProperties();
+        properties.getSource().setFixedEnabled(false);
+        properties.getSource().setCuratedEnabled(false);
+        properties.getSource().setReviewedEvaluationEnabled(false);
+        properties.getSource().setReviewedProductionEnabled(true);
+        properties.setReviewedProductionResource(
+                "analysis/fewshot/reviewed-fewshot-cases-pm-20260914-v2.json"
+        );
+
+        var loaded = new FewShotCaseStore(new FewShotPromptProvider(), properties, new ObjectMapper())
+                .loadActiveCases();
+
+        assertThat(loaded).hasSize(5);
+        assertThat(loaded)
+                .extracting(FewShotCase::source)
+                .containsOnly(FewShotSource.REVIEWED_PRODUCTION);
+        assertThat(loaded)
+                .extracting(FewShotCase::id)
+                .containsExactly("FS-02", "FS-03", "FS-05", "FS-08", "FS-09");
+    }
+
+    @Test
     void rejectsAmbiguousCsvHeadersAndMalformedRows() throws Exception {
         String header = "caseId,mainTasks,question,sanitizedAnswer,approvedAnalysisJson,fewShotEnabled,reviewStatus";
         var properties = new FewShotProperties();

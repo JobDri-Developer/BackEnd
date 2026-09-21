@@ -1,0 +1,17 @@
+# Explicit opt-in. Add this profile only to an internal or canary instance.
+analysis:
+  mode: single-pass
+  few-shot:
+    dynamic-selection-enabled: true
+    worker-rollout-percentage: 5
+    dataset-version: fewshot-pm-reviewed-20260914-v2
+    reviewed-production-resource: analysis/fewshot/reviewed-fewshot-cases-pm-20260914-v2.json
+    search:
+      top-k: 5
+      min-similarity: 0.40
+      minimum-selected-count: 2
+    source:
+      fixed-enabled: false
+      curated-enabled: false
+      reviewed-evaluation-enabled: false
+      reviewed-production-enabled: true

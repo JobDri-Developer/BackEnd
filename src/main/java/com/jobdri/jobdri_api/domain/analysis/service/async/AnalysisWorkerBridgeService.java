@@ -9,6 +9,7 @@ import com.jobdri.jobdri_api.domain.analysis.infrastructure.async.AnalysisAsyncW
 import com.jobdri.jobdri_api.domain.analysis.repository.AnalysisAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncFailureReason;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.AnalysisWorkerFewShotSelector;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.domain.workerresult.dto.WorkerTaskResultResponse;
@@ -32,6 +33,7 @@ public class AnalysisWorkerBridgeService {
             UserService userService,
             WorkerTaskResultService workerTaskResultService,
             AnalysisInputFingerprintProvider analysisInputFingerprintProvider,
+            AnalysisWorkerFewShotSelector analysisWorkerFewShotSelector,
             ObjectMapper objectMapper,
             TransactionTemplate transactionTemplate
     ) {
@@ -43,6 +45,7 @@ public class AnalysisWorkerBridgeService {
                 userService,
                 workerTaskResultService,
                 analysisInputFingerprintProvider,
+                analysisWorkerFewShotSelector,
                 objectMapper,
                 transactionTemplate
         );
