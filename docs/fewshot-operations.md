@@ -110,9 +110,9 @@ ANALYSIS_FEW_SHOT_MINIMUM_SELECTED_COUNT=2
 - 회귀 샘플에서 unsupported fact 또는 false positive 증가
 
 트래픽이 적으면 짧은 비율만으로 판단하지 않고 최소 20건 이상의 표본을 함께 확인합니다.
-분석 전체 P95, 시간당 Cohere 호출량과 OpenAI 입력 토큰은 현재 Few-shot 전용 운영 baseline이
-없거나 분리가 불가능하므로 기록만 합니다. baseline을 수립하기 전에는 25% 확대를 차단하는
-필수 조건으로 사용하지 않습니다.
+분석 전체 P95와 시간당 Cohere 호출량은 현재 Few-shot 전용 운영 baseline이 없거나 분리가
+불가능하므로 기록만 합니다. baseline을 수립하기 전에는 25% 확대를 차단하는 필수 조건으로
+사용하지 않습니다.
 
 ## 즉시 복귀
 

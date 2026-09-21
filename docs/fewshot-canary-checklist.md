@@ -93,7 +93,7 @@ APP_WORKER_ANALYSIS_PROMPT_MAX_CHARS=120000
 - [ ] Cohere 실패 비율이 5% 이하인지 확인한다.
 - [ ] selection P95가 2초 이하인지 확인한다.
 - [ ] 분석 전체 P95를 기록한다. Few-shot 전용 baseline 수립 전에는 확대 조건으로 사용하지 않는다.
-- [ ] Cohere 호출량과 OpenAI 입력 토큰을 기록한다. 전용 baseline 수립 전에는 확대 조건으로 사용하지 않는다.
+- [ ] Cohere 호출량을 기록한다. 전용 baseline 수립 전에는 확대 조건으로 사용하지 않는다.
 - [ ] 회귀 표본에서 unsupported fact 또는 false positive가 증가하지 않았는지 확인한다.
 
 ## 중단 및 복귀
