@@ -19,10 +19,7 @@ class FewShotCanaryReadinessValidatorTest {
     void acceptsValidCanaryConfiguration() {
         FewShotProperties properties = canaryProperties();
         FewShotCaseStore caseStore = mock(FewShotCaseStore.class);
-        when(caseStore.loadActiveCases()).thenReturn(List.of(caseItem(
-                FewShotSource.REVIEWED_PRODUCTION,
-                "fewshot-pm-reviewed-20260914-v2"
-        )));
+        when(caseStore.loadActiveCases()).thenReturn(approvedCanaryCases());
 
         var validator = new FewShotCanaryReadinessValidator(caseStore, properties, "single-pass");
 
@@ -87,6 +84,27 @@ class FewShotCanaryReadinessValidatorTest {
     }
 
     @Test
+    @DisplayName("승인 후보 ID가 누락되거나 예상하지 않은 ID가 있으면 시작을 거부한다")
+    void rejectsUnexpectedCandidateIds() {
+        FewShotProperties properties = canaryProperties();
+        FewShotCaseStore caseStore = mock(FewShotCaseStore.class);
+        when(caseStore.loadActiveCases()).thenReturn(List.of(
+                caseItem("FS-02", FewShotSource.REVIEWED_PRODUCTION, properties.getDatasetVersion()),
+                caseItem("FS-03", FewShotSource.REVIEWED_PRODUCTION, properties.getDatasetVersion()),
+                caseItem("FS-05", FewShotSource.REVIEWED_PRODUCTION, properties.getDatasetVersion()),
+                caseItem("FS-08", FewShotSource.REVIEWED_PRODUCTION, properties.getDatasetVersion()),
+                caseItem("FS-10", FewShotSource.REVIEWED_PRODUCTION, properties.getDatasetVersion())
+        ));
+
+        var validator = new FewShotCanaryReadinessValidator(caseStore, properties, "single-pass");
+
+        assertThatThrownBy(validator::afterSingletonsInstantiated)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("requires exactly the approved candidate IDs")
+                .hasMessageContaining("FS-09");
+    }
+
+    @Test
     @DisplayName("검증기는 fewshot-canary profile에서만 등록된다")
     void isRestrictedToCanaryProfile() {
         Profile profile = FewShotCanaryReadinessValidator.class.getAnnotation(Profile.class);
@@ -110,9 +128,19 @@ class FewShotCanaryReadinessValidatorTest {
         return properties;
     }
 
+    private List<FewShotCase> approvedCanaryCases() {
+        return List.of("FS-02", "FS-03", "FS-05", "FS-08", "FS-09").stream()
+                .map(id -> caseItem(id, FewShotSource.REVIEWED_PRODUCTION, "fewshot-pm-reviewed-20260914-v2"))
+                .toList();
+    }
+
     private FewShotCase caseItem(FewShotSource source, String datasetVersion) {
+        return caseItem("FS-02", source, datasetVersion);
+    }
+
+    private FewShotCase caseItem(String id, FewShotSource source, String datasetVersion) {
         return new FewShotCase(
-                "FS-02",
+                id,
                 source,
                 FewShotReviewStatus.APPROVED,
                 true,
