@@ -74,7 +74,7 @@ jobs:
         env:
           DEPLOY_BRANCH: ${{ github.ref_name }}
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          IMAGE_TAG: latest
+          IMAGE_TAG: ${{ github.sha }}
           GHCR_USERNAME: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
