@@ -73,7 +73,16 @@ APP_WORKER_ANALYSIS_PROMPT_MAX_CHARS=120000
 - [ ] 네 Grafana 경보의 Preview가 오류 없이 평가되는지 확인한다.
 - [ ] feature flag를 끈 뒤 기존 정적 Few-shot 경로로 복귀하는지 한 번 검증한다.
 
-## 운영 5% Canary
+## 정식 오픈 전 배포 검증
+
+- [ ] 운영과 동일한 배포 환경에서 readiness와 애플리케이션 기동을 확인한다.
+- [ ] 내부 테스트 계정의 대표 분석 요청으로 end-to-end 경로를 확인한다.
+- [ ] `dynamic few-shot selection completed` 로그에서 cache miss와 hit의 비식별 선택 ID를 확인한다.
+- [ ] Grafana datasource가 Few-shot metric을 수집할 수 있는지 확인한다.
+- [ ] 자연 트래픽이 없는 상태에서 운영 비율 표본을 만들기 위한 대량 요청은 실행하지 않는다.
+- [ ] 정식 서비스 오픈 전에는 rollout을 5%로 유지하고 25% 확대를 판단하지 않는다.
+
+## 운영 5% Canary (서비스 오픈 후)
 
 - [ ] `worker-rollout-percentage=5`가 적용되고 Nginx 분배 없이 task cohort가 고정되는지 확인한다.
 - [ ] 배포 시각, 인스턴스, datasetVersion, 검색 설정, 담당자를 기록한다.
@@ -83,8 +92,8 @@ APP_WORKER_ANALYSIS_PROMPT_MAX_CHARS=120000
 - [ ] STATIC_FALLBACK이 0건인지 확인한다.
 - [ ] Cohere 실패 비율이 5% 이하인지 확인한다.
 - [ ] selection P95가 2초 이하인지 확인한다.
-- [ ] 분석 전체 P95가 기존 기준보다 20% 이상 증가하지 않았는지 확인한다.
-- [ ] Cohere 호출량과 OpenAI 입력 토큰이 예상 범위를 20% 이상 초과하지 않았는지 확인한다.
+- [ ] 분석 전체 P95를 기록한다. Few-shot 전용 baseline 수립 전에는 확대 조건으로 사용하지 않는다.
+- [ ] Cohere 호출량을 기록한다. 전용 baseline 수립 전에는 확대 조건으로 사용하지 않는다.
 - [ ] 회귀 표본에서 unsupported fact 또는 false positive가 증가하지 않았는지 확인한다.
 
 ## 중단 및 복귀
@@ -108,7 +117,7 @@ APP_WORKER_ANALYSIS_PROMPT_MAX_CHARS=120000
 
 - [ ] 5% 단계의 모든 점검 항목을 통과했다.
 - [ ] PM 또는 품질 담당자가 회귀 표본을 확인했다.
-- [ ] 백엔드·운영 담당자가 비용과 지연 증가를 확인했다.
+- [ ] 백엔드·운영 담당자가 필수 지표를 확인하고, baseline 미수립 비용·전체 지연 지표는 관측값으로 기록했다.
 - [ ] Discord 경보와 rollback 담당자가 지정됐다.
 - [ ] 다음 단계(25%)의 시작 시각과 관측 종료 시각을 기록했다.
 

@@ -16,7 +16,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ${IMAGE_NAME:-ghcr.io/jobdri-developer/backend}:${IMAGE_TAG:-latest}
+    image: ${IMAGE_REF:-${IMAGE_NAME:-ghcr.io/jobdri-developer/backend}:${IMAGE_TAG:-latest}}
     container_name: jobdri-api
     env_file:
       - .env
