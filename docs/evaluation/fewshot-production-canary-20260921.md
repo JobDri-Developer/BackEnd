@@ -6,7 +6,7 @@
 | --- | --- |
 | 상태 | 정식 서비스 오픈 전 사전 검증 중 |
 | 관측 시작 | 2026-09-21 17:20 KST |
-| Backend 이미지 | `ghcr.io/jobdri-developer/backend:db89b8d1cf0f776695b3be5eb358fadc86ab887b` |
+| Backend 이미지 | `ghcr.io/jobdri-developer/backend@sha256:d4019fe79e9d53971fa8194bdfd43579410dca689b46abe2a8db3751ad9804a9` |
 | 활성 profile | `prod,fewshot-canary` |
 | datasetVersion | `fewshot-pm-reviewed-20260914-v2` |
 | worker rollout | 5% |
@@ -22,8 +22,8 @@
 
 - 서버의 기존 `latest` 태그가 2026-09-07 이미지에 머물러 있어 최초 확인 시 카나리 클래스와
   profile 리소스가 없었다.
-- 배포 워크플로가 서버에서 `github.sha` 태그를 사용하도록 변경한 뒤 위 Backend 이미지로
-  재배포했다.
+- 배포 워크플로가 빌드 결과의 immutable digest를 Compose의 `IMAGE_REF`로 전달하도록 변경했다.
+  위 digest는 2026-09-21 배포의 GitHub Actions Docker build record에서 확인한 값이다.
 - 카나리 활성화 전 발생한 `DatasourceNoData` 알림은 실제 `STATIC_FALLBACK`이 아니라
   시계열 부재를 경보로 처리한 설정 문제였다.
 - Few-shot 경보는 `No Data=Normal`, `Error/Timeout=Keep Last State`를 사용한다.
@@ -47,7 +47,7 @@
 | 배포 이미지 | 배포 커밋 SHA와 일치 | 일치 | 통과 |
 | 내부 분석 요청 | 대표 직무·문항 end-to-end 성공 | 확인 예정 | 보류 |
 | 선택 mode | `EMBEDDING` 또는 의도된 `LOCAL_FALLBACK` | 확인 예정 | 보류 |
-| 승인 후보 범위 | 승인된 5개 ID만 선택 | 확인 예정 | 보류 |
+| 승인 후보 범위 | `dynamic few-shot selection completed` 로그의 `selectedIds`가 승인된 5개 ID의 부분집합 | 확인 예정 | 보류 |
 | STATIC_FALLBACK | 내부 검증에서 0건 | 확인 예정 | 보류 |
 | 개인정보 비노출 | 로그와 metric label에 원문 없음 | 확인 예정 | 보류 |
 | Grafana 수집 | Few-shot 지표 조회 가능 | 확인 예정 | 보류 |
@@ -59,24 +59,66 @@
 10분 selection 표본이 20건 이상인 시점에 아래 표를 작성한다. 표본 조건을 충족하기 전에는
 비율만으로 확대 여부를 판정하지 않는다.
 
-| 항목 | 통과 기준 | 관측값 | 판정 |
-| --- | --- | --- | --- |
-| Selection 표본 | 최근 10분 20건 이상 | 오픈 후 관측 | 보류 |
-| STATIC_FALLBACK | 0건 | 오픈 후 관측 | 보류 |
-| LOCAL_FALLBACK | 25% 이하 | 오픈 후 관측 | 보류 |
-| Cohere 실패율 | 5% 이하 | 오픈 후 관측 | 보류 |
-| Selection P95 | 2초 이하 | 오픈 후 관측 | 보류 |
-| 분석 전체 P95 | 기존 기준 대비 20% 미만 증가 | 오픈 후 관측 | 보류 |
-| Cohere 호출량 | 예상 범위 대비 20% 미만 증가 | 오픈 후 관측 | 보류 |
-| OpenAI 입력 토큰 | 예상 범위 대비 20% 미만 증가 | 오픈 후 관측 | 보류 |
-| 승인 후보 범위 | 승인된 5개 ID만 선택 | 오픈 후 관측 | 보류 |
-| 품질 회귀 | unsupported fact·false positive 증가 없음 | 오픈 후 관측 | 보류 |
+| 항목 | 통과 기준 | source metric·기준선 | 관측값 | 판정 |
+| --- | --- | --- | --- | --- |
+| Selection 표본 | 최근 10분 20건 이상 | `fewshot_selection_count_total`; 경보 공통 최소 표본 | 오픈 후 관측 | 보류 |
+| STATIC_FALLBACK | 0건 | `fewshot_selection_count_total{mode="STATIC_FALLBACK"}`; 내부 smoke 0건 | 오픈 후 관측 | 보류 |
+| LOCAL_FALLBACK | 25% 이하 | `fewshot_selection_count_total`; 내부 smoke 15% | 오픈 후 관측 | 보류 |
+| Cohere 실패율 | 10분 selection 대비 5% 이하, 표본 20건 이상 | `fewshot_cohere_failure_count_total` / `fewshot_selection_count_total`; 내부 smoke 실패율 미계측 | 오픈 후 관측 | 보류 |
+| Selection P95 | 10분 P95 2초 이하, 표본 20건 이상 | `fewshot_selection_duration_seconds_bucket`; selection 전용 baseline 미수립 | 오픈 후 관측 | 보류 |
+| 분석 전체 P95 | 관측 전용 | Few-shot 전용 분리 불가; 평가 P95는 STATIC 8,344ms, DYNAMIC 7,471ms | 오픈 후 관측 | 확대 조건 제외 |
+| Cohere 호출량 | 관측 전용 | `fewshot_cohere_logical_calls_total`; 내부 smoke 20건에서 21회 | 오픈 후 관측 | 확대 조건 제외 |
+| OpenAI 입력 토큰 | 관측 전용 | Few-shot 전용 운영 지표 없음; 튜닝 평가 20건에서 265,266 | 오픈 후 관측 | 확대 조건 제외 |
+| 승인 후보 범위 | 승인된 5개 ID만 선택 | privacy-safe `selectedIds` 로그; 내부 smoke 68개 선택 모두 승인 범위 | 오픈 후 관측 | 보류 |
+| 품질 회귀 | unsupported fact·false positive 증가 없음 | 내부 STATIC/DYNAMIC 평가에서 각각 0% | 오픈 후 관측 | 보류 |
+
+Cohere 실패율과 selection P95는 `docs/fewshot-alerting.md`의 10분 구간·최소 20건 정의를
+그대로 사용한다.
+
+```promql
+(
+  sum(increase(fewshot_cohere_failure_count_total[10m]))
+  /
+  clamp_min(sum(increase(fewshot_selection_count_total[10m])), 1)
+) > 0.05
+and
+sum(increase(fewshot_selection_count_total[10m])) >= 20
+```
+
+```promql
+histogram_quantile(
+  0.95,
+  sum(rate(fewshot_selection_duration_seconds_bucket[10m])) by (le)
+) > 2
+and
+sum(increase(fewshot_selection_count_total[10m])) >= 20
+```
+
+분석 전체 P95의 평가 baseline은 `docs/evaluation/fewshot-tuning-20260916.md`, Cohere 호출량과
+OpenAI 입력 토큰 baseline은 같은 문서 및 `docs/evaluation/fewshot-canary-smoke-20260920.md`에서
+가져왔다. 세 항목은 운영에서 Few-shot 전용 baseline을 분리할 수 있을 때까지 관측만 하고
+25% 확대의 필수 통과 조건으로 사용하지 않는다.
+
+### 승인 후보 로그 검증
+
+운영 로그에서 `dynamic few-shot selection completed`만 조회해 `selectedIds`가 `FS-02`, `FS-03`,
+`FS-05`, `FS-08`, `FS-09`의 부분집합인지 확인한다. 로그에는 selection cache miss와 hit 모두
+`cacheHit`, `selectedIds`, `sources`, `scores`, `datasetVersion`이 기록된다. ID는 비식별 식별자만
+허용하며 답변, JD, 검색 텍스트와 embedding은 기록하지 않는다.
+
+```bash
+docker logs jobdri-api 2>&1 | grep 'dynamic few-shot selection completed'
+```
+
+최소 한 번은 동일 입력을 반복 실행해 `cacheHit=true` 로그에서도 선택 ID가 확인되는지 검증한다.
 
 ## 확대 또는 복귀 결정
 
 - 현재 결정: 정식 서비스 오픈 전까지 5% 유지
 - 오픈 전: 내부 end-to-end 검증만 완료하고 트래픽 비율 확대를 판단하지 않음
-- 25% 확대: 모든 관측 기준을 충족한 뒤 PM 또는 품질 담당자와 백엔드·운영 담당자가 승인할 때만 진행
+- 25% 확대: `판정`이 `보류`인 필수 항목을 모두 통과한 뒤 PM 또는 품질 담당자와
+  백엔드·운영 담당자가 승인할 때만 진행한다. `확대 조건 제외` 항목은 기록하되 baseline 수립
+  전에는 확대를 차단하는 조건으로 사용하지 않는다.
 - 즉시 복귀: `STATIC_FALLBACK`, 승인되지 않은 후보 선택, 개인정보 노출, 반복적인 분석 오류나
   품질 악화가 확인되면 `SPRING_PROFILES_ACTIVE=prod`로 되돌린다.
 

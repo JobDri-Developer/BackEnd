@@ -122,13 +122,14 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             created.complete(entry);
             recordMetrics(selectionMode, false, selected.size(), startedAt);
             log.info(
-                    "dynamic few-shot selection completed. enabled=true, selectionMode={}, totalCandidates={}, filteredCandidates={}, selectedIds={}, sources={}, scores={}, latencyMs={}",
+                    "dynamic few-shot selection completed. enabled=true, selectionMode={}, cacheHit=false, totalCandidates={}, filteredCandidates={}, selectedIds={}, sources={}, scores={}, datasetVersion={}, latencyMs={}",
                     selectionMode,
                     activeCases.size(),
                     candidates.size(),
                     selected.stream().map(item -> item.fewShotCase().id()).toList(),
                     selected.stream().map(item -> item.fewShotCase().source()).toList(),
                     selected.stream().map(item -> "%.4f".formatted(item.score())).toList(),
+                    properties.getDatasetVersion(),
                     (System.nanoTime() - startedAt) / 1_000_000
             );
             return selected;
@@ -149,12 +150,15 @@ public class DefaultFewShotSearchService implements FewShotSearchService {
             String source
     ) {
         recordMetrics(cached.selectionMode(), true, cached.selectedCases().size(), startedAt);
-        log.debug(
-                "few-shot selection {}. selectionMode={}, selectedCount={}, datasetVersion={}",
-                source,
+        log.info(
+                "dynamic few-shot selection completed. enabled=true, selectionMode={}, cacheHit=true, cacheSource={}, selectedIds={}, sources={}, scores={}, datasetVersion={}, latencyMs={}",
                 cached.selectionMode(),
-                cached.selectedCases().size(),
-                properties.getDatasetVersion()
+                source,
+                cached.selectedCases().stream().map(item -> item.fewShotCase().id()).toList(),
+                cached.selectedCases().stream().map(item -> item.fewShotCase().source()).toList(),
+                cached.selectedCases().stream().map(item -> "%.4f".formatted(item.score())).toList(),
+                properties.getDatasetVersion(),
+                (System.nanoTime() - startedAt) / 1_000_000
         );
         return cached.selectedCases();
     }
