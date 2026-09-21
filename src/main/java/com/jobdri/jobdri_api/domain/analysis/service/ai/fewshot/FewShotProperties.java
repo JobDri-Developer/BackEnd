@@ -9,6 +9,7 @@ import java.time.Duration;
 @ConfigurationProperties(prefix = "analysis.few-shot")
 public class FewShotProperties {
     private boolean dynamicSelectionEnabled = false;
+    private int workerRolloutPercentage = 0;
     private String datasetVersion = "fewshot-static-v1";
     private String curatedResource = "analysis/fewshot/curated-fewshot-cases.json";
     private String reviewedEvaluationResource = "analysis/fewshot/reviewed-fewshot-cases.json";
@@ -31,6 +32,17 @@ public class FewShotProperties {
 
     public void setDynamicSelectionEnabled(boolean dynamicSelectionEnabled) {
         this.dynamicSelectionEnabled = dynamicSelectionEnabled;
+    }
+
+    public int getWorkerRolloutPercentage() {
+        return workerRolloutPercentage;
+    }
+
+    public void setWorkerRolloutPercentage(int workerRolloutPercentage) {
+        if (workerRolloutPercentage < 0 || workerRolloutPercentage > 100) {
+            throw new IllegalArgumentException("workerRolloutPercentage must be between 0 and 100");
+        }
+        this.workerRolloutPercentage = workerRolloutPercentage;
     }
 
     public String getDatasetVersion() {

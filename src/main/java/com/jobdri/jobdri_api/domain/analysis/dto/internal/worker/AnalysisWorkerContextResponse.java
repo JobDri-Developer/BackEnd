@@ -15,7 +15,8 @@ public record AnalysisWorkerContextResponse(
         String detailClassificationName,
         List<AnalysisWorkerQuestionItem> questions,
         List<CorpusReferenceContext> corpusReferences,
-        List<SimilarJobPostingContext> similarJobPostings
+        List<SimilarJobPostingContext> similarJobPostings,
+        AnalysisWorkerFewShotContext fewShot
 ) {
     public AnalysisWorkerContextResponse(
             Long userId,
@@ -43,7 +44,8 @@ public record AnalysisWorkerContextResponse(
                 detailClassificationName,
                 questions,
                 List.of(),
-                List.of()
+                List.of(),
+                null
         );
     }
 
@@ -74,7 +76,41 @@ public record AnalysisWorkerContextResponse(
                 detailClassificationName,
                 questions,
                 List.of(),
-                similarJobPostings
+                similarJobPostings,
+                null
+        );
+    }
+
+    public AnalysisWorkerContextResponse(
+            Long userId,
+            Long mockApplyId,
+            String companyName,
+            String jobTitle,
+            String task,
+            String requirements,
+            String preferredQualifications,
+            String bigClassificationName,
+            String middleClassificationName,
+            String detailClassificationName,
+            List<AnalysisWorkerQuestionItem> questions,
+            List<CorpusReferenceContext> corpusReferences,
+            List<SimilarJobPostingContext> similarJobPostings
+    ) {
+        this(
+                userId,
+                mockApplyId,
+                companyName,
+                jobTitle,
+                task,
+                requirements,
+                preferredQualifications,
+                bigClassificationName,
+                middleClassificationName,
+                detailClassificationName,
+                questions,
+                corpusReferences,
+                similarJobPostings,
+                null
         );
     }
 

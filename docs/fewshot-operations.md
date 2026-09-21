@@ -66,11 +66,13 @@ Grafana-managed alert rule은 dashboard JSON과 별도로 등록합니다. 경�
 
 ## 단계적 활성화
 
-애플리케이션 feature flag는 boolean이므로 트래픽 비율은 배포 플랫폼의 인스턴스 또는 라우팅
-단위로 나눕니다.
+운영 분석은 비동기 worker가 실행하므로 Nginx의 HTTP 트래픽 비율로 Few-shot 적용률을
+제어하지 않습니다. Backend가 worker context를 만들 때 `taskId`의 SHA-256 버킷과
+`worker-rollout-percentage`를 비교해 cohort를 고정합니다. 최초 context와 Few-shot 선택 결과는
+task snapshot에 저장되므로 재시도에서도 동일하게 유지됩니다.
 
 1. 평가·내부 인스턴스에서만 활성화하고 최소 1일 관측합니다.
-2. 운영 canary 인스턴스 5%에서 활성화합니다.
+2. 운영 worker rollout 5%에서 활성화합니다.
 3. 이상이 없으면 25% → 50% → 100% 순으로 확대합니다.
 4. 각 단계에서 최소 하나의 일간 피크 구간을 포함해 관측합니다.
 5. 단계 변경 시 datasetVersion·설정값·배포 시각을 운영 기록에 남깁니다.
@@ -79,6 +81,7 @@ Grafana-managed alert rule은 dashboard JSON과 별도로 등록합니다. 경�
 
 ```text
 ANALYSIS_FEW_SHOT_DYNAMIC_SELECTION_ENABLED=true
+ANALYSIS_FEW_SHOT_WORKER_ROLLOUT_PERCENTAGE=5
 ANALYSIS_FEW_SHOT_DATASET_VERSION=fewshot-pm-reviewed-20260914-v2
 ANALYSIS_FEW_SHOT_FIXED_ENABLED=false
 ANALYSIS_FEW_SHOT_CURATED_ENABLED=false

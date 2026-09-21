@@ -6,6 +6,7 @@ import com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmRespons
 import com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerCompleteRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerContextResponse;
+import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerFewShotContext;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.AnalysisWorkerResultStoreRequest;
 import com.jobdri.jobdri_api.domain.analysis.dto.internal.worker.CorpusReferenceContext;
 import com.jobdri.jobdri_api.domain.analysis.entity.AnalysisAsyncTask;
@@ -17,6 +18,7 @@ import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncCreditCo
 import com.jobdri.jobdri_api.domain.analysis.service.async.AnalysisAsyncTaskService;
 import com.jobdri.jobdri_api.domain.analysis.application.model.AnalysisExecutionPayload;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisInputFingerprintProvider;
+import com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot.AnalysisWorkerFewShotSelector;
 import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
@@ -51,6 +53,7 @@ public class AnalysisAsyncWorkerBridge {
     private final UserService userService;
     private final WorkerTaskResultService workerTaskResultService;
     private final AnalysisInputFingerprintProvider analysisInputFingerprintProvider;
+    private final AnalysisWorkerFewShotSelector analysisWorkerFewShotSelector;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate transactionTemplate;
 
@@ -62,6 +65,7 @@ public class AnalysisAsyncWorkerBridge {
             UserService userService,
             WorkerTaskResultService workerTaskResultService,
             AnalysisInputFingerprintProvider analysisInputFingerprintProvider,
+            AnalysisWorkerFewShotSelector analysisWorkerFewShotSelector,
             ObjectMapper objectMapper,
             TransactionTemplate transactionTemplate
     ) {
@@ -72,6 +76,7 @@ public class AnalysisAsyncWorkerBridge {
         this.userService = userService;
         this.workerTaskResultService = workerTaskResultService;
         this.analysisInputFingerprintProvider = analysisInputFingerprintProvider;
+        this.analysisWorkerFewShotSelector = analysisWorkerFewShotSelector;
         this.objectMapper = objectMapper;
         this.transactionTemplate = transactionTemplate;
     }
@@ -148,7 +153,7 @@ public class AnalysisAsyncWorkerBridge {
             }
 
             AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(userService.getUser(userId), mockApplyId);
-            AnalysisWorkerContextResponse context = buildContext(userId, mockApplyId, payload);
+            AnalysisWorkerContextResponse context = buildContext(taskId, userId, mockApplyId, payload);
             String contextSnapshot = writeContextSnapshot(context);
             String inputFingerprint = analysisInputFingerprintProvider.create(payload);
             return transactionTemplate.execute(
@@ -315,10 +320,12 @@ public class AnalysisAsyncWorkerBridge {
     }
 
     private AnalysisWorkerContextResponse buildContext(
+            String taskId,
             Long userId,
             Long mockApplyId,
             AnalysisExecutionPayload payload
     ) {
+        AnalysisWorkerFewShotContext fewShot = analysisWorkerFewShotSelector.select(taskId, payload);
         return new AnalysisWorkerContextResponse(
                 userId,
                 mockApplyId,
@@ -332,7 +339,8 @@ public class AnalysisAsyncWorkerBridge {
                 payload.jobPosting().getDetailClassification().getDetailName(),
                 toQuestionItems(payload.questions()),
                 CorpusReferenceContext.from(payload.retrievalContext()),
-                payload.similarJobPostings()
+                payload.similarJobPostings(),
+                fewShot
         );
     }
 

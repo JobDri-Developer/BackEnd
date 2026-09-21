@@ -3,6 +3,7 @@ analysis:
   mode: single-pass
   few-shot:
     dynamic-selection-enabled: true
+    worker-rollout-percentage: 5
     dataset-version: fewshot-pm-reviewed-20260914-v2
     reviewed-production-resource: analysis/fewshot/reviewed-fewshot-cases-pm-20260914-v2.json
     search:

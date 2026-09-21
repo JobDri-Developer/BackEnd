@@ -669,6 +669,11 @@ public class AnalysisPromptBuilder {
         }
     }
 
+    public WorkerFewShotPrompt resolveFewShotForWorker(AnalysisPromptInput promptInput) {
+        FewShotPromptSelection selection = resolveFewShotPromptBlock(promptInput);
+        return new WorkerFewShotPrompt(selection.prompt(), selection.metadata());
+    }
+
     private FewShotPromptSelection staticSelection(String mode, String reason) {
         return staticSelection(mode, reason, 0L);
     }
@@ -684,6 +689,9 @@ public class AnalysisPromptBuilder {
     }
 
     private record FewShotPromptSelection(String prompt, FewShotSelectionMetadata metadata) {
+    }
+
+    public record WorkerFewShotPrompt(String promptBlock, FewShotSelectionMetadata metadata) {
     }
 
     private String formatJobCategoryEvaluationCriteriaSection(JobCategoryEvaluationCriteria criteria) {

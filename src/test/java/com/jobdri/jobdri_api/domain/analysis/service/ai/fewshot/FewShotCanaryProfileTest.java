@@ -24,6 +24,7 @@ class FewShotCanaryProfileTest {
 
         assertThat(yaml.getProperty("analysis.mode")).isEqualTo("single-pass");
         assertThat(properties.isDynamicSelectionEnabled()).isTrue();
+        assertThat(properties.getWorkerRolloutPercentage()).isEqualTo(5);
         assertThat(properties.getDatasetVersion()).isEqualTo("fewshot-pm-reviewed-20260914-v2");
         assertThat(loaded)
                 .extracting(FewShotCase::id)
@@ -44,6 +45,9 @@ class FewShotCanaryProfileTest {
         FewShotProperties properties = new FewShotProperties();
         properties.setDynamicSelectionEnabled(Boolean.parseBoolean(
                 yaml.getProperty("analysis.few-shot.dynamic-selection-enabled")
+        ));
+        properties.setWorkerRolloutPercentage(Integer.parseInt(
+                yaml.getProperty("analysis.few-shot.worker-rollout-percentage")
         ));
         properties.setDatasetVersion(yaml.getProperty("analysis.few-shot.dataset-version"));
         properties.setReviewedProductionResource(
