@@ -71,11 +71,13 @@ Grafana-managed alert rule은 dashboard JSON과 별도로 등록합니다. 경�
 `worker-rollout-percentage`를 비교해 cohort를 고정합니다. 최초 context와 Few-shot 선택 결과는
 task snapshot에 저장되므로 재시도에서도 동일하게 유지됩니다.
 
-1. 평가·내부 인스턴스에서만 활성화하고 최소 1일 관측합니다.
-2. 운영 worker rollout 5%에서 활성화합니다.
-3. 이상이 없으면 25% → 50% → 100% 순으로 확대합니다.
-4. 각 단계에서 최소 하나의 일간 피크 구간을 포함해 관측합니다.
-5. 단계 변경 시 datasetVersion·설정값·배포 시각을 운영 기록에 남깁니다.
+1. 평가·내부 인스턴스에서 대표 케이스와 cache miss·hit를 포함한 end-to-end 검증을 수행합니다.
+2. 정식 서비스 오픈 전 운영 배포 환경에서는 worker rollout 5%로 readiness, 내부 요청과 지표
+   수집만 확인합니다. 자연 트래픽 표본을 만들기 위한 대량 요청은 실행하지 않습니다.
+3. 서비스 오픈 후 5% 실제 트래픽을 최소 1일과 하나의 일간 피크 구간 동안 관측합니다.
+4. 필수 기준에 이상이 없으면 25% → 50% → 100% 순으로 확대합니다.
+5. 25% 이후 각 단계에서도 최소 하나의 일간 피크 구간을 포함해 관측합니다.
+6. 단계 변경 시 datasetVersion·설정값·배포 시각을 운영 기록에 남깁니다.
 
 활성화 환경변수:
 
@@ -104,12 +106,13 @@ ANALYSIS_FEW_SHOT_MINIMUM_SELECTED_COUNT=2
 - 10분간 LOCAL_FALLBACK 비율이 25% 초과
 - 최소 20건 표본에서 10분간 STATIC_FALLBACK이 1건 이상 발생
 - 10분간 Cohere 실패가 Few-shot 선택 요청의 5% 초과
-- Few-shot 선택 P95가 2초 초과 또는 기존 기준 대비 30% 이상 증가
-- 분석 전체 P95가 기존 기준 대비 20% 이상 증가
-- 시간당 Cohere 호출량이나 OpenAI 입력 토큰이 예상 범위를 20% 이상 초과
+- 10분간 최소 20건 표본에서 Few-shot 선택 P95가 2초 초과
 - 회귀 샘플에서 unsupported fact 또는 false positive 증가
 
 트래픽이 적으면 짧은 비율만으로 판단하지 않고 최소 20건 이상의 표본을 함께 확인합니다.
+분석 전체 P95와 시간당 Cohere 호출량은 현재 Few-shot 전용 운영 baseline이 없거나 분리가
+불가능하므로 기록만 합니다. baseline을 수립하기 전에는 25% 확대를 차단하는 필수 조건으로
+사용하지 않습니다.
 
 ## 즉시 복귀
 
