@@ -64,6 +64,43 @@ Cloud에 등록된 Prometheus datasource를 사용하므로 별도 모니터링 
 Grafana-managed alert rule은 dashboard JSON과 별도로 등록합니다. 경보별 PromQL과
 평가 주기·Pending·No Data 정책은 `docs/fewshot-alerting.md`를 따릅니다.
 
+## Grafana Cloud 전송
+
+로컬 Prometheus와 Loki는 유지하고, Alloy가 Backend metric을 Grafana Cloud Prometheus로,
+Spring Boot 일반 로그를 Grafana Cloud Loki로 함께 전송합니다. `auditTargetId` 같은 식별자가
+포함될 수 있는 감사 로그는 별도 보안·보존 정책을 확정하기 전까지 로컬 Loki에만 전송합니다.
+서버 `.env`에 다음 값을 저장하되 토큰 값은 Git과 운영 로그에 남기지 않습니다.
+
+```text
+GRAFANA_CLOUD_PROMETHEUS_URL=https://prometheus-xxx.grafana.net/api/prom/push
+GRAFANA_CLOUD_PROMETHEUS_USERNAME=<metrics-instance-id>
+GRAFANA_CLOUD_API_KEY=<metrics-write-token>
+GRAFANA_CLOUD_LOKI_URL=https://logs-xxx.grafana.net/loki/api/v1/push
+GRAFANA_CLOUD_LOKI_USERNAME=<logs-instance-id>
+GRAFANA_CLOUD_LOKI_API_KEY=<logs-write-token>
+```
+
+설정 반영 시 API나 로컬 Prometheus를 재시작하지 않고 Alloy만 재생성합니다.
+
+```bash
+docker compose --env-file /opt/jobdri-api/.env \
+  -f /opt/jobdri-api/docker-compose.prod.yml \
+  up -d --force-recreate alloy
+```
+
+Alloy 기동과 전송 오류를 확인합니다. 출력에 토큰이 노출될 수 있는 `docker inspect` 전체 환경변수
+조회는 사용하지 않습니다.
+
+```bash
+docker ps --filter name=jobdri-alloy
+docker logs --since 5m jobdri-alloy 2>&1 \
+  | grep -Ei 'error|failed|unauthorized|forbidden|remote.?write'
+```
+
+Grafana Cloud Explore에서 Prometheus의 `up{job="server_metric",service_name="jobdri-api"}`가 1인지,
+Loki의 `{service_name="jobdri-api",environment="production"}`에서 신규 로그가 조회되는지 확인합니다.
+Few-shot 요청 전에는 `fewshot_*` metric이 없는 것이 정상입니다.
+
 ## 단계적 활성화
 
 운영 분석은 비동기 worker가 실행하므로 Nginx의 HTTP 트래픽 비율로 Few-shot 적용률을
