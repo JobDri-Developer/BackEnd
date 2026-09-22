@@ -2,6 +2,31 @@
 // Run Alloy with a persistent --storage.path so file positions survive restarts.
 
 loki.process "spring_boot" {
+  forward_to = [
+    loki.write.default.receiver,
+    loki.write.grafana_cloud.receiver,
+  ]
+
+  stage.json {
+    expressions = {
+      level     = "level",
+      event     = "event",
+      errorCode = "errorCode",
+      requestId = "requestId",
+      logger    = "logger_name",
+      logType   = "logType",
+    }
+  }
+
+  stage.labels {
+    values = {
+      level   = "level",
+      logType = "logType",
+    }
+  }
+}
+
+loki.process "spring_boot_audit" {
   forward_to = [loki.write.default.receiver]
 
   stage.json {
@@ -23,25 +48,38 @@ loki.process "spring_boot" {
   }
 }
 
-loki.source.file "spring_boot" {
-  targets = [
+local.file_match "spring_boot" {
+  path_targets = [
     {
       __path__ = "/var/log/spring-boot/*.log",
       app      = "ceos-app",
+      environment = "production",
       job      = "spring-boot",
+      service_name = "jobdri-api",
     },
+  ]
+}
+
+loki.source.file "spring_boot" {
+  targets    = local.file_match.spring_boot.targets
+  forward_to = [loki.process.spring_boot.receiver]
+}
+
+local.file_match "spring_boot_audit" {
+  path_targets = [
     {
       __path__ = "/var/log/spring-boot/audit/*.log",
       app      = "ceos-app",
+      environment = "production",
       job      = "spring-boot-audit",
+      service_name = "jobdri-api",
     },
   ]
+}
 
-  forward_to = [loki.process.spring_boot.receiver]
-
-  file_match {
-    enabled = true
-  }
+loki.source.file "spring_boot_audit" {
+  targets    = local.file_match.spring_boot_audit.targets
+  forward_to = [loki.process.spring_boot_audit.receiver]
 }
 
 loki.write "default" {
@@ -50,4 +88,42 @@ loki.write "default" {
   }
 
   external_labels = {}
+}
+
+loki.write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_LOKI_URL")
+
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_LOKI_USERNAME")
+      password = sys.env("GRAFANA_CLOUD_LOKI_API_KEY")
+    }
+  }
+}
+
+prometheus.scrape "jobdri_api" {
+  targets = [
+    {
+      __address__ = "api:9090",
+      environment = "production",
+      instance = "ceos-app",
+      service_name = "jobdri-api",
+    },
+  ]
+
+  job_name        = "server_metric"
+  metrics_path    = "/actuator/prometheus"
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.grafana_cloud.receiver]
+}
+
+prometheus.remote_write "grafana_cloud" {
+  endpoint {
+    url = sys.env("GRAFANA_CLOUD_PROMETHEUS_URL")
+
+    basic_auth {
+      username = sys.env("GRAFANA_CLOUD_PROMETHEUS_USERNAME")
+      password = sys.env("GRAFANA_CLOUD_API_KEY")
+    }
+  }
 }

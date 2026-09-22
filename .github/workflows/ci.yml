@@ -44,6 +44,30 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Validate Alloy configuration
+        run: |
+          docker run --rm \
+            -e GRAFANA_CLOUD_PROMETHEUS_URL=https://prometheus.example/api/prom/push \
+            -e GRAFANA_CLOUD_PROMETHEUS_USERNAME=metrics-user \
+            -e GRAFANA_CLOUD_API_KEY=metrics-token \
+            -e GRAFANA_CLOUD_LOKI_URL=https://logs.example/loki/api/v1/push \
+            -e GRAFANA_CLOUD_LOKI_USERNAME=logs-user \
+            -e GRAFANA_CLOUD_LOKI_API_KEY=logs-token \
+            -v "${{ github.workspace }}/ops/observability/alloy-config.alloy:/etc/alloy/config.alloy:ro" \
+            grafana/alloy:v1.10.2 validate /etc/alloy/config.alloy
+
+      - name: Validate production Compose configuration
+        env:
+          GRAFANA_CLOUD_PROMETHEUS_URL: https://prometheus.example/api/prom/push
+          GRAFANA_CLOUD_PROMETHEUS_USERNAME: metrics-user
+          GRAFANA_CLOUD_API_KEY: metrics-token
+          GRAFANA_CLOUD_LOKI_URL: https://logs.example/loki/api/v1/push
+          GRAFANA_CLOUD_LOKI_USERNAME: logs-user
+          GRAFANA_CLOUD_LOKI_API_KEY: logs-token
+        run: |
+          install -m 600 /dev/null .env
+          docker compose -f docker-compose.prod.yml config --quiet
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
