@@ -48,8 +48,8 @@ loki.process "spring_boot_audit" {
   }
 }
 
-loki.source.file "spring_boot" {
-  targets = [
+local.file_match "spring_boot" {
+  path_targets = [
     {
       __path__ = "/var/log/spring-boot/*.log",
       app      = "ceos-app",
@@ -58,16 +58,15 @@ loki.source.file "spring_boot" {
       service_name = "jobdri-api",
     },
   ]
-
-  forward_to = [loki.process.spring_boot.receiver]
-
-  file_match {
-    enabled = true
-  }
 }
 
-loki.source.file "spring_boot_audit" {
-  targets = [
+loki.source.file "spring_boot" {
+  targets    = local.file_match.spring_boot.targets
+  forward_to = [loki.process.spring_boot.receiver]
+}
+
+local.file_match "spring_boot_audit" {
+  path_targets = [
     {
       __path__ = "/var/log/spring-boot/audit/*.log",
       app      = "ceos-app",
@@ -76,12 +75,11 @@ loki.source.file "spring_boot_audit" {
       service_name = "jobdri-api",
     },
   ]
+}
 
+loki.source.file "spring_boot_audit" {
+  targets    = local.file_match.spring_boot_audit.targets
   forward_to = [loki.process.spring_boot_audit.receiver]
-
-  file_match {
-    enabled = true
-  }
 }
 
 loki.write "default" {
