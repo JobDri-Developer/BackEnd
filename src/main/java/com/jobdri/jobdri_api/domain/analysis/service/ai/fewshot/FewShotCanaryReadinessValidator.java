@@ -10,6 +10,7 @@ import org.springframework.util.StringUtils;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 @Component
@@ -18,6 +19,13 @@ import java.util.Set;
 class FewShotCanaryReadinessValidator implements SmartInitializingSingleton {
     private static final Set<String> EXPECTED_CANDIDATE_IDS = Set.of(
             "FS-02", "FS-03", "FS-05", "FS-08", "FS-09"
+    );
+    private static final Map<String, Set<Integer>> SUPPORTED_EMBEDDING_DIMENSIONS = Map.of(
+            "embed-v4.0", Set.of(256, 512, 1024, 1536),
+            "embed-english-v3.0", Set.of(1024),
+            "embed-multilingual-v3.0", Set.of(1024),
+            "embed-english-light-v3.0", Set.of(384),
+            "embed-multilingual-light-v3.0", Set.of(384)
     );
 
     private final FewShotCaseStore caseStore;
@@ -93,10 +101,14 @@ class FewShotCanaryReadinessValidator implements SmartInitializingSingleton {
             throw new IllegalStateException("fewshot-canary requires a Cohere API key.");
         }
         CohereProperties.Embedding embedding = cohereProperties.embedding();
+        Set<Integer> supportedDimensions = embedding == null
+                ? null
+                : SUPPORTED_EMBEDDING_DIMENSIONS.get(embedding.model());
         if (embedding == null
                 || !StringUtils.hasText(embedding.model())
                 || embedding.dimension() == null
-                || embedding.dimension() <= 0) {
+                || supportedDimensions == null
+                || !supportedDimensions.contains(embedding.dimension())) {
             throw new IllegalStateException("fewshot-canary requires a valid Cohere embedding model and dimension.");
         }
         if (embedding.connectTimeout() == null

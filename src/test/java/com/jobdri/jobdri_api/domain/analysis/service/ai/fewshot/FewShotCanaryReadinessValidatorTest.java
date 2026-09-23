@@ -123,7 +123,7 @@ class FewShotCanaryReadinessValidatorTest {
         var validator = new FewShotCanaryReadinessValidator(
                 mock(FewShotCaseStore.class),
                 properties,
-                cohereProperties(" ", Duration.ofSeconds(3), Duration.ofSeconds(15)),
+                cohereProperties(" ", 1024, Duration.ofSeconds(3), Duration.ofSeconds(15)),
                 "single-pass"
         );
 
@@ -133,14 +133,48 @@ class FewShotCanaryReadinessValidatorTest {
     }
 
     @Test
-    @DisplayName("Cohere timeout이 양수가 아니면 canary 시작을 거부한다")
-    void rejectsNonPositiveCohereTimeout() {
+    @DisplayName("Cohere embedding 차원이 모델 지원값이 아니면 canary 시작을 거부한다")
+    void rejectsUnsupportedCohereEmbeddingDimension() {
         FewShotProperties properties = canaryProperties();
 
         var validator = new FewShotCanaryReadinessValidator(
                 mock(FewShotCaseStore.class),
                 properties,
-                cohereProperties("test-key", Duration.ZERO, Duration.ofSeconds(15)),
+                cohereProperties("test-key", 1, Duration.ofSeconds(3), Duration.ofSeconds(15)),
+                "single-pass"
+        );
+
+        assertThatThrownBy(validator::afterSingletonsInstantiated)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("fewshot-canary requires a valid Cohere embedding model and dimension.");
+    }
+
+    @Test
+    @DisplayName("Cohere timeout이 양수가 아니면 canary 시작을 거부한다")
+    void rejectsNonPositiveCohereConnectTimeout() {
+        FewShotProperties properties = canaryProperties();
+
+        var validator = new FewShotCanaryReadinessValidator(
+                mock(FewShotCaseStore.class),
+                properties,
+                cohereProperties("test-key", 1024, Duration.ZERO, Duration.ofSeconds(15)),
+                "single-pass"
+        );
+
+        assertThatThrownBy(validator::afterSingletonsInstantiated)
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("fewshot-canary requires positive Cohere embedding timeouts.");
+    }
+
+    @Test
+    @DisplayName("Cohere read timeout이 양수가 아니면 canary 시작을 거부한다")
+    void rejectsNonPositiveCohereReadTimeout() {
+        FewShotProperties properties = canaryProperties();
+
+        var validator = new FewShotCanaryReadinessValidator(
+                mock(FewShotCaseStore.class),
+                properties,
+                cohereProperties("test-key", 1024, Duration.ofSeconds(3), Duration.ZERO),
                 "single-pass"
         );
 
@@ -153,16 +187,21 @@ class FewShotCanaryReadinessValidatorTest {
         return new FewShotCanaryReadinessValidator(
                 caseStore,
                 properties,
-                cohereProperties("test-key", Duration.ofSeconds(3), Duration.ofSeconds(15)),
+                cohereProperties("test-key", 1024, Duration.ofSeconds(3), Duration.ofSeconds(15)),
                 "single-pass"
         );
     }
 
-    private CohereProperties cohereProperties(String apiKey, Duration connectTimeout, Duration readTimeout) {
+    private CohereProperties cohereProperties(
+            String apiKey,
+            int dimension,
+            Duration connectTimeout,
+            Duration readTimeout
+    ) {
         return new CohereProperties(
                 apiKey,
                 "https://api.cohere.com",
-                new CohereProperties.Embedding("embed-v4.0", 1024, connectTimeout, readTimeout)
+                new CohereProperties.Embedding("embed-v4.0", dimension, connectTimeout, readTimeout)
         );
     }
 
