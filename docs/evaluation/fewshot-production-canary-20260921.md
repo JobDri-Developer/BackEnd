@@ -45,13 +45,24 @@
 | 기동 readiness | 승인 데이터 5건 검증 통과 | 5건 | 통과 |
 | 활성 profile | `prod,fewshot-canary` | 적용 | 통과 |
 | 배포 이미지 | 배포 커밋 SHA와 일치 | 일치 | 통과 |
-| 내부 분석 요청 | 대표 직무·문항 end-to-end 성공 | 확인 예정 | 보류 |
+| 내부 분석 요청 | 대표 직무·문항 end-to-end 성공 | 2026-09-24 대표 분석 1건 정상 완료 | 통과 |
 | 선택 mode | `EMBEDDING` 또는 의도된 `LOCAL_FALLBACK` | 확인 예정 | 보류 |
 | 승인 후보 범위 | `dynamic few-shot selection completed` 로그의 `selectedIds`가 승인된 5개 ID의 부분집합 | 확인 예정 | 보류 |
 | STATIC_FALLBACK | 내부 검증에서 0건 | 확인 예정 | 보류 |
-| 개인정보 비노출 | 로그와 metric label에 원문 없음 | 확인 예정 | 보류 |
-| Grafana 수집 | Few-shot 지표 조회 가능 | 확인 예정 | 보류 |
-| Discord 경보 | Preview 정상, 테스트 알림 수신 | 확인 예정 | 보류 |
+| 개인정보 비노출 | 로그와 metric label에 원문 없음 | Cloud Loki의 `userId`, `clientIp` 마스킹 확인; 동적 선택 로그는 표본 대기 | 부분 통과 |
+| Grafana 수집 | Few-shot 지표 조회 가능 | Prometheus remote write와 Loki 신규 로그 수집 확인; Few-shot 시계열은 동적 요청 대기 | 부분 통과 |
+| Discord 경보 | Preview 정상, 테스트 알림 수신 | Grafana contact point 알림 수신 확인 | 통과 |
+
+### 2026-09-24 내부 분석 및 관측 연결 확인
+
+- 대표 분석 task `40b744bf-1ee5-41f8-a456-bd3286a01254`가 Worker에서 오류 없이 완료됐다.
+- 해당 task의 SHA-256 rollout bucket은 `50`으로 5% 적용 조건인 `bucket < 5`에 포함되지 않았다.
+  따라서 동적 선택 로그와 `fewshot_*` 시계열이 생성되지 않은 것은 기대 동작이다.
+- Grafana Cloud Prometheus에서 `up{job="server_metric"}` 수집을 확인했다.
+- Grafana Cloud Loki에서 `service_name="jobdri-api"`인 신규 요청 로그를 확인했다.
+- Cloud Loki 신규 로그의 `userId`와 `clientIp`가 `[REDACTED]`로 치환되는 것을 확인했다.
+- 동적 선택 표본을 만들기 위한 반복 요청이나 rollout 임시 확대는 수행하지 않고, 다음 자연스러운
+  내부 분석이 5% cohort에 포함될 때 선택 mode와 승인 후보 범위를 검증한다.
 
 ## 서비스 오픈 후 관측
 
