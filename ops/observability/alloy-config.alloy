@@ -36,7 +36,7 @@ loki.process "spring_boot_grafana_cloud" {
   }
 
   stage.replace {
-    expression = "(\"clientIp\"[[:space:]]*:[[:space:]]*\"[^\"]*\")"
+    expression = "(\"clientIp\"[[:space:]]*:[[:space:]]*\"(\\\\.|[^\"\\\\])*\")"
     replace    = "\"clientIp\":\"[REDACTED]\""
   }
 }
