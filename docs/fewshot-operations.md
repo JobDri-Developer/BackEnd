@@ -67,8 +67,10 @@ Grafana-managed alert rule은 dashboard JSON과 별도로 등록합니다. 경�
 ## Grafana Cloud 전송
 
 로컬 Prometheus와 Loki는 유지하고, Alloy가 Backend metric을 Grafana Cloud Prometheus로,
-Spring Boot 일반 로그를 Grafana Cloud Loki로 함께 전송합니다. `auditTargetId` 같은 식별자가
-포함될 수 있는 감사 로그는 별도 보안·보존 정책을 확정하기 전까지 로컬 Loki에만 전송합니다.
+Spring Boot 일반 로그를 Grafana Cloud Loki로 함께 전송합니다. Cloud Loki로 전달할 때는 일반
+로그의 `userId`와 `clientIp` 값을 `[REDACTED]`로 치환합니다. 로컬 Loki에는 운영 진단을 위해
+원래 값을 유지합니다. `auditTargetId` 같은 식별자가 포함될 수 있는 감사 로그는 별도 보안·보존
+정책을 확정하기 전까지 로컬 Loki에만 전송합니다.
 서버 `.env`에 다음 값을 저장하되 토큰 값은 Git과 운영 로그에 남기지 않습니다.
 
 ```text
@@ -100,6 +102,10 @@ docker logs --since 5m jobdri-alloy 2>&1 \
 Grafana Cloud Explore에서 Prometheus의 `up{job="server_metric",service_name="jobdri-api"}`가 1인지,
 Loki의 `{service_name="jobdri-api",environment="production"}`에서 신규 로그가 조회되는지 확인합니다.
 Few-shot 요청 전에는 `fewshot_*` metric이 없는 것이 정상입니다.
+
+배포 후 신규 요청 로그를 발생시켜 Cloud Loki의 JSON 본문에서 `userId`와 `clientIp`가 모두
+`[REDACTED]`인지 확인합니다. 변경 전에 이미 전송된 로그는 소급해서 바뀌지 않습니다. 보존 정책상
+삭제가 필요하면 Grafana Cloud의 로그 삭제 절차를 별도로 수행합니다.
 
 ## 단계적 활성화
 

@@ -4,7 +4,7 @@
 loki.process "spring_boot" {
   forward_to = [
     loki.write.default.receiver,
-    loki.write.grafana_cloud.receiver,
+    loki.process.spring_boot_grafana_cloud.receiver,
   ]
 
   stage.json {
@@ -23,6 +23,21 @@ loki.process "spring_boot" {
       level   = "level",
       logType = "logType",
     }
+  }
+}
+
+loki.process "spring_boot_grafana_cloud" {
+  forward_to = [loki.write.grafana_cloud.receiver]
+
+  // Keep operational fields locally, but do not export direct user identifiers.
+  stage.replace {
+    expression = "(\"userId\"[[:space:]]*:[[:space:]]*\"?[0-9]+\"?)"
+    replace    = "\"userId\":\"[REDACTED]\""
+  }
+
+  stage.replace {
+    expression = "(\"clientIp\"[[:space:]]*:[[:space:]]*\"(\\\\.|[^\"\\\\])*\")"
+    replace    = "\"clientIp\":\"[REDACTED]\""
   }
 }
 
