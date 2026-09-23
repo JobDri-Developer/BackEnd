@@ -2,14 +2,14 @@
 
 ## 배포 전
 
-- [ ] PM 승인 후보 5건과 datasetVersion `fewshot-pm-reviewed-20260914-v2`를 확인한다.
-- [ ] `reviewed-production-resource`가 승인 리소스를 가리키는지 확인한다.
-- [ ] `fixed`, `curated`, `reviewed-evaluation` 소스는 비활성화한다.
-- [ ] `reviewed-production` 소스만 활성화한다.
+- [x] PM 승인 후보 5건과 datasetVersion `fewshot-pm-reviewed-20260914-v2`를 확인한다.
+- [x] `reviewed-production-resource`가 승인 리소스를 가리키는지 확인한다.
+- [x] `fixed`, `curated`, `reviewed-evaluation` 소스는 비활성화한다.
+- [x] `reviewed-production` 소스만 활성화한다.
 - [ ] Cohere API 키·모델·timeout 설정을 확인한다.
-- [ ] `JobDri / Dynamic Few-shot` 대시보드가 운영 Prometheus를 조회하는지 확인한다.
-- [ ] fallback, Cohere 실패, selection P95 경보가 저장되어 있는지 확인한다.
-- [ ] `jobdri-discord-alerts` contact point 테스트 메시지를 확인한다.
+- [x] `JobDri / Dynamic Few-shot` 대시보드가 운영 Prometheus를 조회하는지 확인한다.
+- [x] fallback, Cohere 실패, selection P95 경보가 저장되어 있는지 확인한다.
+- [x] `jobdri-discord-alerts` contact point 테스트 메시지를 확인한다.
 - [ ] 담당자가 feature flag 비활성 재배포를 실행할 수 있는지 확인한다.
 
 초기 활성 환경변수:
@@ -54,6 +54,7 @@ APP_WORKER_ANALYSIS_PROMPT_MAX_CHARS=120000
 - dynamic selection과 `single-pass`가 활성화됐는지
 - worker rollout percentage가 1~100 범위인지
 - `REVIEWED_PRODUCTION` 외 소스가 꺼져 있는지
+- Cohere API 키, embedding 모델·차원과 connect/read timeout이 유효한지
 - 유효한 운영 승인 후보가 하나 이상인지
 - 후보의 datasetVersion이 설정값과 같은지
 
@@ -63,24 +64,24 @@ APP_WORKER_ANALYSIS_PROMPT_MAX_CHARS=120000
 
 ## 내부 환경
 
-- [ ] `docs/fewshot-canary-smoke.md`의 절차로 내부 smoke 평가를 실행한다.
-- [ ] 운영 트래픽을 받지 않는 내부 인스턴스에서 먼저 활성화한다.
-- [ ] 서로 다른 직무·문항의 테스트 분석을 최소 20건 실행한다.
-- [ ] selection mode에 `EMBEDDING` 또는 의도된 `LOCAL_FALLBACK`이 기록되는지 확인한다.
-- [ ] 선택 source가 `REVIEWED_PRODUCTION`인지 로그 또는 평가 메타데이터로 확인한다.
-- [ ] 선택 ID가 FS-02, FS-03, FS-05, FS-08, FS-09 범위인지 확인한다.
-- [ ] 원문 JD·답변·embedding이 로그나 metric label에 노출되지 않는지 확인한다.
-- [ ] 네 Grafana 경보의 Preview가 오류 없이 평가되는지 확인한다.
+- [x] `docs/fewshot-canary-smoke.md`의 절차로 내부 smoke 평가를 실행한다.
+- [x] 운영 트래픽을 받지 않는 내부 인스턴스에서 먼저 활성화한다.
+- [x] 서로 다른 직무·문항의 테스트 분석을 최소 20건 실행한다.
+- [x] selection mode에 `EMBEDDING` 또는 의도된 `LOCAL_FALLBACK`이 기록되는지 확인한다.
+- [x] 선택 source가 `REVIEWED_PRODUCTION`인지 로그 또는 평가 메타데이터로 확인한다.
+- [x] 선택 ID가 FS-02, FS-03, FS-05, FS-08, FS-09 범위인지 확인한다.
+- [x] 원문 JD·답변·embedding이 로그나 metric label에 노출되지 않는지 확인한다.
+- [x] 네 Grafana 경보의 Preview가 오류 없이 평가되는지 확인한다.
 - [ ] feature flag를 끈 뒤 기존 정적 Few-shot 경로로 복귀하는지 한 번 검증한다.
 
 ## 정식 오픈 전 배포 검증
 
-- [ ] 운영과 동일한 배포 환경에서 readiness와 애플리케이션 기동을 확인한다.
-- [ ] 내부 테스트 계정의 대표 분석 요청으로 end-to-end 경로를 확인한다.
+- [x] 운영과 동일한 배포 환경에서 readiness와 애플리케이션 기동을 확인한다.
+- [x] 내부 테스트 계정의 대표 분석 요청으로 end-to-end 경로를 확인한다.
 - [ ] `dynamic few-shot selection completed` 로그에서 cache miss와 hit의 비식별 선택 ID를 확인한다.
 - [ ] Grafana datasource가 Few-shot metric을 수집할 수 있는지 확인한다.
-- [ ] 자연 트래픽이 없는 상태에서 운영 비율 표본을 만들기 위한 대량 요청은 실행하지 않는다.
-- [ ] 정식 서비스 오픈 전에는 rollout을 5%로 유지하고 25% 확대를 판단하지 않는다.
+- [x] 자연 트래픽이 없는 상태에서 운영 비율 표본을 만들기 위한 대량 요청은 실행하지 않는다.
+- [x] 정식 서비스 오픈 전에는 rollout을 5%로 유지하고 25% 확대를 판단하지 않는다.
 
 ## 운영 5% Canary (서비스 오픈 후)
 
