@@ -77,7 +77,7 @@ jobs:
         if: env.HAS_DEPLOY_SECRETS != 'true'
         run: echo "Deployment skipped because required server secrets are not configured."
 
-      - name: Upload deployment configuration
+      - name: Upload Compose configuration
         if: env.HAS_DEPLOY_SECRETS == 'true'
         uses: appleboy/scp-action@v1
         with:
@@ -86,8 +86,22 @@ jobs:
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           fingerprint: ${{ secrets.DEPLOY_SSH_FINGERPRINT }}
           port: ${{ secrets.DEPLOY_PORT || 22 }}
-          source: "docker-compose.prod.yml,ops/observability"
+          source: "docker-compose.prod.yml"
           target: ${{ secrets.DEPLOY_PATH }}
+          overwrite: true
+
+      - name: Upload observability runtime configuration
+        if: env.HAS_DEPLOY_SECRETS == 'true'
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          fingerprint: ${{ secrets.DEPLOY_SSH_FINGERPRINT }}
+          port: ${{ secrets.DEPLOY_PORT || 22 }}
+          source: "ops/observability/alloy-config.alloy,ops/observability/loki-config.yaml,ops/observability/prometheus.yml"
+          target: ${{ secrets.DEPLOY_PATH }}/ops/observability
+          strip_components: 2
           overwrite: true
 
       - name: Deploy with Docker Compose
