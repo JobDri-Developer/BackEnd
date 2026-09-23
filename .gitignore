@@ -56,3 +56,6 @@ application-local.yml
 # Local evaluation datasets/results
 evaluation_cases*.csv
 evaluation_ai_results*.csv
+
+# Separate analysis worker repository
+/analysis-server/
