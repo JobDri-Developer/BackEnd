@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.analysis.service.ai.fewshot;
 
+import com.jobdri.jobdri_api.global.cohere.CohereProperties;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,15 +22,18 @@ class FewShotCanaryReadinessValidator implements SmartInitializingSingleton {
 
     private final FewShotCaseStore caseStore;
     private final FewShotProperties properties;
+    private final CohereProperties cohereProperties;
     private final String analysisMode;
 
     FewShotCanaryReadinessValidator(
             FewShotCaseStore caseStore,
             FewShotProperties properties,
+            CohereProperties cohereProperties,
             @Value("${analysis.mode:}") String analysisMode
     ) {
         this.caseStore = caseStore;
         this.properties = properties;
+        this.cohereProperties = cohereProperties;
         this.analysisMode = analysisMode;
     }
 
@@ -84,6 +88,24 @@ class FewShotCanaryReadinessValidator implements SmartInitializingSingleton {
         }
         if (!StringUtils.hasText(properties.getDatasetVersion())) {
             throw new IllegalStateException("fewshot-canary requires a datasetVersion.");
+        }
+        if (!StringUtils.hasText(cohereProperties.apiKey())) {
+            throw new IllegalStateException("fewshot-canary requires a Cohere API key.");
+        }
+        CohereProperties.Embedding embedding = cohereProperties.embedding();
+        if (embedding == null
+                || !StringUtils.hasText(embedding.model())
+                || embedding.dimension() == null
+                || embedding.dimension() <= 0) {
+            throw new IllegalStateException("fewshot-canary requires a valid Cohere embedding model and dimension.");
+        }
+        if (embedding.connectTimeout() == null
+                || embedding.connectTimeout().isZero()
+                || embedding.connectTimeout().isNegative()
+                || embedding.readTimeout() == null
+                || embedding.readTimeout().isZero()
+                || embedding.readTimeout().isNegative()) {
+            throw new IllegalStateException("fewshot-canary requires positive Cohere embedding timeouts.");
         }
     }
 }
