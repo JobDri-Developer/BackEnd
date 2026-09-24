@@ -6,11 +6,11 @@
 - [x] `reviewed-production-resource`가 승인 리소스를 가리키는지 확인한다.
 - [x] `fixed`, `curated`, `reviewed-evaluation` 소스는 비활성화한다.
 - [x] `reviewed-production` 소스만 활성화한다.
-- [ ] Cohere API 키·모델·timeout 설정을 확인한다.
+- [x] Cohere API 키·모델·차원·timeout 설정을 readiness 기동 검증으로 확인한다.
 - [x] `JobDri / Dynamic Few-shot` 대시보드가 운영 Prometheus를 조회하는지 확인한다.
 - [x] fallback, Cohere 실패, selection P95 경보가 저장되어 있는지 확인한다.
 - [x] `jobdri-discord-alerts` contact point 테스트 메시지를 확인한다.
-- [ ] 담당자가 feature flag 비활성 재배포를 실행할 수 있는지 확인한다.
+- [x] 담당자가 `prod` profile 재배포와 `prod,fewshot-canary` 복구를 실행할 수 있는지 확인한다.
 
 초기 활성 환경변수:
 
@@ -72,7 +72,7 @@ APP_WORKER_ANALYSIS_PROMPT_MAX_CHARS=120000
 - [x] 선택 ID가 FS-02, FS-03, FS-05, FS-08, FS-09 범위인지 확인한다.
 - [x] 원문 JD·답변·embedding이 로그나 metric label에 노출되지 않는지 확인한다.
 - [x] 네 Grafana 경보의 Preview가 오류 없이 평가되는지 확인한다.
-- [ ] feature flag를 끈 뒤 기존 정적 Few-shot 경로로 복귀하는지 한 번 검증한다.
+- [ ] feature flag를 끈 뒤 동적 Few-shot context 없이 신규 분석이 정상 완료되는지 한 번 검증한다.
 
 ## 정식 오픈 전 배포 검증
 
@@ -109,7 +109,7 @@ APP_WORKER_ANALYSIS_PROMPT_MAX_CHARS=120000
 복귀 절차:
 
 1. `SPRING_PROFILES_ACTIVE=prod`로 되돌리거나 `ANALYSIS_FEW_SHOT_DYNAMIC_SELECTION_ENABLED=false`로 재배포한다.
-2. 신규 분석이 기존 정적 Few-shot 경로로 처리되는지 확인한다.
+2. Worker 경로에서는 신규 분석이 동적 Few-shot context 없이 정상 완료되는지 확인한다.
 3. Discord 경보가 Resolved로 전환되는지 확인한다.
 4. 발생 시각, datasetVersion, 선택 ID, failure reason, P95를 기록한다.
 5. 승인 리소스와 캐시는 삭제하지 않고 원인 수정 후 내부 환경에서 다시 검증한다.

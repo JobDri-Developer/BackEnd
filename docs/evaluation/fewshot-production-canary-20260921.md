@@ -64,6 +64,20 @@
 - 동적 선택 표본을 만들기 위한 반복 요청이나 rollout 임시 확대는 수행하지 않고, 다음 자연스러운
   내부 분석이 5% cohort에 포함될 때 선택 mode와 승인 후보 범위를 검증한다.
 
+### 2026-09-25 즉시 복귀 절차 점검
+
+- 배포 중인 immutable 이미지
+  `ghcr.io/jobdri-developer/backend@sha256:b4a842bcf488a6c62576792361772b6d6e2764b2aa95a893f55ca5bbee0f5755`를
+  유지한 채 `SPRING_PROFILES_ACTIVE=prod`로 API만 재생성했다.
+- 컨테이너가 `running` 상태로 전환되고 `Started JobdriApiApplication` 로그가 남았으며,
+  canary readiness 로그는 발생하지 않았다.
+- 같은 이미지로 `SPRING_PROFILES_ACTIVE=prod,fewshot-canary`를 복구했다.
+- 복구 기동에서 datasetVersion `fewshot-pm-reviewed-20260914-v2`, rollout 5%, 후보 5건과
+  ID `FS-02`, `FS-03`, `FS-05`, `FS-08`, `FS-09`의 readiness 통과를 확인했다.
+- 이번 점검은 profile 비활성화·복구와 애플리케이션 기동까지 검증했다. 비활성 상태에서 신규 분석을
+  완료해 동적 Few-shot context가 전달되지 않는지 확인하는 항목은 별도 표본이 없어 미완료로 남긴다.
+- 비동기 Worker 경로의 비활성 동작은 `STATIC_FALLBACK`이 아니라 optional `fewShot` context 미전달이다.
+
 ## 서비스 오픈 후 관측
 
 서비스 오픈 후 실제 트래픽이 발생하면 최소 1일과 하나의 일간 피크 구간을 포함하고, 최근

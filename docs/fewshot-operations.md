@@ -160,12 +160,15 @@ ANALYSIS_FEW_SHOT_MINIMUM_SELECTED_COUNT=2
 ## 즉시 복귀
 
 1. 활성 인스턴스의 `ANALYSIS_FEW_SHOT_DYNAMIC_SELECTION_ENABLED=false`로 재배포합니다.
-2. 선택 모드가 STATIC으로 돌아왔는지 로그와 지표로 확인합니다.
-3. fallback이 아니라 feature flag 비활성으로 복귀했는지 확인합니다.
+2. Worker 경로의 신규 분석이 동적 Few-shot context 없이 정상 완료되는지 확인합니다.
+3. 동적 선택 로그와 신규 Few-shot selection 지표가 발생하지 않아 fallback이 아닌 feature flag
+   비활성 상태인지 확인합니다.
 4. datasetVersion, 오류 시각, 실패 reason, 지연과 호출량을 장애 기록에 남깁니다.
 5. 승인 데이터나 캐시를 삭제하지 않습니다. 원인 수정 후 평가 환경에서 재검증합니다.
 
-flag를 끄면 기존 정적 Few-shot 프롬프트로 돌아가며 API 응답·DB 스키마는 바뀌지 않습니다.
+현재 비동기 Worker 경로에서 flag를 끄면 optional `fewShot` context를 전달하지 않습니다. 이는
+`STATIC_FALLBACK`이 아니며, worker는 동적 Few-shot block 없이 기존 분석을 계속합니다. 동기
+Backend 프롬프트 경로의 정적 Few-shot과 혼동하지 않습니다. API 응답·DB 스키마는 바뀌지 않습니다.
 
 ## 활성화 승인 조건
 
