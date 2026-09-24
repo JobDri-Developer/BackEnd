@@ -28,6 +28,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -54,6 +55,11 @@ public class JobPostingService {
     @Transactional
     @AuditLogEvent(action = "JOB_POSTING_CREATE", targetType = "JOB_POSTING", targetId = "#result.getJobPostingId()")
     public JobPostingResponse createJobPosting(User user, JobPostingCreateRequest request) {
+        return JobPostingResponse.from(createJobPostingEntity(user, request));
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    public JobPosting createJobPostingEntity(User user, JobPostingCreateRequest request) {
         User validatedUser = userService.validateUser(user);
         Company company = findOrCreateCompany(request.companyName(), request.companySize());
         DetailClassification detailClassification = findDetailClassification(request.detailClassificationId());
@@ -70,7 +76,7 @@ public class JobPostingService {
                 request.preferred()
         );
 
-        return JobPostingResponse.from(jobPostingRepository.save(jobPosting));
+        return jobPostingRepository.save(jobPosting);
     }
 
     @Transactional
