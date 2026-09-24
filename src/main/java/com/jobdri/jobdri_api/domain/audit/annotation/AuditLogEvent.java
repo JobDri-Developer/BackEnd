@@ -13,4 +13,6 @@ public @interface AuditLogEvent {
     String targetType();
 
     String targetId() default "";
+
+    String condition() default "";
 }

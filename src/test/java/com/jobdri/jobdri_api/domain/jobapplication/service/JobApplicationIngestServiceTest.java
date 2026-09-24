@@ -7,6 +7,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassifica
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingGenerateResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingIngestValidationErrorResponse;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingClassificationService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingImageStorageService;
@@ -144,6 +145,59 @@ class JobApplicationIngestServiceTest {
         assertThat(response.idempotentReplay()).isTrue();
         assertThat(response.jobApplication().getJobApplicationId()).isEqualTo(30L);
         verifyNoInteractions(jobPostingAiService, jobPostingClassificationService, jobPostingImageStorageService);
+    }
+
+    @Test
+    @DisplayName("추출 필수값이 유효하지 않으면 상세 오류를 반환하고 저장하지 않는다")
+    void invalidExtractedFieldsDoNotPersist() {
+        JobApplicationIngestRequest request = new JobApplicationIngestRequest(
+                "clipper-invalid-extracted", "회사명이 누락된 백엔드 개발자 채용 공고 원문입니다.", null, null
+        );
+        JobPostingExtractResponse invalid = new JobPostingExtractResponse(
+                "백엔드 채용", "", "백엔드 엔지니어", "API 개발", "Java 경험", "AWS 경험",
+                request.rawText(), 0.9
+        );
+        when(persistenceService.findExisting(user, request.idempotencyKey())).thenReturn(Optional.empty());
+        when(jobPostingImageStorageService.normalizeImageObjectKeys(null, null)).thenReturn(List.of());
+        when(jobPostingAiService.extractJobPosting(1L, request.rawText(), null, List.of())).thenReturn(invalid);
+
+        assertInvalidJobPosting(() -> service.ingest(user, request));
+        verify(persistenceService, never()).persist(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("정제 결과 필수값이 유효하지 않으면 상세 오류를 반환하고 저장하지 않는다")
+    void invalidGeneratedFieldsDoNotPersist() {
+        JobApplicationIngestRequest request = new JobApplicationIngestRequest(
+                "clipper-invalid-generated", "잡드리 백엔드 개발자 채용 공고 원문입니다.", null, null
+        );
+        JobPostingGenerateResponse invalid = new JobPostingGenerateResponse(
+                "", "잡드리", "백엔드 엔지니어", "API 개발", "Java 경험", "AWS 경험", "요약"
+        );
+        when(persistenceService.findExisting(user, request.idempotencyKey())).thenReturn(Optional.empty());
+        when(jobPostingImageStorageService.normalizeImageObjectKeys(null, null)).thenReturn(List.of());
+        when(jobPostingAiService.extractJobPosting(1L, request.rawText(), null, List.of())).thenReturn(extracted);
+        when(jobPostingClassificationService.findCandidates(extracted, 5)).thenReturn(List.of(candidate));
+        when(jobPostingAiService.classifyDetailClassification(extracted, List.of(candidate)))
+                .thenReturn(classification(0.9));
+        when(jobPostingAiService.generateJobPosting(any())).thenReturn(invalid);
+
+        assertInvalidJobPosting(() -> service.ingest(user, request));
+        verify(persistenceService, never()).persist(any(), any(), any(), any(), any());
+    }
+
+    private void assertInvalidJobPosting(org.assertj.core.api.ThrowableAssert.ThrowingCallable callable) {
+        assertThatThrownBy(callable)
+                .isInstanceOf(GeneralException.class)
+                .satisfies(error -> {
+                    GeneralException exception = (GeneralException) error;
+                    assertThat(exception.getCode()).isEqualTo(GeneralErrorCode.INVALID_PARAMETER);
+                    assertThat(exception.getError()).isInstanceOf(JobPostingIngestValidationErrorResponse.class);
+                    JobPostingIngestValidationErrorResponse detail =
+                            (JobPostingIngestValidationErrorResponse) exception.getError();
+                    assertThat(detail.reason()).isEqualTo("INVALID_JOB_POSTING_FIELDS");
+                    assertThat(detail.invalidFields()).isNotEmpty();
+                });
     }
 
     private JobPostingClassificationResultResponse classification(double confidence) {

@@ -19,7 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -97,12 +96,13 @@ public class JobApplicationIngestPersistenceService {
         if (skills == null) {
             return List.of();
         }
-        return new LinkedHashSet<>(skills.stream()
+        return skills.stream()
                 .filter(skill -> skill != null && !skill.isBlank())
                 .map(String::trim)
                 .filter(skill -> skill.length() <= 50)
+                .distinct()
                 .limit(20)
-                .toList()).stream().toList();
+                .toList();
     }
 
     private LocalDateTime parseDeadline(String deadlineAt) {

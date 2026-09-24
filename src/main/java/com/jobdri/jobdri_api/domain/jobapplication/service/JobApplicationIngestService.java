@@ -38,7 +38,8 @@ public class JobApplicationIngestService {
     @AuditLogEvent(
             action = "JOB_APPLICATION_CLIPPER_INGEST",
             targetType = "JOB_APPLICATION",
-            targetId = "#result.jobApplication?.jobApplicationId"
+            targetId = "#result.jobApplication?.jobApplicationId",
+            condition = "#result.savedToDatabase"
     )
     public JobApplicationIngestResponse ingest(User user, JobApplicationIngestRequest request) {
         var existing = persistenceService.findExisting(user, request.idempotencyKey());
