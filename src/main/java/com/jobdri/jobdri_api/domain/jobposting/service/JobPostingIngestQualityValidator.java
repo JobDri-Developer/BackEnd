@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 
-final class JobPostingIngestQualityValidator {
+public final class JobPostingIngestQualityValidator {
 
     private static final int MIN_SHORT_FIELD_LENGTH = 2;
     private static final Set<String> PLACEHOLDER_VALUES = Set.of(
@@ -34,7 +34,7 @@ final class JobPostingIngestQualityValidator {
     private JobPostingIngestQualityValidator() {
     }
 
-    static void validateExtracted(JobPostingExtractResponse extracted) {
+    public static void validateExtracted(JobPostingExtractResponse extracted) {
         if (extracted == null) {
             throwInvalidJobPostingWithFields(List.of(
                     invalidField("companyName", "회사명"),
@@ -53,7 +53,7 @@ final class JobPostingIngestQualityValidator {
         ));
     }
 
-    static void validateGenerated(JobPostingGenerateResponse generated) {
+    public static void validateGenerated(JobPostingGenerateResponse generated) {
         if (generated == null) {
             throwInvalidJobPostingWithFields(List.of(
                     invalidField("postingName", "공고명"),

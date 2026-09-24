@@ -18,6 +18,8 @@ import java.util.Optional;
 
 public interface JobApplicationRepository extends JpaRepository<JobApplication, Long> {
 
+    Optional<JobApplication> findByUserIdAndIngestIdempotencyKey(Long userId, String ingestIdempotencyKey);
+
     @Query("""
             select distinct ja from JobApplication ja left join fetch ja.requiredSkills
             where ja.user.id = :userId and ja.archivedAt is null
