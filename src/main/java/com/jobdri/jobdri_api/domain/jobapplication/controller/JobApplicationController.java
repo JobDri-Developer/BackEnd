@@ -10,11 +10,13 @@ import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationAr
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationBoardResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationDetailResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationIngestResponse;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationMockApplyResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationArchiveService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationBoardService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationDetailService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationIngestService;
+import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationMockApplyService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationService;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
@@ -47,6 +49,7 @@ public class JobApplicationController {
     private final JobApplicationDetailService jobApplicationDetailService;
     private final JobApplicationArchiveService jobApplicationArchiveService;
     private final JobApplicationIngestService jobApplicationIngestService;
+    private final JobApplicationMockApplyService jobApplicationMockApplyService;
 
     @Operation(summary = "지원관리 칸반 조회", description = "활성 카드를 4개 열로 반환합니다. 회사명·공고명·직무명을 검색하며 count는 검색 결과 기준입니다. CREATED_DESC에서는 드래그를 비활성화합니다.")
     @GetMapping("/board")
@@ -136,6 +139,30 @@ public class JobApplicationController {
         return ApiResponse.onSuccess(
                 "Clipper 공고 처리에 성공했습니다.",
                 jobApplicationIngestService.ingest(validateAuthenticatedUser(userDetails), request)
+        );
+    }
+
+    @Operation(summary = "지원 카드에서 모의지원 시작", description = "카드 스냅샷이 분석 준비 상태인지 검증한 뒤 별도 JobPosting과 실제 공고형 MockApply를 원자적으로 생성합니다. 반복 호출은 연결된 모의지원을 반환합니다.")
+    @io.swagger.v3.oas.annotations.responses.ApiResponses({
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "200",
+                    description = "모의지원 생성 또는 기존 연결 반환"
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(
+                    responseCode = "422",
+                    description = "분석 준비 필드 누락. error.missingFields에 누락 필드명 반환"
+            )
+    })
+    @PostMapping("/{jobApplicationId}/mock-apply")
+    public ApiResponse<JobApplicationMockApplyResponse> createMockApply(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @PathVariable Long jobApplicationId
+    ) {
+        return ApiResponse.onSuccess(
+                "지원 카드의 모의지원 전환에 성공했습니다.",
+                jobApplicationMockApplyService.createOrGet(
+                        validateAuthenticatedUser(userDetails), jobApplicationId
+                )
         );
     }
 

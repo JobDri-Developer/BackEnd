@@ -25,6 +25,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
@@ -37,6 +38,45 @@ class JobApplicationControllerTest {
     @Autowired UserRepository userRepository;
     @Autowired com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationService applications;
     @MockitoBean com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationIngestService ingestService;
+    @MockitoBean com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationMockApplyService mockApplyService;
+
+    @Test
+    @DisplayName("모의지원 전환 API는 성공 결과와 422 missingFields 계약을 제공한다")
+    void mockApplyConversionContract() throws Exception {
+        User owner = saveUser();
+        when(mockApplyService.createOrGet(any(), eq(100L))).thenReturn(
+                new com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationMockApplyResponse(
+                        100L, 200L, 300L,
+                        com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus.APPLICATION_CREATED,
+                        true
+                )
+        );
+        when(mockApplyService.createOrGet(any(), eq(101L))).thenThrow(
+                new com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException(
+                        com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode.JOB_APPLICATION_NOT_READY,
+                        "모의지원 전환에 필요한 정보가 부족합니다.",
+                        new com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationNotReadyResponse(
+                                java.util.List.of("detailClassificationId", "task")
+                        )
+                )
+        );
+
+        mockMvc.perform(post("/api/job-applications/{id}/mock-apply", 100L)
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.jobApplicationId").value(100))
+                .andExpect(jsonPath("$.result.jobPostingId").value(200))
+                .andExpect(jsonPath("$.result.mockApplyId").value(300))
+                .andExpect(jsonPath("$.result.status").value("APPLICATION_CREATED"))
+                .andExpect(jsonPath("$.result.created").value(true));
+
+        mockMvc.perform(post("/api/job-applications/{id}/mock-apply", 101L)
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.code").value("JOB_APPLICATION_NOT_READY"))
+                .andExpect(jsonPath("$.error.missingFields[0]").value("detailClassificationId"))
+                .andExpect(jsonPath("$.error.missingFields[1]").value("task"));
+    }
 
     @Test
     @DisplayName("Clipper ingest API는 멱등 키와 입력 계약을 검증하고 결과를 반환한다")

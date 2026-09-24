@@ -170,6 +170,13 @@ public class JobApplication extends BaseEntity {
         this.stageOrder = stageOrder;
     }
 
+    public void assignMockApply(MockApply mockApply) {
+        if (mockApply == null || this.mockApply != null) {
+            throw new IllegalStateException("모의지원이 연결되지 않은 카드에만 연결할 수 있습니다.");
+        }
+        this.mockApply = mockApply;
+    }
+
     public void updateDetails(
             DetailClassification detailClassification,
             String companyName,

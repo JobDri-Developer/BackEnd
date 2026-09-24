@@ -55,6 +55,11 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
     @Query("select ja from JobApplication ja where ja.id = :id")
     Optional<JobApplication> findByIdForUpdate(@Param("id") Long id);
 
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"detailClassification", "mockApply", "mockApply.jobPosting"})
+    @Query("select ja from JobApplication ja where ja.id = :id")
+    Optional<JobApplication> findForConversionByIdForUpdate(@Param("id") Long id);
+
     @Query(
             value = """
                     select new com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationArchiveItemResponse(
