@@ -3,15 +3,18 @@ package com.jobdri.jobdri_api.domain.jobapplication.controller;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationCreateRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationDetailUpdateRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationFromJobPostingRequest;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationIngestRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationPositionRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationSort;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationArchiveItemResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationBoardResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationDetailResponse;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationIngestResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationArchiveService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationBoardService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationDetailService;
+import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationIngestService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationService;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
@@ -43,6 +46,7 @@ public class JobApplicationController {
     private final JobApplicationBoardService jobApplicationBoardService;
     private final JobApplicationDetailService jobApplicationDetailService;
     private final JobApplicationArchiveService jobApplicationArchiveService;
+    private final JobApplicationIngestService jobApplicationIngestService;
 
     @Operation(summary = "지원관리 칸반 조회", description = "활성 카드를 4개 열로 반환합니다. 회사명·공고명·직무명을 검색하며 count는 검색 결과 기준입니다. CREATED_DESC에서는 드래그를 비활성화합니다.")
     @GetMapping("/board")
@@ -121,6 +125,18 @@ public class JobApplicationController {
     ) {
         var user = validateAuthenticatedUser(userDetails);
         return ApiResponse.onSuccess("지원 카드 등록에 성공했습니다.", jobApplicationService.create(user, request));
+    }
+
+    @Operation(summary = "Clipper 공고를 지원 카드로 등록", description = "텍스트·이미지 공고를 추출하고 분류해 PLANNED 마지막에 독립 카드를 생성합니다. idempotencyKey를 반복하면 기존 카드를 반환하며 JobPosting·MockApply·분석 결과는 생성하지 않습니다.")
+    @PostMapping("/ingest")
+    public ApiResponse<JobApplicationIngestResponse> ingest(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @Valid @RequestBody JobApplicationIngestRequest request
+    ) {
+        return ApiResponse.onSuccess(
+                "Clipper 공고 처리에 성공했습니다.",
+                jobApplicationIngestService.ingest(validateAuthenticatedUser(userDetails), request)
+        );
     }
 
     @Operation(summary = "저장 공고에서 지원 카드 등록", description = "내 저장 공고의 현재 값을 복사해 이후 독립적으로 관리되는 지원 카드를 생성합니다.")

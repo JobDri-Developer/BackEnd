@@ -38,6 +38,10 @@ public class AuditLogAspect {
 
         Object result = joinPoint.proceed();
 
+        if (!shouldRecord(joinPoint, auditLogEvent.condition(), result)) {
+            return result;
+        }
+
         try {
             auditLogService.record(
                     extractUser(joinPoint),
@@ -73,6 +77,28 @@ public class AuditLogAspect {
             return null;
         }
 
+        MethodBasedEvaluationContext context = createEvaluationContext(joinPoint, result);
+
+        Object value = expressionParser.parseExpression(targetIdExpression).getValue(context);
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        if (value instanceof String string && !string.isBlank()) {
+            return Long.parseLong(string);
+        }
+        return null;
+    }
+
+    private boolean shouldRecord(ProceedingJoinPoint joinPoint, String conditionExpression, Object result) {
+        if (conditionExpression == null || conditionExpression.isBlank()) {
+            return true;
+        }
+        Boolean value = expressionParser.parseExpression(conditionExpression)
+                .getValue(createEvaluationContext(joinPoint, result), Boolean.class);
+        return Boolean.TRUE.equals(value);
+    }
+
+    private MethodBasedEvaluationContext createEvaluationContext(ProceedingJoinPoint joinPoint, Object result) {
         Method method = ((MethodSignature) joinPoint.getSignature()).getMethod();
         MethodBasedEvaluationContext context = new MethodBasedEvaluationContext(
                 null,
@@ -86,15 +112,7 @@ public class AuditLogAspect {
             context.setVariable("p" + i, args[i]);
         }
         context.setVariable(RESULT_VARIABLE, result);
-
-        Object value = expressionParser.parseExpression(targetIdExpression).getValue(context);
-        if (value instanceof Number number) {
-            return number.longValue();
-        }
-        if (value instanceof String string && !string.isBlank()) {
-            return Long.parseLong(string);
-        }
-        return null;
+        return context;
     }
 
     private Map<String, Object> extractParameters(ProceedingJoinPoint joinPoint) {

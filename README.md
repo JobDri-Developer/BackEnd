@@ -62,6 +62,8 @@ Server: `https://api.jobdri.site`
   비동기 상태를 조회합니다.
 - `GET /api/job-postings/ingest/async/{taskId}/stream`
   SSE로 상태 변화를 구독합니다.
+- `POST /api/job-applications/ingest`
+  Clipper의 텍스트 또는 이미지를 지원관리 카드로 직접 등록합니다. 저장 공고·모의지원·분석은 생성하지 않으며 요청 멱등 키를 지원합니다.
 
 ### 2. 모의 지원서 생성
 
