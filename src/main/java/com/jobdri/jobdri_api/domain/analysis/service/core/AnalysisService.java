@@ -83,17 +83,17 @@ public class AnalysisService {
         }
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void validateAnalysisRequest(User user, Long mockApplyId) {
         analysisPreparationService.prepare(user, mockApplyId);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public AnalysisExecutionPayload prepareAnalysisExecution(User user, Long mockApplyId) {
         return analysisPreparationService.prepare(user, mockApplyId).toExecutionPayload();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public AnalysisExecutionPayload prepareAnalysisExecution(
             User user,
             Long mockApplyId,
