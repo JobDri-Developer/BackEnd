@@ -59,9 +59,11 @@ public class AnalysisAsyncTaskService {
 
     @Transactional
     public AnalysisAsyncTask createPendingTask(Long userId, Long mockApplyId) {
-        return analysisAsyncTaskRepository.saveAndFlush(
+        AnalysisAsyncTask task = analysisAsyncTaskRepository.saveAndFlush(
                 AnalysisAsyncTask.pending(userId, mockApplyId, analysisQueueProperties.getMaxRetryCount())
         );
+        asyncMetricsRecorder.incrementAnalysisRequest("accepted");
+        return task;
     }
 
     @Transactional
@@ -103,6 +105,7 @@ public class AnalysisAsyncTaskService {
     public void markSuccess(String taskId, AnalysisResponse result) {
         AnalysisAsyncTask task = getTask(taskId);
         if (task.getStatus() == AnalysisAsyncTaskStatus.SUCCEEDED) {
+            asyncMetricsRecorder.incrementAnalysisDuplicate("success_callback");
             return;
         }
         if (task.getStatus() == AnalysisAsyncTaskStatus.CANCELLED) {
@@ -120,6 +123,7 @@ public class AnalysisAsyncTaskService {
             }
         }
         task.markSuccess();
+        asyncMetricsRecorder.incrementAnalysisJob("completed");
         recordProcessingMetric(task, "succeeded");
         publishAfterCommit(toStatusResponse(task, result));
         createSuccessNotificationSafely(task);
@@ -128,6 +132,9 @@ public class AnalysisAsyncTaskService {
     @Transactional
     public void markRetryScheduled(String taskId, AnalysisAsyncFailureReason failureReason, String errorMessage, int retryCount) {
         AnalysisAsyncTask task = getTask(taskId);
+        asyncMetricsRecorder.incrementAnalysisRetry(
+                failureReason == null ? null : failureReason.name()
+        );
         recordProcessingMetric(task, "retry");
         task.markRetryScheduled(failureReason, errorMessage, retryCount);
         publishAfterCommit(toStatusResponse(task));
@@ -138,6 +145,7 @@ public class AnalysisAsyncTaskService {
         AnalysisAsyncTask task = getTask(taskId);
         recordProcessingMetric(task, "failed");
         task.markFailed(failureReason, errorMessage, retryCount);
+        asyncMetricsRecorder.incrementAnalysisJob("failed");
         publishAfterCommit(toStatusResponse(task));
         createFailureNotificationSafely(task);
     }

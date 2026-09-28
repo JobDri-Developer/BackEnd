@@ -71,10 +71,14 @@ public class OpenAiAnalysisAdapter {
                     toIntegerTokenCount(usage == null ? null : usage.outputTokens())
             );
         } finally {
+            long durationMillis = elapsedMillis(startedAt);
             asyncMetricsRecorder.recordLlmRequest(
                     operationName,
                     success ? "success" : "error",
-                    elapsedMillis(startedAt)
+                    durationMillis
+            );
+            asyncMetricsRecorder.recordExternalRequest(
+                    "openai", operationName, success ? "success" : "error", durationMillis
             );
         }
     }

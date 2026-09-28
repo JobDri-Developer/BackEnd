@@ -1,0 +1,24 @@
+services:
+  ai-stub:
+    build: ./load-test/stub
+    environment:
+      PORT: 18080
+    ports:
+      - "18080:18080"
+    profiles: [loadtest]
+
+  k6:
+    image: grafana/k6:0.57.0
+    volumes:
+      - ./load-test/k6:/scripts:ro
+      - ./load-test/results:/results
+    environment:
+      BASE_URL: ${LOAD_TEST_BASE_URL:-http://api:8080}
+      ACCESS_TOKEN: ${LOAD_TEST_ACCESS_TOKEN:-}
+      MOCK_APPLY_IDS: ${LOAD_TEST_MOCK_APPLY_IDS:-}
+      TARGET_RPS: ${LOAD_TEST_TARGET_RPS:-1}
+      DURATION: ${LOAD_TEST_DURATION:-1m}
+      SCENARIO: ${LOAD_TEST_SCENARIO:-assumption-acceptance}
+    command: ["run", "--summary-export=/results/summary.json", "/scripts/analysis-acceptance.js"]
+    profiles: [loadtest]
+    depends_on: [api]
