@@ -77,14 +77,25 @@ curl -H 'X-Stub-Mode: dimension_mismatch' -X POST http://localhost:18080/v2/embe
 
 합성 계정과 합성 mock apply ID만 준비한 뒤 접수 부하를 실행한다. 운영 주소/토큰을 넣지 않는다. `LOAD_TEST_ENV_FILE`에는 합성 자격 증명과 로컬 컨테이너 주소만 있는 별도 파일을 지정한다. 신규 분석 처리량 테스트는 iteration마다 서로 다른 ID를 소비하며 목록이 부족하면 즉시 실패한다. `constant-arrival-rate`는 duration 경계에서 iteration을 하나 더 예약할 수 있으므로 1% 여유를 둔다. 10 RPS 10분에는 최소 6,060개, 전체 projected 묶음에는 최소 10,206개의 ID를 준비한다.
 
+격리 스택 기동 후 시드 스크립트를 실행하면 `jobdri_loadtest` DB인지 확인한 뒤 해당 DB의 데이터를 초기화하고 합성 ID와 JWT를 `load-test/results/k6.env`에 생성한다. 다른 DB 이름이면 아무것도 변경하지 않고 실패한다.
+
 ```bash
 export LOAD_TEST_ENV_FILE='/absolute/path/to/.env.loadtest'
+docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest up -d postgres redis rabbitmq ai-stub api
+LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/seed/seed.sh 6060
+```
 
-LOAD_TEST_ACCESS_TOKEN='test-token' \
-LOAD_TEST_MOCK_APPLY_IDS='<6,060개의 서로 다른 합성 ID를 쉼표로 연결>' \
+```bash
+export LOAD_TEST_ENV_FILE='/absolute/path/to/.env.loadtest'
+set -a
+source load-test/results/k6.env
+set +a
+
 LOAD_TEST_TARGET_RPS=10 LOAD_TEST_DURATION=10m \
 docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest run --rm k6
 ```
+
+A2를 접수 경로만 측정할 때는 worker를 중지하고 실행한다. end-to-end로 측정할 때는 별도 `analysis-server` worker의 `OPENAI_BASE_URL`을 stub으로 고정하고 worker concurrency/prefetch를 결과에 함께 기록한다. 실행 전 RabbitMQ의 analysis queue와 DLQ가 0인지 확인해 이전 실험 메시지가 결과에 섞이지 않게 한다.
 
 30 RPS burst는 `LOAD_TEST_TARGET_RPS=30 LOAD_TEST_DURATION=2m`로 실행한다. 전체 projected 묶음을 호스트 k6로 실행할 때도 합성 환경 파일을 먼저 로드하고, `runAcceptance`가 읽는 변수명으로 명시적으로 매핑한다.
 
@@ -137,7 +148,24 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 
 현재 테스트 중 `AnalysisWorkerBridgeServiceTest`, `AnalysisAsyncCreditCoordinatorTest`, `CreditServiceTest`, `AnalysisServiceTest`, `RabbitPublishSupportIntegrationTest`가 이 경계의 빠른 회귀 검증을 담당한다. RabbitMQ/PostgreSQL Testcontainers는 아직 없으므로 broker restart/consumer crash/실제 DLQ 검증은 격리 compose 환경의 수동 부하 단계다.
 
-## 7. 계측과 대시보드
+## 7. 측정 결과
+
+2026-09-28 로컬 격리 환경에서 A2를 10 RPS, 10분 동안 실행했다. API와 PostgreSQL, Redis, RabbitMQ, AI stub을 Docker Desktop에서 실행했고, 별도 `analysis-server` worker는 prefetch 5 / analysis concurrency 5로 AI stub을 사용했다.
+
+| 항목 | 측정값 |
+|---|---:|
+| 요청/iteration | 6,001 |
+| 성공률 | 100% |
+| 평균 | 17.37 ms |
+| p90 / p95 | 23.40 ms / 35.31 ms |
+| 최대 | 825.42 ms |
+| dropped / interrupted | 0 / 0 |
+| 종료 시 task | SUCCEEDED 6,001 |
+| 종료 시 Analysis / USE 거래 | 6,001 / 6,001 |
+
+`constant-arrival-rate` duration 경계에서 한 건이 추가 예약되어 6,001건이 실행됐다. 실행 전 DLQ를 비우지 않아 이전 실패 실험의 14건이 남아 있었으므로 이번 측정으로 DLQ=0 불변식은 판정하지 않는다. 다만 이번 실행에서 생성된 6,001개 task는 모두 SUCCEEDED였고 Analysis와 USE 거래 수도 각각 6,001개로 일치했다.
+
+## 8. 계측과 대시보드
 
 추가/기존 주요 Prometheus 이름:
 
@@ -165,6 +193,6 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 - OpenAI/Cohere error > 5% 또는 p95 > client timeout의 80%
 - Hikari active/max > 0.8 for 10m
 
-## 8. 측정값 해석
+## 9. 측정값 해석
 
 시장 도달률과 0.24/1.8/8.8 RPS, 30 RPS burst는 용량 계획 가정이다. k6 summary, Prometheus snapshot, RabbitMQ Management API snapshot에서 얻은 값만 `measured`로 보고한다. 측정 전에는 결과 칸에 `not measured`를 적고 가정을 결과처럼 서술하지 않는다.
