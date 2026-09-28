@@ -190,7 +190,7 @@ public class AnalysisAsyncWorkerBridge {
                     "취소된 자소서 분석 비동기 작업입니다. taskId=" + taskId
             );
         }
-        workerTaskResultService.upsertGenerated(
+        workerTaskResultService.upsertGeneratedInCurrentTransaction(
                 TaskType.ANALYSIS_COMPLETE,
                 taskId,
                 new AnalysisWorkerResultStoreRequest(request.userId(), request.mockApplyId(), request.llmResponse())

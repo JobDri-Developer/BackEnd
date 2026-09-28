@@ -123,6 +123,31 @@ public class NotificationService {
             String targetId,
             Map<String, Object> payload
     ) {
+        return createNotificationRecord(userId, notificationType, title, body, targetType, targetId, payload);
+    }
+
+    @Transactional
+    public NotificationResponse createNotificationInCurrentTransaction(
+            Long userId,
+            NotificationType notificationType,
+            String title,
+            String body,
+            NotificationTargetType targetType,
+            String targetId,
+            Map<String, Object> payload
+    ) {
+        return createNotificationRecord(userId, notificationType, title, body, targetType, targetId, payload);
+    }
+
+    private NotificationResponse createNotificationRecord(
+            Long userId,
+            NotificationType notificationType,
+            String title,
+            String body,
+            NotificationTargetType targetType,
+            String targetId,
+            Map<String, Object> payload
+    ) {
         User user = userService.getUser(userId);
         Notification notification = notificationRepository.save(
                 Notification.create(

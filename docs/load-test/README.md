@@ -165,6 +165,19 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 
 `constant-arrival-rate` duration 경계에서 한 건이 추가 예약되어 6,001건이 실행됐다. 실행 전 DLQ를 비우지 않아 이전 실패 실험의 14건이 남아 있었으므로 이번 측정으로 DLQ=0 불변식은 판정하지 않는다. 다만 이번 실행에서 생성된 6,001개 task는 모두 SUCCEEDED였고 Analysis와 USE 거래 수도 각각 6,001개로 일치했다.
 
+### C. worker concurrency drain
+
+같은 로컬 격리 환경에서 worker를 중지하고 10 RPS로 20초간 200~201개 task를 적재한 뒤, 동시성별로 새 worker를 시작했다. 처리 구간은 DB의 `min(started_at)`부터 `max(completed_at)`까지이며 각 구간은 DB를 재시드하고 queue/DLQ를 비운 독립 실행이다.
+
+| worker concurrency / prefetch | accepted | SUCCEEDED / FAILED | 처리 구간 | 처리량 | Hikari timeout |
+|---:|---:|---:|---:|---:|---:|
+| 5 | 201 | 201 / 0 | 3.342 s | 60.14 task/s | 0 |
+| 10 | 201 | 201 / 0 | 2.641 s | 76.11 task/s | 0 |
+| 25 | 200 | 200 / 0 | 3.544 s | 56.43 task/s | 0 |
+| 50 | 201 | 201 / 0 | 5.710 s | 35.20 task/s | 0 |
+
+이 합성 단일 계정 시나리오에서는 concurrency 10이 가장 높은 처리량을 보였고, 25와 50은 DB connection pool과 동일 user credit row 경합 때문에 확장 효과가 없었다. 로컬 기본값은 concurrency/prefetch 10으로 두고, 운영 결정 전에는 복수 사용자로 분산된 반복 측정과 실제 LLM rate limit을 함께 확인한다.
+
 ## 8. 계측과 대시보드
 
 추가/기존 주요 Prometheus 이름:

@@ -150,7 +150,11 @@ class AnalysisWorkerBridgeServiceTest {
         assertThatThrownBy(() -> analysisWorkerBridgeService.completeTask(task.getTaskId(), request))
                 .isInstanceOf(GeneralException.class);
 
-        verify(workerTaskResultService, never()).upsertGenerated(eq(TaskType.ANALYSIS_COMPLETE), eq(task.getTaskId()), any());
+        verify(workerTaskResultService, never()).upsertGeneratedInCurrentTransaction(
+                eq(TaskType.ANALYSIS_COMPLETE),
+                eq(task.getTaskId()),
+                any()
+        );
         verify(analysisService, never()).finalizeAnalysis(any(), eq(10L), any(), any());
         verify(analysisAsyncTaskService, never()).markSuccess(eq(task.getTaskId()), any());
     }
@@ -529,7 +533,7 @@ class AnalysisWorkerBridgeServiceTest {
         analysisWorkerBridgeService.completeTask(task.getTaskId(), request);
 
         InOrder inOrder = inOrder(workerTaskResultService);
-        inOrder.verify(workerTaskResultService).upsertGenerated(
+        inOrder.verify(workerTaskResultService).upsertGeneratedInCurrentTransaction(
                 TaskType.ANALYSIS_COMPLETE,
                 task.getTaskId(),
                 new AnalysisWorkerResultStoreRequest(1L, 10L, llmResponse)

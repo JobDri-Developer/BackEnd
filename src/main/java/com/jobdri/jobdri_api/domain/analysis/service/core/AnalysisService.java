@@ -93,7 +93,7 @@ public class AnalysisService {
         return analysisPreparationService.prepare(user, mockApplyId).toExecutionPayload();
     }
 
-    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @Transactional(readOnly = true)
     public AnalysisExecutionPayload prepareAnalysisExecution(
             User user,
             Long mockApplyId,
@@ -169,7 +169,7 @@ public class AnalysisService {
         return analysisResultPersistenceService.getPersistedAnalysis(mockApply);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public boolean hasReusableAnalysis(User user, Long mockApplyId) {
         AnalysisExecutionPayload payload = prepareAnalysisExecution(user, mockApplyId);
         String inputFingerprint = analysisInputFingerprintProvider.create(payload);

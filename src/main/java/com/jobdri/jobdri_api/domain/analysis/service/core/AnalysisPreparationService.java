@@ -16,6 +16,8 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.util.List;
@@ -30,6 +32,7 @@ public class AnalysisPreparationService {
     private final CorpusRetrievalService corpusRetrievalService;
     private final JobPostingRagContextAssembler jobPostingRagContextAssembler;
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public AnalysisPreparationResult prepare(User user, Long mockApplyId) {
         PreparedMockApplyContext context = prepareMockApplyContext(user, mockApplyId);
         return prepare(

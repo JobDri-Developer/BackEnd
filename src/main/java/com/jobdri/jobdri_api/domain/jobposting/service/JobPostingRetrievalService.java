@@ -9,6 +9,7 @@ import com.jobdri.jobdri_api.global.cohere.CohereEmbeddingClient;
 import com.pgvector.PGvector;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
@@ -46,10 +47,12 @@ public class JobPostingRetrievalService {
     private final CohereEmbeddingClient cohereEmbeddingClient;
     private final DataSource dataSource;
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<JobPostingSimilarityResult> findSimilarJobPostings(Long jobPostingId) {
         return findSimilarJobPostings(jobPostingId, DEFAULT_LIMIT);
     }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public List<JobPostingSimilarityResult> findSimilarJobPostings(Long jobPostingId, int limit) {
         JobPosting current = jobPostingRepository.findById(jobPostingId)
                 .orElseThrow(() -> new GeneralException(
