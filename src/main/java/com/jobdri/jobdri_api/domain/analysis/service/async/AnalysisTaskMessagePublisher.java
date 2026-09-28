@@ -8,6 +8,7 @@ import com.jobdri.jobdri_api.global.logging.LoggingContext;
 import com.jobdri.jobdri_api.global.logging.LoggingMdcKeys;
 import com.jobdri.jobdri_api.global.logging.WorkerMessageHeaders;
 import com.jobdri.jobdri_api.global.mq.service.RabbitPublishSupport;
+import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.core.MessageDeliveryMode;
@@ -26,6 +27,7 @@ public class AnalysisTaskMessagePublisher {
     private final RabbitPublishSupport rabbitPublishSupport;
     private final DirectExchange workerExchange;
     private final AnalysisQueueProperties analysisQueueProperties;
+    private final AsyncMetricsRecorder asyncMetricsRecorder;
 
     public void publish(AnalysisTaskMessage message) {
         Map<String, String> publishContext = publishContext(message);
@@ -62,6 +64,7 @@ public class AnalysisTaskMessagePublisher {
             try (var ignored = LoggingContext.with("queue.publish.failed", errorCode, publishContext)) {
                 log.warn("Failed to publish analysis task message: {}", e.getMessage());
             }
+            asyncMetricsRecorder.incrementAnalysisRequest("publish_failed");
             throw e;
         }
     }

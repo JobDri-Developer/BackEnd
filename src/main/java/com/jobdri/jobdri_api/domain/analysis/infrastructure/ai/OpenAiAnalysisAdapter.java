@@ -54,13 +54,24 @@ public class OpenAiAnalysisAdapter {
                 ? null
                 : RequestOptions.builder().timeout(timeout).build();
         long startedAt = System.nanoTime();
+        long[] externalDurationMillis = {-1L};
+        boolean[] externalSuccess = {false};
         boolean success = false;
         try {
             StructuredResponse<T> response = llmConcurrencyLimiter.execute(
                     operationName,
-                    () -> requestOptions == null
-                            ? openAIClient.responses().create(params)
-                            : openAIClient.responses().create(params, requestOptions)
+                    () -> {
+                        long externalStartedAt = System.nanoTime();
+                        try {
+                            StructuredResponse<T> externalResponse = requestOptions == null
+                                    ? openAIClient.responses().create(params)
+                                    : openAIClient.responses().create(params, requestOptions);
+                            externalSuccess[0] = true;
+                            return externalResponse;
+                        } finally {
+                            externalDurationMillis[0] = elapsedMillis(externalStartedAt);
+                        }
+                    }
             );
             T structuredContent = analysisResponseParser.extractStructuredContent(response);
             ResponseUsage usage = response.usage().orElse(null);
@@ -71,11 +82,20 @@ public class OpenAiAnalysisAdapter {
                     toIntegerTokenCount(usage == null ? null : usage.outputTokens())
             );
         } finally {
+            long durationMillis = elapsedMillis(startedAt);
             asyncMetricsRecorder.recordLlmRequest(
                     operationName,
                     success ? "success" : "error",
-                    elapsedMillis(startedAt)
+                    durationMillis
             );
+            if (externalDurationMillis[0] >= 0) {
+                asyncMetricsRecorder.recordExternalRequest(
+                        "openai",
+                        operationName,
+                        externalSuccess[0] ? "success" : "error",
+                        externalDurationMillis[0]
+                );
+            }
         }
     }
 

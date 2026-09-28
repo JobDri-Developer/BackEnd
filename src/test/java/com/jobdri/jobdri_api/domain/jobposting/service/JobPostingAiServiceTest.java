@@ -337,7 +337,9 @@ class JobPostingAiServiceTest {
                 "",
                 "",
                 "Backend\nEngineer 공개채용",
-                0.9
+                0.9,
+                List.of("Java", "Spring"),
+                "2026-10-31T18:00:00"
         );
 
         JobPostingExtractResponse normalized = ReflectionTestUtils.invokeMethod(
@@ -349,6 +351,8 @@ class JobPostingAiServiceTest {
 
         assertThat(normalized).isNotNull();
         assertThat(normalized.postingName()).isEqualTo("BACKEND Engineer");
+        assertThat(normalized.requiredSkills()).containsExactly("Java", "Spring");
+        assertThat(normalized.deadlineAt()).isEqualTo("2026-10-31T18:00:00");
     }
 
     @Test

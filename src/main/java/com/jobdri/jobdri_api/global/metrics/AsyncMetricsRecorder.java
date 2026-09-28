@@ -47,6 +47,37 @@ public class AsyncMetricsRecorder {
                 .record(durationMillis, TimeUnit.MILLISECONDS);
     }
 
+    public void incrementAnalysisRequest(String outcome) {
+        counter("analysis.request", Tags.of("outcome", outcome)).increment();
+    }
+
+    public void incrementAnalysisJob(String event) {
+        counter("analysis.job", Tags.of("event", event)).increment();
+    }
+
+    public void incrementAnalysisRetry(String failureReason) {
+        counter("analysis.job.retry", Tags.of("failure_reason", safeTag(failureReason))).increment();
+    }
+
+    public void incrementAnalysisDuplicate(String stage) {
+        counter("analysis.job.duplicate", Tags.of("stage", safeTag(stage))).increment();
+    }
+
+    public void incrementCreditTransition(String transition, String outcome) {
+        counter("analysis.credit.transition", Tags.of(
+                "transition", safeTag(transition),
+                "outcome", safeTag(outcome)
+        )).increment();
+    }
+
+    public void recordExternalRequest(String provider, String operation, String outcome, long durationMillis) {
+        timer("external.ai.request.duration", Tags.of(
+                "provider", safeTag(provider),
+                "operation", safeTag(operation),
+                "outcome", safeTag(outcome)
+        )).record(durationMillis, TimeUnit.MILLISECONDS);
+    }
+
     public void recordProcessing(String taskType, String outcome, long durationMillis) {
         timer("async.processing.duration", Tags.of("task_type", taskType, "outcome", outcome))
                 .record(durationMillis, TimeUnit.MILLISECONDS);
@@ -79,5 +110,9 @@ public class AsyncMetricsRecorder {
         return Counter.builder(name)
                 .tags(tags)
                 .register(meterRegistry);
+    }
+
+    private String safeTag(String value) {
+        return value == null || value.isBlank() ? "unknown" : value;
     }
 }

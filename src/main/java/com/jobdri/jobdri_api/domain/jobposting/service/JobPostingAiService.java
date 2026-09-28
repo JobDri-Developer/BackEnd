@@ -340,7 +340,7 @@ public class JobPostingAiService {
 
         return """
                 이 %s는 채용 공고입니다.
-                공고 제목, 회사명, 직무명, 주요 업무, 자격 요건, 우대 사항을 추출해주세요.
+                공고 제목, 회사명, 직무명, 주요 업무, 자격 요건, 우대 사항, 기술 태그, 마감일을 추출해주세요.
 
                 반드시 아래 JSON 형식으로만 응답해주세요.
                 설명 문장, 마크다운, 코드블럭은 포함하지 마세요.
@@ -353,7 +353,9 @@ public class JobPostingAiService {
                   "requirements": "string",
                   "preferredQualifications": "string",
                   "rawText": "string",
-                  "confidence": number
+                  "confidence": number,
+                  "requiredSkills": ["string"],
+                  "deadlineAt": "string"
                 }
 
                 규칙:
@@ -364,8 +366,10 @@ public class JobPostingAiService {
                 5. 텍스트가 있으면 rawText에는 입력 원문을 최대한 그대로 넣어주세요.
                 6. 이미지와 텍스트가 둘 다 있으면 둘을 함께 참고해서 가장 정확한 값으로 채워주세요.
                 7. 정보가 없거나 확실하지 않으면 해당 필드는 빈 문자열로 두세요.
-                8. confidence는 추출 결과 전체에 대한 신뢰도를 0~1 사이 실수로 반환하세요.
-                9. JSON 외의 다른 텍스트는 절대 출력하지 마세요.
+                8. requiredSkills는 공고에 명시된 기술명만 중복 없이 배열로 반환하세요.
+                9. deadlineAt은 마감 시각을 ISO-8601 local date-time 형식(yyyy-MM-dd'T'HH:mm:ss)으로 반환하고, 알 수 없으면 빈 문자열로 두세요.
+                10. confidence는 추출 결과 전체에 대한 신뢰도를 0~1 사이 실수로 반환하세요.
+                11. JSON 외의 다른 텍스트는 절대 출력하지 마세요.
 
                 [채용 공고 텍스트]
                 %s
@@ -479,7 +483,9 @@ public class JobPostingAiService {
                 defaultString(response.requirements()),
                 defaultString(response.preferredQualifications()),
                 normalizedRawText,
-                confidence
+                confidence,
+                response.requiredSkills() == null ? List.of() : response.requiredSkills(),
+                defaultString(response.deadlineAt())
         );
     }
 
@@ -508,7 +514,9 @@ public class JobPostingAiService {
                 "",
                 "",
                 rawText == null ? "" : rawText,
-                0.0
+                0.0,
+                List.of(),
+                ""
         );
     }
 

@@ -45,13 +45,38 @@
 | 기동 readiness | 승인 데이터 5건 검증 통과 | 5건 | 통과 |
 | 활성 profile | `prod,fewshot-canary` | 적용 | 통과 |
 | 배포 이미지 | 배포 커밋 SHA와 일치 | 일치 | 통과 |
-| 내부 분석 요청 | 대표 직무·문항 end-to-end 성공 | 확인 예정 | 보류 |
+| 내부 분석 요청 | 대표 직무·문항 end-to-end 성공 | 2026-09-24 대표 분석 1건 정상 완료 | 통과 |
 | 선택 mode | `EMBEDDING` 또는 의도된 `LOCAL_FALLBACK` | 확인 예정 | 보류 |
 | 승인 후보 범위 | `dynamic few-shot selection completed` 로그의 `selectedIds`가 승인된 5개 ID의 부분집합 | 확인 예정 | 보류 |
 | STATIC_FALLBACK | 내부 검증에서 0건 | 확인 예정 | 보류 |
-| 개인정보 비노출 | 로그와 metric label에 원문 없음 | 확인 예정 | 보류 |
-| Grafana 수집 | Few-shot 지표 조회 가능 | 확인 예정 | 보류 |
-| Discord 경보 | Preview 정상, 테스트 알림 수신 | 확인 예정 | 보류 |
+| 개인정보 비노출 | 로그와 metric label에 원문 없음 | Cloud Loki의 `userId`, `clientIp` 마스킹 확인; 동적 선택 로그는 표본 대기 | 부분 통과 |
+| Grafana 수집 | Few-shot 지표 조회 가능 | Prometheus remote write와 Loki 신규 로그 수집 확인; Few-shot 시계열은 동적 요청 대기 | 부분 통과 |
+| Discord 경보 | Preview 정상, 테스트 알림 수신 | Grafana contact point 알림 수신 확인 | 통과 |
+
+### 2026-09-24 내부 분석 및 관측 연결 확인
+
+- 대표 분석 task `40b744bf-1ee5-41f8-a456-bd3286a01254`가 Worker에서 오류 없이 완료됐다.
+- 해당 task의 SHA-256 rollout bucket은 `50`으로 5% 적용 조건인 `bucket < 5`에 포함되지 않았다.
+  따라서 동적 선택 로그와 `fewshot_*` 시계열이 생성되지 않은 것은 기대 동작이다.
+- Grafana Cloud Prometheus에서 `up{job="server_metric"}` 수집을 확인했다.
+- Grafana Cloud Loki에서 `service_name="jobdri-api"`인 신규 요청 로그를 확인했다.
+- Cloud Loki 신규 로그의 `userId`와 `clientIp`가 `[REDACTED]`로 치환되는 것을 확인했다.
+- 동적 선택 표본을 만들기 위한 반복 요청이나 rollout 임시 확대는 수행하지 않고, 다음 자연스러운
+  내부 분석이 5% cohort에 포함될 때 선택 mode와 승인 후보 범위를 검증한다.
+
+### 2026-09-25 즉시 복귀 절차 점검
+
+- 배포 중인 immutable 이미지
+  `ghcr.io/jobdri-developer/backend@sha256:b4a842bcf488a6c62576792361772b6d6e2764b2aa95a893f55ca5bbee0f5755`를
+  유지한 채 `SPRING_PROFILES_ACTIVE=prod`로 API만 재생성했다.
+- 컨테이너가 `running` 상태로 전환되고 `Started JobdriApiApplication` 로그가 남았으며,
+  canary readiness 로그는 발생하지 않았다.
+- 같은 이미지로 `SPRING_PROFILES_ACTIVE=prod,fewshot-canary`를 복구했다.
+- 복구 기동에서 datasetVersion `fewshot-pm-reviewed-20260914-v2`, rollout 5%, 후보 5건과
+  ID `FS-02`, `FS-03`, `FS-05`, `FS-08`, `FS-09`의 readiness 통과를 확인했다.
+- 이번 점검은 profile 비활성화·복구와 애플리케이션 기동까지 검증했다. 비활성 상태에서 신규 분석을
+  완료해 동적 Few-shot context가 전달되지 않는지 확인하는 항목은 별도 표본이 없어 미완료로 남긴다.
+- 비동기 Worker 경로의 비활성 동작은 `STATIC_FALLBACK`이 아니라 optional `fewShot` context 미전달이다.
 
 ## 서비스 오픈 후 관측
 

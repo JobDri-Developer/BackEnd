@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS job_applications (
     gpa NUMERIC(6, 3),
     max_gpa NUMERIC(6, 3),
     archived_at TIMESTAMP,
+    ingest_idempotency_key VARCHAR(100),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP,
     CONSTRAINT ck_job_applications_stage
@@ -36,7 +37,12 @@ CREATE TABLE IF NOT EXISTS job_applications (
 
 ALTER TABLE IF EXISTS job_applications
     ADD COLUMN IF NOT EXISTS gpa NUMERIC(6, 3),
-    ADD COLUMN IF NOT EXISTS max_gpa NUMERIC(6, 3);
+    ADD COLUMN IF NOT EXISTS max_gpa NUMERIC(6, 3),
+    ADD COLUMN IF NOT EXISTS ingest_idempotency_key VARCHAR(100);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uk_job_applications_user_ingest_key
+    ON job_applications (user_id, ingest_idempotency_key)
+    WHERE ingest_idempotency_key IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS job_application_required_skills (
     job_application_id BIGINT NOT NULL REFERENCES job_applications(id) ON DELETE CASCADE,

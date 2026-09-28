@@ -5,6 +5,7 @@ import com.jobdri.jobdri_api.domain.analysis.service.core.AnalysisCreditService;
 import com.jobdri.jobdri_api.domain.analysis.type.AnalysisAsyncCreditStatus;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
+import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -12,6 +13,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -28,6 +30,9 @@ class AnalysisAsyncCreditCoordinatorTest {
 
     @Mock
     private UserService userService;
+
+    @Mock
+    private AsyncMetricsRecorder asyncMetricsRecorder;
 
     @InjectMocks
     private AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator;
@@ -111,5 +116,45 @@ class AnalysisAsyncCreditCoordinatorTest {
         assertThat(firstConfirmed).isTrue();
         assertThat(secondConfirmed).isFalse();
         assertThat(task.getCreditStatus()).isEqualTo(AnalysisAsyncCreditStatus.CONFIRMED);
+    }
+
+    @Test
+    @DisplayName("CONFIRMED 크레딧은 실패 복구가 반복되어도 RELEASED로 바뀌지 않는다")
+    void confirmedCreditCannotBeReleasedByRecovery() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        User user = User.signup("테스트 사용자", "analysis-credit-terminal@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        when(userService.getUser(1L)).thenReturn(user);
+        when(analysisCreditService.createAsyncReferenceId(task.getTaskId(), 1))
+                .thenReturn("analysisTaskId=" + task.getTaskId() + ":creditVersion=1");
+
+        assertThat(analysisAsyncCreditCoordinator.reserveCreditIfNeeded(task)).isTrue();
+        assertThat(analysisAsyncCreditCoordinator.confirmReservedCreditIfNeeded(task)).isTrue();
+
+        assertThat(analysisAsyncCreditCoordinator.releaseReservedCreditIfNeeded(task)).isFalse();
+        assertThat(analysisAsyncCreditCoordinator.releaseReservedCreditIfNeeded(task)).isFalse();
+        assertThat(task.getCreditStatus()).isEqualTo(AnalysisAsyncCreditStatus.CONFIRMED);
+        verify(analysisCreditService, never()).refund(any(), anyString());
+    }
+
+    @Test
+    @DisplayName("크레딧 전이 지표는 트랜잭션 커밋 후 기록한다")
+    void creditMetricIsRecordedAfterCommit() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        User user = User.signup("테스트 사용자", "analysis-credit-metric@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        when(userService.getUser(1L)).thenReturn(user);
+        when(analysisCreditService.createAsyncReferenceId(task.getTaskId(), 1)).thenReturn("credit-ref-1");
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            assertThat(analysisAsyncCreditCoordinator.reserveCreditIfNeeded(task)).isTrue();
+            verify(asyncMetricsRecorder, never()).incrementCreditTransition(anyString(), anyString());
+
+            TransactionSynchronizationManager.getSynchronizations().forEach(synchronization -> synchronization.afterCommit());
+            verify(asyncMetricsRecorder).incrementCreditTransition("reserved", "success");
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
     }
 }

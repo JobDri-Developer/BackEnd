@@ -24,6 +24,7 @@ import jakarta.persistence.OneToOne;
 import jakarta.persistence.OrderBy;
 import jakarta.persistence.OrderColumn;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import jakarta.persistence.CascadeType;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
@@ -46,7 +47,11 @@ import java.util.List;
         indexes = {
                 @Index(name = "idx_job_applications_user_stage_order", columnList = "user_id,stage,stage_order"),
                 @Index(name = "idx_job_applications_user_archived", columnList = "user_id,archived_at")
-        }
+        },
+        uniqueConstraints = @UniqueConstraint(
+                name = "uk_job_applications_user_ingest_key",
+                columnNames = {"user_id", "ingest_idempotency_key"}
+        )
 )
 public class JobApplication extends BaseEntity {
 
@@ -124,6 +129,9 @@ public class JobApplication extends BaseEntity {
 
     private LocalDateTime archivedAt;
 
+    @Column(name = "ingest_idempotency_key", length = 100)
+    private String ingestIdempotencyKey;
+
     @OneToMany(mappedBy = "jobApplication", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("displayOrder ASC")
     @Builder.Default
@@ -160,6 +168,13 @@ public class JobApplication extends BaseEntity {
         }
         this.archivedAt = null;
         this.stageOrder = stageOrder;
+    }
+
+    public void assignMockApply(MockApply mockApply) {
+        if (mockApply == null || this.mockApply != null) {
+            throw new IllegalStateException("모의지원이 연결되지 않은 카드에만 연결할 수 있습니다.");
+        }
+        this.mockApply = mockApply;
     }
 
     public void updateDetails(
@@ -248,5 +263,28 @@ public class JobApplication extends BaseEntity {
                 .currentLabel(currentLabel)
                 .currentAt(currentAt)
                 .build();
+    }
+
+    public static JobApplication createFromIngest(
+            User user,
+            DetailClassification detailClassification,
+            String companyName,
+            String postingName,
+            String jobTitle,
+            String task,
+            String requirement,
+            String preferred,
+            List<String> requiredSkills,
+            LocalDateTime deadlineAt,
+            int stageOrder,
+            String idempotencyKey
+    ) {
+        JobApplication application = create(
+                user, null, detailClassification, companyName, postingName, jobTitle, null,
+                task, requirement, preferred, requiredSkills, deadlineAt,
+                JobApplicationStage.PLANNED, stageOrder, null, null
+        );
+        application.ingestIdempotencyKey = idempotencyKey;
+        return application;
     }
 }

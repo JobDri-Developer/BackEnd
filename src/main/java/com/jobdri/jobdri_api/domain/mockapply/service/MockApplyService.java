@@ -92,6 +92,16 @@ public class MockApplyService {
         return MockApplyCreateResponse.from(mockApply);
     }
 
+    @Transactional(propagation = Propagation.MANDATORY)
+    public MockApply createActualApply(User user, JobPosting jobPosting) {
+        User validatedUser = userService.validateUser(user);
+        if (jobPosting == null || jobPosting.getUser() == null
+                || !validatedUser.getId().equals(jobPosting.getUser().getId())) {
+            throw new GeneralException(GeneralErrorCode.FORBIDDEN, "해당 공고에 접근할 수 없습니다.");
+        }
+        return mockApplyRepository.save(MockApply.create(validatedUser, jobPosting, ApplyType.ACTUAL, 1));
+    }
+
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     @AuditLogEvent(action = "MOCK_APPLY_RETRY", targetType = "MOCK_APPLY", targetId = "#result.mockApplyId()")
     public MockApplyRetryResponse retryMockApply(User user, Long mockApplyId) {

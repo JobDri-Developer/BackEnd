@@ -18,6 +18,8 @@ import java.util.Optional;
 
 public interface JobApplicationRepository extends JpaRepository<JobApplication, Long> {
 
+    Optional<JobApplication> findByUserIdAndIngestIdempotencyKey(Long userId, String ingestIdempotencyKey);
+
     @Query("""
             select distinct ja from JobApplication ja left join fetch ja.requiredSkills
             where ja.user.id = :userId and ja.archivedAt is null
@@ -52,6 +54,11 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select ja from JobApplication ja where ja.id = :id")
     Optional<JobApplication> findByIdForUpdate(@Param("id") Long id);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @EntityGraph(attributePaths = {"detailClassification", "mockApply", "mockApply.jobPosting"})
+    @Query("select ja from JobApplication ja where ja.id = :id")
+    Optional<JobApplication> findForConversionByIdForUpdate(@Param("id") Long id);
 
     @Query(
             value = """
