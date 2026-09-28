@@ -176,7 +176,7 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 | 25 | 200 | 200 / 0 | 3.544 s | 56.43 task/s | 0 |
 | 50 | 201 | 201 / 0 | 5.710 s | 35.20 task/s | 0 |
 
-이 합성 단일 계정 시나리오에서는 concurrency 10이 가장 높은 처리량을 보였고, 25와 50은 DB connection pool과 동일 user credit row 경합 때문에 확장 효과가 없었다. 로컬 기본값은 concurrency/prefetch 10으로 두고, 운영 결정 전에는 복수 사용자로 분산된 반복 측정과 실제 LLM rate limit을 함께 확인한다.
+이 합성 단일 계정 시나리오에서는 concurrency 10이 가장 높은 처리량을 보였고, 25와 50에서는 처리량이 감소했다. 로컬 기본값은 concurrency/prefetch 10으로 두고, 운영 결정 전에는 복수 사용자로 분산된 반복 측정과 실제 LLM rate limit을 함께 확인한다.
 
 ## 8. 계측과 대시보드
 

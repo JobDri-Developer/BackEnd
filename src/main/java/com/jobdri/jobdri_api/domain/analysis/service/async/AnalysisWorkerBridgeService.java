@@ -99,7 +99,7 @@ public class AnalysisWorkerBridgeService {
         return analysisAsyncWorkerBridge.getContext(taskId, userId, mockApplyId);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public AnalysisResponse completeTask(String taskId, AnalysisWorkerCompleteRequest request) {
         return analysisAsyncWorkerBridge.completeTask(taskId, request);
     }

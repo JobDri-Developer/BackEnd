@@ -93,7 +93,7 @@ public class AnalysisService {
         return analysisPreparationService.prepare(user, mockApplyId).toExecutionPayload();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public AnalysisExecutionPayload prepareAnalysisExecution(
             User user,
             Long mockApplyId,
