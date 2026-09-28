@@ -360,7 +360,7 @@ public class AnalysisAsyncTaskService {
         payload.put("mockApplyId", task.getMockApplyId());
         payload.put("status", task.getStatus().name());
 
-        notificationService.createNotification(
+        notificationService.createNotificationInCurrentTransaction(
                 task.getUserId(),
                 NotificationType.ANALYSIS_ASYNC_SUCCEEDED,
                 "자소서 분석이 완료되었습니다.",
@@ -379,7 +379,7 @@ public class AnalysisAsyncTaskService {
         payload.put("failureReason", task.getFailureReason() != null ? task.getFailureReason().name() : null);
         payload.put("status", task.getStatus().name());
 
-        notificationService.createNotification(
+        notificationService.createNotificationInCurrentTransaction(
                 task.getUserId(),
                 NotificationType.ANALYSIS_ASYNC_FAILED,
                 "자소서 분석이 실패했습니다.",

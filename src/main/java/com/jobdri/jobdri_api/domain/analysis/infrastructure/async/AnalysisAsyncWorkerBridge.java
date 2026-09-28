@@ -170,8 +170,28 @@ public class AnalysisAsyncWorkerBridge {
         }
     }
 
-    @Transactional
     public AnalysisResponse completeTask(String taskId, AnalysisWorkerCompleteRequest request) {
+        CompletionPreparation preparation = transactionTemplate.execute(
+                status -> loadCompletionPreparation(taskId, request)
+        );
+        if (preparation == null) {
+            throw new GeneralException(
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "자소서 분석 worker 완료 준비에 실패했습니다. taskId=" + taskId
+            );
+        }
+
+        AnalysisExecutionPayload payload = prepareCompletionPayload(request, preparation);
+        return transactionTemplate.execute(
+                status -> completeTaskInTransaction(taskId, request, payload)
+        );
+    }
+
+    private AnalysisResponse completeTaskInTransaction(
+            String taskId,
+            AnalysisWorkerCompleteRequest request,
+            AnalysisExecutionPayload payload
+    ) {
         AnalysisAsyncTask task = getTaskForUpdate(taskId);
         if (!task.getUserId().equals(request.userId()) || !task.getMockApplyId().equals(request.mockApplyId())) {
             throw new GeneralException(
@@ -190,7 +210,7 @@ public class AnalysisAsyncWorkerBridge {
                     "취소된 자소서 분석 비동기 작업입니다. taskId=" + taskId
             );
         }
-        workerTaskResultService.upsertGenerated(
+        workerTaskResultService.upsertGeneratedInCurrentTransaction(
                 TaskType.ANALYSIS_COMPLETE,
                 taskId,
                 new AnalysisWorkerResultStoreRequest(request.userId(), request.mockApplyId(), request.llmResponse())
@@ -213,19 +233,13 @@ public class AnalysisAsyncWorkerBridge {
             }
         }
 
+        if (payload == null) {
+            throw new GeneralException(
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    "자소서 분석 worker 완료 payload가 존재하지 않습니다. taskId=" + taskId
+            );
+        }
         User user = userService.getUser(request.userId());
-        AnalysisWorkerContextResponse contextSnapshot = readContextSnapshot(task);
-        AnalysisExecutionPayload payload = analysisService.prepareAnalysisExecution(
-                user,
-                request.mockApplyId(),
-                contextSnapshot.similarJobPostings()
-        ).withAnswerSnapshots(contextSnapshot.questions().stream()
-                .filter(question -> question.answer() != null && !question.answer().isBlank())
-                .map(question -> new AnalysisExecutionPayload.AnswerSnapshot(
-                        question.questionId(),
-                        question.answer()
-                ))
-                .toList());
         AnalysisLlmResponse llmResponse = request.llmResponse();
         AnalysisResponse response = analysisService.finalizeAnalysis(
                 user,
@@ -246,6 +260,48 @@ public class AnalysisAsyncWorkerBridge {
             log.info("Analysis worker completed task");
         }
         return response;
+    }
+
+    private CompletionPreparation loadCompletionPreparation(
+            String taskId,
+            AnalysisWorkerCompleteRequest request
+    ) {
+        AnalysisAsyncTask task = getTask(taskId);
+        if (!task.getUserId().equals(request.userId()) || !task.getMockApplyId().equals(request.mockApplyId())) {
+            throw new GeneralException(
+                    GeneralErrorCode.FORBIDDEN,
+                    "자소서 분석 worker 완료 요청 정보가 작업 정보와 일치하지 않습니다."
+            );
+        }
+        boolean preparationRequired = task.getStatus() != AnalysisAsyncTaskStatus.SUCCEEDED
+                && task.getStatus() != AnalysisAsyncTaskStatus.CANCELLED
+                && (task.getStatus() != AnalysisAsyncTaskStatus.FAILED || task.isRecoverablePublishFailure());
+        return new CompletionPreparation(
+                preparationRequired ? readContextSnapshot(task) : null,
+                preparationRequired
+        );
+    }
+
+    private AnalysisExecutionPayload prepareCompletionPayload(
+            AnalysisWorkerCompleteRequest request,
+            CompletionPreparation preparation
+    ) {
+        if (!preparation.required()) {
+            return null;
+        }
+        AnalysisWorkerContextResponse contextSnapshot = preparation.contextSnapshot();
+        User user = userService.getUser(request.userId());
+        return analysisService.prepareAnalysisExecution(
+                user,
+                request.mockApplyId(),
+                contextSnapshot.similarJobPostings()
+        ).withAnswerSnapshots(contextSnapshot.questions().stream()
+                .filter(question -> question.answer() != null && !question.answer().isBlank())
+                .map(question -> new AnalysisExecutionPayload.AnswerSnapshot(
+                        question.questionId(),
+                        question.answer()
+                ))
+                .toList());
     }
 
     @Transactional
@@ -440,5 +496,11 @@ public class AnalysisAsyncWorkerBridge {
     }
 
     private record ContextAccess(AnalysisWorkerContextResponse snapshot) {
+    }
+
+    private record CompletionPreparation(
+            AnalysisWorkerContextResponse contextSnapshot,
+            boolean required
+    ) {
     }
 }

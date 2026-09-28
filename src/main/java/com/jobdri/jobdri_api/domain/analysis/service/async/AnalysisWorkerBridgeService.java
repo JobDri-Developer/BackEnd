@@ -15,6 +15,7 @@ import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.domain.workerresult.dto.WorkerTaskResultResponse;
 import com.jobdri.jobdri_api.domain.workerresult.service.WorkerTaskResultService;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -98,12 +99,12 @@ public class AnalysisWorkerBridgeService {
         return analysisAsyncWorkerBridge.getContext(taskId, userId, mockApplyId);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public AnalysisResponse completeTask(String taskId, AnalysisWorkerCompleteRequest request) {
         return analysisAsyncWorkerBridge.completeTask(taskId, request);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void storeGeneratedResult(String taskId, AnalysisWorkerResultStoreRequest request) {
         analysisAsyncWorkerBridge.storeGeneratedResult(taskId, request);
     }

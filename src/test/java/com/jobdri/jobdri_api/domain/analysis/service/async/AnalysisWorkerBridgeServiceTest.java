@@ -145,12 +145,17 @@ class AnalysisWorkerBridgeServiceTest {
                 10L
         );
 
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
         when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
 
         assertThatThrownBy(() -> analysisWorkerBridgeService.completeTask(task.getTaskId(), request))
                 .isInstanceOf(GeneralException.class);
 
-        verify(workerTaskResultService, never()).upsertGenerated(eq(TaskType.ANALYSIS_COMPLETE), eq(task.getTaskId()), any());
+        verify(workerTaskResultService, never()).upsertGeneratedInCurrentTransaction(
+                eq(TaskType.ANALYSIS_COMPLETE),
+                eq(task.getTaskId()),
+                any()
+        );
         verify(analysisService, never()).finalizeAnalysis(any(), eq(10L), any(), any());
         verify(analysisAsyncTaskService, never()).markSuccess(eq(task.getTaskId()), any());
     }
@@ -396,6 +401,7 @@ class AnalysisWorkerBridgeServiceTest {
         );
 
         when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         AnalysisExecutionPayload changedRetrievalPayload = new AnalysisExecutionPayload(
                 1L, 10L, jobPosting, List.of(), List.of(), null, null, List.of(laterContext)
@@ -456,7 +462,7 @@ class AnalysisWorkerBridgeServiceTest {
     @DisplayName("완료 요청의 사용자나 mockApply가 task와 다르면 거부한다")
     void completeTaskRejectsMismatchedIdentity() {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
-        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
 
         AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
                 2L,
@@ -515,6 +521,7 @@ class AnalysisWorkerBridgeServiceTest {
         var llmResponse = mock(com.jobdri.jobdri_api.domain.analysis.dto.external.llm.AnalysisLlmResponse.class);
 
         when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.getAnalysis(user, 10L)).thenReturn(mock(com.jobdri.jobdri_api.domain.analysis.dto.response.AnalysisResponse.class));
 
@@ -529,7 +536,7 @@ class AnalysisWorkerBridgeServiceTest {
         analysisWorkerBridgeService.completeTask(task.getTaskId(), request);
 
         InOrder inOrder = inOrder(workerTaskResultService);
-        inOrder.verify(workerTaskResultService).upsertGenerated(
+        inOrder.verify(workerTaskResultService).upsertGeneratedInCurrentTransaction(
                 TaskType.ANALYSIS_COMPLETE,
                 task.getTaskId(),
                 new AnalysisWorkerResultStoreRequest(1L, 10L, llmResponse)
@@ -569,6 +576,7 @@ class AnalysisWorkerBridgeServiceTest {
         );
 
         when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.prepareAnalysisExecution(user, 10L, List.of())).thenReturn(completionPayload);
         when(analysisService.finalizeAnalysis(user, 10L, completionPayload, llmResponse, "publish-fingerprint"))
@@ -622,6 +630,7 @@ class AnalysisWorkerBridgeServiceTest {
             assertThat(successMarked.await(5, TimeUnit.SECONDS)).isTrue();
             return Optional.of(task);
         });
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
         when(userService.getUser(1L)).thenReturn(user);
         when(analysisService.prepareAnalysisExecution(user, 10L, List.of())).thenReturn(completionPayload);
         when(analysisService.finalizeAnalysis(user, 10L, completionPayload, llmResponse, "complete-fingerprint"))

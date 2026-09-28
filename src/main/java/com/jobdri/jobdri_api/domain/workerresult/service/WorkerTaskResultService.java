@@ -22,6 +22,15 @@ public class WorkerTaskResultService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void upsertGenerated(TaskType taskType, String taskId, Object payload) {
+        upsertGeneratedResult(taskType, taskId, payload);
+    }
+
+    @Transactional
+    public void upsertGeneratedInCurrentTransaction(TaskType taskType, String taskId, Object payload) {
+        upsertGeneratedResult(taskType, taskId, payload);
+    }
+
+    private void upsertGeneratedResult(TaskType taskType, String taskId, Object payload) {
         String serializedPayload = serialize(payload);
         workerTaskResultRepository.findById(taskId)
                 .ifPresentOrElse(
