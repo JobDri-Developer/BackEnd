@@ -86,7 +86,20 @@ LOAD_TEST_TARGET_RPS=10 LOAD_TEST_DURATION=10m \
 docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest run --rm k6
 ```
 
-30 RPS burst는 `LOAD_TEST_TARGET_RPS=30 LOAD_TEST_DURATION=2m`로 실행한다. 전체 projected 묶음은 로컬 k6에서 `k6 run load-test/k6/projected-scenarios.js`로 명시 실행한다. active-task/cached-result 재사용은 신규 처리량과 섞지 않고 `analysis-duplicate.js`에서 하나의 합성 `MOCK_APPLY_ID`로 별도 검증한다. 결과는 `load-test/results/`에 생성되며 git에서 제외한다.
+30 RPS burst는 `LOAD_TEST_TARGET_RPS=30 LOAD_TEST_DURATION=2m`로 실행한다. 전체 projected 묶음을 호스트 k6로 실행할 때도 합성 환경 파일을 먼저 로드하고, `runAcceptance`가 읽는 변수명으로 명시적으로 매핑한다.
+
+```bash
+set -a
+source "$LOAD_TEST_ENV_FILE"
+set +a
+
+BASE_URL="${LOAD_TEST_BASE_URL:-http://localhost:8080}" \
+ACCESS_TOKEN="$LOAD_TEST_ACCESS_TOKEN" \
+MOCK_APPLY_IDS="$LOAD_TEST_MOCK_APPLY_IDS" \
+k6 run load-test/k6/projected-scenarios.js
+```
+
+active-task/cached-result 재사용은 신규 처리량과 섞지 않고 `analysis-duplicate.js`에서 하나의 합성 `MOCK_APPLY_ID`로 별도 검증한다. 결과는 `load-test/results/`에 생성되며 git에서 제외한다.
 
 Queue 적체는 worker를 내린 격리 환경에서 A 스크립트로 정확히 300/1,000개의 서로 다른 합성 mock apply를 접수한다. 측정 구간 `I=[t0,t1]`과 종료 snapshot `T`를 고정하고 다음 두 보존식을 각각 확인한다.
 

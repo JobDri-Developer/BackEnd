@@ -17,6 +17,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -102,10 +103,18 @@ class CreditServiceTest {
                 }));
             }
 
-            ready.await();
+            if (!ready.await(10, TimeUnit.SECONDS)) {
+                start.countDown();
+                for (Future<Integer> result : results) {
+                    if (result.isDone()) {
+                        result.get();
+                    }
+                }
+                throw new AssertionError("동시 크레딧 작업이 제한 시간 안에 준비되지 않았습니다.");
+            }
             start.countDown();
             for (Future<Integer> result : results) {
-                result.get();
+                result.get(10, TimeUnit.SECONDS);
             }
         }
 
