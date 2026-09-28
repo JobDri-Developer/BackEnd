@@ -108,7 +108,11 @@ class AnalysisWorkerBridgeServiceTest {
 
     @BeforeEach
     void setUp() {
-        analysisAsyncCreditCoordinator = new AnalysisAsyncCreditCoordinator(analysisCreditService, userService);
+        analysisAsyncCreditCoordinator = new AnalysisAsyncCreditCoordinator(
+                analysisCreditService,
+                userService,
+                mock(com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder.class)
+        );
         analysisWorkerBridgeService = new AnalysisWorkerBridgeService(
                 analysisAsyncTaskService,
                 analysisAsyncTaskRepository,

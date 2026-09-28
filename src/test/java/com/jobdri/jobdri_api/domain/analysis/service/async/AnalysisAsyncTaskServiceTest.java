@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,7 +25,9 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -47,6 +50,34 @@ class AnalysisAsyncTaskServiceTest {
 
     @Mock
     private AnalysisAsyncCreditCoordinator analysisAsyncCreditCoordinator;
+
+    @Test
+    @DisplayName("분석 요청 accepted 지표는 task 저장 트랜잭션 커밋 후 기록한다")
+    void acceptedMetricIsRecordedAfterCommit() {
+        AnalysisQueueProperties queueProperties = new AnalysisQueueProperties();
+        AnalysisAsyncTaskService service = new AnalysisAsyncTaskService(
+                analysisAsyncTaskRepository,
+                analysisAsyncSseService,
+                notificationService,
+                asyncMetricsRecorder,
+                queueProperties,
+                analysisAsyncCreditCoordinator,
+                new AsyncProgressCalculator()
+        );
+        when(analysisAsyncTaskRepository.saveAndFlush(any(AnalysisAsyncTask.class)))
+                .thenAnswer(invocation -> invocation.getArgument(0));
+
+        TransactionSynchronizationManager.initSynchronization();
+        try {
+            service.createPendingTask(1L, 10L);
+            verify(asyncMetricsRecorder, never()).incrementAnalysisRequest("accepted");
+
+            TransactionSynchronizationManager.getSynchronizations().forEach(synchronization -> synchronization.afterCommit());
+            verify(asyncMetricsRecorder).incrementAnalysisRequest("accepted");
+        } finally {
+            TransactionSynchronizationManager.clearSynchronization();
+        }
+    }
 
     @Test
     @DisplayName("동시에 재접수해도 PUBLISH_FAILED task는 한 번만 reopen 된다")
