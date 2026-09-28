@@ -53,7 +53,7 @@ POST /api/mock-applies/{id}/analysis
 | A1 | 1 RPS, 10분 | 기준선 | 성공률 >=99%, p95 <1s |
 | A2 | 10 RPS, 10분 | 지속 접수 | 성공률 >=99%, 발행 실패 <1% |
 | A3 | 30 RPS, 2분 | 단기 burst | p99 <2s, 유실 0 |
-| B1/B2 | consumer 정지 후 300/1,000건 접수 | 적체·drain | published = queued+consumed+DLQ, 원인 없는 유실 0 |
+| B1/B2 | consumer 정지 후 300/1,000건 접수 | 적체·drain | 아래 message/task 보존식 충족, 원인 없는 유실 0 |
 | C | worker 10/50/(조건부 200) | 처리량 곡선 | 완료량·queue wait·외부 제한 비교 |
 | D | stub 20/30/60초, 429, 500/502/503, timeout, invalid JSON/semantic, dimension mismatch | 장애 복구 | 정책대로 retry, 초과 시 DLQ, 검증 실패 저장 0 |
 | E | 중복 callback, 재시작, 저장 전후 장애, spool replay, Credit 경계 | 불변식 | 아래 불변식 전부 충족 |
@@ -75,21 +75,32 @@ docker compose -f docker-compose.yml -f docker-compose.loadtest.yml --profile lo
 curl -H 'X-Stub-Mode: dimension_mismatch' -X POST http://localhost:18080/v2/embed -d '{"texts":["synthetic"],"output_dimension":3}'
 ```
 
-합성 계정과 합성 mock apply ID만 준비한 뒤 접수 부하를 실행한다. 운영 주소/토큰을 넣지 않는다.
+합성 계정과 합성 mock apply ID만 준비한 뒤 접수 부하를 실행한다. 운영 주소/토큰을 넣지 않는다. 신규 분석 처리량 테스트는 iteration마다 서로 다른 ID를 소비하며 목록이 부족하면 즉시 실패한다. 10 RPS 10분에는 최소 6,000개, 전체 projected 묶음에는 최소 10,104개의 ID가 필요하다.
 
 ```bash
 LOAD_TEST_ACCESS_TOKEN='test-token' \
-LOAD_TEST_MOCK_APPLY_IDS='101,102,103' \
+LOAD_TEST_MOCK_APPLY_IDS='<6,000개의 서로 다른 합성 ID를 쉼표로 연결>' \
 LOAD_TEST_TARGET_RPS=10 LOAD_TEST_DURATION=10m \
 docker compose -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest run --rm k6
 ```
 
-30 RPS burst는 `LOAD_TEST_TARGET_RPS=30 LOAD_TEST_DURATION=2m`로 실행한다. 전체 projected 묶음은 로컬 k6에서 `k6 run load-test/k6/projected-scenarios.js`로 명시 실행한다. 결과는 `load-test/results/`에 생성되며 git에서 제외한다.
+30 RPS burst는 `LOAD_TEST_TARGET_RPS=30 LOAD_TEST_DURATION=2m`로 실행한다. 전체 projected 묶음은 로컬 k6에서 `k6 run load-test/k6/projected-scenarios.js`로 명시 실행한다. active-task/cached-result 재사용은 신규 처리량과 섞지 않고 `analysis-duplicate.js`에서 하나의 합성 `MOCK_APPLY_ID`로 별도 검증한다. 결과는 `load-test/results/`에 생성되며 git에서 제외한다.
 
-Queue 적체는 worker를 내린 격리 환경에서 A 스크립트로 정확히 300/1,000개의 서로 다른 합성 mock apply를 접수한다. RabbitMQ Management API의 `messages_ready`, `message_stats.publish_details.rate`, `message_stats.deliver_get_details.rate`를 시작/종료 시 함께 저장한다. 완료 후 다음 보존식을 확인한다.
+Queue 적체는 worker를 내린 격리 환경에서 A 스크립트로 정확히 300/1,000개의 서로 다른 합성 mock apply를 접수한다. 측정 구간 `I=[t0,t1]`과 종료 snapshot `T`를 고정하고 다음 두 보존식을 각각 확인한다.
 
 ```text
-accepted = queue_ready + in_flight + completed + failed + dlq
+message 식 (messageId 기준, I 안에 publisher confirm 된 ID 집합 P):
+|P| = |READY_T| + |UNACKED_T| + |ACKED_SUCCESS_I| + |DLQ_TERMINAL_I|
+
+각 messageId는 우변에서 정확히 한 집합에만 속한다. DLQ publish 뒤 원본 ack가 발생한 ID는
+ACKED_SUCCESS가 아니라 DLQ_TERMINAL로 분류한다. retry 발행이 새 messageId를 만들면 그 ID도 P에
+포함하고, 같은 messageId를 재사용한다면 delivery attempt 수는 별도 counter로 기록한다.
+
+task 식 (taskId 중복 제거, 동일 snapshot T):
+|ACCEPTED_TASKS_{≤T}| = |PENDING_T| + |RUNNING_T| + |SUCCEEDED_T| + |FAILED_T| + |CANCELLED_T|
+
+task 상태 집합은 상호 배타적이다. DLQ는 task 상태가 아니므로 우변에 더하지 않는다. DLQ message의
+taskId는 FAILED_T taskId로 매핑되어야 하며, 매핑되지 않거나 한 task를 FAILED와 DLQ로 이중 계산하면 실패다.
 ```
 
 ## 5. 외부 API stub 모드
@@ -125,7 +136,9 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 - worker: `worker_task_inflight`, `worker_task_concurrency_limit`, `worker_task_queue_wait_duration_seconds`
 - worker: `worker_message_duplicate_total`, `worker_dlq_publish_total`, `worker_recovery_spool_pending`
 
-RabbitMQ exporter의 `rabbitmq_queue_messages_ready`, `rabbitmq_queue_messages_unacked`, `rabbitmq_queue_consumers`, `rabbitmq_queue_messages_published_total`, `rabbitmq_queue_messages_delivered_total`을 Grafana Cloud로 전송한다. oldest message age는 RabbitMQ 기본 exporter에 안정적인 단일 metric이 없으므로 worker가 message timestamp로 기록한 `async_queue_wait_duration_seconds` p99와 병행하고, 필요하면 전용 exporter를 추가한다.
+현재 compose 이미지는 `rabbitmq:3.13-management-alpine`이며 별도 exporter가 아니라 RabbitMQ 3.13에 bundled된 `rabbitmq_prometheus` plugin을 사용한다. 현재 compose에는 이 plugin과 15692 scrape가 설정되어 있지 않으므로 측정 전에 격리 환경에서 `rabbitmq-plugins enable rabbitmq_prometheus`로 활성화해야 한다. 기본 endpoint는 `rabbitmq:15692/metrics`(집계)이고, queue label이 필요한 이 테스트는 `rabbitmq:15692/metrics/per-object`를 15초 간격으로 scrape한다.
+
+`/metrics/per-object`에서 확인할 이름은 `rabbitmq_queue_messages_ready`, `rabbitmq_queue_messages_unacked`, `rabbitmq_queue_consumers`, `rabbitmq_queue_messages_published_total`이다. delivery는 manual ack consumer인 현재 worker에서 `rabbitmq_channel_messages_delivered_ack_total`과 실제 ack 완료량 `rabbitmq_channel_messages_acked_total`을 사용한다. `rabbitmq_channel_messages_delivered_total`은 auto-ack delivery이므로 현재 worker consume rate로 사용하지 않는다. 고비용 per-object 전체 scrape 대신 `/metrics/detailed?family=queue_coarse_metrics&family=queue_consumer_count&family=channel_queue_metrics&family=channel_queue_exchange_metrics`를 쓰면 metric prefix가 `rabbitmq_detailed_`로 바뀐다. oldest message age는 `queue_metrics`의 `rabbitmq_detailed_queue_head_message_timestamp` 또는 worker의 `worker_task_queue_wait_duration_seconds` p99로 확인한다.
 
 권장 alert:
 

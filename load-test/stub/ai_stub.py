@@ -3,9 +3,11 @@
 import json
 import os
 import time
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ATTEMPTS = {}
+ATTEMPTS_LOCK = threading.Lock()
 
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
@@ -14,9 +16,15 @@ class Handler(BaseHTTPRequestHandler):
         mode = self.headers.get('X-Stub-Mode', os.getenv('STUB_MODE', 'success'))
         delay = float(self.headers.get('X-Stub-Latency-Seconds', os.getenv('STUB_LATENCY_SECONDS', '0')))
         key = self.headers.get('X-Stub-Key', self.path)
-        ATTEMPTS[key] = ATTEMPTS.get(key, 0) + 1
+        with ATTEMPTS_LOCK:
+            attempt = ATTEMPTS.get(key, 0) + 1
+            ATTEMPTS[key] = attempt
+            retry_before_success = (
+                mode == 'retry_then_success'
+                and attempt < int(os.getenv('STUB_SUCCESS_ATTEMPT', '3'))
+            )
         if delay: time.sleep(delay)
-        if mode == 'retry_then_success' and ATTEMPTS[key] < int(os.getenv('STUB_SUCCESS_ATTEMPT', '3')):
+        if retry_before_success:
             return self.reply(429, {'error': {'message': 'synthetic rate limit'}})
         if mode in {'429', '500', '502', '503'}:
             return self.reply(int(mode), {'error': {'message': f'synthetic {mode}'}})

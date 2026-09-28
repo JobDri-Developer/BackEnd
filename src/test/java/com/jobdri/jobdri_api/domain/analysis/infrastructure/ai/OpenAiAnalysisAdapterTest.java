@@ -6,7 +6,9 @@ import com.jobdri.jobdri_api.global.config.LlmConcurrencyLimiter;
 import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import com.openai.client.OpenAIClient;
 import com.openai.models.responses.StructuredResponse;
+import com.openai.models.responses.StructuredResponseCreateParams;
 import com.openai.models.responses.ResponseUsage;
+import com.openai.services.blocking.ResponseService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -89,6 +91,24 @@ class OpenAiAnalysisAdapterTest {
                 .isSameAs(exception);
 
         verify(asyncMetricsRecorder).recordLlmRequest(eq("analysis"), eq("error"), any(Long.class));
+        verify(asyncMetricsRecorder, never()).recordExternalRequest(any(), any(), any(), any(Long.class));
+    }
+
+    @Test
+    @DisplayName("OpenAI 외부 호출 시간은 limiter 내부 SDK 호출에 대해서만 기록한다")
+    void createStructuredResponseRecordsExternalCallMetricInsideLimiter() throws Exception {
+        StructuredResponse<String> response = mock(StructuredResponse.class);
+        ResponseService responseService = mock(ResponseService.class);
+        when(openAIClient.responses()).thenReturn(responseService);
+        when(responseService.create(any(StructuredResponseCreateParams.class))).thenReturn(response);
+        when(analysisResponseParser.extractStructuredContent(response)).thenReturn("ok");
+        when(llmConcurrencyLimiter.execute(eq("analysis"), any())).thenAnswer(invocation ->
+                invocation.<LlmConcurrencyLimiter.CheckedSupplier<StructuredResponse<String>>>getArgument(1).get()
+        );
+
+        assertThat(openAiAnalysisAdapter.createStructuredResponse("analysis", "prompt", String.class)).isEqualTo("ok");
+
+        verify(asyncMetricsRecorder).recordExternalRequest(eq("openai"), eq("analysis"), eq("success"), any(Long.class));
     }
 
     @Test

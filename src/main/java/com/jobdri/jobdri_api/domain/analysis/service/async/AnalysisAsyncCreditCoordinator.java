@@ -7,6 +7,8 @@ import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.metrics.AsyncMetricsRecorder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 @Service
 public class AnalysisAsyncCreditCoordinator {
@@ -32,7 +34,7 @@ public class AnalysisAsyncCreditCoordinator {
         User user = userService.getUser(task.getUserId());
         analysisCreditService.refund(user, task.getCreditReferenceId());
         boolean changed = task.markCreditReleased();
-        asyncMetricsRecorder.incrementCreditTransition("released", changed ? "success" : "ignored");
+        recordTransitionAfterCommit("released", changed ? "success" : "ignored");
         return changed;
     }
 
@@ -48,13 +50,27 @@ public class AnalysisAsyncCreditCoordinator {
         );
         analysisCreditService.deduct(user, creditReferenceId);
         boolean changed = task.markCreditReserved(creditReferenceId);
-        asyncMetricsRecorder.incrementCreditTransition("reserved", changed ? "success" : "ignored");
+        recordTransitionAfterCommit("reserved", changed ? "success" : "ignored");
         return changed;
     }
 
     public boolean confirmReservedCreditIfNeeded(AnalysisAsyncTask task) {
         boolean changed = task.markCreditConfirmed();
-        asyncMetricsRecorder.incrementCreditTransition("confirmed", changed ? "success" : "ignored");
+        recordTransitionAfterCommit("confirmed", changed ? "success" : "ignored");
         return changed;
+    }
+
+    private void recordTransitionAfterCommit(String transition, String outcome) {
+        Runnable recorder = () -> asyncMetricsRecorder.incrementCreditTransition(transition, outcome);
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            recorder.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                recorder.run();
+            }
+        });
     }
 }
