@@ -14,9 +14,11 @@ export const options = {
 
 const idOffsets = {
   assumption_initial: 0,
-  assumption_growth: 144,
-  assumption_recruiting_peak: 1224,
-  assumption_short_burst: 6504,
+  // constant-arrival-rate can schedule an iteration at the duration boundary.
+  // Keep 1% headroom between ID ranges so scenarios never reuse a mock apply.
+  assumption_growth: 146,
+  assumption_recruiting_peak: 1237,
+  assumption_short_burst: 6570,
 };
 
 function scenario(rate, timeUnit, duration, preAllocatedVUs, startTime = '0s') {

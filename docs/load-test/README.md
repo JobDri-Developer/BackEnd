@@ -75,13 +75,15 @@ docker compose -f docker-compose.yml -f docker-compose.loadtest.yml --profile lo
 curl -H 'X-Stub-Mode: dimension_mismatch' -X POST http://localhost:18080/v2/embed -d '{"texts":["synthetic"],"output_dimension":3}'
 ```
 
-합성 계정과 합성 mock apply ID만 준비한 뒤 접수 부하를 실행한다. 운영 주소/토큰을 넣지 않는다. 신규 분석 처리량 테스트는 iteration마다 서로 다른 ID를 소비하며 목록이 부족하면 즉시 실패한다. 10 RPS 10분에는 최소 6,000개, 전체 projected 묶음에는 최소 10,104개의 ID가 필요하다.
+합성 계정과 합성 mock apply ID만 준비한 뒤 접수 부하를 실행한다. 운영 주소/토큰을 넣지 않는다. `LOAD_TEST_ENV_FILE`에는 합성 자격 증명과 로컬 컨테이너 주소만 있는 별도 파일을 지정한다. 신규 분석 처리량 테스트는 iteration마다 서로 다른 ID를 소비하며 목록이 부족하면 즉시 실패한다. `constant-arrival-rate`는 duration 경계에서 iteration을 하나 더 예약할 수 있으므로 1% 여유를 둔다. 10 RPS 10분에는 최소 6,060개, 전체 projected 묶음에는 최소 10,206개의 ID를 준비한다.
 
 ```bash
+export LOAD_TEST_ENV_FILE='/absolute/path/to/.env.loadtest'
+
 LOAD_TEST_ACCESS_TOKEN='test-token' \
-LOAD_TEST_MOCK_APPLY_IDS='<6,000개의 서로 다른 합성 ID를 쉼표로 연결>' \
+LOAD_TEST_MOCK_APPLY_IDS='<6,060개의 서로 다른 합성 ID를 쉼표로 연결>' \
 LOAD_TEST_TARGET_RPS=10 LOAD_TEST_DURATION=10m \
-docker compose -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest run --rm k6
+docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest run --rm k6
 ```
 
 30 RPS burst는 `LOAD_TEST_TARGET_RPS=30 LOAD_TEST_DURATION=2m`로 실행한다. 전체 projected 묶음은 로컬 k6에서 `k6 run load-test/k6/projected-scenarios.js`로 명시 실행한다. active-task/cached-result 재사용은 신규 처리량과 섞지 않고 `analysis-duplicate.js`에서 하나의 합성 `MOCK_APPLY_ID`로 별도 검증한다. 결과는 `load-test/results/`에 생성되며 git에서 제외한다.

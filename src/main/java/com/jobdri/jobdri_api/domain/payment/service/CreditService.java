@@ -7,6 +7,7 @@ import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -18,6 +19,7 @@ public class CreditService {
 
     private final UserRepository userRepository;
     private final CreditTransactionRepository creditTransactionRepository;
+    private final EntityManager entityManager;
 
     @Transactional
     public int charge(User user, int amount, String description, String referenceId) {
@@ -105,10 +107,14 @@ public class CreditService {
         if (user == null || user.getId() == null) {
             throw new GeneralException(GeneralErrorCode.MISSING_AUTH_INFO, "인증 정보가 누락되었습니다.");
         }
-        return userRepository.findByIdForUpdate(user.getId())
+        User managedUser = userRepository.findByIdForUpdate(user.getId())
                 .orElseThrow(() -> new GeneralException(
                         GeneralErrorCode.USER_NOT_FOUND,
                         "해당 유저를 찾을 수 없습니다. userId=" + user.getId()
                 ));
+        // 상위 트랜잭션이 User를 먼저 조회했다면 비관적 락을 얻어도 1차 캐시의
+        // 오래된 잔액이 유지될 수 있다. 락을 보유한 상태에서 최신 DB 값으로 갱신한다.
+        entityManager.refresh(managedUser);
+        return managedUser;
     }
 }
