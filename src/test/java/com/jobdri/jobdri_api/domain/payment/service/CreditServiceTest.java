@@ -9,6 +9,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -24,6 +33,9 @@ class CreditServiceTest {
 
     @Autowired
     private CreditTransactionRepository creditTransactionRepository;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @Test
     @DisplayName("같은 referenceId로 크레딧 충전을 재시도해도 한 번만 반영한다")
@@ -57,6 +69,61 @@ class CreditServiceTest {
                 user.getId(),
                 CreditTransactionType.USE
         )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("동시에 서로 다른 크레딧 거래를 적용해도 잔액 업데이트가 유실되지 않는다")
+    void concurrentChargesDoNotLoseBalanceUpdates() throws Exception {
+        User user = saveUser("credit-concurrent@example.com");
+        int requestCount = 8;
+        CountDownLatch ready = new CountDownLatch(requestCount);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (ExecutorService executor = Executors.newFixedThreadPool(requestCount)) {
+            List<Future<Integer>> results = new ArrayList<>();
+            for (int index = 0; index < requestCount; index++) {
+                int referenceIndex = index;
+                results.add(executor.submit(() -> {
+                    return transactionTemplate.execute(status -> {
+                        User staleManagedUser = userRepository.findById(user.getId()).orElseThrow();
+                        ready.countDown();
+                        try {
+                            start.await();
+                        } catch (InterruptedException exception) {
+                            Thread.currentThread().interrupt();
+                            throw new IllegalStateException(exception);
+                        }
+                        return creditService.charge(
+                                staleManagedUser,
+                                1,
+                                "동시성 테스트 충전",
+                                "concurrent-charge-" + referenceIndex
+                        );
+                    });
+                }));
+            }
+
+            if (!ready.await(10, TimeUnit.SECONDS)) {
+                start.countDown();
+                for (Future<Integer> result : results) {
+                    if (result.isDone()) {
+                        result.get();
+                    }
+                }
+                throw new AssertionError("동시 크레딧 작업이 제한 시간 안에 준비되지 않았습니다.");
+            }
+            start.countDown();
+            for (Future<Integer> result : results) {
+                result.get(10, TimeUnit.SECONDS);
+            }
+        }
+
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit())
+                .isEqualTo(1 + requestCount);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.CHARGE
+        )).hasSize(requestCount);
     }
 
     private User saveUser(String email) {

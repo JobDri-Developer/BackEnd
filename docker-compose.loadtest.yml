@@ -1,4 +1,8 @@
 services:
+  api:
+    env_file:
+      - ${LOAD_TEST_ENV_FILE:?Set LOAD_TEST_ENV_FILE to a synthetic-only environment file}
+
   ai-stub:
     build: ./load-test/stub
     environment:
