@@ -128,6 +128,13 @@ active-task/cached-result 재사용은 신규 처리량과 섞지 않고 `analys
 
 Queue 적체는 worker를 내린 격리 환경에서 A 스크립트로 정확히 300/1,000개의 서로 다른 합성 mock apply를 접수한다. 측정 구간 `I=[t0,t1]`과 종료 snapshot `T`를 고정하고 다음 두 보존식을 각각 확인한다.
 
+```bash
+LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/run-analysis-backlog-scenario.sh 300 20
+LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/run-analysis-backlog-scenario.sh 1000 20
+```
+
+전용 스크립트는 worker consumer가 0인지 확인하고 queue/DLQ와 `jobdri_loadtest` DB를 초기화한 뒤 `shared-iterations`로 정확히 N건을 접수한다. 종료 snapshot에서 task/PENDING/queue ready가 모두 N, unacked/consumer/DLQ/Analysis/USE가 모두 0이어야 통과한다. 적체 메시지는 후속 drain 측정을 위해 queue에 남겨두므로 검증 후 worker를 기동하거나 queue를 정리한다.
+
 ```text
 message 식 (messageId 기준, I 안에 publisher confirm 된 ID 집합 P):
 |P| = |READY_T| + |UNACKED_T| + |ACKED_SUCCESS_I| + |DLQ_TERMINAL_I|

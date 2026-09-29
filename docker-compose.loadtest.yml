@@ -2,6 +2,10 @@ services:
   api:
     env_file: !override
       - ${LOAD_TEST_ENV_FILE:?Set LOAD_TEST_ENV_FILE to a synthetic-only environment file}
+    environment:
+      MANAGEMENT_HEALTH_MAIL_ENABLED: false
+    ports:
+      - "127.0.0.1:9090:9090"
 
   ai-stub:
     build: ./load-test/stub
