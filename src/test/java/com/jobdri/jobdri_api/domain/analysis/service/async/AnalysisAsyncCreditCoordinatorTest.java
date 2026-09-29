@@ -60,6 +60,32 @@ class AnalysisAsyncCreditCoordinatorTest {
     }
 
     @Test
+    @DisplayName("크레딧 반환 호출이 실패하면 RESERVED를 유지해 다음 요청에서 다시 환불한다")
+    void releaseReservedCreditIfNeededCanRetryAfterRefundFailure() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        User user = User.signup("테스트 사용자", "analysis-credit-release-retry@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        String referenceId = "analysisTaskId=" + task.getTaskId() + ":creditVersion=1";
+
+        when(userService.getUser(1L)).thenReturn(user);
+        when(analysisCreditService.createAsyncReferenceId(task.getTaskId(), 1)).thenReturn(referenceId);
+        analysisAsyncCreditCoordinator.reserveCreditIfNeeded(task);
+        doThrow(new IllegalStateException("synthetic refund failure"))
+                .doNothing()
+                .when(analysisCreditService).refund(user, referenceId);
+
+        assertThatThrownBy(() -> analysisAsyncCreditCoordinator.releaseReservedCreditIfNeeded(task))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("synthetic refund failure");
+        assertThat(task.getCreditStatus()).isEqualTo(AnalysisAsyncCreditStatus.RESERVED);
+
+        assertThat(analysisAsyncCreditCoordinator.releaseReservedCreditIfNeeded(task)).isTrue();
+        assertThat(task.getCreditStatus()).isEqualTo(AnalysisAsyncCreditStatus.RELEASED);
+        verify(analysisCreditService, org.mockito.Mockito.times(2)).refund(user, referenceId);
+        verify(asyncMetricsRecorder).incrementCreditTransition("released", "failure");
+    }
+
+    @Test
     @DisplayName("예약된 크레딧이 없으면 환불을 수행하지 않는다")
     void releaseReservedCreditIfNeededSkipsWhenNoReservedCredit() {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
