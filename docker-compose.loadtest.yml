@@ -14,6 +14,16 @@ services:
       - "18080:18080"
     profiles: [loadtest]
 
+  rabbitmq:
+    volumes:
+      - ./load-test/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+
+  prometheus:
+    volumes:
+      - ./ops/observability/prometheus-loadtest.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - rabbitmq
+
   worker-api-proxy:
     build: ./load-test/worker-api-proxy
     environment:
