@@ -133,6 +133,16 @@ metrics = (
     "completionP95Seconds",
     "throughputPerSecond",
 )
+resource_metrics = (
+    "workerInflight",
+    "workerSaturationPercent",
+    "dbActiveConnections",
+    "dbPendingConnections",
+    "dbPoolUtilizationPercent",
+    "queueReady",
+    "hostCpuPercent",
+    "hostMemoryPercent",
+)
 summaries = []
 for (backlog_count, concurrency), group_runs in sorted(groups.items()):
     summary = {
@@ -148,6 +158,19 @@ for (backlog_count, concurrency), group_runs in sorted(groups.items()):
             "min": min(values),
             "max": max(values),
         }
+    for metric in resource_metrics:
+        values = [
+            float(run["resourceMax"][metric])
+            for run in group_runs
+            if run.get("resourceMax", {}).get(metric) is not None
+        ]
+        summary[metric] = None if not values else {
+            "observedRuns": len(values),
+            "mean": statistics.fmean(values),
+            "median": statistics.median(values),
+            "min": min(values),
+            "max": max(values),
+        }
     summaries.append(summary)
 
 with (run_dir / "summary.json").open("w", encoding="utf-8") as output:
@@ -157,6 +180,7 @@ with (run_dir / "summary.json").open("w", encoding="utf-8") as output:
 with (run_dir / "summary.csv").open("w", encoding="utf-8", newline="") as output:
     fieldnames = ["backlogCount", "workerConcurrency", "repeats"]
     fieldnames += [f"{metric}_{stat}" for metric in metrics for stat in ("mean", "median", "min", "max")]
+    fieldnames += [f"{metric}_max" for metric in resource_metrics]
     writer = csv.DictWriter(output, fieldnames=fieldnames)
     writer.writeheader()
     for summary in summaries:
@@ -164,6 +188,8 @@ with (run_dir / "summary.csv").open("w", encoding="utf-8", newline="") as output
         for metric in metrics:
             for stat in ("mean", "median", "min", "max"):
                 row[f"{metric}_{stat}"] = summary[metric][stat]
+        for metric in resource_metrics:
+            row[f"{metric}_max"] = "" if summary[metric] is None else summary[metric]["max"]
         writer.writerow(row)
 PY
 

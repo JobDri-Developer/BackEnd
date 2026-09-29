@@ -149,6 +149,8 @@ LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/run-analysis-drain-scena
 
 반복 비교는 별도 matrix runner로 실행한다. 기본값은 300건 × concurrency 10/25/50 × 3회이며, 각 조합마다 DB와 queue를 다시 초기화하고 backlog를 새로 만든다. 개별 JSON과 평균·중앙값·최솟값·최댓값을 집계한 `summary.json`, `summary.csv`는 `load-test/results/drain-matrix/<run-id>/`에 저장된다. 실행 계획만 확인할 때는 dry-run을 사용한다.
 
+drain 실행은 기본적으로 load-test Prometheus를 호스트 `localhost:9091`에 기동한다. 1초 scrape로 worker inflight/saturation, Hikari active/pending/pool 사용률, queue ready, 호스트 CPU·메모리의 측정 구간 최댓값을 개별 JSON의 `resourceMax`에 기록하고 matrix 통계에 병합한다. 포트는 `LOAD_TEST_PROMETHEUS_PORT`, 수집 여부는 `LOAD_TEST_COLLECT_PROMETHEUS=false`로 변경할 수 있다. API management 포트 `localhost:9090`과 Prometheus 포트를 같게 지정하지 않는다.
+
 ```bash
 LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" LOAD_TEST_MATRIX_DRY_RUN=true \
   bash load-test/run-analysis-drain-matrix.sh
