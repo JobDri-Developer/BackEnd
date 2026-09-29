@@ -188,7 +188,7 @@ taskId는 FAILED_T taskId로 매핑되어야 하며, 매핑되지 않거나 한 
 ## 5. 외부 API stub 모드
 
 `X-Stub-Mode`: `success`, `429`, `500`, `502`, `503`, `invalid_json`, `semantic_invalid`, `dimension_mismatch`, `retry_then_success`.
-`X-Stub-Latency-Seconds`: `20`, `30`, `60`. timeout은 client timeout보다 큰 latency로 재현한다. `X-Stub-Key`로 retry attempt를 묶는다. stub은 실제 API로 요청을 전달하지 않는다.
+`X-Stub-Latency-Seconds`: `20`, `30`, `60`. timeout은 client timeout보다 큰 latency로 재현한다. compose의 `LOAD_TEST_STUB_LATENCY_SECONDS`는 OpenAI 경로에만 적용하고 Cohere 지연은 `LOAD_TEST_COHERE_STUB_LATENCY_SECONDS`로 별도 지정해 한 외부 API의 장애가 다른 API 시나리오에 섞이지 않게 한다. 요청 헤더로 지정한 지연은 해당 요청에 우선 적용한다. `X-Stub-Key`로 retry attempt를 묶는다. stub은 실제 API로 요청을 전달하지 않는다.
 
 worker 장애·복구 경로는 합성 DB를 매 실행 초기화하는 아래 스크립트로 검증한다. `latency_20`, `latency_30`, `latency_60`은 각 지연 후 정상 완료와 Credit 확정을 확인하며 장시간 실행이므로 기본 테스트에 포함되지 않는다. `timeout`은 queue 만료 기준은 유지하고 worker의 독립 `OPENAI_TIMEOUT_SECONDS`만 1초, stub 지연을 2초로 단축해 재시도 소진 뒤 DLQ와 Credit 반환을 확인한다. `retry_then_success`는 OpenAI SDK 내부 재시도를 포함한 일곱 번째 stub 호출에서 성공시켜 worker 재시도 2회 뒤 복구되는지 확인하고, 영구 429/5xx는 재시도 소진 뒤 DLQ와 Credit 반환을 확인한다. `invalid_json`과 `semantic_invalid`는 재시도 없이 검증 실패로 종료되고 Analysis가 저장되지 않아야 한다. `dimension_mismatch`는 API의 Cohere 요청이 실제 합성 stub에 도달했는지 확인하고, 잘못된 차원 응답을 reference 없는 fallback으로 격리한 뒤 분석과 Credit 확정이 정상 완료되는지 검증한다. load-test compose는 API의 Cohere base URL과 key를 합성 stub으로 강제해 실제 Cohere API 호출을 차단한다. 이 스크립트는 로컬 격리 환경의 데이터를 초기화하므로 공유·운영 환경에서 실행하지 않는다.
 
@@ -293,6 +293,9 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 
 | stub mode | 최종 상태 | retry count | Credit | Analysis | DLQ |
 |---|---|---:|---|---:|---:|
+| `latency_20` | SUCCEEDED | 0 | CONFIRMED | 1 | 0 |
+| `latency_30` | SUCCEEDED | 0 | CONFIRMED | 1 | 0 |
+| `latency_60` | SUCCEEDED | 0 | CONFIRMED | 1 | 0 |
 | `retry_then_success` (7번째 호출 성공) | SUCCEEDED | 2 | CONFIRMED | 1 | 0 |
 | `429` | FAILED / RATE_LIMIT | 4 | RELEASED | 0 | 1 |
 | `503` | FAILED / INTERNAL_ERROR | 4 | RELEASED | 0 | 1 |
@@ -301,6 +304,8 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 | `dimension_mismatch` | SUCCEEDED (reference fallback) | 0 | CONFIRMED | 1 | 0 |
 
 영구 retryable 오류를 처음 측정했을 때 백엔드가 세 번째 retry callback에서 task를 조기 종료해 worker의 마지막 시도와 DLQ 발행을 건너뛰고 Credit이 RESERVED에 남는 정책 불일치를 발견했다. 백엔드의 종료 조건을 worker와 동일하게 `retryCount > maxRetryCount`로 맞춘 뒤 위 불변식이 모두 통과했다.
+
+2026-09-30에는 OpenAI 경로에만 20/30/60초 지연을 적용해 각각 독립 실행했다. 모든 실행이 재시도 없이 완료됐고 wall time은 차례로 약 48/68/130초였다. 한 task에서 OpenAI 분석 호출이 두 단계로 수행되므로 wall time은 단일 요청 지연의 약 2배였다. 최초 검증에서는 공용 stub 지연이 Cohere embedding에도 적용되어 worker의 Spring API client 30초 timeout과 불필요한 task retry를 유발했다. OpenAI와 Cohere 지연 설정을 분리한 뒤 세 시나리오 모두 task SUCCEEDED, Credit CONFIRMED, Analysis 1건, DLQ 0건을 만족했다.
 
 ### E. 중복 전달·consumer 재시작
 
