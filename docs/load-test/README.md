@@ -87,7 +87,7 @@ docker build -t jobdri-analysis-worker-loadtest:latest /absolute/path/to/analysi
 
 ```bash
 export LOAD_TEST_ENV_FILE='/absolute/path/to/.env.loadtest'
-docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest up -d postgres redis rabbitmq ai-stub api worker prometheus
+docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest up -d postgres redis rabbitmq ai-stub api worker prometheus grafana
 LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/seed/seed.sh 6060
 ```
 
@@ -269,6 +269,8 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 현재 compose 이미지는 `rabbitmq:3.13-management-alpine`이며 별도 exporter가 아니라 RabbitMQ 3.13에 bundled된 `rabbitmq_prometheus` plugin을 사용한다. `docker-compose.loadtest.yml`을 함께 사용하면 load-test 전용 `enabled_plugins`가 plugin을 활성화하고, `prometheus-loadtest.yml`이 `rabbitmq:15692/metrics/per-object`를 15초 간격으로 scrape한다. 이 설정은 기본·운영 compose의 Prometheus 설정을 변경하지 않는다.
 
 Prometheus target 상태는 `http://localhost:9090/targets` 또는 `/api/v1/targets`에서 `rabbitmq_queue` job이 `UP`인지 확인한다. 테스트 종료 후에는 동일 compose 파일로 기동한 서비스를 중지한다.
+
+Grafana는 `http://localhost:3001`(또는 `GRAFANA_PORT`)에서 접속하고 `JobDri / Recruiting Season Load Test` 대시보드를 연다. 이 대시보드의 패널은 합성 부하 환경의 실측 metric만 표시하며 0.24/1.8/8.8 RPS는 운영 실측값이 아니라 비교용 `projected scenario` 가정이다.
 
 `/metrics/per-object`에서 확인할 이름은 `rabbitmq_queue_messages_ready`, `rabbitmq_queue_messages_unacked`, `rabbitmq_queue_consumers`, `rabbitmq_queue_messages_published_total`이다. delivery는 manual ack consumer인 현재 worker에서 `rabbitmq_channel_messages_delivered_ack_total`과 실제 ack 완료량 `rabbitmq_channel_messages_acked_total`을 사용한다. `rabbitmq_channel_messages_delivered_total`은 auto-ack delivery이므로 현재 worker consume rate로 사용하지 않는다. 고비용 per-object 전체 scrape 대신 `/metrics/detailed?family=queue_coarse_metrics&family=queue_consumer_count&family=channel_queue_metrics&family=channel_queue_exchange_metrics`를 쓰면 metric prefix가 `rabbitmq_detailed_`로 바뀐다. oldest message age는 `queue_metrics`의 `rabbitmq_detailed_queue_head_message_timestamp` 또는 worker의 `worker_task_queue_wait_duration_seconds` p99로 확인한다.
 

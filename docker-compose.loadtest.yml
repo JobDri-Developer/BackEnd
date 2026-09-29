@@ -24,6 +24,12 @@ services:
     depends_on:
       - rabbitmq
 
+  grafana:
+    volumes:
+      - ./ops/observability/grafana/loadtest-datasource.yml:/etc/grafana/provisioning/datasources/loadtest.yml:ro
+      - ./ops/observability/grafana/loadtest-dashboard-provider.yml:/etc/grafana/provisioning/dashboards/loadtest.yml:ro
+      - ./ops/observability/grafana/recruiting-season-loadtest-dashboard.json:/var/lib/grafana/dashboards/recruiting-season-loadtest.json:ro
+
   worker:
     build: !reset null
     image: ${LOAD_TEST_WORKER_IMAGE:-jobdri-analysis-worker-loadtest:latest}
