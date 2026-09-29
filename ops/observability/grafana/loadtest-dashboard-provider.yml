@@ -1,0 +1,10 @@
+apiVersion: 1
+
+providers:
+  - name: JobDri Load Test
+    folder: JobDri Load Test
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
