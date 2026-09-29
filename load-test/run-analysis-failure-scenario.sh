@@ -79,8 +79,19 @@ case "$mode" in
     expected_analysis_count=0
     expected_dlq_count=1
     ;;
+  dimension_mismatch)
+    stub_mode=dimension_mismatch
+    stub_latency_seconds=0
+    stub_success_attempt=3
+    expected_status=SUCCEEDED
+    expected_retry_count=0
+    expected_credit_status=CONFIRMED
+    expected_failure_reason=""
+    expected_analysis_count=1
+    expected_dlq_count=0
+    ;;
   *)
-    echo "usage: LOAD_TEST_ENV_FILE=/absolute/path/.env.loadtest $0 {latency_20|latency_30|latency_60|timeout|retry_then_success|429|500|502|503|invalid_json|semantic_invalid}" >&2
+    echo "usage: LOAD_TEST_ENV_FILE=/absolute/path/.env.loadtest $0 {latency_20|latency_30|latency_60|timeout|retry_then_success|429|500|502|503|invalid_json|semantic_invalid|dimension_mismatch}" >&2
     exit 2
     ;;
 esac
@@ -97,7 +108,7 @@ fi
 cleanup() {
   docker rm -f "$worker_name" >/dev/null 2>&1 || true
 }
-trap cleanup EXIT
+trap 'status=$?; cleanup; exit "$status"' EXIT
 
 export LOAD_TEST_STUB_MODE="$stub_mode"
 export LOAD_TEST_STUB_LATENCY_SECONDS="$stub_latency_seconds"
@@ -157,7 +168,7 @@ docker run -d --name "$worker_name" --network "$docker_network" \
   -e RABBITMQ_HOST=rabbitmq \
   -e SPRING_API_BASE_URL=http://api:8080 \
   -e OPENAI_BASE_URL=http://ai-stub:18080/v1 \
-  "${worker_timeout_args[@]}" \
+  ${worker_timeout_args[@]+"${worker_timeout_args[@]}"} \
   -e WORKER_PREFETCH_COUNT=1 \
   -e WORKER_ANALYSIS_CONCURRENCY_LIMIT=1 \
   -e WORKER_DEFAULT_CONCURRENCY_LIMIT=1 \
@@ -196,6 +207,14 @@ assert_equal credit_status "$expected_credit_status" "$actual_credit_status"
 assert_equal failure_reason "$expected_failure_reason" "$actual_failure_reason"
 assert_equal analyses "$expected_analysis_count" "$actual_analysis_count"
 assert_equal dlq "$expected_dlq_count" "$actual_dlq_count"
+
+if [[ "$mode" == "dimension_mismatch" ]]; then
+  stub_container_id=$("${compose[@]}" ps -q ai-stub)
+  if [[ -z "$stub_container_id" ]] || ! docker logs "$stub_container_id" 2>&1 | grep -F '"path": "/v2/embed"' >/dev/null; then
+    echo "assertion failed: Cohere dimension mismatch request did not reach the synthetic stub" >&2
+    failed=1
+  fi
+fi
 
 if (( failed != 0 )); then
   echo "worker logs:" >&2
