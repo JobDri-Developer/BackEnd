@@ -63,6 +63,7 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -587,6 +588,64 @@ class AnalysisWorkerBridgeServiceTest {
         assertThat(completed).isEqualTo(response);
         verify(analysisAsyncTaskService).markSuccess(task.getTaskId(), response);
         verify(workerTaskResultService).markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, task.getTaskId());
+    }
+
+    @Test
+    @DisplayName("Credit 확정이 실패하면 task 성공과 delivery 완료를 기록하지 않는다")
+    void completeTaskStopsBeforeSuccessWhenCreditConfirmationFails() {
+        AnalysisAsyncTask task = spy(AnalysisAsyncTask.pending(1L, 10L, 3));
+        task.markCreditReserved("credit-ref");
+        ReflectionTestUtils.setField(task, "executionContextSnapshot", """
+                {"userId":1,"mockApplyId":10,"companyName":"","jobTitle":"","task":"","requirements":"","preferredQualifications":"","bigClassificationName":"","middleClassificationName":"","detailClassificationName":"","questions":[],"corpusReferences":[],"similarJobPostings":[]}
+                """);
+        ReflectionTestUtils.setField(task, "inputFingerprintSnapshot", "confirm-failure-fingerprint");
+
+        User user = User.signup("테스트 사용자", "analysis-confirm-failure@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        JobPosting jobPosting = mock(JobPosting.class, org.mockito.Answers.RETURNS_DEEP_STUBS);
+        AnalysisExecutionPayload completionPayload = new AnalysisExecutionPayload(
+                1L,
+                10L,
+                jobPosting,
+                List.of(),
+                List.of()
+        );
+        AnalysisLlmResponse llmResponse = mock(AnalysisLlmResponse.class);
+        AnalysisResponse response = mock(AnalysisResponse.class);
+        AnalysisWorkerCompleteRequest request = new AnalysisWorkerCompleteRequest(
+                1L,
+                10L,
+                llmResponse,
+                "worker-1",
+                15L
+        );
+
+        when(analysisAsyncTaskRepository.findById(task.getTaskId())).thenReturn(Optional.of(task));
+        when(analysisAsyncTaskRepository.findByIdForUpdate(task.getTaskId())).thenReturn(Optional.of(task));
+        when(userService.getUser(1L)).thenReturn(user);
+        when(analysisService.prepareAnalysisExecution(user, 10L, List.of())).thenReturn(completionPayload);
+        when(analysisService.finalizeAnalysis(
+                user,
+                10L,
+                completionPayload,
+                llmResponse,
+                "confirm-failure-fingerprint"
+        )).thenReturn(response);
+        doThrow(new IllegalStateException("synthetic confirm failure")).when(task).markCreditConfirmed();
+
+        assertThatThrownBy(() -> analysisWorkerBridgeService.completeTask(task.getTaskId(), request))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("synthetic confirm failure");
+
+        verify(analysisService).finalizeAnalysis(
+                user,
+                10L,
+                completionPayload,
+                llmResponse,
+                "confirm-failure-fingerprint"
+        );
+        verify(analysisAsyncTaskService, never()).markSuccess(eq(task.getTaskId()), any());
+        verify(workerTaskResultService, never()).markDeliveredIfPresent(TaskType.ANALYSIS_COMPLETE, task.getTaskId());
     }
 
     @Test
