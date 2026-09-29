@@ -16,8 +16,8 @@ export const options = {
     },
   },
   thresholds: {
-    analysis_acceptance_errors: ['rate<0.01'],
-    http_req_failed: ['rate<0.01'],
+    analysis_acceptance_errors: ['rate==0'],
+    http_req_failed: ['rate==0'],
   },
 };
 
