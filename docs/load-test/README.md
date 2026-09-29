@@ -44,7 +44,7 @@ POST /api/mock-applies/{id}/analysis
 - Spring 내부 LLM 경로는 blocking SDK + semaphore(기본 4)이다. concurrency 200은 안전한 시작값이 아니다. 외부 worker의 thread/connection 모델을 확인하기 전에는 `10 -> 25 -> 50` 단계와 prefetch 1을 권장한다.
 - Cohere connection 상한은 전체 100/route 20이고 read timeout 기본 15초다. 50 이상 동시 요청에서 route pool과 DB pool을 함께 관찰한다.
 - worker는 별도 `analysis-server` 저장소이므로 두 저장소를 함께 기동해야 end-to-end 검증할 수 있다. 실제 경로는 aio-pika consumer, AsyncOpenAI, httpx callback, 파일 spool이다.
-- RabbitMQ queue depth/oldest age와 DLQ depth는 Spring metric이 아니라 RabbitMQ Prometheus plugin/exporter에서 수집해야 한다. 현재 compose에는 exporter 설정이 없다.
+- RabbitMQ queue depth와 DLQ depth는 Spring metric이 아니라 load-test compose에서 활성화한 RabbitMQ Prometheus plugin에서 수집한다. oldest age는 detailed queue metric을 추가하거나 worker queue wait p99로 보완해야 한다.
 
 ## 3. 시나리오
 
@@ -274,7 +274,7 @@ Grafana는 `http://localhost:3001`(또는 `GRAFANA_PORT`)에서 접속하고 `Jo
 
 `/metrics/per-object`에서 확인할 이름은 `rabbitmq_queue_messages_ready`, `rabbitmq_queue_messages_unacked`, `rabbitmq_queue_consumers`, `rabbitmq_queue_messages_published_total`이다. delivery는 manual ack consumer인 현재 worker에서 `rabbitmq_channel_messages_delivered_ack_total`과 실제 ack 완료량 `rabbitmq_channel_messages_acked_total`을 사용한다. `rabbitmq_channel_messages_delivered_total`은 auto-ack delivery이므로 현재 worker consume rate로 사용하지 않는다. 고비용 per-object 전체 scrape 대신 `/metrics/detailed?family=queue_coarse_metrics&family=queue_consumer_count&family=channel_queue_metrics&family=channel_queue_exchange_metrics`를 쓰면 metric prefix가 `rabbitmq_detailed_`로 바뀐다. oldest message age는 `queue_metrics`의 `rabbitmq_detailed_queue_head_message_timestamp` 또는 worker의 `worker_task_queue_wait_duration_seconds` p99로 확인한다.
 
-권장 alert:
+다음 alert는 `prometheus-loadtest-alerts.yml`로 자동 로드된다. 이 규칙은 격리 부하 환경의 병목 판정용이며 운영 Grafana Cloud alert를 생성하거나 변경하지 않는다.
 
 - analysis queue ready > 300 for 10m (warning), > 1,000 for 5m (critical)
 - queue wait p95 > 120s for 10m

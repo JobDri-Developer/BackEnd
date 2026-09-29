@@ -16,9 +16,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -156,5 +158,24 @@ class AnalysisAsyncCreditCoordinatorTest {
         } finally {
             TransactionSynchronizationManager.clearSynchronization();
         }
+    }
+
+    @Test
+    @DisplayName("크레딧 예약 실패는 failure 지표를 기록하고 예외를 재전파한다")
+    void reserveCreditFailureRecordsMetricAndRethrows() {
+        AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
+        User user = User.signup("테스트 사용자", "analysis-credit-failure@example.com", "encoded-password");
+        ReflectionTestUtils.setField(user, "id", 1L);
+        when(userService.getUser(1L)).thenReturn(user);
+        when(analysisCreditService.createAsyncReferenceId(task.getTaskId(), 1)).thenReturn("credit-ref-1");
+        doThrow(new IllegalStateException("synthetic credit failure"))
+                .when(analysisCreditService).deduct(user, "credit-ref-1");
+
+        assertThatThrownBy(() -> analysisAsyncCreditCoordinator.reserveCreditIfNeeded(task))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("synthetic credit failure");
+
+        verify(asyncMetricsRecorder).incrementCreditTransition("reserved", "failure");
+        assertThat(task.getCreditStatus()).isEqualTo(AnalysisAsyncCreditStatus.NONE);
     }
 }
