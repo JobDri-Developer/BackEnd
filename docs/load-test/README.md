@@ -289,7 +289,7 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 
 ### D. worker 장애·복구
 
-2026-09-29 로컬 격리 환경에서 단일 합성 task와 worker concurrency/prefetch 1로 실행했다. 각 모드는 DB와 queue/DLQ를 초기화한 독립 실행이다.
+2026-09-29~30 로컬 격리 환경에서 단일 합성 task와 worker concurrency/prefetch 1로 실행했다. 각 모드는 DB와 queue/DLQ를 초기화한 독립 실행이다.
 
 | stub mode | 최종 상태 | retry count | Credit | Analysis | DLQ |
 |---|---|---:|---|---:|---:|
@@ -298,6 +298,8 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 | `latency_60` | SUCCEEDED | 0 | CONFIRMED | 1 | 0 |
 | `retry_then_success` (7번째 호출 성공) | SUCCEEDED | 2 | CONFIRMED | 1 | 0 |
 | `429` | FAILED / RATE_LIMIT | 4 | RELEASED | 0 | 1 |
+| `500` | FAILED / INTERNAL_ERROR | 4 | RELEASED | 0 | 1 |
+| `502` | FAILED / INTERNAL_ERROR | 4 | RELEASED | 0 | 1 |
 | `503` | FAILED / INTERNAL_ERROR | 4 | RELEASED | 0 | 1 |
 | `invalid_json` | FAILED / VALIDATION_ERROR | 0 | RELEASED | 0 | 1 |
 | `semantic_invalid` | FAILED / VALIDATION_ERROR | 0 | RELEASED | 0 | 1 |
@@ -305,7 +307,11 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 
 영구 retryable 오류를 처음 측정했을 때 백엔드가 세 번째 retry callback에서 task를 조기 종료해 worker의 마지막 시도와 DLQ 발행을 건너뛰고 Credit이 RESERVED에 남는 정책 불일치를 발견했다. 백엔드의 종료 조건을 worker와 동일하게 `retryCount > maxRetryCount`로 맞춘 뒤 위 불변식이 모두 통과했다.
 
+표의 최종 `retry count` 4는 최초 시도 이후 task retry가 네 번 수행됐다는 뜻이다. `maxRetryCount=3`은 허용되는 재시도 번호의 최댓값이며, 네 번째 retry 실패에서 `retryCount > maxRetryCount`가 되어 최종 실패와 DLQ 이동이 확정된다.
+
 2026-09-30에는 OpenAI 경로에만 20/30/60초 지연을 적용해 각각 독립 실행했다. 모든 실행이 재시도 없이 완료됐고 wall time은 차례로 약 48/68/130초였다. 한 task에서 OpenAI 분석 호출이 두 단계로 수행되므로 wall time은 단일 요청 지연의 약 2배였다. 최초 검증에서는 공용 stub 지연이 Cohere embedding에도 적용되어 worker의 Spring API client 30초 timeout과 불필요한 task retry를 유발했다. OpenAI와 Cohere 지연 설정을 분리한 뒤 세 시나리오 모두 task SUCCEEDED, Credit CONFIRMED, Analysis 1건, DLQ 0건을 만족했다.
+
+2026-09-30에는 누락돼 있던 HTTP 500과 502도 각각 독립 실행했다. 두 실행 모두 최초 시도와 네 번의 task retry 후 `INTERNAL_ERROR`로 종료됐으며 Credit RELEASED, Analysis 0건, DLQ 1건을 만족해 기존 503 결과와 동일한 복구 경계를 확인했다.
 
 ### E. 중복 전달·consumer 재시작
 
