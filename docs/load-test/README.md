@@ -79,9 +79,15 @@ curl -H 'X-Stub-Mode: dimension_mismatch' -X POST http://localhost:18080/v2/embe
 
 격리 스택 기동 후 시드 스크립트를 실행하면 `jobdri_loadtest` DB인지 확인한 뒤 해당 DB의 데이터를 초기화하고 합성 ID와 JWT를 `load-test/results/k6.env`에 생성한다. 다른 DB 이름이면 아무것도 변경하지 않고 실패한다.
 
+별도 `analysis-server` 저장소에서 load-test worker 이미지를 먼저 빌드한다. 다른 이미지 이름을 사용하면 합성 환경 파일에 `LOAD_TEST_WORKER_IMAGE`를 지정한다.
+
+```bash
+docker build -t jobdri-analysis-worker-loadtest:latest /absolute/path/to/analysis-server
+```
+
 ```bash
 export LOAD_TEST_ENV_FILE='/absolute/path/to/.env.loadtest'
-docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest up -d postgres redis rabbitmq ai-stub api
+docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest up -d postgres redis rabbitmq ai-stub api worker prometheus
 LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/seed/seed.sh 6060
 ```
 
@@ -260,7 +266,9 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 - worker: `worker_task_inflight`, `worker_task_concurrency_limit`, `worker_task_queue_wait_duration_seconds`
 - worker: `worker_message_duplicate_total`, `worker_dlq_publish_total`, `worker_recovery_spool_pending`
 
-현재 compose 이미지는 `rabbitmq:3.13-management-alpine`이며 별도 exporter가 아니라 RabbitMQ 3.13에 bundled된 `rabbitmq_prometheus` plugin을 사용한다. 현재 compose에는 이 plugin과 15692 scrape가 설정되어 있지 않으므로 측정 전에 격리 환경에서 `rabbitmq-plugins enable rabbitmq_prometheus`로 활성화해야 한다. 기본 endpoint는 `rabbitmq:15692/metrics`(집계)이고, queue label이 필요한 이 테스트는 `rabbitmq:15692/metrics/per-object`를 15초 간격으로 scrape한다.
+현재 compose 이미지는 `rabbitmq:3.13-management-alpine`이며 별도 exporter가 아니라 RabbitMQ 3.13에 bundled된 `rabbitmq_prometheus` plugin을 사용한다. `docker-compose.loadtest.yml`을 함께 사용하면 load-test 전용 `enabled_plugins`가 plugin을 활성화하고, `prometheus-loadtest.yml`이 `rabbitmq:15692/metrics/per-object`를 15초 간격으로 scrape한다. 이 설정은 기본·운영 compose의 Prometheus 설정을 변경하지 않는다.
+
+Prometheus target 상태는 `http://localhost:9090/targets` 또는 `/api/v1/targets`에서 `rabbitmq_queue` job이 `UP`인지 확인한다. 테스트 종료 후에는 동일 compose 파일로 기동한 서비스를 중지한다.
 
 `/metrics/per-object`에서 확인할 이름은 `rabbitmq_queue_messages_ready`, `rabbitmq_queue_messages_unacked`, `rabbitmq_queue_consumers`, `rabbitmq_queue_messages_published_total`이다. delivery는 manual ack consumer인 현재 worker에서 `rabbitmq_channel_messages_delivered_ack_total`과 실제 ack 완료량 `rabbitmq_channel_messages_acked_total`을 사용한다. `rabbitmq_channel_messages_delivered_total`은 auto-ack delivery이므로 현재 worker consume rate로 사용하지 않는다. 고비용 per-object 전체 scrape 대신 `/metrics/detailed?family=queue_coarse_metrics&family=queue_consumer_count&family=channel_queue_metrics&family=channel_queue_exchange_metrics`를 쓰면 metric prefix가 `rabbitmq_detailed_`로 바뀐다. oldest message age는 `queue_metrics`의 `rabbitmq_detailed_queue_head_message_timestamp` 또는 worker의 `worker_task_queue_wait_duration_seconds` p99로 확인한다.
 
