@@ -79,9 +79,15 @@ curl -H 'X-Stub-Mode: dimension_mismatch' -X POST http://localhost:18080/v2/embe
 
 격리 스택 기동 후 시드 스크립트를 실행하면 `jobdri_loadtest` DB인지 확인한 뒤 해당 DB의 데이터를 초기화하고 합성 ID와 JWT를 `load-test/results/k6.env`에 생성한다. 다른 DB 이름이면 아무것도 변경하지 않고 실패한다.
 
+별도 `analysis-server` 저장소에서 load-test worker 이미지를 먼저 빌드한다. 다른 이미지 이름을 사용하면 합성 환경 파일에 `LOAD_TEST_WORKER_IMAGE`를 지정한다.
+
+```bash
+docker build -t jobdri-analysis-worker-loadtest:latest /absolute/path/to/analysis-server
+```
+
 ```bash
 export LOAD_TEST_ENV_FILE='/absolute/path/to/.env.loadtest'
-docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest up -d postgres redis rabbitmq ai-stub api prometheus
+docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest up -d postgres redis rabbitmq ai-stub api worker prometheus
 LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/seed/seed.sh 6060
 ```
 

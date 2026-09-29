@@ -1,6 +1,6 @@
 services:
   api:
-    env_file:
+    env_file: !override
       - ${LOAD_TEST_ENV_FILE:?Set LOAD_TEST_ENV_FILE to a synthetic-only environment file}
 
   ai-stub:
@@ -23,6 +23,17 @@ services:
       - ./ops/observability/prometheus-loadtest.yml:/etc/prometheus/prometheus.yml:ro
     depends_on:
       - rabbitmq
+
+  worker:
+    build: !reset null
+    image: ${LOAD_TEST_WORKER_IMAGE:-jobdri-analysis-worker-loadtest:latest}
+    env_file: !override
+      - ${LOAD_TEST_ENV_FILE:?Set LOAD_TEST_ENV_FILE to a synthetic-only environment file}
+    environment:
+      OPENAI_BASE_URL: http://ai-stub:18080/v1
+    depends_on:
+      ai-stub:
+        condition: service_started
 
   worker-api-proxy:
     build: ./load-test/worker-api-proxy
