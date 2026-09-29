@@ -190,14 +190,14 @@ taskId는 FAILED_T taskId로 매핑되어야 하며, 매핑되지 않거나 한 
 `X-Stub-Mode`: `success`, `429`, `500`, `502`, `503`, `invalid_json`, `semantic_invalid`, `dimension_mismatch`, `retry_then_success`.
 `X-Stub-Latency-Seconds`: `20`, `30`, `60`. timeout은 client timeout보다 큰 latency로 재현한다. `X-Stub-Key`로 retry attempt를 묶는다. stub은 실제 API로 요청을 전달하지 않는다.
 
-worker 장애·복구 경로는 합성 DB를 매 실행 초기화하는 아래 스크립트로 검증한다. `latency_20`, `latency_30`, `latency_60`은 각 지연 후 정상 완료와 Credit 확정을 확인하며 장시간 실행이므로 기본 테스트에 포함되지 않는다. `timeout`은 queue 만료 기준은 유지하고 worker의 독립 `OPENAI_TIMEOUT_SECONDS`만 1초, stub 지연을 2초로 단축해 재시도 소진 뒤 DLQ와 Credit 반환을 확인한다. `retry_then_success`는 OpenAI SDK 내부 재시도를 포함한 일곱 번째 stub 호출에서 성공시켜 worker 재시도 2회 뒤 복구되는지 확인하고, 영구 429/5xx는 재시도 소진 뒤 DLQ와 Credit 반환을 확인한다. `invalid_json`과 `semantic_invalid`는 재시도 없이 검증 실패로 종료되고 Analysis가 저장되지 않아야 한다. 이 스크립트는 로컬 격리 환경의 데이터를 초기화하므로 공유·운영 환경에서 실행하지 않는다.
+worker 장애·복구 경로는 합성 DB를 매 실행 초기화하는 아래 스크립트로 검증한다. `latency_20`, `latency_30`, `latency_60`은 각 지연 후 정상 완료와 Credit 확정을 확인하며 장시간 실행이므로 기본 테스트에 포함되지 않는다. `timeout`은 queue 만료 기준은 유지하고 worker의 독립 `OPENAI_TIMEOUT_SECONDS`만 1초, stub 지연을 2초로 단축해 재시도 소진 뒤 DLQ와 Credit 반환을 확인한다. `retry_then_success`는 OpenAI SDK 내부 재시도를 포함한 일곱 번째 stub 호출에서 성공시켜 worker 재시도 2회 뒤 복구되는지 확인하고, 영구 429/5xx는 재시도 소진 뒤 DLQ와 Credit 반환을 확인한다. `invalid_json`과 `semantic_invalid`는 재시도 없이 검증 실패로 종료되고 Analysis가 저장되지 않아야 한다. `dimension_mismatch`는 API의 Cohere 요청이 실제 합성 stub에 도달했는지 확인하고, 잘못된 차원 응답을 reference 없는 fallback으로 격리한 뒤 분석과 Credit 확정이 정상 완료되는지 검증한다. load-test compose는 API의 Cohere base URL과 key를 합성 stub으로 강제해 실제 Cohere API 호출을 차단한다. 이 스크립트는 로컬 격리 환경의 데이터를 초기화하므로 공유·운영 환경에서 실행하지 않는다.
 
 ```bash
 export LOAD_TEST_ENV_FILE='/absolute/path/to/.env.loadtest'
 ./gradlew bootJar
 docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-compose.loadtest.yml build api
 
-for mode in latency_20 latency_30 latency_60 timeout retry_then_success 429 503 invalid_json semantic_invalid; do
+for mode in latency_20 latency_30 latency_60 timeout retry_then_success 429 503 invalid_json semantic_invalid dimension_mismatch; do
   bash load-test/run-analysis-failure-scenario.sh "$mode"
 done
 ```
@@ -278,14 +278,14 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 
 9회 모두 task 300건이 SUCCEEDED/CONFIRMED로 종료됐고 Analysis와 USE 거래도 실행별 300건이었다. FAILED/CANCELLED/REFUND/중복 Analysis/중복 Credit/DLQ는 모두 0이었다. 세 concurrency의 처리량 중앙값 차이는 1.11 task/s 이내였지만 completion p95는 concurrency 증가에 따라 커졌다. DB pending은 전 실행 0이므로 이 측정에서 DB pool 고갈은 관측되지 않았다. 따라서 300건과 무지연 AI stub을 사용한 이 로컬 측정만으로 concurrency 25/50의 이득을 확인할 수 없으며, 기본값 10을 유지하고 1,000건 및 실제 외부 API rate limit 조건을 별도로 측정한다.
 
-같은 날 1,000건 확장 시 안전성을 먼저 확인하기 위해 concurrency 10과 50을 각각 1회 독립 실행했다. 아래 값은 반복 통계가 아닌 단일 실행 예비 기준선이다.
+같은 날 1,000건 확장 측정으로 concurrency 10과 50을 각각 3회 독립 실행했다. 아래 처리량과 시간은 3회 중앙값이며 괄호 안은 관측 범위다. 자원 사용률은 각 조합 3회에서 관측된 최댓값이다.
 
-| concurrency | 성공 | 처리 구간 | 처리량 | completion p95 | queue wait p95 | inflight 최대 | DB active / pending 최대 | CPU / memory 최대 |
+| concurrency | 성공 | 처리 구간 중앙값 (범위) | 처리량 중앙값 (범위) | completion p95 중앙값 (최대) | queue wait p95 중앙값 (최대) | inflight 최대 | DB active / pending 최대 | CPU / memory 최대 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 10 | 1,000/1,000 | 17.822 s | 56.11 task/s | 0.173 s | 27.454 s | 10 | 10 / 0 | 88.50% / 24.92% |
-| 50 | 1,000/1,000 | 15.866 s | 63.03 task/s | 0.761 s | 27.170 s | 50 | 5 / 0 | 52.66% / 25.42% |
+| 10 | 3,000/3,000 | 14.895 s (12.476~15.180) | 67.14 task/s (65.88~80.15) | 0.123 s (0.169) | 23.509 s (25.300) | 10 | 10 / 0 | 94.63% / 26.50% |
+| 50 | 3,000/3,000 | 19.957 s (14.470~20.767) | 50.11 task/s (48.15~69.11) | 1.015 s (1.063) | 30.377 s (31.395) | 50 | 10 / 25 | 52.81% / 27.09% |
 
-두 실행 모두 SUCCEEDED/CONFIRMED/Analysis/USE가 1,000건으로 일치했고 FAILED/CANCELLED/REFUND/중복 Analysis/중복 Credit/DLQ는 0이었다. concurrency 50은 concurrency 10보다 처리량이 약 12.3% 높았지만 completion p95는 약 4.4배였다. DB pending은 두 실행 모두 0이었다. 1초 scrape의 짧은 로컬 실행에서 수집한 자원 최댓값과 단일 실행 간 차이는 샘플 시점 및 다른 로컬 프로세스의 영향을 받을 수 있으므로 직접적인 우열 근거로 사용하지 않는다. 기본값 10을 유지하며, 1,000건 조합별 3회 이상 반복과 실제 외부 API rate limit 조건을 측정한 뒤 concurrency 상향 여부를 판단한다.
+6회 모두 SUCCEEDED/CONFIRMED/Analysis/USE가 실행별 1,000건으로 일치했고 FAILED/CANCELLED/REFUND/중복 Analysis/중복 Credit/DLQ는 0이었다. concurrency 50의 처리량 중앙값은 concurrency 10보다 약 25.4% 낮았고 completion p95 중앙값은 약 8.3배였다. concurrency 10에서는 DB pending이 없었지만 concurrency 50에서는 최대 25가 관측되어 높은 동시성에서 DB connection 대기가 발생했다. 1초 scrape의 짧은 로컬 실행에서 수집한 CPU·메모리 최댓값은 샘플 시점 및 다른 로컬 프로세스의 영향을 받을 수 있으므로 직접적인 우열 근거로 사용하지 않는다. 이 로컬 무지연 AI stub 조건에서는 기본 concurrency/prefetch 10을 유지하며, 운영 변경 전 실제 외부 API rate limit과 운영 유사 자원 한도에서 별도로 검증한다.
 
 ### D. worker 장애·복구
 
@@ -298,6 +298,7 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 | `503` | FAILED / INTERNAL_ERROR | 4 | RELEASED | 0 | 1 |
 | `invalid_json` | FAILED / VALIDATION_ERROR | 0 | RELEASED | 0 | 1 |
 | `semantic_invalid` | FAILED / VALIDATION_ERROR | 0 | RELEASED | 0 | 1 |
+| `dimension_mismatch` | SUCCEEDED (reference fallback) | 0 | CONFIRMED | 1 | 0 |
 
 영구 retryable 오류를 처음 측정했을 때 백엔드가 세 번째 retry callback에서 task를 조기 종료해 worker의 마지막 시도와 DLQ 발행을 건너뛰고 Credit이 RESERVED에 남는 정책 불일치를 발견했다. 백엔드의 종료 조건을 worker와 동일하게 `retryCount > maxRetryCount`로 맞춘 뒤 위 불변식이 모두 통과했다.
 
