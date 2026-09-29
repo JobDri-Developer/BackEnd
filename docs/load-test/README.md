@@ -135,6 +135,18 @@ LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/run-analysis-backlog-sce
 
 전용 스크립트는 worker consumer가 0인지 확인하고 queue/DLQ와 `jobdri_loadtest` DB를 초기화한 뒤 `shared-iterations`로 정확히 N건을 접수한다. 종료 snapshot에서 task/PENDING/queue ready가 모두 N, unacked/consumer/DLQ/Analysis/USE가 모두 0이어야 통과한다. 적체 메시지는 후속 drain 측정을 위해 queue에 남겨두므로 검증 후 worker를 기동하거나 queue를 정리한다.
 
+적체 생성 직후 같은 N과 worker concurrency를 지정해 drain을 측정한다. 각 concurrency 비교는 반드시 backlog 생성부터 다시 시작한 독립 실행이어야 한다. 스크립트는 worker 처리 구간, queue wait 및 completion 평균/p95를 `load-test/results/drain-N-cCONCURRENCY.json`에 저장하고, 전체 task의 SUCCEEDED/CONFIRMED와 Analysis/USE 1:1 대응 및 queue/DLQ/중복 결과가 0인지 확인한다.
+
+```bash
+LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/run-analysis-drain-scenario.sh 300 10
+
+# 독립 환경을 다시 초기화하고 backlog를 재생성한 뒤 비교한다.
+LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/run-analysis-backlog-scenario.sh 300 20
+LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/run-analysis-drain-scenario.sh 300 50
+```
+
+1,000건 및 concurrency 200은 장시간·고자원 단계이므로 자동 기본 테스트에는 포함하지 않는다. Docker Desktop 자원, DB pool, 실제 LLM rate limit을 확인한 격리 환경에서 같은 명령의 N과 concurrency만 변경해 실행한다.
+
 ```text
 message 식 (messageId 기준, I 안에 publisher confirm 된 ID 집합 P):
 |P| = |READY_T| + |UNACKED_T| + |ACKED_SUCCESS_I| + |DLQ_TERMINAL_I|
