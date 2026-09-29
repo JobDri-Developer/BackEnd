@@ -8,9 +8,36 @@ docker_network="${LOAD_TEST_DOCKER_NETWORK:-backend_default}"
 worker_name="${LOAD_TEST_WORKER_NAME:-jobdri-analysis-worker-failure-test}"
 timeout_seconds="${LOAD_TEST_SCENARIO_TIMEOUT_SECONDS:-120}"
 compose=(docker compose --env-file "$load_env_file" -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest)
+worker_timeout_args=()
 
 case "$mode" in
+  latency_20|latency_30|latency_60)
+    stub_mode=success
+    stub_latency_seconds="${mode#latency_}"
+    stub_success_attempt=3
+    worker_timeout_args=(-e OPENAI_TIMEOUT_SECONDS=300)
+    expected_status=SUCCEEDED
+    expected_retry_count=0
+    expected_credit_status=CONFIRMED
+    expected_failure_reason=""
+    expected_analysis_count=1
+    expected_dlq_count=0
+    ;;
+  timeout)
+    stub_mode=success
+    stub_latency_seconds="${LOAD_TEST_STUB_TIMEOUT_LATENCY_SECONDS:-2}"
+    stub_success_attempt=3
+    worker_timeout_args=(-e "OPENAI_TIMEOUT_SECONDS=${LOAD_TEST_WORKER_OPENAI_TIMEOUT_SECONDS:-1}")
+    expected_status=FAILED
+    expected_retry_count=4
+    expected_credit_status=RELEASED
+    expected_failure_reason=OPENAI_TIMEOUT
+    expected_analysis_count=0
+    expected_dlq_count=1
+    ;;
   retry_then_success)
+    stub_mode=retry_then_success
+    stub_latency_seconds=0
     stub_success_attempt="${LOAD_TEST_STUB_SUCCESS_ATTEMPT:-7}"
     expected_status=SUCCEEDED
     expected_retry_count=2
@@ -20,6 +47,8 @@ case "$mode" in
     expected_dlq_count=0
     ;;
   429)
+    stub_mode=429
+    stub_latency_seconds=0
     stub_success_attempt=3
     expected_status=FAILED
     expected_retry_count=4
@@ -29,6 +58,8 @@ case "$mode" in
     expected_dlq_count=1
     ;;
   500|502|503)
+    stub_mode="$mode"
+    stub_latency_seconds=0
     stub_success_attempt=3
     expected_status=FAILED
     expected_retry_count=4
@@ -38,6 +69,8 @@ case "$mode" in
     expected_dlq_count=1
     ;;
   invalid_json|semantic_invalid)
+    stub_mode="$mode"
+    stub_latency_seconds=0
     stub_success_attempt=3
     expected_status=FAILED
     expected_retry_count=0
@@ -47,7 +80,7 @@ case "$mode" in
     expected_dlq_count=1
     ;;
   *)
-    echo "usage: LOAD_TEST_ENV_FILE=/absolute/path/.env.loadtest $0 {retry_then_success|429|500|502|503|invalid_json|semantic_invalid}" >&2
+    echo "usage: LOAD_TEST_ENV_FILE=/absolute/path/.env.loadtest $0 {latency_20|latency_30|latency_60|timeout|retry_then_success|429|500|502|503|invalid_json|semantic_invalid}" >&2
     exit 2
     ;;
 esac
@@ -66,7 +99,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-export LOAD_TEST_STUB_MODE="$mode"
+export LOAD_TEST_STUB_MODE="$stub_mode"
+export LOAD_TEST_STUB_LATENCY_SECONDS="$stub_latency_seconds"
 export LOAD_TEST_STUB_SUCCESS_ATTEMPT="$stub_success_attempt"
 "${compose[@]}" up -d postgres redis rabbitmq api
 "${compose[@]}" up -d --build --no-deps --force-recreate ai-stub
@@ -123,6 +157,7 @@ docker run -d --name "$worker_name" --network "$docker_network" \
   -e RABBITMQ_HOST=rabbitmq \
   -e SPRING_API_BASE_URL=http://api:8080 \
   -e OPENAI_BASE_URL=http://ai-stub:18080/v1 \
+  "${worker_timeout_args[@]}" \
   -e WORKER_PREFETCH_COUNT=1 \
   -e WORKER_ANALYSIS_CONCURRENCY_LIMIT=1 \
   -e WORKER_DEFAULT_CONCURRENCY_LIMIT=1 \
