@@ -147,6 +147,27 @@ LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/run-analysis-drain-scena
 
 1,000건 및 concurrency 200은 장시간·고자원 단계이므로 자동 기본 테스트에는 포함하지 않는다. Docker Desktop 자원, DB pool, 실제 LLM rate limit을 확인한 격리 환경에서 같은 명령의 N과 concurrency만 변경해 실행한다.
 
+반복 비교는 별도 matrix runner로 실행한다. 기본값은 300건 × concurrency 10/25/50 × 3회이며, 각 조합마다 DB와 queue를 다시 초기화하고 backlog를 새로 만든다. 개별 JSON과 평균·중앙값·최솟값·최댓값을 집계한 `summary.json`, `summary.csv`는 `load-test/results/drain-matrix/<run-id>/`에 저장된다. 실행 계획만 확인할 때는 dry-run을 사용한다.
+
+```bash
+LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" LOAD_TEST_MATRIX_DRY_RUN=true \
+  bash load-test/run-analysis-drain-matrix.sh
+
+LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" \
+  bash load-test/run-analysis-drain-matrix.sh
+```
+
+1,000건 또는 concurrency 50 초과 조합은 명시적인 고자원 opt-in이 필요하다. 다음 명령은 총 18개의 독립 실행을 수행하므로 충분한 로컬 실행 시간을 확보한 경우에만 사용한다.
+
+```bash
+LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" \
+LOAD_TEST_MATRIX_BACKLOG_COUNTS=300,1000 \
+LOAD_TEST_MATRIX_CONCURRENCIES=10,25,50 \
+LOAD_TEST_MATRIX_REPEAT_COUNT=3 \
+LOAD_TEST_ALLOW_HIGH_RESOURCE=true \
+  bash load-test/run-analysis-drain-matrix.sh
+```
+
 ```text
 message 식 (messageId 기준, I 안에 publisher confirm 된 ID 집합 P):
 |P| = |READY_T| + |UNACKED_T| + |ACKED_SUCCESS_I| + |DLQ_TERMINAL_I|
