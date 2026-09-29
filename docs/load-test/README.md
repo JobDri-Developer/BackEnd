@@ -230,6 +230,23 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 
 ## 7. 측정 결과
 
+2026-09-30 로컬 격리 환경에서 worker를 중지하고 A3를 30 RPS, 2분 동안 실행했다. 합성 계정 20개에 서로 다른 mock apply 3,700건을 분산했으며, 실행 전 analysis queue와 DLQ가 비어 있고 consumer가 0인지 확인했다.
+
+| 항목 | 측정값 |
+|---|---:|
+| 요청/iteration | 3,601 |
+| 성공률 | 100% |
+| HTTP / acceptance error | 0 / 0 |
+| 평균 / 중앙값 | 11.16 ms / 9.00 ms |
+| p90 / p95 / p99 | 13.38 ms / 20.01 ms / 55.34 ms |
+| 최대 | 232.08 ms |
+| dropped / interrupted | 0 / 0 |
+| 종료 시 task / 고유 task ID / PENDING | 3,601 / 3,601 / 3,601 |
+| 종료 시 queue ready / unacked / consumer / DLQ | 3,601 / 0 / 0 / 0 |
+| 종료 시 Analysis / Credit 거래 | 0 / 0 |
+
+`constant-arrival-rate` duration 경계에서 한 건이 추가 예약되어 3,601건이 실행됐다. task 수와 queue ready 수가 일치하고 중복 task ID가 없어 건수 기준 유실과 중복은 관측되지 않았다. p99 55.34 ms로 A3 기준 2초를 충족했으며, 이 값은 worker 처리량이 아니라 worker가 중지된 로컬 합성 환경의 API 접수 및 queue publish 성능이다.
+
 2026-09-28 로컬 격리 환경에서 A2를 10 RPS, 10분 동안 실행했다. API와 PostgreSQL, Redis, RabbitMQ, AI stub을 Docker Desktop에서 실행했고, 별도 `analysis-server` worker는 prefetch 5 / analysis concurrency 5로 AI stub을 사용했다.
 
 | 항목 | 측정값 |

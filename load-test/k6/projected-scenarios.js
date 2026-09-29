@@ -1,5 +1,5 @@
 import exec from 'k6/execution';
-import { acceptanceThresholds, runAcceptance } from './analysis-acceptance.js';
+import { acceptanceSummaryTrendStats, acceptanceThresholds, runAcceptance } from './analysis-acceptance.js';
 
 // These are planning assumptions, not measured production traffic.
 export const options = {
@@ -9,6 +9,7 @@ export const options = {
     assumption_recruiting_peak: scenario(88, '10s', '10m', 50, '22m'),
     assumption_short_burst: scenario(30, '1s', '2m', 100, '33m'),
   },
+  summaryTrendStats: acceptanceSummaryTrendStats,
   thresholds: acceptanceThresholds,
 };
 

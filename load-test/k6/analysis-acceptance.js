@@ -17,6 +17,8 @@ export const acceptanceThresholds = {
   http_req_failed: ['rate<0.01'],
 };
 
+export const acceptanceSummaryTrendStats = ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'];
+
 export const options = {
   scenarios: {
     projected_acceptance: {
@@ -28,6 +30,7 @@ export const options = {
       maxVUs: Number(__ENV.MAX_VUS || Math.max(100, targetRps * 5)),
     },
   },
+  summaryTrendStats: acceptanceSummaryTrendStats,
   thresholds: acceptanceThresholds,
 };
 
