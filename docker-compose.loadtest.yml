@@ -21,8 +21,6 @@ services:
       TARGET_HOST: api
       TARGET_PORT: 8080
       FAIL_COMPLETE: ${LOAD_TEST_PROXY_FAIL_COMPLETE:-false}
-    ports:
-      - "18081:18081"
     profiles: [loadtest]
     depends_on: [api]
 
