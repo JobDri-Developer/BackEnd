@@ -161,7 +161,10 @@ done
 ```bash
 bash load-test/run-analysis-idempotency-scenario.sh duplicate_delivery
 bash load-test/run-analysis-idempotency-scenario.sh consumer_restart
+bash load-test/run-analysis-idempotency-scenario.sh recovery_spool
 ```
+
+`recovery_spool`은 load-test 전용 worker API proxy로 result 저장 요청은 통과시키고 complete callback만 일시적으로 503 처리한다. worker 결과가 GENERATED이고 spool 파일이 남은 것을 확인한 다음 worker를 종료하고, proxy를 정상화한 뒤 같은 spool volume으로 새 worker를 시작한다. replay 후에는 spool 0, worker 결과 DELIVERED, Analysis 1개, USE 거래 1개를 확인한다.
 
 Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 않다. 주 분석 경로인 별도 worker에는 `OPENAI_BASE_URL=http://ai-stub:18080/v1`을 추가해 stub 연결이 가능하다. Cohere는 Spring에 `COHERE_BASE_URL=http://ai-stub:18080`을 지정한다.
 
@@ -239,8 +242,9 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 |---|---|---|---:|---:|---:|
 | duplicate delivery | 동일 message payload 2개 | SUCCEEDED / CONFIRMED | 1 | 1 / 0 | 0 / 0 |
 | consumer restart | RabbitMQ `redelivered=true` | SUCCEEDED / CONFIRMED | 1 | 1 / 0 | 0 / 0 |
+| recovery spool replay | `worker.recovery.replayed` | SUCCEEDED / CONFIRMED | 1 | 1 / 0 | 0 / 0 |
 
-중복 메시지와 처리 중 강제 종료 모두 최종 결과와 Credit 차감을 중복 생성하지 않았다. 이 측정은 message redelivery 경계까지 다루며, 결과 저장 뒤 complete callback 실패를 복구하는 영속 recovery spool 재실행은 별도 시나리오로 남긴다.
+중복 메시지와 처리 중 강제 종료 모두 최종 결과와 Credit 차감을 중복 생성하지 않았다. recovery spool 시나리오는 complete callback 차단 중 `RUNNING / RESERVED`, worker 결과 `GENERATED`, spool 1개를 확인했다. 새 worker가 같은 spool을 replay한 뒤에는 worker 결과가 `DELIVERED`로 전이하고 spool이 0개가 됐으며, Analysis와 USE 거래는 각각 1개만 생성됐다.
 
 ## 8. 계측과 대시보드
 
