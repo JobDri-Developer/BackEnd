@@ -85,6 +85,12 @@ docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-
 LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/seed/seed.sh 6060
 ```
 
+복수 사용자 분산 시나리오는 두 번째 인자로 합성 사용자 수를 지정한다. 지원서는 사용자별로 round-robin 분배되고, `k6.env`에는 각 mock apply와 해당 JWT의 index 매핑이 생성된다. 두 번째 인자를 생략하면 기존 단일 사용자 시나리오로 동작한다.
+
+```bash
+LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/seed/seed.sh 6060 20
+```
+
 ```bash
 export LOAD_TEST_ENV_FILE='/absolute/path/to/.env.loadtest'
 set -a
@@ -107,6 +113,8 @@ set +a
 BASE_URL="${LOAD_TEST_BASE_URL:-http://localhost:8080}" \
 ACCESS_TOKEN="$LOAD_TEST_ACCESS_TOKEN" \
 MOCK_APPLY_IDS="$LOAD_TEST_MOCK_APPLY_IDS" \
+ACCESS_TOKENS="$LOAD_TEST_ACCESS_TOKENS" \
+MOCK_APPLY_CASES="$LOAD_TEST_MOCK_APPLY_CASES" \
 k6 run load-test/k6/projected-scenarios.js
 ```
 
@@ -177,6 +185,16 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 | 50 | 201 | 201 / 0 | 5.710 s | 35.20 task/s | 0 |
 
 이 합성 단일 계정 시나리오에서는 concurrency 10이 가장 높은 처리량을 보였고, 25와 50에서는 처리량이 감소했다. 로컬 기본값은 concurrency/prefetch 10으로 두고, 운영 결정 전에는 복수 사용자로 분산된 반복 측정과 실제 LLM rate limit을 함께 확인한다.
+
+2026-09-29에는 같은 방법으로 20명에게 201개 task를 round-robin 분배해 재측정했다. 접수 구간의 VU는 100으로 선할당해 적재량을 고정했다.
+
+| worker concurrency / prefetch | accepted | SUCCEEDED / FAILED | 처리 구간 | 처리량 | 접수 p95 | Hikari timeout |
+|---:|---:|---:|---:|---:|---:|---:|
+| 10 | 201 | 201 / 0 | 9.360 s | 21.47 task/s | 52.24 ms | 0 |
+| 25 | 201 | 201 / 0 | 7.296 s | 27.55 task/s | 78.09 ms | 0 |
+| 50 | 201 | 201 / 0 | 4.557 s | 44.11 task/s | 70.71 ms | 0 |
+
+복수 사용자 합성 시나리오에서는 concurrency 50까지 처리량이 증가했고 모든 task가 실패 없이 완료됐다. 단일 실행과 AI stub을 사용한 결과이므로 운영 기본값은 유지하고, 반복 측정과 실제 LLM rate limit 검증 후에만 상향한다.
 
 ## 8. 계측과 대시보드
 
