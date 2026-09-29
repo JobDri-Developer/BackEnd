@@ -14,6 +14,18 @@ services:
       - "18080:18080"
     profiles: [loadtest]
 
+  worker-api-proxy:
+    build: ./load-test/worker-api-proxy
+    environment:
+      PORT: 18081
+      TARGET_HOST: api
+      TARGET_PORT: 8080
+      FAIL_COMPLETE: ${LOAD_TEST_PROXY_FAIL_COMPLETE:-false}
+    ports:
+      - "18081:18081"
+    profiles: [loadtest]
+    depends_on: [api]
+
   k6:
     image: grafana/k6:0.57.0
     volumes:
