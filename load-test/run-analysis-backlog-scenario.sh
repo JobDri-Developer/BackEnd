@@ -89,7 +89,8 @@ import sys
 import urllib.parse
 import urllib.request
 
-env_path, expected_count, task_ids_path = sys.argv[1:]
+env_path, expected_count_value, task_ids_path = sys.argv[1:]
+expected_count = int(expected_count_value)
 values = {}
 with open(env_path, encoding="utf-8") as env_file:
     for raw_line in env_file:
@@ -109,7 +110,7 @@ url = "http://localhost:15672/api/queues/{}/{}/get".format(
 request = urllib.request.Request(
     url,
     data=json.dumps({
-        "count": int(expected_count),
+        "count": expected_count,
         "ackmode": "ack_requeue_true",
         "encoding": "auto",
         "truncate": 100000,
@@ -125,6 +126,15 @@ with urllib.request.urlopen(request, timeout=30) as response:
 
 with open(task_ids_path, encoding="utf-8") as task_file:
     database_task_ids = {line.strip() for line in task_file if line.strip()}
+
+if len(messages) != expected_count:
+    raise SystemExit(
+        f"queue message count mismatch: expected={expected_count} observed={len(messages)}"
+    )
+if len(database_task_ids) != expected_count:
+    raise SystemExit(
+        f"database task count mismatch: expected={expected_count} observed={len(database_task_ids)}"
+    )
 
 message_ids = []
 queue_task_ids = []
