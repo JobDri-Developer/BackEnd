@@ -268,6 +268,16 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 
 복수 사용자 합성 시나리오에서는 concurrency 50까지 처리량이 증가했고 모든 task가 실패 없이 완료됐다. 단일 실행과 AI stub을 사용한 결과이므로 운영 기본값은 유지하고, 반복 측정과 실제 LLM rate limit 검증 후에만 상향한다.
 
+2026-09-29에는 자동 matrix runner로 20명에게 분산한 300건 backlog를 concurrency 10/25/50에서 각각 3회 독립 실행했다. 아래 처리량과 시간은 3회 중앙값이며 괄호 안은 관측 범위다. 자원 사용률은 각 조합 3회에서 관측된 최댓값이다.
+
+| concurrency | 성공 | 처리 구간 중앙값 (범위) | 처리량 중앙값 (범위) | completion p95 중앙값 (최대) | queue wait p95 중앙값 (최대) | inflight 최대 | DB active / pending 최대 | CPU / memory 최대 |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 10 | 900/900 | 4.638 s (4.478~5.695) | 64.68 task/s (52.68~66.99) | 0.148 s (0.189) | 15.270 s (15.480) | 10 | 8 / 0 | 91.12% / 27.03% |
+| 25 | 900/900 | 4.571 s (4.489~8.199) | 65.63 task/s (36.59~66.83) | 0.363 s (0.783) | 16.100 s (18.466) | 25 | 3 / 0 | 49.16% / 27.06% |
+| 50 | 900/900 | 4.560 s (4.434~7.451) | 65.79 task/s (40.26~67.66) | 0.772 s (1.853) | 15.605 s (18.055) | 50 | 6 / 0 | 50.45% / 26.89% |
+
+9회 모두 task 300건이 SUCCEEDED/CONFIRMED로 종료됐고 Analysis와 USE 거래도 실행별 300건이었다. FAILED/CANCELLED/REFUND/중복 Analysis/중복 Credit/DLQ는 모두 0이었다. 세 concurrency의 처리량 중앙값 차이는 1.11 task/s 이내였지만 completion p95는 concurrency 증가에 따라 커졌다. DB pending은 전 실행 0이므로 이 측정에서 DB pool 고갈은 관측되지 않았다. 따라서 300건과 무지연 AI stub을 사용한 이 로컬 측정만으로 concurrency 25/50의 이득을 확인할 수 없으며, 기본값 10을 유지하고 1,000건 및 실제 외부 API rate limit 조건을 별도로 측정한다.
+
 ### D. worker 장애·복구
 
 2026-09-29 로컬 격리 환경에서 단일 합성 task와 worker concurrency/prefetch 1로 실행했다. 각 모드는 DB와 queue/DLQ를 초기화한 독립 실행이다.
