@@ -33,12 +33,21 @@ export const options = {
 
 const ids = (__ENV.MOCK_APPLY_IDS || '').split(',').map((v) => v.trim()).filter(Boolean);
 const accessTokens = (__ENV.ACCESS_TOKENS || '').split(',').map((v) => v.trim()).filter(Boolean);
-const cases = (__ENV.MOCK_APPLY_CASES || '').split(',').map((value) => {
-  const [mockApplyId, tokenIndex] = value.trim().split(':');
-  return mockApplyId && tokenIndex !== undefined
-    ? { mockApplyId, tokenIndex: Number(tokenIndex) }
-    : null;
-}).filter(Boolean);
+const cases = (__ENV.MOCK_APPLY_CASES || '').split(',')
+  .map((value) => value.trim())
+  .filter(Boolean)
+  .map((value) => {
+    const parts = value.split(':');
+    const mockApplyId = parts[0];
+    const tokenIndex = Number(parts[1]);
+    if (parts.length !== 2
+      || !mockApplyId
+      || !/^\d+$/.test(parts[1])
+      || !Number.isSafeInteger(tokenIndex)) {
+      throw new Error(`invalid MOCK_APPLY_CASES entry: ${value}`);
+    }
+    return { mockApplyId, tokenIndex };
+  });
 
 export function runAcceptance(idIndex = Number(__ENV.ID_OFFSET || 0) + exec.scenario.iterationInTest) {
   const multiUser = cases.length > 0 && accessTokens.length > 0;
