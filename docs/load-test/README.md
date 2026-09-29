@@ -142,6 +142,20 @@ taskId는 FAILED_T taskId로 매핑되어야 하며, 매핑되지 않거나 한 
 `X-Stub-Mode`: `success`, `429`, `500`, `502`, `503`, `invalid_json`, `semantic_invalid`, `dimension_mismatch`, `retry_then_success`.
 `X-Stub-Latency-Seconds`: `20`, `30`, `60`. timeout은 client timeout보다 큰 latency로 재현한다. `X-Stub-Key`로 retry attempt를 묶는다. stub은 실제 API로 요청을 전달하지 않는다.
 
+worker 장애·복구 경로는 합성 DB를 매 실행 초기화하는 아래 스크립트로 검증한다. `retry_then_success`는 OpenAI SDK 내부 재시도를 포함한 일곱 번째 stub 호출에서 성공시켜 worker 재시도 2회 뒤 복구되는지 확인하고, 영구 429/5xx는 재시도 소진 뒤 DLQ와 Credit 반환을 확인한다. `invalid_json`과 `semantic_invalid`는 재시도 없이 검증 실패로 종료되고 Analysis가 저장되지 않아야 한다. 이 스크립트는 로컬 격리 환경의 데이터를 초기화하므로 공유·운영 환경에서 실행하지 않는다.
+
+```bash
+export LOAD_TEST_ENV_FILE='/absolute/path/to/.env.loadtest'
+./gradlew bootJar
+docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-compose.loadtest.yml build api
+
+for mode in retry_then_success 429 503 invalid_json semantic_invalid; do
+  bash load-test/run-analysis-failure-scenario.sh "$mode"
+done
+```
+
+별도 worker 이미지 이름이나 compose network가 다르면 각각 `LOAD_TEST_WORKER_IMAGE`, `LOAD_TEST_DOCKER_NETWORK`로 지정한다. 영구 retryable 오류는 최초 시도와 3회 재시도 뒤 네 번째 실패에서 종료되므로 최종 task의 `retry_count`는 4다.
+
 Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 않다. 주 분석 경로인 별도 worker에는 `OPENAI_BASE_URL=http://ai-stub:18080/v1`을 추가해 stub 연결이 가능하다. Cohere는 Spring에 `COHERE_BASE_URL=http://ai-stub:18080`을 지정한다.
 
 ## 6. 반드시 확인할 불변식
@@ -195,6 +209,20 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 | 50 | 201 | 201 / 0 | 4.557 s | 44.11 task/s | 70.71 ms | 0 |
 
 복수 사용자 합성 시나리오에서는 concurrency 50까지 처리량이 증가했고 모든 task가 실패 없이 완료됐다. 단일 실행과 AI stub을 사용한 결과이므로 운영 기본값은 유지하고, 반복 측정과 실제 LLM rate limit 검증 후에만 상향한다.
+
+### D. worker 장애·복구
+
+2026-09-29 로컬 격리 환경에서 단일 합성 task와 worker concurrency/prefetch 1로 실행했다. 각 모드는 DB와 queue/DLQ를 초기화한 독립 실행이다.
+
+| stub mode | 최종 상태 | retry count | Credit | Analysis | DLQ |
+|---|---|---:|---|---:|---:|
+| `retry_then_success` (7번째 호출 성공) | SUCCEEDED | 2 | CONFIRMED | 1 | 0 |
+| `429` | FAILED / RATE_LIMIT | 4 | RELEASED | 0 | 1 |
+| `503` | FAILED / INTERNAL_ERROR | 4 | RELEASED | 0 | 1 |
+| `invalid_json` | FAILED / VALIDATION_ERROR | 0 | RELEASED | 0 | 1 |
+| `semantic_invalid` | FAILED / VALIDATION_ERROR | 0 | RELEASED | 0 | 1 |
+
+영구 retryable 오류를 처음 측정했을 때 백엔드가 세 번째 retry callback에서 task를 조기 종료해 worker의 마지막 시도와 DLQ 발행을 건너뛰고 Credit이 RESERVED에 남는 정책 불일치를 발견했다. 백엔드의 종료 조건을 worker와 동일하게 `retryCount > maxRetryCount`로 맞춘 뒤 위 불변식이 모두 통과했다.
 
 ## 8. 계측과 대시보드
 

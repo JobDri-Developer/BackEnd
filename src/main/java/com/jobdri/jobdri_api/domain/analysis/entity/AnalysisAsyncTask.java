@@ -218,7 +218,7 @@ public class AnalysisAsyncTask extends CreatedAtEntity {
         if (isTerminal()) {
             return;
         }
-        if (retryCount >= maxRetryCount) {
+        if (retryCount > maxRetryCount) {
             markFailed(failureReason, errorMessage, retryCount);
             return;
         }
