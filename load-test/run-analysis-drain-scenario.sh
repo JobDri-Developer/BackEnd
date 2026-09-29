@@ -9,6 +9,10 @@ docker_network="${LOAD_TEST_DOCKER_NETWORK:-backend_default}"
 worker_name="${LOAD_TEST_WORKER_NAME:-jobdri-analysis-worker-drain-test}"
 timeout_seconds="${LOAD_TEST_SCENARIO_TIMEOUT_SECONDS:-600}"
 result_dir="${LOAD_TEST_RESULT_DIR:-load-test/results}"
+collect_prometheus="${LOAD_TEST_COLLECT_PROMETHEUS:-true}"
+prometheus_port="${LOAD_TEST_PROMETHEUS_PORT:-9091}"
+snapshot_file=""
+export PROMETHEUS_PORT="$prometheus_port"
 compose=(docker compose --env-file "$load_env_file" -f docker-compose.yml -f docker-compose.loadtest.yml --profile loadtest)
 
 if ! [[ "$backlog_count" =~ ^[1-9][0-9]*$ ]]; then
@@ -23,6 +27,14 @@ if ! [[ "$timeout_seconds" =~ ^[1-9][0-9]*$ ]]; then
   echo "LOAD_TEST_SCENARIO_TIMEOUT_SECONDS must be a positive integer" >&2
   exit 2
 fi
+if [[ "$collect_prometheus" != "true" && "$collect_prometheus" != "false" ]]; then
+  echo "LOAD_TEST_COLLECT_PROMETHEUS must be true or false" >&2
+  exit 2
+fi
+if ! [[ "$prometheus_port" =~ ^[1-9][0-9]*$ ]] || (( 10#$prometheus_port > 65535 )); then
+  echo "LOAD_TEST_PROMETHEUS_PORT must be an integer between 1 and 65535" >&2
+  exit 2
+fi
 if [[ ! -f "$load_env_file" ]]; then
   echo "load-test environment file not found: $load_env_file" >&2
   exit 2
@@ -30,6 +42,9 @@ fi
 
 cleanup() {
   docker rm -f "$worker_name" >/dev/null 2>&1 || true
+  if [[ -n "$snapshot_file" ]]; then
+    rm -f "$snapshot_file"
+  fi
 }
 trap cleanup EXIT
 
@@ -50,6 +65,21 @@ curl --fail --silent --show-error --output /dev/null http://localhost:9090/actua
   echo "API did not become healthy" >&2
   exit 1
 }
+
+if [[ "$collect_prometheus" == "true" ]]; then
+  "${compose[@]}" up -d node-exporter prometheus
+  for _ in $(seq 1 60); do
+    if curl --fail --silent --output /dev/null "http://localhost:${prometheus_port}/-/ready"; then
+      break
+    fi
+    sleep 1
+  done
+  curl --fail --silent --show-error --output /dev/null "http://localhost:${prometheus_port}/-/ready" || {
+    echo "Prometheus did not become ready" >&2
+    exit 1
+  }
+  sleep 2
+fi
 
 database_name=$(docker exec jobdri-postgres \
   psql -U jobdri_loadtest -d jobdri_loadtest -Atc 'select current_database()')
@@ -80,6 +110,7 @@ fi
 
 started_millis=$(python3 -c 'import time; print(time.time_ns() // 1_000_000)')
 docker run -d --name "$worker_name" --network "$docker_network" \
+  --network-alias worker \
   --env-file "$load_env_file" \
   -e WORKER_ENV=docker \
   -e RABBITMQ_HOST=rabbitmq \
@@ -113,6 +144,16 @@ if [[ "$completed" != "true" ]]; then
   exit 1
 fi
 
+if [[ "$collect_prometheus" == "true" ]]; then
+  sleep 2
+  observed_until_seconds=$(python3 -c 'import time; print(time.time())')
+  snapshot_file=$(mktemp)
+  python3 load-test/collect-prometheus-snapshot.py \
+    "http://localhost:${prometheus_port}" \
+    "$(python3 -c "print($started_millis / 1000)")" \
+    "$observed_until_seconds" > "$snapshot_file"
+fi
+
 status_row=$(docker exec jobdri-postgres psql -U jobdri_loadtest -d jobdri_loadtest -AtF '|' -c \
   "select count(*) filter (where status = 'SUCCEEDED'), count(*) filter (where status = 'FAILED'), count(*) filter (where status = 'CANCELLED'), count(*) filter (where credit_status = 'CONFIRMED') from analysis_async_tasks")
 IFS='|' read -r succeeded_count failed_count cancelled_count confirmed_count <<< "$status_row"
@@ -135,7 +176,7 @@ mkdir -p "$result_dir"
 result_file="$result_dir/drain-${backlog_count}-c${worker_concurrency}.json"
 python3 - "$result_file" "$backlog_count" "$worker_concurrency" "$wall_duration_millis" \
   "$processing_window_seconds" "$queue_wait_avg_millis" "$queue_wait_p95_millis" \
-  "$completion_avg_seconds" "$completion_p95_seconds" <<'PY'
+  "$completion_avg_seconds" "$completion_p95_seconds" "$snapshot_file" <<'PY'
 import json
 import sys
 
@@ -144,9 +185,16 @@ keys = (
     "backlogCount", "workerConcurrency", "wallDurationMillis", "processingWindowSeconds",
     "queueWaitAvgMillis", "queueWaitP95Millis", "completionAvgSeconds", "completionP95Seconds",
 )
-values = [int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), *map(float, sys.argv[5:])]
+values = [int(sys.argv[2]), int(sys.argv[3]), int(sys.argv[4]), *map(float, sys.argv[5:10])]
+result = dict(zip(keys, values))
+snapshot_path = sys.argv[10]
+if snapshot_path:
+    with open(snapshot_path, encoding="utf-8") as snapshot:
+        prometheus = json.load(snapshot)
+    result["resourceMax"] = prometheus["max"]
+    result["prometheusMissingMetrics"] = prometheus["missing"]
 with open(path, "w", encoding="utf-8") as output:
-    json.dump(dict(zip(keys, values)), output, indent=2)
+    json.dump(result, output, indent=2)
     output.write("\n")
 PY
 

@@ -29,6 +29,10 @@ services:
     depends_on:
       - rabbitmq
 
+  node-exporter:
+    volumes: !override
+      - /:/host:ro
+
   grafana:
     volumes:
       - ./ops/observability/grafana/loadtest-datasource.yml:/etc/grafana/provisioning/datasources/loadtest.yml:ro

@@ -149,6 +149,8 @@ LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/run-analysis-drain-scena
 
 반복 비교는 별도 matrix runner로 실행한다. 기본값은 300건 × concurrency 10/25/50 × 3회이며, 각 조합마다 DB와 queue를 다시 초기화하고 backlog를 새로 만든다. 개별 JSON과 평균·중앙값·최솟값·최댓값을 집계한 `summary.json`, `summary.csv`는 `load-test/results/drain-matrix/<run-id>/`에 저장된다. 실행 계획만 확인할 때는 dry-run을 사용한다.
 
+`prometheus-loadtest.yml`의 scrape 주기는 짧은 drain 구간을 포착하도록 1초다. 일반 compose 실행의 Prometheus는 `PROMETHEUS_PORT`로 노출하며 기본 주소는 `http://localhost:9090`이다. drain 스크립트는 API management 포트와 충돌하지 않도록 `LOAD_TEST_PROMETHEUS_PORT`를 `PROMETHEUS_PORT`에 전달하며 기본 주소는 `http://localhost:9091`이다. drain 측정은 worker inflight/saturation, Hikari active/pending/pool 사용률, queue ready, 호스트 CPU·메모리의 구간 최댓값을 개별 JSON의 `resourceMax`에 기록하고 matrix 통계에 병합한다. 수집은 `LOAD_TEST_COLLECT_PROMETHEUS=false`로 끌 수 있으며 API management 포트 `localhost:9090`과 drain Prometheus 포트를 같게 지정하지 않는다.
+
 ```bash
 LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" LOAD_TEST_MATRIX_DRY_RUN=true \
   bash load-test/run-analysis-drain-matrix.sh
@@ -306,9 +308,9 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 - worker: `worker_task_inflight`, `worker_task_concurrency_limit`, `worker_task_queue_wait_duration_seconds`
 - worker: `worker_message_duplicate_total`, `worker_dlq_publish_total`, `worker_recovery_spool_pending`
 
-현재 compose 이미지는 `rabbitmq:3.13-management-alpine`이며 별도 exporter가 아니라 RabbitMQ 3.13에 bundled된 `rabbitmq_prometheus` plugin을 사용한다. `docker-compose.loadtest.yml`을 함께 사용하면 load-test 전용 `enabled_plugins`가 plugin을 활성화하고, `prometheus-loadtest.yml`이 `rabbitmq:15692/metrics/per-object`를 15초 간격으로 scrape한다. 이 설정은 기본·운영 compose의 Prometheus 설정을 변경하지 않는다.
+현재 compose 이미지는 `rabbitmq:3.13-management-alpine`이며 별도 exporter가 아니라 RabbitMQ 3.13에 bundled된 `rabbitmq_prometheus` plugin을 사용한다. `docker-compose.loadtest.yml`을 함께 사용하면 load-test 전용 `enabled_plugins`가 plugin을 활성화하고, `prometheus-loadtest.yml`이 `rabbitmq:15692/metrics/per-object`를 1초 간격으로 scrape한다. 이 설정은 기본·운영 compose의 Prometheus 설정을 변경하지 않는다.
 
-Prometheus target 상태는 `http://localhost:9090/targets` 또는 `/api/v1/targets`에서 `rabbitmq_queue` job이 `UP`인지 확인한다. 테스트 종료 후에는 동일 compose 파일로 기동한 서비스를 중지한다.
+Prometheus target 상태는 일반 compose 실행 시 `http://localhost:${PROMETHEUS_PORT:-9090}/targets`, drain 실행 시 `http://localhost:${LOAD_TEST_PROMETHEUS_PORT:-9091}/targets` 또는 각 주소의 `/api/v1/targets`에서 `rabbitmq_queue` job이 `UP`인지 확인한다. 테스트 종료 후에는 동일 compose 파일로 기동한 서비스를 중지한다.
 
 Grafana는 `http://localhost:3001`(또는 `GRAFANA_PORT`)에서 접속하고 `JobDri / Recruiting Season Load Test` 대시보드를 연다. 이 대시보드의 패널은 합성 부하 환경의 실측 metric만 표시하며 0.24/1.8/8.8 RPS는 운영 실측값이 아니라 비교용 `projected scenario` 가정이다.
 
