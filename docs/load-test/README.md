@@ -278,14 +278,14 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 
 9회 모두 task 300건이 SUCCEEDED/CONFIRMED로 종료됐고 Analysis와 USE 거래도 실행별 300건이었다. FAILED/CANCELLED/REFUND/중복 Analysis/중복 Credit/DLQ는 모두 0이었다. 세 concurrency의 처리량 중앙값 차이는 1.11 task/s 이내였지만 completion p95는 concurrency 증가에 따라 커졌다. DB pending은 전 실행 0이므로 이 측정에서 DB pool 고갈은 관측되지 않았다. 따라서 300건과 무지연 AI stub을 사용한 이 로컬 측정만으로 concurrency 25/50의 이득을 확인할 수 없으며, 기본값 10을 유지하고 1,000건 및 실제 외부 API rate limit 조건을 별도로 측정한다.
 
-같은 날 1,000건 확장 시 안전성을 먼저 확인하기 위해 concurrency 10과 50을 각각 1회 독립 실행했다. 아래 값은 반복 통계가 아닌 단일 실행 예비 기준선이다.
+같은 날 1,000건 확장 측정으로 concurrency 10과 50을 각각 3회 독립 실행했다. 아래 처리량과 시간은 3회 중앙값이며 괄호 안은 관측 범위다. 자원 사용률은 각 조합 3회에서 관측된 최댓값이다.
 
-| concurrency | 성공 | 처리 구간 | 처리량 | completion p95 | queue wait p95 | inflight 최대 | DB active / pending 최대 | CPU / memory 최대 |
+| concurrency | 성공 | 처리 구간 중앙값 (범위) | 처리량 중앙값 (범위) | completion p95 중앙값 (최대) | queue wait p95 중앙값 (최대) | inflight 최대 | DB active / pending 최대 | CPU / memory 최대 |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| 10 | 1,000/1,000 | 17.822 s | 56.11 task/s | 0.173 s | 27.454 s | 10 | 10 / 0 | 88.50% / 24.92% |
-| 50 | 1,000/1,000 | 15.866 s | 63.03 task/s | 0.761 s | 27.170 s | 50 | 5 / 0 | 52.66% / 25.42% |
+| 10 | 3,000/3,000 | 14.895 s (12.476~15.180) | 67.14 task/s (65.88~80.15) | 0.123 s (0.169) | 23.509 s (25.300) | 10 | 10 / 0 | 94.63% / 26.50% |
+| 50 | 3,000/3,000 | 19.957 s (14.470~20.767) | 50.11 task/s (48.15~69.11) | 1.015 s (1.063) | 30.377 s (31.395) | 50 | 10 / 25 | 52.81% / 27.09% |
 
-두 실행 모두 SUCCEEDED/CONFIRMED/Analysis/USE가 1,000건으로 일치했고 FAILED/CANCELLED/REFUND/중복 Analysis/중복 Credit/DLQ는 0이었다. concurrency 50은 concurrency 10보다 처리량이 약 12.3% 높았지만 completion p95는 약 4.4배였다. DB pending은 두 실행 모두 0이었다. 1초 scrape의 짧은 로컬 실행에서 수집한 자원 최댓값과 단일 실행 간 차이는 샘플 시점 및 다른 로컬 프로세스의 영향을 받을 수 있으므로 직접적인 우열 근거로 사용하지 않는다. 기본값 10을 유지하며, 1,000건 조합별 3회 이상 반복과 실제 외부 API rate limit 조건을 측정한 뒤 concurrency 상향 여부를 판단한다.
+6회 모두 SUCCEEDED/CONFIRMED/Analysis/USE가 실행별 1,000건으로 일치했고 FAILED/CANCELLED/REFUND/중복 Analysis/중복 Credit/DLQ는 0이었다. concurrency 50의 처리량 중앙값은 concurrency 10보다 약 25.4% 낮았고 completion p95 중앙값은 약 8.3배였다. concurrency 10에서는 DB pending이 없었지만 concurrency 50에서는 최대 25가 관측되어 높은 동시성에서 DB connection 대기가 발생했다. 1초 scrape의 짧은 로컬 실행에서 수집한 CPU·메모리 최댓값은 샘플 시점 및 다른 로컬 프로세스의 영향을 받을 수 있으므로 직접적인 우열 근거로 사용하지 않는다. 이 로컬 무지연 AI stub 조건에서는 기본 concurrency/prefetch 10을 유지하며, 운영 변경 전 실제 외부 API rate limit과 운영 유사 자원 한도에서 별도로 검증한다.
 
 ### D. worker 장애·복구
 
