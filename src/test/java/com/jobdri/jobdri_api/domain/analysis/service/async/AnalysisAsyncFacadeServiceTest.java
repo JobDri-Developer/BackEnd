@@ -383,16 +383,21 @@ class AnalysisAsyncFacadeServiceTest {
     }
 
     @Test
-    @DisplayName("재시도 횟수가 maxRetryCount에 도달하면 task를 FAILED로 전환한다")
-    void retryAtLimitMarksTaskFailed() {
+    @DisplayName("재시도 횟수가 maxRetryCount를 초과하면 task를 FAILED로 전환한다")
+    void retryBeyondLimitMarksTaskFailed() {
         AnalysisAsyncTask task = AnalysisAsyncTask.pending(1L, 10L, 3);
 
         task.markRetryScheduled(AnalysisAsyncFailureReason.INTERNAL_ERROR, "retry-1", 1);
         task.markRetryScheduled(AnalysisAsyncFailureReason.INTERNAL_ERROR, "retry-2", 2);
         task.markRetryScheduled(AnalysisAsyncFailureReason.INTERNAL_ERROR, "retry-3", 3);
 
-        assertThat(task.getStatus()).isEqualTo(AnalysisAsyncTaskStatus.FAILED);
+        assertThat(task.getStatus()).isEqualTo(AnalysisAsyncTaskStatus.PENDING);
         assertThat(task.getRetryCount()).isEqualTo(3);
+
+        task.markRetryScheduled(AnalysisAsyncFailureReason.INTERNAL_ERROR, "retry-4", 4);
+
+        assertThat(task.getStatus()).isEqualTo(AnalysisAsyncTaskStatus.FAILED);
+        assertThat(task.getRetryCount()).isEqualTo(4);
     }
 
     private DataIntegrityViolationException activeTaskUniqueConflict() {
