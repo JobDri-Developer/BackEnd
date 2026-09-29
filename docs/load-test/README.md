@@ -156,6 +156,13 @@ done
 
 별도 worker 이미지 이름이나 compose network가 다르면 각각 `LOAD_TEST_WORKER_IMAGE`, `LOAD_TEST_DOCKER_NETWORK`로 지정한다. 영구 retryable 오류는 최초 시도와 3회 재시도 뒤 네 번째 실패에서 종료되므로 최종 task의 `retry_count`는 4다.
 
+동일 메시지 재전달과 consumer 강제 종료 후 redelivery는 다음 스크립트로 검증한다. 두 시나리오는 결과 1개, USE 거래 1개, REFUND 0개, Credit CONFIRMED, queue/DLQ 0을 합격 조건으로 사용한다. `consumer_restart`는 기본 5초 stub latency 중 RUNNING 상태를 확인한 뒤 worker container를 강제 종료하고 새 worker를 시작하며, 새 consumer 로그의 RabbitMQ redelivery 표식도 확인한다.
+
+```bash
+bash load-test/run-analysis-idempotency-scenario.sh duplicate_delivery
+bash load-test/run-analysis-idempotency-scenario.sh consumer_restart
+```
+
 Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 않다. 주 분석 경로인 별도 worker에는 `OPENAI_BASE_URL=http://ai-stub:18080/v1`을 추가해 stub 연결이 가능하다. Cohere는 Spring에 `COHERE_BASE_URL=http://ai-stub:18080`을 지정한다.
 
 ## 6. 반드시 확인할 불변식
@@ -223,6 +230,17 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 | `semantic_invalid` | FAILED / VALIDATION_ERROR | 0 | RELEASED | 0 | 1 |
 
 영구 retryable 오류를 처음 측정했을 때 백엔드가 세 번째 retry callback에서 task를 조기 종료해 worker의 마지막 시도와 DLQ 발행을 건너뛰고 Credit이 RESERVED에 남는 정책 불일치를 발견했다. 백엔드의 종료 조건을 worker와 동일하게 `retryCount > maxRetryCount`로 맞춘 뒤 위 불변식이 모두 통과했다.
+
+### E. 중복 전달·consumer 재시작
+
+2026-09-29 로컬 격리 환경에서 동일한 RabbitMQ payload를 2개 적재한 중복 전달과, RUNNING 상태의 worker container를 강제 종료한 consumer 재시작을 각각 독립 실행했다.
+
+| scenario | redelivery | 최종 상태 | Analysis | USE / REFUND | queue / DLQ |
+|---|---|---|---:|---:|---:|
+| duplicate delivery | 동일 message payload 2개 | SUCCEEDED / CONFIRMED | 1 | 1 / 0 | 0 / 0 |
+| consumer restart | RabbitMQ `redelivered=true` | SUCCEEDED / CONFIRMED | 1 | 1 / 0 | 0 / 0 |
+
+중복 메시지와 처리 중 강제 종료 모두 최종 결과와 Credit 차감을 중복 생성하지 않았다. 이 측정은 message redelivery 경계까지 다루며, 결과 저장 뒤 complete callback 실패를 복구하는 영속 recovery spool 재실행은 별도 시나리오로 남긴다.
 
 ## 8. 계측과 대시보드
 
