@@ -21,6 +21,7 @@ services:
   prometheus:
     volumes:
       - ./ops/observability/prometheus-loadtest.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/observability/prometheus-loadtest-alerts.yml:/etc/prometheus/rules/loadtest-alerts.yml:ro
     depends_on:
       - rabbitmq
 

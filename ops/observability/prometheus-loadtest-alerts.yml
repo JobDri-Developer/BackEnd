@@ -1,0 +1,123 @@
+groups:
+  - name: jobdri-recruiting-season-loadtest
+    interval: 15s
+    rules:
+      - alert: AnalysisQueueBacklogWarning
+        expr: rabbitmq_queue_messages_ready{queue="jobdri.analysis.execute"} > 300
+        for: 10m
+        labels:
+          severity: warning
+          environment: loadtest
+        annotations:
+          summary: Analysis queue backlog exceeds 300
+          description: "Synthetic load-test analysis queue has remained above 300 ready messages for 10 minutes."
+
+      - alert: AnalysisQueueBacklogCritical
+        expr: rabbitmq_queue_messages_ready{queue="jobdri.analysis.execute"} > 1000
+        for: 5m
+        labels:
+          severity: critical
+          environment: loadtest
+        annotations:
+          summary: Analysis queue backlog exceeds 1,000
+          description: "Synthetic load-test analysis queue has remained above 1,000 ready messages for 5 minutes."
+
+      - alert: AnalysisQueueWaitP95High
+        expr: histogram_quantile(0.95, sum(rate(worker_task_queue_wait_duration_seconds_bucket{task_type="analysis"}[5m])) by (le)) > 120
+        for: 10m
+        labels:
+          severity: warning
+          environment: loadtest
+        annotations:
+          summary: Analysis queue wait p95 exceeds 120 seconds
+          description: "Worker-observed analysis queue wait p95 has exceeded 120 seconds for 10 minutes."
+
+      - alert: AnalysisDlqNotEmpty
+        expr: rabbitmq_queue_messages_ready{queue="jobdri.analysis.execute.dlq"} > 0
+        for: 5m
+        labels:
+          severity: critical
+          environment: loadtest
+        annotations:
+          summary: Analysis DLQ contains messages
+          description: "At least one analysis task has remained in the synthetic load-test DLQ for 5 minutes."
+
+      - alert: AnalysisPublishFailure
+        expr: sum(increase(analysis_request_total{outcome="publish_failed"}[5m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+          environment: loadtest
+        annotations:
+          summary: Analysis request publication failed
+          description: "At least one analysis request failed RabbitMQ publication during the last 5 minutes."
+
+      - alert: ApiServerErrorRateHigh
+        expr: sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) / clamp_min(sum(rate(http_server_requests_seconds_count[5m])), 0.000000001) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          environment: loadtest
+        annotations:
+          summary: API 5xx ratio exceeds 1 percent
+          description: "Load-test API 5xx response ratio has exceeded 1 percent for 5 minutes."
+
+      - alert: AnalysisCreditTransitionFailure
+        expr: sum(increase(analysis_credit_transition_total{outcome="failure"}[5m])) > 0
+        for: 1m
+        labels:
+          severity: critical
+          environment: loadtest
+        annotations:
+          summary: Analysis Credit transition failed
+          description: "At least one analysis Credit state transition failed during the last 5 minutes."
+
+      - alert: WorkerOpenAiErrorRateHigh
+        expr: sum(rate(worker_llm_request_errors_total{task_type="analysis"}[5m])) / clamp_min(sum(rate(llm_request_duration_seconds_count{task_type="analysis"}[5m])), 0.000000001) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          environment: loadtest
+        annotations:
+          summary: Worker OpenAI error ratio exceeds 5 percent
+          description: "Synthetic analysis worker OpenAI error ratio has exceeded 5 percent for 5 minutes."
+
+      - alert: WorkerOpenAiLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(llm_request_duration_seconds_bucket{task_type="analysis"}[5m])) by (le)) > 240
+        for: 5m
+        labels:
+          severity: warning
+          environment: loadtest
+        annotations:
+          summary: Worker OpenAI p95 exceeds 240 seconds
+          description: "OpenAI p95 has exceeded 80 percent of the default 300-second load-test timeout for 5 minutes."
+
+      - alert: CohereErrorRateHigh
+        expr: sum(rate(external_ai_request_duration_seconds_count{provider="cohere",outcome="error"}[5m])) / clamp_min(sum(rate(external_ai_request_duration_seconds_count{provider="cohere"}[5m])), 0.000000001) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          environment: loadtest
+        annotations:
+          summary: Cohere error ratio exceeds 5 percent
+          description: "Synthetic load-test Cohere error ratio has exceeded 5 percent for 5 minutes."
+
+      - alert: CohereLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(external_ai_request_duration_seconds_bucket{provider="cohere"}[5m])) by (le)) > 12
+        for: 5m
+        labels:
+          severity: warning
+          environment: loadtest
+        annotations:
+          summary: Cohere p95 exceeds 12 seconds
+          description: "Cohere p95 has exceeded 80 percent of the default 15-second read timeout for 5 minutes."
+
+      - alert: HikariPoolUtilizationHigh
+        expr: hikaricp_connections_active / clamp_min(hikaricp_connections_max, 1) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          environment: loadtest
+        annotations:
+          summary: Hikari connection pool utilization exceeds 80 percent
+          description: "Load-test API Hikari active/max ratio has exceeded 80 percent for 10 minutes."

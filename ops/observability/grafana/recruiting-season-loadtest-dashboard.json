@@ -92,7 +92,7 @@
       "id": 7,
       "options": { "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
       "targets": [
-        { "expr": "sum(increase(analysis_credit_transition_total{outcome!=\"success\"}[$__rate_interval])) by (transition, outcome)", "legendFormat": "{{transition}} / {{outcome}}", "refId": "A" }
+        { "expr": "sum(increase(analysis_credit_transition_total{outcome=\"failure\"}[$__rate_interval])) by (transition)", "legendFormat": "{{transition}}", "refId": "A" }
       ],
       "title": "Credit transition failures",
       "type": "timeseries"
