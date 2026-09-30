@@ -97,6 +97,13 @@ LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/seed/seed.sh 6060
 LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/seed/seed.sh 6060 20
 ```
 
+worker 중지, queue/DLQ 초기화, 합성 데이터 생성, k6 실행, DB/queue 건수 검증을 한 번에 수행하려면 전용 runner를 사용한다. 세 번째 인자는 합성 사용자 수이며 기본값은 20이다. runner는 부하 지속 시간보다 analysis queue timeout이 길지 않으면 실행 전에 실패한다.
+
+```bash
+LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/run-analysis-acceptance-scenario.sh 1 10m 20
+LOAD_TEST_ENV_FILE="$LOAD_TEST_ENV_FILE" bash load-test/run-analysis-acceptance-scenario.sh 30 2m 20
+```
+
 ```bash
 export LOAD_TEST_ENV_FILE='/absolute/path/to/.env.loadtest'
 set -a
