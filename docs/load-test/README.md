@@ -256,6 +256,23 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 
 task 수와 queue ready 수가 일치하고 중복 task ID가 없어 건수 기준 유실과 중복은 관측되지 않았다. p95 51.53 ms로 A1 기준 1초를 충족했다. 이 값은 worker가 중지된 로컬 합성 환경의 API 접수 및 queue publish 기준선이다.
 
+2026-09-30에는 같은 환경에서 새 acceptance runner로 worker를 중지하고 A2를 10 RPS, 10분 동안 재실행했다. 합성 계정 20개에 mock apply 6,060건을 분산했으며, runner가 실행 전 queue/DLQ 초기화와 consumer 0을 확인했다.
+
+| 항목 | 측정값 |
+|---|---:|
+| 요청/iteration | 6,001 |
+| 성공률 | 100% |
+| HTTP / acceptance error | 0 / 0 |
+| 평균 / 중앙값 | 25.73 ms / 20.43 ms |
+| p90 / p95 / p99 | 27.20 ms / 31.50 ms / 114.44 ms |
+| 최대 | 1.66 s |
+| dropped / interrupted | 0 / 0 |
+| 종료 시 task / 고유 task ID / PENDING / FAILED | 6,001 / 6,001 / 6,001 / 0 |
+| 종료 시 queue ready / unacked / consumer / DLQ | 6,001 / 0 / 0 / 0 |
+| 종료 시 Analysis / Credit 거래 | 0 / 0 |
+
+`constant-arrival-rate` duration 경계에서 한 건이 추가 예약되어 6,001건이 실행됐다. 모든 접수와 HTTP threshold를 통과했고 발행 실패 응답은 없었다. task 수와 queue ready 수가 일치하고 고유 task ID도 6,001개여서 건수 기준 유실과 중복은 관측되지 않았다. 이 결과로 이전 end-to-end 실행에서 판정하지 못했던 A2의 깨끗한 DLQ=0 접수 불변식을 확인했다.
+
 2026-09-30 로컬 격리 환경에서 worker를 중지하고 A3를 30 RPS, 2분 동안 실행했다. 합성 계정 20개에 서로 다른 mock apply 3,700건을 분산했으며, 실행 전 analysis queue와 DLQ가 비어 있고 consumer가 0인지 확인했다.
 
 | 항목 | 측정값 |
@@ -273,7 +290,7 @@ task 수와 queue ready 수가 일치하고 중복 task ID가 없어 건수 기�
 
 `constant-arrival-rate` duration 경계에서 한 건이 추가 예약되어 3,601건이 실행됐다. task 수와 queue ready 수가 일치하고 중복 task ID가 없어 건수 기준 유실과 중복은 관측되지 않았다. p99 55.34 ms로 A3 기준 2초를 충족했으며, 이 값은 worker 처리량이 아니라 worker가 중지된 로컬 합성 환경의 API 접수 및 queue publish 성능이다.
 
-2026-09-28 로컬 격리 환경에서 A2를 10 RPS, 10분 동안 실행했다. API와 PostgreSQL, Redis, RabbitMQ, AI stub을 Docker Desktop에서 실행했고, 별도 `analysis-server` worker는 prefetch 5 / analysis concurrency 5로 AI stub을 사용했다.
+참고로 2026-09-28에는 A2와 같은 10 RPS, 10분 입력을 end-to-end로 실행했다. API와 PostgreSQL, Redis, RabbitMQ, AI stub을 Docker Desktop에서 실행했고, 별도 `analysis-server` worker는 prefetch 5 / analysis concurrency 5로 AI stub을 사용했다.
 
 | 항목 | 측정값 |
 |---|---:|
