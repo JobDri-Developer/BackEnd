@@ -109,6 +109,8 @@ docker compose --env-file "$LOAD_TEST_ENV_FILE" -f docker-compose.yml -f docker-
 
 A2를 접수 경로만 측정할 때는 worker를 중지하고 실행한다. end-to-end로 측정할 때는 별도 `analysis-server` worker의 `OPENAI_BASE_URL`을 stub으로 고정하고 worker concurrency/prefetch를 결과에 함께 기록한다. 실행 전 RabbitMQ의 analysis queue와 DLQ가 0인지 확인해 이전 실험 메시지가 결과에 섞이지 않게 한다.
 
+load-test compose는 worker 중지 상태의 10분 접수 측정이 운영 기본 queue timeout과 충돌하지 않도록 analysis queue timeout을 기본 900초로 둔다. 다른 측정값이 필요하면 합성 환경 파일의 `LOAD_TEST_ANALYSIS_QUEUE_TIMEOUT_SECONDS`로 재정의한다. 운영 프로필의 timeout은 변경하지 않는다.
+
 30 RPS burst는 `LOAD_TEST_TARGET_RPS=30 LOAD_TEST_DURATION=2m`로 실행한다. 전체 projected 묶음을 호스트 k6로 실행할 때도 합성 환경 파일을 먼저 로드하고, `runAcceptance`가 읽는 변수명으로 명시적으로 매핑한다.
 
 ```bash
@@ -229,6 +231,23 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 현재 테스트 중 `AnalysisWorkerBridgeServiceTest`, `AnalysisAsyncCreditCoordinatorTest`, `CreditServiceTest`, `AnalysisServiceTest`, `RabbitPublishSupportIntegrationTest`가 이 경계의 빠른 회귀 검증을 담당한다. RabbitMQ/PostgreSQL Testcontainers는 아직 없으므로 broker restart/consumer crash/실제 DLQ 검증은 격리 compose 환경의 수동 부하 단계다.
 
 ## 7. 측정 결과
+
+2026-09-30 로컬 격리 환경에서 worker를 중지하고 A1을 1 RPS, 10분 동안 실행했다. 합성 계정 20개에 서로 다른 mock apply 610건을 분산했으며, load-test 전용 analysis queue timeout은 900초였다.
+
+| 항목 | 측정값 |
+|---|---:|
+| 요청/iteration | 600 |
+| 성공률 | 100% |
+| HTTP / acceptance error | 0 / 0 |
+| 평균 / 중앙값 | 36.79 ms / 33.89 ms |
+| p90 / p95 / p99 | 45.67 ms / 51.53 ms / 94.99 ms |
+| 최대 | 482.72 ms |
+| dropped / interrupted | 0 / 0 |
+| 종료 시 task / 고유 task ID / PENDING / FAILED | 600 / 600 / 600 / 0 |
+| 종료 시 queue ready / unacked / consumer / DLQ | 600 / 0 / 0 / 0 |
+| 종료 시 Analysis / Credit 거래 | 0 / 0 |
+
+task 수와 queue ready 수가 일치하고 중복 task ID가 없어 건수 기준 유실과 중복은 관측되지 않았다. p95 51.53 ms로 A1 기준 1초를 충족했다. 이 값은 worker가 중지된 로컬 합성 환경의 API 접수 및 queue publish 기준선이다.
 
 2026-09-30 로컬 격리 환경에서 worker를 중지하고 A3를 30 RPS, 2분 동안 실행했다. 합성 계정 20개에 서로 다른 mock apply 3,700건을 분산했으며, 실행 전 analysis queue와 DLQ가 비어 있고 consumer가 0인지 확인했다.
 

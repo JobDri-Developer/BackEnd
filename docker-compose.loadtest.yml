@@ -4,6 +4,7 @@ services:
       - ${LOAD_TEST_ENV_FILE:?Set LOAD_TEST_ENV_FILE to a synthetic-only environment file}
     environment:
       MANAGEMENT_HEALTH_MAIL_ENABLED: false
+      APP_WORKER_ANALYSIS_QUEUE_TIMEOUT_SECONDS: ${LOAD_TEST_ANALYSIS_QUEUE_TIMEOUT_SECONDS:-900}
       COHERE_API_KEY: synthetic-load-test-only
       COHERE_BASE_URL: http://ai-stub:18080
     ports:
