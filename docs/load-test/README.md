@@ -239,6 +239,8 @@ Spring 내부 OpenAI Java SDK base URL은 현재 설정에 노출되어 있지 �
 
 ## 7. 측정 결과
 
+시나리오별 핵심 수치, 불변식 판정, 병목 결론과 남은 한계는 [`results-2026-09-30.md`](./results-2026-09-30.md)에 통합했다. 아래 내용은 각 실행의 상세 근거다.
+
 2026-09-30 로컬 격리 환경에서 worker를 중지하고 A1을 1 RPS, 10분 동안 실행했다. 합성 계정 20개에 서로 다른 mock apply 610건을 분산했으며, load-test 전용 analysis queue timeout은 900초였다.
 
 | 항목 | 측정값 |
