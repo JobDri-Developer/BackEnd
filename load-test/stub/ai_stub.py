@@ -14,7 +14,13 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get('Content-Length', '0'))
         body = self.rfile.read(length)
         mode = self.headers.get('X-Stub-Mode', os.getenv('STUB_MODE', 'success'))
-        delay = float(self.headers.get('X-Stub-Latency-Seconds', os.getenv('STUB_LATENCY_SECONDS', '0')))
+        delay_override = self.headers.get('X-Stub-Latency-Seconds')
+        if delay_override is not None:
+            delay = float(delay_override)
+        elif self.path.endswith('/v2/embed'):
+            delay = float(os.getenv('COHERE_STUB_LATENCY_SECONDS', '0'))
+        else:
+            delay = float(os.getenv('STUB_LATENCY_SECONDS', '0'))
         key = self.headers.get('X-Stub-Key', self.path)
         with ATTEMPTS_LOCK:
             attempt = ATTEMPTS.get(key, 0) + 1

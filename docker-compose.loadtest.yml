@@ -1,11 +1,69 @@
 services:
+  api:
+    env_file: !override
+      - ${LOAD_TEST_ENV_FILE:?Set LOAD_TEST_ENV_FILE to a synthetic-only environment file}
+    environment:
+      MANAGEMENT_HEALTH_MAIL_ENABLED: false
+      APP_WORKER_ANALYSIS_QUEUE_TIMEOUT_SECONDS: ${LOAD_TEST_ANALYSIS_QUEUE_TIMEOUT_SECONDS:-900}
+      COHERE_API_KEY: synthetic-load-test-only
+      COHERE_BASE_URL: http://ai-stub:18080
+    ports:
+      - "127.0.0.1:9090:9090"
+
   ai-stub:
     build: ./load-test/stub
     environment:
       PORT: 18080
+      PYTHONUNBUFFERED: 1
+      STUB_MODE: ${LOAD_TEST_STUB_MODE:-success}
+      STUB_LATENCY_SECONDS: ${LOAD_TEST_STUB_LATENCY_SECONDS:-0}
+      COHERE_STUB_LATENCY_SECONDS: ${LOAD_TEST_COHERE_STUB_LATENCY_SECONDS:-0}
+      STUB_SUCCESS_ATTEMPT: ${LOAD_TEST_STUB_SUCCESS_ATTEMPT:-3}
     ports:
       - "18080:18080"
     profiles: [loadtest]
+
+  rabbitmq:
+    volumes:
+      - ./load-test/rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro
+
+  prometheus:
+    volumes:
+      - ./ops/observability/prometheus-loadtest.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/observability/prometheus-loadtest-alerts.yml:/etc/prometheus/rules/loadtest-alerts.yml:ro
+    depends_on:
+      - rabbitmq
+
+  node-exporter:
+    volumes: !override
+      - /:/host:ro
+
+  grafana:
+    volumes:
+      - ./ops/observability/grafana/loadtest-datasource.yml:/etc/grafana/provisioning/datasources/loadtest.yml:ro
+      - ./ops/observability/grafana/loadtest-dashboard-provider.yml:/etc/grafana/provisioning/dashboards/loadtest.yml:ro
+      - ./ops/observability/grafana/recruiting-season-loadtest-dashboard.json:/var/lib/grafana/dashboards/recruiting-season-loadtest.json:ro
+
+  worker:
+    build: !reset null
+    image: ${LOAD_TEST_WORKER_IMAGE:-jobdri-analysis-worker-loadtest:latest}
+    env_file: !override
+      - ${LOAD_TEST_ENV_FILE:?Set LOAD_TEST_ENV_FILE to a synthetic-only environment file}
+    environment:
+      OPENAI_BASE_URL: http://ai-stub:18080/v1
+    depends_on:
+      ai-stub:
+        condition: service_started
+
+  worker-api-proxy:
+    build: ./load-test/worker-api-proxy
+    environment:
+      PORT: 18081
+      TARGET_HOST: api
+      TARGET_PORT: 8080
+      FAIL_COMPLETE: ${LOAD_TEST_PROXY_FAIL_COMPLETE:-false}
+    profiles: [loadtest]
+    depends_on: [api]
 
   k6:
     image: grafana/k6:0.57.0
@@ -15,7 +73,9 @@ services:
     environment:
       BASE_URL: ${LOAD_TEST_BASE_URL:-http://api:8080}
       ACCESS_TOKEN: ${LOAD_TEST_ACCESS_TOKEN:-}
+      ACCESS_TOKENS: ${LOAD_TEST_ACCESS_TOKENS:-}
       MOCK_APPLY_IDS: ${LOAD_TEST_MOCK_APPLY_IDS:-}
+      MOCK_APPLY_CASES: ${LOAD_TEST_MOCK_APPLY_CASES:-}
       TARGET_RPS: ${LOAD_TEST_TARGET_RPS:-1}
       DURATION: ${LOAD_TEST_DURATION:-1m}
       SCENARIO: ${LOAD_TEST_SCENARIO:-assumption-acceptance}

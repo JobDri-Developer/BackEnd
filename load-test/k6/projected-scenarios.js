@@ -1,5 +1,5 @@
 import exec from 'k6/execution';
-import { acceptanceThresholds, runAcceptance } from './analysis-acceptance.js';
+import { acceptanceSummaryTrendStats, acceptanceThresholds, runAcceptance } from './analysis-acceptance.js';
 
 // These are planning assumptions, not measured production traffic.
 export const options = {
@@ -9,14 +9,17 @@ export const options = {
     assumption_recruiting_peak: scenario(88, '10s', '10m', 50, '22m'),
     assumption_short_burst: scenario(30, '1s', '2m', 100, '33m'),
   },
+  summaryTrendStats: acceptanceSummaryTrendStats,
   thresholds: acceptanceThresholds,
 };
 
 const idOffsets = {
   assumption_initial: 0,
-  assumption_growth: 144,
-  assumption_recruiting_peak: 1224,
-  assumption_short_burst: 6504,
+  // constant-arrival-rate can schedule an iteration at the duration boundary.
+  // Keep 1% headroom between ID ranges so scenarios never reuse a mock apply.
+  assumption_growth: 146,
+  assumption_recruiting_peak: 1237,
+  assumption_short_burst: 6570,
 };
 
 function scenario(rate, timeUnit, duration, preAllocatedVUs, startTime = '0s') {

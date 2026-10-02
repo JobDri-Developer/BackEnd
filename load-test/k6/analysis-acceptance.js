@@ -17,6 +17,8 @@ export const acceptanceThresholds = {
   http_req_failed: ['rate<0.01'],
 };
 
+export const acceptanceSummaryTrendStats = ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'];
+
 export const options = {
   scenarios: {
     projected_acceptance: {
@@ -28,23 +30,46 @@ export const options = {
       maxVUs: Number(__ENV.MAX_VUS || Math.max(100, targetRps * 5)),
     },
   },
+  summaryTrendStats: acceptanceSummaryTrendStats,
   thresholds: acceptanceThresholds,
 };
 
 const ids = (__ENV.MOCK_APPLY_IDS || '').split(',').map((v) => v.trim()).filter(Boolean);
+const accessTokens = (__ENV.ACCESS_TOKENS || '').split(',').map((v) => v.trim()).filter(Boolean);
+const cases = (__ENV.MOCK_APPLY_CASES || '').split(',')
+  .map((value) => value.trim())
+  .filter(Boolean)
+  .map((value) => {
+    const parts = value.split(':');
+    const mockApplyId = parts[0];
+    const tokenIndex = Number(parts[1]);
+    if (parts.length !== 2
+      || !mockApplyId
+      || !/^\d+$/.test(parts[1])
+      || !Number.isSafeInteger(tokenIndex)) {
+      throw new Error(`invalid MOCK_APPLY_CASES entry: ${value}`);
+    }
+    return { mockApplyId, tokenIndex };
+  });
 
 export function runAcceptance(idIndex = Number(__ENV.ID_OFFSET || 0) + exec.scenario.iterationInTest) {
-  if (!__ENV.BASE_URL || !__ENV.ACCESS_TOKEN || ids.length === 0) {
-    throw new Error('BASE_URL, ACCESS_TOKEN, MOCK_APPLY_IDS are required; use synthetic test accounts only');
+  const multiUser = cases.length > 0 && accessTokens.length > 0;
+  if (!__ENV.BASE_URL || (!multiUser && (!__ENV.ACCESS_TOKEN || ids.length === 0))) {
+    throw new Error('BASE_URL and either ACCESS_TOKEN/MOCK_APPLY_IDS or ACCESS_TOKENS/MOCK_APPLY_CASES are required; use synthetic test accounts only');
   }
-  if (idIndex >= ids.length) {
-    throw new Error(`MOCK_APPLY_IDS exhausted at index ${idIndex}; new-analysis scenarios require one distinct synthetic ID per iteration`);
+  const fixtureCount = multiUser ? cases.length : ids.length;
+  if (idIndex >= fixtureCount) {
+    throw new Error(`synthetic mock applies exhausted at index ${idIndex}; new-analysis scenarios require one distinct synthetic ID per iteration`);
   }
-  const mockApplyId = ids[idIndex];
+  const loadCase = multiUser ? cases[idIndex] : { mockApplyId: ids[idIndex], tokenIndex: -1 };
+  const accessToken = multiUser ? accessTokens[loadCase.tokenIndex] : __ENV.ACCESS_TOKEN;
+  if (!accessToken) {
+    throw new Error(`missing synthetic access token for fixture index ${idIndex}`);
+  }
   const response = http.post(
-    `${__ENV.BASE_URL}/api/mock-applies/${mockApplyId}/analysis`,
+    `${__ENV.BASE_URL}/api/mock-applies/${loadCase.mockApplyId}/analysis`,
     null,
-    { headers: { Authorization: `Bearer ${__ENV.ACCESS_TOKEN}`, 'X-Load-Scenario': __ENV.SCENARIO || 'assumption-acceptance' } },
+    { headers: { Authorization: `Bearer ${accessToken}`, 'X-Load-Scenario': __ENV.SCENARIO || 'assumption-acceptance' } },
   );
   acceptedLatency.add(response.timings.duration);
   const ok = check(response, {

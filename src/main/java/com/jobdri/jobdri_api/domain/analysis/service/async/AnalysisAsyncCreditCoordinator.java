@@ -31,11 +31,16 @@ public class AnalysisAsyncCreditCoordinator {
             return false;
         }
 
-        User user = userService.getUser(task.getUserId());
-        analysisCreditService.refund(user, task.getCreditReferenceId());
-        boolean changed = task.markCreditReleased();
-        recordTransitionAfterCommit("released", changed ? "success" : "ignored");
-        return changed;
+        try {
+            User user = userService.getUser(task.getUserId());
+            analysisCreditService.refund(user, task.getCreditReferenceId());
+            boolean changed = task.markCreditReleased();
+            recordTransitionAfterCommit("released", changed ? "success" : "ignored");
+            return changed;
+        } catch (RuntimeException exception) {
+            asyncMetricsRecorder.incrementCreditTransition("released", "failure");
+            throw exception;
+        }
     }
 
     public boolean reserveCreditIfNeeded(AnalysisAsyncTask task) {
@@ -43,21 +48,31 @@ public class AnalysisAsyncCreditCoordinator {
             return false;
         }
 
-        User user = userService.getUser(task.getUserId());
-        String creditReferenceId = analysisCreditService.createAsyncReferenceId(
-                task.getTaskId(),
-                task.nextCreditReferenceVersion()
-        );
-        analysisCreditService.deduct(user, creditReferenceId);
-        boolean changed = task.markCreditReserved(creditReferenceId);
-        recordTransitionAfterCommit("reserved", changed ? "success" : "ignored");
-        return changed;
+        try {
+            User user = userService.getUser(task.getUserId());
+            String creditReferenceId = analysisCreditService.createAsyncReferenceId(
+                    task.getTaskId(),
+                    task.nextCreditReferenceVersion()
+            );
+            analysisCreditService.deduct(user, creditReferenceId);
+            boolean changed = task.markCreditReserved(creditReferenceId);
+            recordTransitionAfterCommit("reserved", changed ? "success" : "ignored");
+            return changed;
+        } catch (RuntimeException exception) {
+            asyncMetricsRecorder.incrementCreditTransition("reserved", "failure");
+            throw exception;
+        }
     }
 
     public boolean confirmReservedCreditIfNeeded(AnalysisAsyncTask task) {
-        boolean changed = task.markCreditConfirmed();
-        recordTransitionAfterCommit("confirmed", changed ? "success" : "ignored");
-        return changed;
+        try {
+            boolean changed = task.markCreditConfirmed();
+            recordTransitionAfterCommit("confirmed", changed ? "success" : "ignored");
+            return changed;
+        } catch (RuntimeException exception) {
+            asyncMetricsRecorder.incrementCreditTransition("confirmed", "failure");
+            throw exception;
+        }
     }
 
     private void recordTransitionAfterCommit(String transition, String outcome) {

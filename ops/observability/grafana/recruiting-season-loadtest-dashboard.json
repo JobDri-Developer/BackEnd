@@ -1,0 +1,178 @@
+{
+  "annotations": { "list": [] },
+  "description": "Synthetic recruiting-season load-test signals. Projected traffic assumptions are not production measurements.",
+  "editable": true,
+  "graphTooltip": 1,
+  "id": null,
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "loadtest-prometheus" },
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum(rate(analysis_request_total[$__rate_interval])) by (outcome)", "legendFormat": "{{outcome}}", "refId": "A" }
+      ],
+      "title": "Analysis request rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "loadtest-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 0 },
+      "id": 2,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "rabbitmq_queue_messages_ready{queue=~\"jobdri.analysis.execute(|.dlq)\"}", "legendFormat": "{{queue}} ready", "refId": "A" },
+        { "expr": "rabbitmq_queue_messages_unacked{queue=\"jobdri.analysis.execute\"}", "legendFormat": "analysis unacked", "refId": "B" }
+      ],
+      "title": "Analysis queue and DLQ depth",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "loadtest-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 0 },
+      "id": 3,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "worker_task_inflight{task_type=\"analysis\"}", "legendFormat": "inflight", "refId": "A" },
+        { "expr": "worker_task_concurrency_limit{task_type=\"analysis\"}", "legendFormat": "limit", "refId": "B" },
+        { "expr": "sum(rate(worker_task_processing_duration_seconds_count{task_type=\"analysis\",outcome=\"succeeded\"}[$__rate_interval]))", "legendFormat": "completed/s", "refId": "C" }
+      ],
+      "title": "Worker concurrency and throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "loadtest-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 4,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(worker_task_processing_duration_seconds_bucket{task_type=\"analysis\"}[$__rate_interval])) by (le))", "legendFormat": "p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(worker_task_processing_duration_seconds_bucket{task_type=\"analysis\"}[$__rate_interval])) by (le))", "legendFormat": "p95", "refId": "B" },
+        { "expr": "histogram_quantile(0.99, sum(rate(worker_task_processing_duration_seconds_bucket{task_type=\"analysis\"}[$__rate_interval])) by (le))", "legendFormat": "p99", "refId": "C" }
+      ],
+      "title": "Analysis completion latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "loadtest-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 5,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(worker_task_queue_wait_duration_seconds_bucket{task_type=\"analysis\"}[$__rate_interval])) by (le))", "legendFormat": "worker p95", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(async_queue_wait_duration_seconds_bucket{task_type=\"analysis\"}[$__rate_interval])) by (le))", "legendFormat": "backend p95", "refId": "B" }
+      ],
+      "title": "Queue wait p95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "loadtest-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 16 },
+      "id": 6,
+      "options": { "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum(increase(worker_task_retry_count_total{task_type=\"analysis\"}[$__rate_interval])) by (reason)", "legendFormat": "retry {{reason}}", "refId": "A" },
+        { "expr": "sum(increase(worker_dlq_publish_total{task_type=\"analysis\",outcome=\"published\"}[$__rate_interval])) by (reason)", "legendFormat": "DLQ {{reason}}", "refId": "B" },
+        { "expr": "worker_recovery_spool_pending", "legendFormat": "spool pending", "refId": "C" }
+      ],
+      "title": "Retry, DLQ, and recovery spool",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "loadtest-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 16 },
+      "id": 7,
+      "options": { "legend": { "calcs": ["sum"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum(increase(analysis_credit_transition_total{outcome=\"failure\"}[$__rate_interval])) by (transition)", "legendFormat": "{{transition}}", "refId": "A" }
+      ],
+      "title": "Credit transition failures",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "loadtest-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 16 },
+      "id": 8,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "histogram_quantile(0.95, sum(rate(llm_request_duration_seconds_bucket{task_type=\"analysis\"}[$__rate_interval])) by (le))", "legendFormat": "OpenAI p95", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(external_ai_request_duration_seconds_bucket{provider=\"cohere\"}[$__rate_interval])) by (le))", "legendFormat": "Cohere p95", "refId": "B" }
+      ],
+      "title": "External AI latency p95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "loadtest-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 24 },
+      "id": 9,
+      "options": { "legend": { "calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "sum(rate(worker_llm_request_errors_total{task_type=\"analysis\"}[$__rate_interval])) by (error_type)", "legendFormat": "OpenAI {{error_type}}", "refId": "A" },
+        { "expr": "sum(rate(external_ai_request_duration_seconds_count{provider=\"cohere\",outcome=\"error\"}[$__rate_interval])) by (operation)", "legendFormat": "Cohere {{operation}}", "refId": "B" }
+      ],
+      "title": "External AI error rate",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "loadtest-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 8, "y": 24 },
+      "id": 10,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "hikaricp_connections_active", "legendFormat": "active", "refId": "A" },
+        { "expr": "hikaricp_connections_max", "legendFormat": "max", "refId": "B" },
+        { "expr": "hikaricp_connections_pending", "legendFormat": "pending", "refId": "C" }
+      ],
+      "title": "DB connection pool",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "loadtest-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0 }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 8, "x": 16, "y": 24 },
+      "id": 11,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "100 * (1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[$__rate_interval])))", "legendFormat": "CPU %", "refId": "A" },
+        { "expr": "100 * (1 - node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)", "legendFormat": "memory %", "refId": "B" }
+      ],
+      "title": "Host CPU and memory utilization (%)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "loadtest-prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "percentunit" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "id": 12,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [
+        { "expr": "worker_task_inflight{task_type=\"analysis\"} / clamp_min(worker_task_concurrency_limit{task_type=\"analysis\"}, 1)", "legendFormat": "worker saturation", "refId": "A" },
+        { "expr": "hikaricp_connections_active / clamp_min(hikaricp_connections_max, 1)", "legendFormat": "DB pool utilization", "refId": "B" }
+      ],
+      "title": "Bottleneck indicators",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 39,
+  "tags": ["jobdri", "load-test", "analysis", "projected-scenario"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "JobDri / Recruiting Season Load Test",
+  "uid": "jobdri-recruiting-loadtest",
+  "version": 1,
+  "weekStart": ""
+}
