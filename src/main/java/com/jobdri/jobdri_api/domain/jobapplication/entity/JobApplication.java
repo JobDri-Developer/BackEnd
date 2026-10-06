@@ -222,6 +222,11 @@ public class JobApplication extends BaseEntity {
         metrics.addAll(newMetrics);
     }
 
+    public void setInitialSpecs(BigDecimal gpa, BigDecimal maxGpa) {
+        this.gpa = gpa;
+        this.maxGpa = maxGpa;
+    }
+
     public void replaceEssays(List<JobApplicationEssay> newEssays) {
         essays.clear();
         essays.addAll(newEssays);
