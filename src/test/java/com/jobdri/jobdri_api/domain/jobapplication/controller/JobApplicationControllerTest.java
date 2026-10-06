@@ -167,6 +167,20 @@ class JobApplicationControllerTest {
     }
 
     @Test
+    void rejectNullMetricElementBeforeCreatingCard() throws Exception {
+        User savedUser = saveUser();
+        mockMvc.perform(post("/api/job-applications")
+                        .with(user(new UserDetailsImpl(savedUser)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"companyName":"회사","postingName":"공고","jobTitle":"직무",
+                                 "metrics":[null]}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("REQ_4002"));
+    }
+
+    @Test
     @DisplayName("수동 등록 API는 필수 스냅샷 필드 누락을 거절한다")
     void rejectMissingRequiredFields() throws Exception {
         User savedUser = saveUser();

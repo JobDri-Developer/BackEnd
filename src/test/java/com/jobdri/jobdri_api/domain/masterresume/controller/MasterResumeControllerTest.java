@@ -34,7 +34,8 @@ class MasterResumeControllerTest {
                 UUID.randomUUID() + "@example.com", "encoded-password"));
         mvc.perform(get("/api/master-resume").with(user(new UserDetailsImpl(owner))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.result.metrics").isEmpty());
+                .andExpect(jsonPath("$.result.metrics").isEmpty())
+                .andExpect(jsonPath("$.result.contentRevision").value(0));
 
         mvc.perform(put("/api/master-resume").with(user(new UserDetailsImpl(owner)))
                         .contentType(MediaType.APPLICATION_JSON)
@@ -46,6 +47,7 @@ class MasterResumeControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result.metrics[0].name").value("정보처리기사"))
-                .andExpect(jsonPath("$.result.experiences[0].name").value("프로젝트"));
+                .andExpect(jsonPath("$.result.experiences[0].name").value("프로젝트"))
+                .andExpect(jsonPath("$.result.contentRevision").value(1));
     }
 }

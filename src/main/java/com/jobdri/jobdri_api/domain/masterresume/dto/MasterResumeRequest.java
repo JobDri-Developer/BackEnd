@@ -7,7 +7,6 @@ import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 
 public record MasterResumeRequest(
@@ -15,7 +14,7 @@ public record MasterResumeRequest(
         @DecimalMin("0") @Digits(integer = 3, fraction = 3) BigDecimal maxGpa,
         List<@Valid Metric> metrics,
         List<@Valid Experience> experiences,
-        LocalDateTime lastKnownUpdatedAt
+        Long expectedRevision
 ) {
     public MasterResumeRequest(BigDecimal gpa, BigDecimal maxGpa, List<Metric> metrics,
                                List<Experience> experiences) {

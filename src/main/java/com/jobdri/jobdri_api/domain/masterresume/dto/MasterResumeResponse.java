@@ -10,14 +10,16 @@ public record MasterResumeResponse(
         BigDecimal gpa, BigDecimal maxGpa,
         List<MasterResume.Metric> metrics,
         List<MasterResume.ExperienceItem> experiences,
-        LocalDateTime updatedAt
+        LocalDateTime updatedAt,
+        long contentRevision
 ) {
     public static MasterResumeResponse empty() {
-        return new MasterResumeResponse(null, null, List.of(), List.of(), null);
+        return new MasterResumeResponse(null, null, List.of(), List.of(), null, 0);
     }
 
     public static MasterResumeResponse from(MasterResume resume) {
         return new MasterResumeResponse(resume.getGpa(), resume.getMaxGpa(),
-                List.copyOf(resume.getMetrics()), List.copyOf(resume.getExperiences()), resume.getUpdatedAt());
+                List.copyOf(resume.getMetrics()), List.copyOf(resume.getExperiences()),
+                resume.getUpdatedAt(), resume.getContentRevision());
     }
 }

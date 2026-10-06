@@ -10,16 +10,23 @@ import com.jobdri.jobdri_api.domain.masterresume.repository.MasterResumeReposito
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.annotation.Propagation;
 
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -41,7 +48,7 @@ class MasterResumeServiceTest {
                 UUID.randomUUID() + "@example.com", "encoded-password"));
         assertThat(service.get(user).metrics()).isEmpty();
 
-        var first = service.save(user, new MasterResumeRequest(new BigDecimal("3.8"), new BigDecimal("4.5"),
+        service.save(user, new MasterResumeRequest(new BigDecimal("3.8"), new BigDecimal("4.5"),
                 List.of(new MasterResumeRequest.Metric(JobApplicationMetricType.CERTIFICATE, "정보처리기사", "취득"),
                         new MasterResumeRequest.Metric(JobApplicationMetricType.LANGUAGE, "", "")),
                 List.of(new MasterResumeRequest.Experience("프로젝트", "2025.01 - 2025.06", "서비스 개발"))));
@@ -53,12 +60,12 @@ class MasterResumeServiceTest {
         assertThat(stored.metrics()).hasSize(1);
         assertThat(stored.experiences()).hasSize(1);
 
-        service.save(user, new MasterResumeRequest(null, null, List.of(), List.of(), stored.updatedAt()));
+        service.save(user, new MasterResumeRequest(null, null, List.of(), List.of(), stored.contentRevision()));
         entityManager.flush();
         entityManager.clear();
         assertThat(service.get(user).metrics()).isEmpty();
         assertThat(service.get(user).experiences()).isEmpty();
-        assertThat(resumes.count()).isEqualTo(1);
+        assertThat(resumes.findByUserId(user.getId())).isPresent();
     }
 
     @Test
@@ -74,7 +81,7 @@ class MasterResumeServiceTest {
                 null, null, null, null, original.gpa(), original.maxGpa(),
                 original.metrics().stream().map(metric -> new JobApplicationMetricRequest(
                         metric.type(), metric.name(), metric.value())).toList()));
-        service.save(user, new MasterResumeRequest(null, null, List.of(), List.of(), original.updatedAt()));
+        service.save(user, new MasterResumeRequest(null, null, List.of(), List.of(), original.contentRevision()));
         entityManager.flush();
         entityManager.clear();
 
@@ -101,5 +108,67 @@ class MasterResumeServiceTest {
                 new MasterResumeRequest(null, null, List.of(), List.of())))
                 .isInstanceOf(GeneralException.class)
                 .hasMessageContaining("이미 수정");
+
+        service.save(owner, new MasterResumeRequest(null, null, List.of(), List.of(), saved.contentRevision()));
+        assertThatThrownBy(() -> service.save(owner,
+                new MasterResumeRequest(null, null, List.of(), List.of(), saved.contentRevision())))
+                .isInstanceOfSatisfying(GeneralException.class,
+                        error -> assertThat(error.getCode()).isEqualTo(GeneralErrorCode.MASTER_RESUME_UPDATE_CONFLICT));
+    }
+
+    @Test
+    void rejectsBlankLanguageAndCustomValuesButKeepsAllowedDefaults() {
+        User user = users.saveAndFlush(User.signup("값 검증 사용자",
+                UUID.randomUUID() + "@example.com", "encoded-password"));
+        for (JobApplicationMetricType type : List.of(JobApplicationMetricType.LANGUAGE,
+                JobApplicationMetricType.CUSTOM)) {
+            assertThatThrownBy(() -> service.save(user, new MasterResumeRequest(null, null,
+                    List.of(new MasterResumeRequest.Metric(type, "이름", " ")), List.of())))
+                    .isInstanceOfSatisfying(GeneralException.class,
+                            error -> assertThat(error.getCode()).isEqualTo(GeneralErrorCode.INVALID_PARAMETER));
+        }
+        var saved = service.save(user, new MasterResumeRequest(null, null,
+                List.of(new MasterResumeRequest.Metric(JobApplicationMetricType.CERTIFICATE, "자격증", ""),
+                        new MasterResumeRequest.Metric(JobApplicationMetricType.AWARD, "수상", null)),
+                List.of()));
+        assertThat(saved.metrics()).extracting(metric -> metric.value())
+                .containsExactly("보유", "취득일 미입력");
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void concurrentSavesWithSameRevisionAllowOnlyOneWinner() throws Exception {
+        User user = users.saveAndFlush(User.signup("동시 저장 사용자",
+                UUID.randomUUID() + "@example.com", "encoded-password"));
+        long revision = service.save(user, new MasterResumeRequest(null, null, List.of(), List.of()))
+                .contentRevision();
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.Callable<GeneralErrorCode> attempt = () -> {
+                ready.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) {
+                    throw new AssertionError("동시 저장 시작 대기 시간 초과");
+                }
+                try {
+                    service.save(user, new MasterResumeRequest(null, null, List.of(), List.of(), revision));
+                    return null;
+                } catch (GeneralException error) {
+                    return (GeneralErrorCode) error.getCode();
+                }
+            };
+            Future<GeneralErrorCode> first = executor.submit(attempt);
+            Future<GeneralErrorCode> second = executor.submit(attempt);
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(java.util.Arrays.asList(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(null, GeneralErrorCode.MASTER_RESUME_UPDATE_CONFLICT);
+            assertThat(service.get(user).contentRevision()).isEqualTo(revision + 1);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(10, TimeUnit.SECONDS);
+        }
     }
 }

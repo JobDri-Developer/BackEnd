@@ -7,6 +7,7 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
@@ -49,7 +50,7 @@ public record JobApplicationCreateRequest(
         LocalDateTime currentAt,
         @DecimalMin("0") @Digits(integer = 3, fraction = 3) BigDecimal gpa,
         @DecimalMin("0") @Digits(integer = 3, fraction = 3) BigDecimal maxGpa,
-        List<@Valid JobApplicationMetricRequest> metrics
+        List<@NotNull @Valid JobApplicationMetricRequest> metrics
 ) {
     public JobApplicationCreateRequest(String companyName, String postingName, String jobTitle,
                                        CompanySize companySize, Long detailClassificationId,

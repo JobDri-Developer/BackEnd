@@ -41,9 +41,8 @@ public class MasterResumeService {
                     "학점과 만점을 모두 입력하고 학점은 만점 이하로 설정해주세요.");
         }
         MasterResume resume = resumes.findByUserId(user.getId()).orElseGet(() -> MasterResume.create(user));
-        if (resume.getId() != null && (request.lastKnownUpdatedAt() == null
-                || resume.getUpdatedAt() != null
-                && resume.getUpdatedAt().isAfter(request.lastKnownUpdatedAt()))) {
+        if (resume.getId() != null && (request.expectedRevision() == null
+                || request.expectedRevision() != resume.getContentRevision())) {
             throw new GeneralException(GeneralErrorCode.MASTER_RESUME_UPDATE_CONFLICT,
                     "마스터 이력서가 이미 수정되었습니다. 최신 내용을 다시 조회해주세요.");
         }
@@ -66,10 +65,11 @@ public class MasterResumeService {
                         default -> null;
                     };
                     if (value == null) {
-                        return null;
+                        throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER,
+                                "어학 성적과 기타 정량 정보에는 값을 입력해주세요.");
                     }
                     return new MasterResume.Metric(row.type(), row.name().trim(), value);
-                }).filter(Objects::nonNull).toList();
+                }).toList();
     }
 
     private List<MasterResume.ExperienceItem> normalizeExperiences(List<MasterResumeRequest.Experience> rows) {
