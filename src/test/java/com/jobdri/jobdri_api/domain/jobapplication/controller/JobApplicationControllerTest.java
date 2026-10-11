@@ -65,7 +65,10 @@ class JobApplicationControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result.postingUrl").value("https://example.com/jobs/1"))
                 .andExpect(jsonPath("$.result.requiredSkills.length()").value(2))
+                .andExpect(jsonPath("$.result.requiredSkills[0]").value("Java"))
+                .andExpect(jsonPath("$.result.requiredSkills[1]").value("SQL"))
                 .andExpect(jsonPath("$.result.essays.length()").value(1))
+                .andExpect(jsonPath("$.result.essays[0].question").value("지원 동기"))
                 .andExpect(jsonPath("$.result.essays[0].answer").value("답변"))
                 .andReturn();
         mockMvc.perform(get("/api/job-applications/board").with(user(new UserDetailsImpl(owner))))
