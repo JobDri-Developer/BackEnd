@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.jobapplication.dto.request;
 import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
 import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.hibernate.validator.constraints.URL;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMin;
@@ -79,11 +80,13 @@ public record JobApplicationCreateRequest(
     public record RegistrationEssay(@Size(max = 1000) String question,
                                     @Size(max = 10000) String answer) {}
 
+    @Schema(hidden = true)
     @AssertTrue(message = "수동 등록은 지원예정 단계에서 시작합니다.")
     public boolean isInitialStageValid() {
         return initialStage == null || initialStage == JobApplicationStage.PLANNED;
     }
 
+    @Schema(hidden = true)
     @AssertTrue(message = "학점과 만점은 모두 입력하거나 모두 비워야 하며, 학점은 만점 이하여야 합니다.")
     public boolean isGpaRangeValid() {
         return gpa == null || maxGpa == null
