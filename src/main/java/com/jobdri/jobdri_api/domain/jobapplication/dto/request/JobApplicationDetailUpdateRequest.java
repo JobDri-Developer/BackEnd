@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.jobapplication.dto.request;
 
 import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
 import jakarta.validation.Valid;
+import org.hibernate.validator.constraints.URL;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
@@ -67,8 +68,21 @@ public record JobApplicationDetailUpdateRequest(
         List<@Valid JobApplicationMetricRequest> metrics,
 
         @Size(max = 20, message = "자기소개서는 최대 20개까지 입력할 수 있습니다.")
-        List<@Valid JobApplicationEssayRequest> essays
+        List<@Valid JobApplicationEssayRequest> essays,
+        @URL(regexp = "(?i)^https?://.+$")
+        @Size(max = 2048) String postingUrl
 ) {
+    public JobApplicationDetailUpdateRequest(LocalDateTime lastKnownUpdatedAt, String companyName, String
+                postingName, String jobTitle, CompanySize companySize, Long detailClassificationId, String
+                task, String requirement, String preferred, List<String> requiredSkills, LocalDateTime
+                deadlineAt, String currentLabel, LocalDateTime currentAt, String memo, BigDecimal gpa,
+                BigDecimal maxGpa, List<JobApplicationChecklistItemRequest> checklistItems,
+                List<JobApplicationMetricRequest> metrics, List<JobApplicationEssayRequest> essays) {
+        this(lastKnownUpdatedAt, companyName, postingName, jobTitle, companySize, detailClassificationId,
+                task, requirement, preferred, requiredSkills, deadlineAt, currentLabel, currentAt, memo, gpa,
+                maxGpa, checklistItems, metrics, essays, null);
+    }
+
     @AssertTrue(message = "학점과 만점은 모두 입력하거나 모두 비워야 하며, 학점은 만점 이하여야 합니다.")
     public boolean isGpaRangeValid() {
         if (gpa == null || maxGpa == null) {

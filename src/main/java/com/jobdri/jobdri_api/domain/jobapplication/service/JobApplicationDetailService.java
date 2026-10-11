@@ -54,6 +54,7 @@ public class JobApplicationDetailService {
         validateNotStale(application, request.lastKnownUpdatedAt());
         DetailClassification detailClassification = findOptionalClassification(request.detailClassificationId());
 
+        application.setPostingUrl(request.postingUrl());
         application.updateDetails(
                 detailClassification,
                 request.companyName().trim(),
@@ -121,7 +122,7 @@ public class JobApplicationDetailService {
     }
 
     private List<String> normalizeSkills(List<String> skills) {
-        return safeList(skills).stream().map(String::trim).toList();
+        return safeList(skills).stream().map(String::trim).filter(skill -> !skill.isEmpty()).distinct().toList();
     }
 
     private List<JobApplicationChecklistItem> toChecklistItems(
