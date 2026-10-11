@@ -2,6 +2,7 @@ package com.jobdri.jobdri_api.domain.jobapplication.dto.request;
 
 import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
 import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.media.Schema;
 import org.hibernate.validator.constraints.URL;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMin;
@@ -83,6 +84,7 @@ public record JobApplicationDetailUpdateRequest(
                 maxGpa, checklistItems, metrics, essays, null);
     }
 
+    @Schema(hidden = true)
     @AssertTrue(message = "학점과 만점은 모두 입력하거나 모두 비워야 하며, 학점은 만점 이하여야 합니다.")
     public boolean isGpaRangeValid() {
         if (gpa == null || maxGpa == null) {

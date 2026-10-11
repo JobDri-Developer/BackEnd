@@ -7,8 +7,8 @@ services:
     env_file:
       - .env
     environment:
-      SPRING_PROFILES_ACTIVE: prod
-      DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/jobdri}
+      SPRING_PROFILES_ACTIVE: dev
+      DB_URL: ${DB_URL:-jdbc:postgresql://postgres:5432/${POSTGRES_DB:-jobdri}}
       DB_USERNAME: ${DB_USERNAME:-jobdri}
       DB_PASSWORD: ${DB_PASSWORD:-jobdri}
       DB_DRIVER: ${DB_DRIVER:-org.postgresql.Driver}
@@ -40,8 +40,8 @@ services:
 
   worker:
     build:
-      context: .
-      dockerfile: worker/Dockerfile
+      context: ../analysis-server
+      dockerfile: Dockerfile
     container_name: jobdri-worker
     env_file:
       - .env
@@ -99,7 +99,7 @@ services:
       POSTGRES_USER: ${DB_USERNAME:-jobdri}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-jobdri}
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -175,7 +175,7 @@ services:
     command:
       - --path.rootfs=/host
     volumes:
-      - /:/host:ro,rslave
+      - /:/host:ro
     pid: host
     restart: unless-stopped
 
