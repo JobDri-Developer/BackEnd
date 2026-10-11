@@ -32,6 +32,7 @@ public class JobApplicationDetailResponse {
     private String requirement;
     private String preferred;
     private List<String> requiredSkills;
+    private String postingUrl;
     private LocalDateTime deadlineAt;
     private JobApplicationStage stage;
     private int stageOrder;
@@ -62,6 +63,7 @@ public class JobApplicationDetailResponse {
                 .requirement(application.getRequirement())
                 .preferred(application.getPreferred())
                 .requiredSkills(List.copyOf(application.getRequiredSkills()))
+                .postingUrl(application.getPostingUrl())
                 .deadlineAt(application.getDeadlineAt())
                 .stage(application.getStage())
                 .stageOrder(application.getStageOrder())

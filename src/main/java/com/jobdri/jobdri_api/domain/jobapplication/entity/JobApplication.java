@@ -104,6 +104,13 @@ public class JobApplication extends BaseEntity {
     @Builder.Default
     private List<String> requiredSkills = new ArrayList<>();
 
+    @Column(length = 2048)
+    private String postingUrl;
+
+    public void setPostingUrl(String postingUrl) {
+        this.postingUrl = postingUrl == null || postingUrl.isBlank() ? null : postingUrl.trim();
+    }
+
     private LocalDateTime deadlineAt;
 
     @Enumerated(EnumType.STRING)

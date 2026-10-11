@@ -305,3 +305,6 @@ CREATE TABLE IF NOT EXISTS master_resume_experiences (
     description TEXT,
     PRIMARY KEY (master_resume_id, display_order)
 );
+
+ALTER TABLE IF EXISTS job_applications
+    ADD COLUMN IF NOT EXISTS posting_url VARCHAR(2048);
