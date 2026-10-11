@@ -8,6 +8,8 @@ import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationFro
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplication;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
+import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationMetric;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationMetricRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.repository.JobApplicationRepository;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
@@ -46,7 +48,8 @@ public class JobApplicationService {
                 null,
                 detailClassification,
                 request.companyName().trim(),
-                request.postingName().trim(),
+                request.postingName() == null || request.postingName().isBlank()
+                        ? request.jobTitle().trim() : request.postingName().trim(),
                 request.jobTitle().trim(),
                 request.companySize(),
                 request.task(),
@@ -59,6 +62,18 @@ public class JobApplicationService {
                 request.currentLabel(),
                 request.currentAt()
         );
+        application.setPostingUrl(request.postingUrl());
+        var essays = request.essays() == null ? List.<JobApplicationCreateRequest.RegistrationEssay>of()
+                : request.essays().stream().filter(row -> row.question() != null && !row.question().isBlank()).toList();
+        application.replaceEssays(java.util.stream.IntStream.range(0, essays.size())
+                .mapToObj(index -> com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationEssay.create(
+                        application, essays.get(index).question().trim(), essays.get(index).answer(), index)).toList());
+        application.setInitialSpecs(request.gpa(), request.maxGpa());
+        List<JobApplicationMetricRequest> metrics = request.metrics() == null ? List.of() : request.metrics();
+        application.replaceMetrics(java.util.stream.IntStream.range(0, metrics.size())
+                .mapToObj(index -> JobApplicationMetric.create(application,
+                        metrics.get(index).type(), metrics.get(index).name().trim(),
+                        metrics.get(index).value().trim(), index)).toList());
         return JobApplicationResponse.from(jobApplicationRepository.save(application));
     }
 
@@ -128,7 +143,7 @@ public class JobApplicationService {
         if (skills == null) {
             return List.of();
         }
-        return skills.stream().map(String::trim).toList();
+        return skills.stream().map(String::trim).filter(skill -> !skill.isEmpty()).distinct().toList();
     }
 
     private User lockValidatedUser(User user) {

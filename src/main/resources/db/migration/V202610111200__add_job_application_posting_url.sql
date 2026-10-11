@@ -1,0 +1,3 @@
+
+ALTER TABLE IF EXISTS job_applications
+    ADD COLUMN IF NOT EXISTS posting_url VARCHAR(2048);

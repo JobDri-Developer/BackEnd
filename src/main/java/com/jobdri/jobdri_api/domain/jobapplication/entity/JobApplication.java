@@ -104,6 +104,13 @@ public class JobApplication extends BaseEntity {
     @Builder.Default
     private List<String> requiredSkills = new ArrayList<>();
 
+    @Column(length = 2048)
+    private String postingUrl;
+
+    public void setPostingUrl(String postingUrl) {
+        this.postingUrl = postingUrl == null || postingUrl.isBlank() ? null : postingUrl.trim();
+    }
+
     private LocalDateTime deadlineAt;
 
     @Enumerated(EnumType.STRING)
@@ -220,6 +227,11 @@ public class JobApplication extends BaseEntity {
     public void replaceMetrics(List<JobApplicationMetric> newMetrics) {
         metrics.clear();
         metrics.addAll(newMetrics);
+    }
+
+    public void setInitialSpecs(BigDecimal gpa, BigDecimal maxGpa) {
+        this.gpa = gpa;
+        this.maxGpa = maxGpa;
     }
 
     public void replaceEssays(List<JobApplicationEssay> newEssays) {

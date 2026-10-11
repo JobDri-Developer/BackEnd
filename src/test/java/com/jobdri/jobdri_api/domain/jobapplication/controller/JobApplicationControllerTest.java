@@ -41,6 +41,66 @@ class JobApplicationControllerTest {
     @MockitoBean com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationMockApplyService mockApplyService;
 
     @Test
+    void registrationPersistsLinkEssaysAndDefaultsPostingName() throws Exception {
+        User owner = saveUser();
+        var result = mockMvc.perform(post("/api/job-applications")
+                        .with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"companyName":"회사","jobTitle":"개발자",
+                                 "postingUrl":"https://example.com/jobs/1",
+                                 "requiredSkills":["Java"," Java ","SQL"],
+                                 "essays":[{"question":"지원 동기","answer":"답변"},
+                                           {"question":" ","answer":"제외"}]}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.postingName").value("개발자"))
+                .andExpect(jsonPath("$.result.stage").value("PLANNED"))
+                .andReturn();
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        long id = mapper.readTree(result.getResponse().getContentAsString()).path("result")
+                .path("jobApplicationId").asLong();
+        var detail = mockMvc.perform(get("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.postingUrl").value("https://example.com/jobs/1"))
+                .andExpect(jsonPath("$.result.requiredSkills.length()").value(2))
+                .andExpect(jsonPath("$.result.requiredSkills[0]").value("Java"))
+                .andExpect(jsonPath("$.result.requiredSkills[1]").value("SQL"))
+                .andExpect(jsonPath("$.result.essays.length()").value(1))
+                .andExpect(jsonPath("$.result.essays[0].question").value("지원 동기"))
+                .andExpect(jsonPath("$.result.essays[0].answer").value("답변"))
+                .andReturn();
+        mockMvc.perform(get("/api/job-applications/board").with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.columns[0].cards[0].postingUrl").value("https://example.com/jobs/1"))
+                .andExpect(jsonPath("$.result.columns[0].cards[0].essayQuestionCount").value(1));
+        String updatedAt = mapper.readTree(detail.getResponse().getContentAsString())
+                .path("result").path("updatedAt").asText();
+        mockMvc.perform(put("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"companyName":"회사","postingName":"개발자","jobTitle":"개발자",
+                                 "lastKnownUpdatedAt":"%s","postingUrl":"https://example.com/jobs/2"}
+                                """.formatted(updatedAt)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.postingUrl").value("https://example.com/jobs/2"));
+    }
+
+    @Test
+    void registrationRejectsUnsafeUrlAndNonPlannedStage() throws Exception {
+        User owner = saveUser();
+        for (String extra : java.util.List.of(
+                "\"postingUrl\":\"javascript:alert(1)\"", "\"initialStage\":\"INTERVIEW\"")) {
+            mockMvc.perform(post("/api/job-applications").with(user(new UserDetailsImpl(owner)))
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"companyName\":\"회사\",\"jobTitle\":\"개발자\"," + extra + "}"))
+                    .andExpect(status().isBadRequest());
+        }
+    }
+
+    @Test
     @DisplayName("모의지원 전환 API는 성공 결과와 422 missingFields 계약을 제공한다")
     void mockApplyConversionContract() throws Exception {
         User owner = saveUser();
@@ -167,6 +227,20 @@ class JobApplicationControllerTest {
     }
 
     @Test
+    void rejectNullMetricElementBeforeCreatingCard() throws Exception {
+        User savedUser = saveUser();
+        mockMvc.perform(post("/api/job-applications")
+                        .with(user(new UserDetailsImpl(savedUser)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"companyName":"회사","postingName":"공고","jobTitle":"직무",
+                                 "metrics":[null]}
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("REQ_4002"));
+    }
+
+    @Test
     @DisplayName("수동 등록 API는 필수 스냅샷 필드 누락을 거절한다")
     void rejectMissingRequiredFields() throws Exception {
         User savedUser = saveUser();
@@ -184,7 +258,7 @@ class JobApplicationControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.isSuccess").value(false))
                 .andExpect(jsonPath("$.code").value("REQ_4002"))
-                .andExpect(jsonPath("$.error.length()").value(3));
+                .andExpect(jsonPath("$.error.length()").value(2));
     }
 
     @Test

@@ -2,9 +2,17 @@ package com.jobdri.jobdri_api.domain.jobapplication.dto.request;
 
 import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
+import jakarta.validation.Valid;
+import io.swagger.v3.oas.annotations.media.Schema;
+import org.hibernate.validator.constraints.URL;
+import jakarta.validation.constraints.AssertTrue;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -13,7 +21,6 @@ public record JobApplicationCreateRequest(
         @Size(max = 255, message = "회사명은 최대 255자까지 입력할 수 있습니다.")
         String companyName,
 
-        @NotBlank(message = "공고명은 필수입니다.")
         @Size(max = 255, message = "공고명은 최대 255자까지 입력할 수 있습니다.")
         String postingName,
 
@@ -41,6 +48,49 @@ public record JobApplicationCreateRequest(
 
         @Size(max = 100, message = "진행 라벨은 최대 100자까지 입력할 수 있습니다.")
         String currentLabel,
-        LocalDateTime currentAt
+        LocalDateTime currentAt,
+        @DecimalMin("0") @Digits(integer = 3, fraction = 3) BigDecimal gpa,
+        @DecimalMin("0") @Digits(integer = 3, fraction = 3) BigDecimal maxGpa,
+        List<@NotNull @Valid JobApplicationMetricRequest> metrics,
+        @URL(regexp = "(?i)^https?://.+$")
+        @Size(max = 2048) String postingUrl,
+        @Size(max = 20) List<@NotNull @Valid RegistrationEssay> essays
 ) {
+    public JobApplicationCreateRequest(String companyName, String postingName, String jobTitle, CompanySize
+                companySize, Long detailClassificationId, String task, String requirement, String preferred,
+                List<String> requiredSkills, LocalDateTime deadlineAt, JobApplicationStage initialStage,
+                String currentLabel, LocalDateTime currentAt, BigDecimal gpa, BigDecimal maxGpa,
+                List<JobApplicationMetricRequest> metrics) {
+        this(companyName, postingName, jobTitle, companySize, detailClassificationId, task, requirement,
+                preferred, requiredSkills, deadlineAt, initialStage, currentLabel, currentAt, gpa, maxGpa,
+                metrics, null, null);
+    }
+
+    public JobApplicationCreateRequest(String companyName, String postingName, String jobTitle,
+                                       CompanySize companySize, Long detailClassificationId,
+                                       String task, String requirement, String preferred,
+                                       List<String> requiredSkills, LocalDateTime deadlineAt,
+                                       JobApplicationStage initialStage, String currentLabel,
+                                       LocalDateTime currentAt) {
+        this(companyName, postingName, jobTitle, companySize, detailClassificationId,
+                task, requirement, preferred, requiredSkills, deadlineAt, initialStage,
+                currentLabel, currentAt, null, null, null);
+    }
+
+    public record RegistrationEssay(@Size(max = 1000) String question,
+                                    @Size(max = 10000) String answer) {}
+
+    @Schema(hidden = true)
+    @AssertTrue(message = "수동 등록은 지원예정 단계에서 시작합니다.")
+    public boolean isInitialStageValid() {
+        return initialStage == null || initialStage == JobApplicationStage.PLANNED;
+    }
+
+    @Schema(hidden = true)
+    @AssertTrue(message = "학점과 만점은 모두 입력하거나 모두 비워야 하며, 학점은 만점 이하여야 합니다.")
+    public boolean isGpaRangeValid() {
+        return gpa == null || maxGpa == null
+                ? gpa == null && maxGpa == null
+                : gpa.compareTo(maxGpa) <= 0;
+    }
 }
