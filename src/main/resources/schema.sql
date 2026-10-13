@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS job_applications (
     max_gpa NUMERIC(6, 3),
     archived_at TIMESTAMP,
     ingest_idempotency_key VARCHAR(100),
+    content_revision BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP,
     CONSTRAINT ck_job_applications_stage
@@ -308,3 +309,6 @@ CREATE TABLE IF NOT EXISTS master_resume_experiences (
 
 ALTER TABLE IF EXISTS job_applications
     ADD COLUMN IF NOT EXISTS posting_url VARCHAR(2048);
+
+ALTER TABLE IF EXISTS job_applications
+    ADD COLUMN IF NOT EXISTS content_revision BIGINT NOT NULL DEFAULT 0;

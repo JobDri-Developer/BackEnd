@@ -46,6 +46,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @SpringBootTest
@@ -87,6 +89,29 @@ class JobApplicationMockApplyServiceTest {
                     assertThat(exception.getError()).isEqualTo(new JobApplicationNotReadyResponse(
                             List.of("detailClassificationId"), List.of(candidate)));
                 });
+        assertThat(jobPostingRepository.count()).isEqualTo(postingsBefore);
+        assertThat(mockApplyRepository.count()).isEqualTo(mockAppliesBefore);
+    }
+
+    @Test
+    @DisplayName("소분류 후보가 없으면 LLM을 부르지 않고 422를 반환하며 아무것도 생성하지 않는다")
+    void rejectWhenNoClassificationCandidates() {
+        User user = saveUser("no-candidate");
+        JobApplicationResponse card = applicationService.create(user, new JobApplicationCreateRequest(
+                "잡드리", "백엔드 채용", "백엔드 엔지니어", null, null,
+                null, null, null, null, null, null, null, null
+        ));
+        when(classificationService.findCandidates(any(), anyInt())).thenReturn(List.of());
+        long postingsBefore = jobPostingRepository.count();
+        long mockAppliesBefore = mockApplyRepository.count();
+
+        assertThatThrownBy(() -> conversionService.createOrGet(user, card.getJobApplicationId()))
+                .isInstanceOfSatisfying(GeneralException.class, error -> {
+                    assertThat(error.getCode()).isEqualTo(GeneralErrorCode.JOB_APPLICATION_NOT_READY);
+                    assertThat(error.getError()).isEqualTo(new JobApplicationNotReadyResponse(
+                            List.of("detailClassificationId"), List.of()));
+                });
+        verify(aiService, never()).classifyDetailClassification(any(), any());
         assertThat(jobPostingRepository.count()).isEqualTo(postingsBefore);
         assertThat(mockApplyRepository.count()).isEqualTo(mockAppliesBefore);
     }

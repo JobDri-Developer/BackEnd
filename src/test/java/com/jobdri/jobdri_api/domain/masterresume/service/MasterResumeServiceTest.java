@@ -131,6 +131,23 @@ class MasterResumeServiceTest {
     }
 
     @Test
+    void dropsRowsWithBlankNameAndRejectsNamedRowWithoutType() {
+        User user = users.saveAndFlush(User.signup("경계 검증 사용자",
+                UUID.randomUUID() + "@example.com", "encoded-password"));
+        var saved = service.save(user, new MasterResumeRequest(null, null,
+                List.of(new MasterResumeRequest.Metric(JobApplicationMetricType.LANGUAGE, " ", "900"),
+                        new MasterResumeRequest.Metric(null, null, null),
+                        new MasterResumeRequest.Metric(JobApplicationMetricType.LANGUAGE, "TOEIC", "900")),
+                List.of()));
+        assertThat(saved.metrics()).extracting(metric -> metric.name()).containsExactly("TOEIC");
+
+        assertThatThrownBy(() -> service.save(user, new MasterResumeRequest(null, null,
+                List.of(new MasterResumeRequest.Metric(null, "TOEIC", "900")), List.of(), saved.contentRevision())))
+                .isInstanceOfSatisfying(GeneralException.class,
+                        error -> assertThat(error.getCode()).isEqualTo(GeneralErrorCode.INVALID_PARAMETER));
+    }
+
+    @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void concurrentSavesWithSameRevisionAllowOnlyOneWinner() throws Exception {
         User user = users.saveAndFlush(User.signup("동시 저장 사용자",

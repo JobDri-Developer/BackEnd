@@ -29,10 +29,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -287,6 +294,44 @@ class JobApplicationDetailServiceTest {
         assertThatThrownBy(() -> detailService.update(user, card.getJobApplicationId(), revisionRequest(initial, null)))
                 .isInstanceOfSatisfying(GeneralException.class, error -> assertThat(error.getCode())
                         .isEqualTo(GeneralErrorCode.JOB_APPLICATION_UPDATE_CONFLICT));
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("같은 expectedRevision으로 동시에 저장하면 하나만 성공하고 나머지는 409를 받는다")
+    void concurrentSavesWithSameRevisionAllowOnlyOneWinner() throws Exception {
+        User user = userRepository.saveAndFlush(User.signup(
+                "동시 저장 사용자", "detail-concurrent-" + UUID.randomUUID() + "@example.com", "encoded-password"));
+        JobApplicationResponse card = createCard(user, "동시 저장");
+        long revision = detailService.get(user, card.getJobApplicationId()).getRevision();
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<GeneralErrorCode> attempt = () -> {
+                ready.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) {
+                    throw new AssertionError("동시 저장 시작 대기 시간 초과");
+                }
+                try {
+                    detailService.update(user, card.getJobApplicationId(), revisionRequest(revision, null));
+                    return null;
+                } catch (GeneralException error) {
+                    return (GeneralErrorCode) error.getCode();
+                }
+            };
+            Future<GeneralErrorCode> first = executor.submit(attempt);
+            Future<GeneralErrorCode> second = executor.submit(attempt);
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(Arrays.asList(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(null, GeneralErrorCode.JOB_APPLICATION_UPDATE_CONFLICT);
+            assertThat(detailService.get(user, card.getJobApplicationId()).getRevision()).isEqualTo(revision + 1);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(10, TimeUnit.SECONDS);
+        }
     }
 
     @Test
