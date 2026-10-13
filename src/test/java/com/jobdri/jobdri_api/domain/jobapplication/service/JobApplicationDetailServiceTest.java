@@ -6,9 +6,11 @@ import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationCre
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationDetailUpdateRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationEssayRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationMetricRequest;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationPositionRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationDetailResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationMetricType;
+import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
 import com.jobdri.jobdri_api.domain.jobapplication.repository.JobApplicationRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
@@ -43,6 +45,8 @@ class JobApplicationDetailServiceTest {
 
     @Autowired JobApplicationDetailService detailService;
     @Autowired JobApplicationService applicationService;
+    @Autowired JobApplicationBoardService boardService;
+    @Autowired JobApplicationArchiveService archiveService;
     @Autowired UserRepository userRepository;
     @Autowired JobApplicationRepository jobApplicationRepository;
     @Autowired EntityManager entityManager;
@@ -267,6 +271,84 @@ class JobApplicationDetailServiceTest {
                 List.of(new JobApplicationMetricRequest(null, "TOEIC", "900")), List.of(), null)))
                 .isInstanceOfSatisfying(GeneralException.class,
                         error -> assertThat(error.getCode()).isEqualTo(GeneralErrorCode.INVALID_PARAMETER));
+    }
+
+    @Test
+    @DisplayName("expectedRevision이 서버 revision과 다르면 409를 반환하고 저장할 때마다 revision이 오른다")
+    void rejectStaleRevision() {
+        User user = saveUser();
+        JobApplicationResponse card = createCard(user, "revision");
+        long initial = detailService.get(user, card.getJobApplicationId()).getRevision();
+
+        JobApplicationDetailResponse saved = detailService.update(user, card.getJobApplicationId(),
+                revisionRequest(initial, null));
+
+        assertThat(saved.getRevision()).isEqualTo(initial + 1);
+        assertThatThrownBy(() -> detailService.update(user, card.getJobApplicationId(), revisionRequest(initial, null)))
+                .isInstanceOfSatisfying(GeneralException.class, error -> assertThat(error.getCode())
+                        .isEqualTo(GeneralErrorCode.JOB_APPLICATION_UPDATE_CONFLICT));
+    }
+
+    @Test
+    @DisplayName("같은 열의 다른 카드를 드래그해 순서가 밀려도 revision 기준 저장은 충돌하지 않는다")
+    void siblingMoveDoesNotConflictWithRevision() {
+        User user = saveUser();
+        JobApplicationResponse first = createCard(user, "첫 카드");
+        JobApplicationResponse second = createCard(user, "둘째 카드");
+        long revision = detailService.get(user, first.getJobApplicationId()).getRevision();
+
+        boardService.move(user, second.getJobApplicationId(),
+                new JobApplicationPositionRequest(JobApplicationStage.PLANNED, 0));
+        JobApplicationDetailResponse saved = detailService.update(user, first.getJobApplicationId(),
+                revisionRequest(revision, null));
+
+        assertThat(saved.getStageOrder()).isEqualTo(1);
+        assertThat(saved.getCompanyName()).isEqualTo("수정 기업");
+    }
+
+    @Test
+    @DisplayName("상세 저장에 stage를 넣으면 같은 트랜잭션에서 도착 열의 마지막으로 옮기고 출발 열을 당긴다")
+    void changeStageWithinDetailSave() {
+        User user = saveUser();
+        JobApplicationResponse moving = createCard(user, "옮길 카드");
+        JobApplicationResponse staying = createCard(user, "남을 카드");
+        JobApplicationResponse existing = createCard(user, "서류 카드");
+        boardService.move(user, existing.getJobApplicationId(),
+                new JobApplicationPositionRequest(JobApplicationStage.DOCUMENT, 0));
+        long revision = detailService.get(user, moving.getJobApplicationId()).getRevision();
+
+        JobApplicationDetailResponse saved = detailService.update(user, moving.getJobApplicationId(),
+                revisionRequest(revision, JobApplicationStage.DOCUMENT));
+
+        assertThat(saved.getStage()).isEqualTo(JobApplicationStage.DOCUMENT);
+        assertThat(saved.getStageOrder()).isEqualTo(1);
+        assertThat(saved.getCompanyName()).isEqualTo("수정 기업");
+        assertThat(detailService.get(user, staying.getJobApplicationId()).getStageOrder()).isZero();
+    }
+
+    @Test
+    @DisplayName("보관된 카드는 상세 저장으로도 단계를 바꿀 수 없다")
+    void rejectStageChangeOnArchivedCard() {
+        User user = saveUser();
+        JobApplicationResponse card = createCard(user, "보관 카드");
+        archiveService.archive(user, card.getJobApplicationId());
+        long revision = detailService.get(user, card.getJobApplicationId()).getRevision();
+
+        assertThatThrownBy(() -> detailService.update(user, card.getJobApplicationId(),
+                revisionRequest(revision, JobApplicationStage.INTERVIEW)))
+                .isInstanceOfSatisfying(GeneralException.class, error -> assertThat(error.getCode())
+                        .isEqualTo(GeneralErrorCode.JOB_APPLICATION_UPDATE_CONFLICT));
+    }
+
+    private JobApplicationDetailUpdateRequest revisionRequest(long expectedRevision, JobApplicationStage stage) {
+        JobApplicationDetailUpdateRequest base = request(null, List.of(), List.of(), List.of(), null);
+        return new JobApplicationDetailUpdateRequest(
+                null, base.companyName(), base.postingName(), base.jobTitle(), base.companySize(),
+                base.detailClassificationId(), base.task(), base.requirement(), base.preferred(),
+                base.requiredSkills(), base.deadlineAt(), base.currentLabel(), base.currentAt(), base.memo(),
+                base.gpa(), base.maxGpa(), base.checklistItems(), base.metrics(), base.essays(), null,
+                expectedRevision, stage
+        );
     }
 
     private JobApplicationDetailUpdateRequest request(
