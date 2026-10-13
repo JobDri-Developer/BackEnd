@@ -212,8 +212,8 @@ class JobApplicationDetailServiceTest {
         JobApplicationDetailUpdateRequest invalid = request(
                 LocalDateTime.now().plusYears(1),
                 List.of(new JobApplicationChecklistItemRequest("저장되면 안 됨", true)),
+                List.of(new JobApplicationMetricRequest(JobApplicationMetricType.AWARD, "저장되면 안 되는 수상", "대상")),
                 Collections.singletonList(null),
-                List.of(new JobApplicationEssayRequest("저장되면 안 되는 질문", "답변")),
                 null
         );
 
@@ -225,6 +225,48 @@ class JobApplicationDetailServiceTest {
         assertThat(found.getChecklistItems()).isEmpty();
         assertThat(found.getMetrics()).isEmpty();
         assertThat(found.getEssays()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("이름이 빈 행과 값이 빈 어학·기타 행은 제외하고 자격증·수상은 기본값으로 저장한다")
+    void dropBlankMetricRowsAndFillOptionalValues() {
+        User user = saveUser();
+        JobApplicationResponse card = createCard(user, "빈 행");
+
+        JobApplicationDetailResponse saved = detailService.update(user, card.getJobApplicationId(), request(
+                card.getUpdatedAt(),
+                List.of(),
+                List.of(
+                        new JobApplicationMetricRequest(JobApplicationMetricType.LANGUAGE, "TOEIC", " "),
+                        new JobApplicationMetricRequest(JobApplicationMetricType.CUSTOM, "기타", null),
+                        new JobApplicationMetricRequest(null, " ", null),
+                        new JobApplicationMetricRequest(JobApplicationMetricType.CERTIFICATE, " 정보처리기사 ", ""),
+                        new JobApplicationMetricRequest(JobApplicationMetricType.AWARD, "공모전", null),
+                        new JobApplicationMetricRequest(JobApplicationMetricType.LANGUAGE, "OPIc", " IH ")
+                ),
+                List.of(),
+                null
+        ));
+
+        assertThat(saved.getMetrics()).extracting(JobApplicationDetailResponse.Metric::name)
+                .containsExactly("정보처리기사", "공모전", "OPIc");
+        assertThat(saved.getMetrics()).extracting(JobApplicationDetailResponse.Metric::value)
+                .containsExactly("보유", "취득일 미입력", "IH");
+        assertThat(saved.getMetrics()).extracting(JobApplicationDetailResponse.Metric::displayOrder)
+                .containsExactly(0, 1, 2);
+    }
+
+    @Test
+    @DisplayName("이름이 있는데 유형이 없는 정량 정보 행은 400으로 거절한다")
+    void rejectMetricRowWithoutType() {
+        User user = saveUser();
+        JobApplicationResponse card = createCard(user, "유형 없음");
+
+        assertThatThrownBy(() -> detailService.update(user, card.getJobApplicationId(), request(
+                card.getUpdatedAt(), List.of(),
+                List.of(new JobApplicationMetricRequest(null, "TOEIC", "900")), List.of(), null)))
+                .isInstanceOfSatisfying(GeneralException.class,
+                        error -> assertThat(error.getCode()).isEqualTo(GeneralErrorCode.INVALID_PARAMETER));
     }
 
     private JobApplicationDetailUpdateRequest request(

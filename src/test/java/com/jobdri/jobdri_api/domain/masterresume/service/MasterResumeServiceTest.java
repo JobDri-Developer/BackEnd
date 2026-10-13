@@ -117,18 +117,13 @@ class MasterResumeServiceTest {
     }
 
     @Test
-    void rejectsBlankLanguageAndCustomValuesButKeepsAllowedDefaults() {
+    void dropsBlankLanguageAndCustomValuesAndKeepsAllowedDefaults() {
         User user = users.saveAndFlush(User.signup("값 검증 사용자",
                 UUID.randomUUID() + "@example.com", "encoded-password"));
-        for (JobApplicationMetricType type : List.of(JobApplicationMetricType.LANGUAGE,
-                JobApplicationMetricType.CUSTOM)) {
-            assertThatThrownBy(() -> service.save(user, new MasterResumeRequest(null, null,
-                    List.of(new MasterResumeRequest.Metric(type, "이름", " ")), List.of())))
-                    .isInstanceOfSatisfying(GeneralException.class,
-                            error -> assertThat(error.getCode()).isEqualTo(GeneralErrorCode.INVALID_PARAMETER));
-        }
         var saved = service.save(user, new MasterResumeRequest(null, null,
-                List.of(new MasterResumeRequest.Metric(JobApplicationMetricType.CERTIFICATE, "자격증", ""),
+                List.of(new MasterResumeRequest.Metric(JobApplicationMetricType.LANGUAGE, "TOEIC", " "),
+                        new MasterResumeRequest.Metric(JobApplicationMetricType.CUSTOM, "기타", null),
+                        new MasterResumeRequest.Metric(JobApplicationMetricType.CERTIFICATE, "자격증", ""),
                         new MasterResumeRequest.Metric(JobApplicationMetricType.AWARD, "수상", null)),
                 List.of()));
         assertThat(saved.metrics()).extracting(metric -> metric.value())

@@ -144,13 +144,14 @@ public class JobApplicationDetailService {
             JobApplication application,
             List<JobApplicationMetricRequest> requests
     ) {
-        List<JobApplicationMetricRequest> metrics = safeList(requests);
+        List<MetricRowNormalizer.Row> metrics = MetricRowNormalizer.normalize(requests,
+                JobApplicationMetricRequest::type, JobApplicationMetricRequest::name, JobApplicationMetricRequest::value);
         return IntStream.range(0, metrics.size())
                 .mapToObj(index -> JobApplicationMetric.create(
                         application,
                         metrics.get(index).type(),
-                        metrics.get(index).name().trim(),
-                        metrics.get(index).value().trim(),
+                        metrics.get(index).name(),
+                        metrics.get(index).value(),
                         index
                 ))
                 .toList();
