@@ -1,5 +1,6 @@
 package com.jobdri.jobdri_api.domain.masterresume.service;
 
+import com.jobdri.jobdri_api.domain.jobapplication.service.MetricRowNormalizer;
 import com.jobdri.jobdri_api.domain.masterresume.dto.MasterResumeRequest;
 import com.jobdri.jobdri_api.domain.masterresume.dto.MasterResumeResponse;
 import com.jobdri.jobdri_api.domain.masterresume.entity.MasterResume;
@@ -52,24 +53,10 @@ public class MasterResumeService {
     }
 
     private List<MasterResume.Metric> normalizeMetrics(List<MasterResumeRequest.Metric> rows) {
-        return (rows == null ? List.<MasterResumeRequest.Metric>of() : rows).stream()
-                .filter(Objects::nonNull)
-                .filter(row -> hasText(row.name()))
-                .map(row -> {
-                    if (row.type() == null) {
-                        throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER, "정량 스펙 유형은 필수입니다.");
-                    }
-                    String value = hasText(row.value()) ? row.value().trim() : switch (row.type()) {
-                        case CERTIFICATE -> "보유";
-                        case AWARD -> "취득일 미입력";
-                        default -> null;
-                    };
-                    if (value == null) {
-                        throw new GeneralException(GeneralErrorCode.INVALID_PARAMETER,
-                                "어학 성적과 기타 정량 정보에는 값을 입력해주세요.");
-                    }
-                    return new MasterResume.Metric(row.type(), row.name().trim(), value);
-                }).toList();
+        return MetricRowNormalizer.normalize(rows, MasterResumeRequest.Metric::type,
+                        MasterResumeRequest.Metric::name, MasterResumeRequest.Metric::value).stream()
+                .map(row -> new MasterResume.Metric(row.type(), row.name(), row.value()))
+                .toList();
     }
 
     private List<MasterResume.ExperienceItem> normalizeExperiences(List<MasterResumeRequest.Experience> rows) {

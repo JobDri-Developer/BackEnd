@@ -833,13 +833,16 @@ public class JobPostingAiService {
             );
         }
 
-        JobPostingClassificationCandidateResponse matched = candidates.stream()
+        JobPostingClassificationCandidateResponse inCandidates = candidates.stream()
                 .filter(candidate -> candidate.getDetailClassificationId().equals(response.detailClassificationId()))
                 .findFirst()
-                .orElseGet(() -> candidates.getFirst());
+                .orElse(null);
+        JobPostingClassificationCandidateResponse matched = inCandidates == null ? candidates.getFirst() : inCandidates;
 
         double confidence = response.confidence();
-        if (Double.isNaN(confidence) || Double.isInfinite(confidence) || confidence < 0.0) {
+        // 후보 밖 ID를 첫 후보로 바꿨다면 AI가 고른 것이 아니므로 신뢰도 기준을 통과시키지 않는다.
+        if (inCandidates == null
+                || Double.isNaN(confidence) || Double.isInfinite(confidence) || confidence < 0.0) {
             confidence = 0.0;
         } else if (confidence > 1.0) {
             confidence = 1.0;
