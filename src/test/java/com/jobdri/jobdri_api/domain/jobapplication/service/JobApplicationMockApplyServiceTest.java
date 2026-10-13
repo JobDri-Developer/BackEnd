@@ -12,7 +12,11 @@ import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationNo
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
 import com.jobdri.jobdri_api.domain.jobapplication.repository.JobApplicationRepository;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
 import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
+import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
+import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingClassificationService;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.mockapply.entity.ApplyType;
 import com.jobdri.jobdri_api.domain.mockapply.entity.MockApplyStatus;
@@ -26,6 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -39,6 +44,9 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @ActiveProfiles("test")
@@ -52,15 +60,22 @@ class JobApplicationMockApplyServiceTest {
     @Autowired MockApplyRepository mockApplyRepository;
     @Autowired UserRepository userRepository;
     @Autowired ClassificationRepository classificationRepository;
+    @MockitoBean JobPostingClassificationService classificationService;
+    @MockitoBean JobPostingAiService aiService;
 
     @Test
-    @DisplayName("분석 준비 필드가 부족하면 정확한 missingFields를 반환하고 아무것도 생성하지 않는다")
-    void rejectNotReadyWithoutPartialCreation() {
+    @DisplayName("소분류를 자동으로 정하지 못하면 후보와 함께 422를 반환하고 아무것도 생성하지 않는다")
+    void rejectWithCandidatesWhenClassificationIsUncertain() {
         User user = saveUser("not-ready");
         JobApplicationResponse card = applicationService.create(user, new JobApplicationCreateRequest(
                 "잡드리", "백엔드 채용", "백엔드 엔지니어", null, null,
                 null, null, null, null, null, null, null, null
         ));
+        JobPostingClassificationCandidateResponse candidate =
+                new JobPostingClassificationCandidateResponse(1L, "백엔드", "개발", "IT", 0.4);
+        when(classificationService.findCandidates(any(), anyInt())).thenReturn(List.of(candidate));
+        when(aiService.classifyDetailClassification(any(), any())).thenReturn(
+                new JobPostingClassificationResultResponse(1L, "백엔드", "개발", "IT", "근거 부족", 0.3));
         long postingsBefore = jobPostingRepository.count();
         long mockAppliesBefore = mockApplyRepository.count();
 
@@ -69,12 +84,37 @@ class JobApplicationMockApplyServiceTest {
                 .satisfies(error -> {
                     GeneralException exception = (GeneralException) error;
                     assertThat(exception.getCode()).isEqualTo(GeneralErrorCode.JOB_APPLICATION_NOT_READY);
-                    assertThat(exception.getError()).isEqualTo(new JobApplicationNotReadyResponse(List.of(
-                            "detailClassificationId", "task", "requirement", "preferred"
-                    )));
+                    assertThat(exception.getError()).isEqualTo(new JobApplicationNotReadyResponse(
+                            List.of("detailClassificationId"), List.of(candidate)));
                 });
         assertThat(jobPostingRepository.count()).isEqualTo(postingsBefore);
         assertThat(mockApplyRepository.count()).isEqualTo(mockAppliesBefore);
+    }
+
+    @Test
+    @DisplayName("수동 등록 카드는 소분류를 분류하고 빈 JD를 직무명 기본값으로 채워 전환한다")
+    void convertManualCardWithClassificationAndDefaults() {
+        User user = saveUser("manual");
+        DetailClassification detail = saveClassification();
+        JobApplicationResponse card = applicationService.create(user, new JobApplicationCreateRequest(
+                "잡드리", "백엔드 채용", "백엔드 엔지니어", null, null,
+                " ", null, null, null, null, null, null, null
+        ));
+        when(classificationService.findCandidates(any(), anyInt())).thenReturn(List.of(
+                new JobPostingClassificationCandidateResponse(detail.getId(), "소분류", "중분류", "대분류", 0.9)));
+        when(aiService.classifyDetailClassification(any(), any())).thenReturn(
+                new JobPostingClassificationResultResponse(detail.getId(), "소분류", "중분류", "대분류", "직무명 일치", 0.9));
+
+        JobApplicationMockApplyResponse response = conversionService.createOrGet(user, card.getJobApplicationId());
+
+        JobPosting posting = jobPostingRepository.findById(response.jobPostingId()).orElseThrow();
+        assertThat(response.created()).isTrue();
+        assertThat(posting.getDetailClassification().getId()).isEqualTo(detail.getId());
+        assertThat(posting.getTask()).isEqualTo("백엔드 엔지니어 업무 수행");
+        assertThat(posting.getRequirement()).isEqualTo("백엔드 엔지니어 직무 수행에 필요한 역량");
+        assertThat(posting.getPreferred()).isEqualTo("백엔드 엔지니어 관련 실무 경험");
+        // 카드의 JD 상세는 사용자가 비워 둔 그대로 둔다.
+        assertThat(applicationRepository.findById(card.getJobApplicationId()).orElseThrow().getTask()).isEqualTo(" ");
     }
 
     @Test
