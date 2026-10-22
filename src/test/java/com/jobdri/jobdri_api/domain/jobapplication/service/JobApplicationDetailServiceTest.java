@@ -220,22 +220,118 @@ class JobApplicationDetailServiceTest {
         User user = userRepository.saveAndFlush(User.signup(
                 "롤백 사용자", "detail-rollback-" + UUID.randomUUID() + "@example.com", "encoded-password"));
         JobApplicationResponse card = createCard(user, "롤백 원본");
-        JobApplicationDetailUpdateRequest invalid = request(
+        JobApplicationResponse sibling = createCard(user, "롤백 순서 유지");
+        JobApplicationDetailUpdateRequest invalid = withStage(request(
                 LocalDateTime.now().plusYears(1),
                 List.of(new JobApplicationChecklistItemRequest("저장되면 안 됨", true)),
                 List.of(new JobApplicationMetricRequest(JobApplicationMetricType.AWARD, "저장되면 안 되는 수상", "대상")),
                 Collections.singletonList(null),
                 null
-        );
+        ), JobApplicationStage.INTERVIEW);
 
         assertThatThrownBy(() -> detailService.update(user, card.getJobApplicationId(), invalid))
                 .isInstanceOf(NullPointerException.class);
 
         JobApplicationDetailResponse found = detailService.get(user, card.getJobApplicationId());
+        assertThat(found.getStage()).isEqualTo(JobApplicationStage.PLANNED);
+        assertThat(jobApplicationRepository.findById(card.getJobApplicationId()).orElseThrow().getStageOrder()).isZero();
+        assertThat(jobApplicationRepository.findById(sibling.getJobApplicationId()).orElseThrow().getStageOrder()).isEqualTo(1);
         assertThat(found.getCompanyName()).isEqualTo("테스트 기업");
         assertThat(found.getChecklistItems()).isEmpty();
         assertThat(found.getMetrics()).isEmpty();
         assertThat(found.getEssays()).isEmpty();
+    }
+
+    @Test
+    void stageChangeAppendsAndCompactsSourceAndPreservesUnchangedOrder() {
+        User user = saveUser();
+        JobApplicationResponse first = createCard(user, "첫 카드");
+        JobApplicationResponse middle = createCard(user, "중간 카드");
+        JobApplicationResponse last = createCard(user, "마지막 카드");
+        detailService.update(user, first.getJobApplicationId(), withStage(request(
+                first.getUpdatedAt(), List.of(), List.of(), List.of(), null), JobApplicationStage.INTERVIEW));
+        JobApplicationDetailResponse moved = detailService.update(user, middle.getJobApplicationId(), withStage(request(
+                detailService.get(user, middle.getJobApplicationId()).getUpdatedAt(),
+                List.of(), List.of(), List.of(), null), JobApplicationStage.INTERVIEW));
+        assertThat(moved.getStage()).isEqualTo(JobApplicationStage.INTERVIEW);
+        assertThat(moved.getCompanyName()).isEqualTo("수정 기업");
+        assertThat(jobApplicationRepository.findById(first.getJobApplicationId()).orElseThrow().getStageOrder()).isZero();
+        assertThat(jobApplicationRepository.findById(middle.getJobApplicationId()).orElseThrow().getStageOrder()).isEqualTo(1);
+        assertThat(jobApplicationRepository.findById(last.getJobApplicationId()).orElseThrow().getStageOrder()).isZero();
+        JobApplicationDetailResponse same = detailService.update(user, first.getJobApplicationId(), withStage(request(
+                detailService.get(user, first.getJobApplicationId()).getUpdatedAt(), List.of(), List.of(), List.of(), null),
+                JobApplicationStage.INTERVIEW));
+        detailService.update(user, first.getJobApplicationId(), request(
+                same.getUpdatedAt(), List.of(), List.of(), List.of(), null));
+        assertThat(jobApplicationRepository.findById(first.getJobApplicationId()).orElseThrow().getStageOrder()).isZero();
+        assertThat(detailService.get(user, first.getJobApplicationId()).getStage()).isEqualTo(JobApplicationStage.INTERVIEW);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("독립 트랜잭션의 카드 이동과 상세 단계 저장이 동시에 실행돼도 양쪽 열의 순서가 연속적이다")
+    void concurrentMoveAndDetailStageSaveKeepBothColumnsContiguous() throws Exception {
+        // Fixtures must commit before the worker threads acquire their own service transactions.
+        User user = userRepository.saveAndFlush(User.signup(
+                "동시 이동 사용자", "detail-move-" + UUID.randomUUID() + "@example.com", "encoded-password"));
+        JobApplicationResponse detailCard = createCard(user, "상세로 이동");
+        JobApplicationResponse plannedSibling = createCard(user, "지원예정 유지");
+        JobApplicationResponse draggedCard = createCard(user, "드래그로 이동");
+        JobApplicationResponse documentSibling = createCard(user, "서류지원 유지");
+        boardService.move(user, draggedCard.getJobApplicationId(),
+                new JobApplicationPositionRequest(JobApplicationStage.DOCUMENT, 0));
+        boardService.move(user, documentSibling.getJobApplicationId(),
+                new JobApplicationPositionRequest(JobApplicationStage.DOCUMENT, 1));
+        long revision = detailService.get(user, detailCard.getJobApplicationId()).getRevision();
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> move = executor.submit(() -> {
+                ready.countDown();
+                assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                return boardService.move(user, draggedCard.getJobApplicationId(),
+                        new JobApplicationPositionRequest(JobApplicationStage.PLANNED, 0));
+            });
+            Future<?> save = executor.submit(() -> {
+                ready.countDown();
+                assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                return detailService.update(user, detailCard.getJobApplicationId(),
+                        revisionRequest(revision, JobApplicationStage.DOCUMENT));
+            });
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            move.get(20, TimeUnit.SECONDS);
+            save.get(20, TimeUnit.SECONDS);
+
+            // Read committed state after both service transactions have completed.
+            List<JobApplicationDetailResponse> cards = List.of(detailCard, plannedSibling, draggedCard, documentSibling)
+                    .stream().map(card -> detailService.get(user, card.getJobApplicationId())).toList();
+            List<JobApplicationDetailResponse> planned = cards.stream()
+                    .filter(card -> card.getStage() == JobApplicationStage.PLANNED)
+                    .sorted(java.util.Comparator.comparingInt(JobApplicationDetailResponse::getStageOrder)).toList();
+            List<JobApplicationDetailResponse> document = cards.stream()
+                    .filter(card -> card.getStage() == JobApplicationStage.DOCUMENT)
+                    .sorted(java.util.Comparator.comparingInt(JobApplicationDetailResponse::getStageOrder)).toList();
+            assertThat(planned).extracting(JobApplicationDetailResponse::getJobApplicationId)
+                    .containsExactly(draggedCard.getJobApplicationId(), plannedSibling.getJobApplicationId());
+            assertThat(document).extracting(JobApplicationDetailResponse::getJobApplicationId)
+                    .containsExactly(documentSibling.getJobApplicationId(), detailCard.getJobApplicationId());
+            assertThat(planned).extracting(JobApplicationDetailResponse::getStageOrder).containsExactly(0, 1);
+            assertThat(document).extracting(JobApplicationDetailResponse::getStageOrder).containsExactly(0, 1);
+            assertThat(detailService.get(user, detailCard.getJobApplicationId()).getCompanyName()).isEqualTo("수정 기업");
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(10, TimeUnit.SECONDS);
+        }
+    }
+
+    private JobApplicationDetailUpdateRequest withStage(JobApplicationDetailUpdateRequest r, JobApplicationStage stage) {
+        return new JobApplicationDetailUpdateRequest(r.lastKnownUpdatedAt(), r.companyName(), r.postingName(),
+                r.jobTitle(), r.companySize(), r.detailClassificationId(), r.task(), r.requirement(), r.preferred(),
+                r.requiredSkills(), r.deadlineAt(), r.currentLabel(), r.currentAt(), r.memo(), r.gpa(), r.maxGpa(),
+                r.checklistItems(), r.metrics(), r.essays(), r.postingUrl(), r.expectedRevision(), stage);
     }
 
     @Test
