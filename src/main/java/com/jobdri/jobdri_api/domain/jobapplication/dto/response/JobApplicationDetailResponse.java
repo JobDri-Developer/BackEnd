@@ -47,6 +47,7 @@ public class JobApplicationDetailResponse {
     private LocalDateTime archivedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private long revision;
 
     public static JobApplicationDetailResponse from(JobApplication application) {
         return JobApplicationDetailResponse.builder()
@@ -78,6 +79,7 @@ public class JobApplicationDetailResponse {
                 .archivedAt(application.getArchivedAt())
                 .createdAt(application.getCreatedAt())
                 .updatedAt(application.getUpdatedAt())
+                .revision(application.getContentRevision())
                 .build();
     }
 

@@ -9,7 +9,6 @@ import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationEss
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationMetricRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationDetailResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplication;
-import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationChecklistItem;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationEssay;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationMetric;
@@ -24,7 +23,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.IntStream;
 
@@ -36,6 +34,7 @@ public class JobApplicationDetailService {
     private final DetailClassificationRepository detailClassificationRepository;
     private final UserService userService;
     private final UserRepository userRepository;
+    private final JobApplicationBoardService boardService;
     private final EntityManager entityManager;
 
     public JobApplicationDetailResponse get(User user, Long jobApplicationId) {
@@ -52,10 +51,9 @@ public class JobApplicationDetailService {
     ) {
         User validatedUser = lockValidatedUser(user);
         JobApplication application = getOwnedApplicationForUpdate(validatedUser, jobApplicationId);
-        validateNotStale(application, request.lastKnownUpdatedAt());
+        validateNotStale(application, request);
         DetailClassification detailClassification = findOptionalClassification(request.detailClassificationId());
 
-        changeStage(application, validatedUser, request.stage());
         application.setPostingUrl(request.postingUrl());
         application.updateDetails(
                 detailClassification,
@@ -77,36 +75,13 @@ public class JobApplicationDetailService {
         application.replaceChecklistItems(toChecklistItems(application, request.checklistItems()));
         application.replaceMetrics(toMetrics(application, request.metrics()));
         application.replaceEssays(toEssays(application, request.essays()));
+        if (request.stage() != null) {
+            boardService.moveToEnd(validatedUser, application, request.stage());
+        }
 
         jobApplicationRepository.flush();
         entityManager.clear();
         return JobApplicationDetailResponse.from(getOwnedApplication(validatedUser, jobApplicationId));
-    }
-
-    private void changeStage(JobApplication application, User user, JobApplicationStage target) {
-        if (target == null || target == application.getStage()) {
-            return;
-        }
-        if (application.getArchivedAt() != null) {
-            throw new GeneralException(GeneralErrorCode.JOB_APPLICATION_UPDATE_CONFLICT,
-                    "보관된 지원 카드는 이동할 수 없습니다.");
-        }
-        JobApplicationStage source = application.getStage();
-        List<JobApplication> locked = jobApplicationRepository.lockActiveColumns(
-                user.getId(), List.of(source, target));
-        int sourceIndex = 0;
-        int targetIndex = 0;
-        for (JobApplication card : locked) {
-            if (card.getId().equals(application.getId())) {
-                continue;
-            }
-            if (card.getStage() == source) {
-                card.moveTo(source, sourceIndex++);
-            } else {
-                card.moveTo(target, targetIndex++);
-            }
-        }
-        application.moveTo(target, targetIndex);
     }
 
     private JobApplication getOwnedApplication(User user, Long jobApplicationId) {
@@ -129,8 +104,12 @@ public class JobApplicationDetailService {
         }
     }
 
-    private void validateNotStale(JobApplication application, LocalDateTime lastKnownUpdatedAt) {
-        if (application.getUpdatedAt() != null && application.getUpdatedAt().isAfter(lastKnownUpdatedAt)) {
+    private void validateNotStale(JobApplication application, JobApplicationDetailUpdateRequest request) {
+        boolean stale = request.expectedRevision() != null
+                ? request.expectedRevision() != application.getContentRevision()
+                // 구 클라이언트 호환. 같은 열의 다른 카드를 옮겨도 updatedAt이 바뀌므로 expectedRevision을 권장한다.
+                : application.getUpdatedAt() != null && application.getUpdatedAt().isAfter(request.lastKnownUpdatedAt());
+        if (stale) {
             throw new GeneralException(
                     GeneralErrorCode.JOB_APPLICATION_UPDATE_CONFLICT,
                     "지원 카드가 이미 수정되었습니다. 최신 정보를 다시 조회한 뒤 저장해주세요."
@@ -172,13 +151,14 @@ public class JobApplicationDetailService {
             JobApplication application,
             List<JobApplicationMetricRequest> requests
     ) {
-        List<JobApplicationMetricRequest> metrics = safeList(requests);
+        List<MetricRowNormalizer.Row> metrics = MetricRowNormalizer.normalize(requests,
+                JobApplicationMetricRequest::type, JobApplicationMetricRequest::name, JobApplicationMetricRequest::value);
         return IntStream.range(0, metrics.size())
                 .mapToObj(index -> JobApplicationMetric.create(
                         application,
                         metrics.get(index).type(),
-                        metrics.get(index).name().trim(),
-                        metrics.get(index).value().trim(),
+                        metrics.get(index).name(),
+                        metrics.get(index).value(),
                         index
                 ))
                 .toList();

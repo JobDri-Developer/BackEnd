@@ -95,6 +95,29 @@ public class JobApplicationBoardService {
         return getBoard(user, null, JobApplicationSort.MANUAL);
     }
 
+    /**
+     * 상세 저장에서 단계를 바꿀 때 카드를 도착 열의 마지막으로 옮긴다.
+     * 호출자는 사용자 행 잠금을 잡은 트랜잭션 안에서 불러야 한다.
+     */
+    @Transactional
+    public void moveToEnd(User user, JobApplication card, JobApplicationStage target) {
+        JobApplicationStage source = card.getStage();
+        if (source == target) {
+            return;
+        }
+        if (card.getArchivedAt() != null) {
+            throw new GeneralException(GeneralErrorCode.JOB_APPLICATION_UPDATE_CONFLICT, "보관된 지원 카드는 이동할 수 없습니다.");
+        }
+        List<JobApplication> locked = applications.lockActiveColumns(user.getId(), List.of(source, target));
+        reorder(locked.stream().filter(item -> item.getStage() == source && !item.getId().equals(card.getId())).toList(), source);
+        List<JobApplication> destination = new ArrayList<>(locked.stream()
+                .filter(item -> item.getStage() == target && !item.getId().equals(card.getId()))
+                .sorted(Comparator.comparingInt(JobApplication::getStageOrder).thenComparing(JobApplication::getId))
+                .toList());
+        destination.add(card);
+        reorder(destination, target);
+    }
+
     private static void reorder(List<JobApplication> cards, JobApplicationStage stage) {
         for (int i = 0; i < cards.size(); i++) {
             cards.get(i).moveTo(stage, i);

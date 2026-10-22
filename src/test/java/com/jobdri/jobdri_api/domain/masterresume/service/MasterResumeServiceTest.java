@@ -117,22 +117,34 @@ class MasterResumeServiceTest {
     }
 
     @Test
-    void rejectsBlankLanguageAndCustomValuesButKeepsAllowedDefaults() {
+    void dropsBlankLanguageAndCustomValuesAndKeepsAllowedDefaults() {
         User user = users.saveAndFlush(User.signup("값 검증 사용자",
                 UUID.randomUUID() + "@example.com", "encoded-password"));
-        for (JobApplicationMetricType type : List.of(JobApplicationMetricType.LANGUAGE,
-                JobApplicationMetricType.CUSTOM)) {
-            assertThatThrownBy(() -> service.save(user, new MasterResumeRequest(null, null,
-                    List.of(new MasterResumeRequest.Metric(type, "이름", " ")), List.of())))
-                    .isInstanceOfSatisfying(GeneralException.class,
-                            error -> assertThat(error.getCode()).isEqualTo(GeneralErrorCode.INVALID_PARAMETER));
-        }
         var saved = service.save(user, new MasterResumeRequest(null, null,
-                List.of(new MasterResumeRequest.Metric(JobApplicationMetricType.CERTIFICATE, "자격증", ""),
+                List.of(new MasterResumeRequest.Metric(JobApplicationMetricType.LANGUAGE, "TOEIC", " "),
+                        new MasterResumeRequest.Metric(JobApplicationMetricType.CUSTOM, "기타", null),
+                        new MasterResumeRequest.Metric(JobApplicationMetricType.CERTIFICATE, "자격증", ""),
                         new MasterResumeRequest.Metric(JobApplicationMetricType.AWARD, "수상", null)),
                 List.of()));
         assertThat(saved.metrics()).extracting(metric -> metric.value())
                 .containsExactly("보유", "취득일 미입력");
+    }
+
+    @Test
+    void dropsRowsWithBlankNameAndRejectsNamedRowWithoutType() {
+        User user = users.saveAndFlush(User.signup("경계 검증 사용자",
+                UUID.randomUUID() + "@example.com", "encoded-password"));
+        var saved = service.save(user, new MasterResumeRequest(null, null,
+                List.of(new MasterResumeRequest.Metric(JobApplicationMetricType.LANGUAGE, " ", "900"),
+                        new MasterResumeRequest.Metric(null, null, null),
+                        new MasterResumeRequest.Metric(JobApplicationMetricType.LANGUAGE, "TOEIC", "900")),
+                List.of()));
+        assertThat(saved.metrics()).extracting(metric -> metric.name()).containsExactly("TOEIC");
+
+        assertThatThrownBy(() -> service.save(user, new MasterResumeRequest(null, null,
+                List.of(new MasterResumeRequest.Metric(null, "TOEIC", "900")), List.of(), saved.contentRevision())))
+                .isInstanceOfSatisfying(GeneralException.class,
+                        error -> assertThat(error.getCode()).isEqualTo(GeneralErrorCode.INVALID_PARAMETER));
     }
 
     @Test

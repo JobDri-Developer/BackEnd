@@ -1,0 +1,2 @@
+ALTER TABLE IF EXISTS job_applications
+    ADD COLUMN IF NOT EXISTS content_revision BIGINT NOT NULL DEFAULT 0;

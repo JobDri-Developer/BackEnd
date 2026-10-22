@@ -9,7 +9,6 @@ import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
@@ -17,7 +16,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 public record JobApplicationDetailUpdateRequest(
-        @NotNull(message = "마지막 조회 수정 시각은 필수입니다.")
+        @Schema(deprecated = true, description = "expectedRevision으로 대체. expectedRevision이 없을 때만 사용합니다.")
         LocalDateTime lastKnownUpdatedAt,
 
         @NotBlank(message = "회사명은 필수입니다.")
@@ -73,7 +72,11 @@ public record JobApplicationDetailUpdateRequest(
         List<@Valid JobApplicationEssayRequest> essays,
         @URL(regexp = "(?i)^https?://.+$")
         @Size(max = 2048) String postingUrl,
-        @Schema(description = "변경할 지원 단계. 생략하거나 null이면 기존 단계 유지")
+
+        @Schema(description = "상세 조회 응답의 revision. 서버 값과 다르면 409를 반환합니다.")
+        Long expectedRevision,
+
+        @Schema(description = "바꿀 단계. 현재 단계와 다르면 도착 열의 마지막으로 옮깁니다. 생략하면 단계를 유지합니다.")
         JobApplicationStage stage
 ) {
     public JobApplicationDetailUpdateRequest(LocalDateTime lastKnownUpdatedAt, String companyName, String
@@ -84,19 +87,13 @@ public record JobApplicationDetailUpdateRequest(
                 List<JobApplicationMetricRequest> metrics, List<JobApplicationEssayRequest> essays) {
         this(lastKnownUpdatedAt, companyName, postingName, jobTitle, companySize, detailClassificationId,
                 task, requirement, preferred, requiredSkills, deadlineAt, currentLabel, currentAt, memo, gpa,
-                maxGpa, checklistItems, metrics, essays, null);
+                maxGpa, checklistItems, metrics, essays, null, null, null);
     }
 
-    public JobApplicationDetailUpdateRequest(LocalDateTime lastKnownUpdatedAt, String companyName,
-            String postingName, String jobTitle, CompanySize companySize, Long detailClassificationId,
-            String task, String requirement, String preferred, List<String> requiredSkills,
-            LocalDateTime deadlineAt, String currentLabel, LocalDateTime currentAt, String memo,
-            BigDecimal gpa, BigDecimal maxGpa, List<JobApplicationChecklistItemRequest> checklistItems,
-            List<JobApplicationMetricRequest> metrics, List<JobApplicationEssayRequest> essays,
-            String postingUrl) {
-        this(lastKnownUpdatedAt, companyName, postingName, jobTitle, companySize, detailClassificationId,
-                task, requirement, preferred, requiredSkills, deadlineAt, currentLabel, currentAt, memo,
-                gpa, maxGpa, checklistItems, metrics, essays, postingUrl, null);
+    @Schema(hidden = true)
+    @AssertTrue(message = "expectedRevision 또는 lastKnownUpdatedAt 중 하나는 필수입니다.")
+    public boolean isConflictTokenPresent() {
+        return expectedRevision != null || lastKnownUpdatedAt != null;
     }
 
     @Schema(hidden = true)
