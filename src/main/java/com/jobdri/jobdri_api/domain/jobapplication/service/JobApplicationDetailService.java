@@ -9,6 +9,7 @@ import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationEss
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationMetricRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationDetailResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplication;
+import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationChecklistItem;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationEssay;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationMetric;
@@ -54,6 +55,7 @@ public class JobApplicationDetailService {
         validateNotStale(application, request.lastKnownUpdatedAt());
         DetailClassification detailClassification = findOptionalClassification(request.detailClassificationId());
 
+        changeStage(application, validatedUser, request.stage());
         application.setPostingUrl(request.postingUrl());
         application.updateDetails(
                 detailClassification,
@@ -79,6 +81,32 @@ public class JobApplicationDetailService {
         jobApplicationRepository.flush();
         entityManager.clear();
         return JobApplicationDetailResponse.from(getOwnedApplication(validatedUser, jobApplicationId));
+    }
+
+    private void changeStage(JobApplication application, User user, JobApplicationStage target) {
+        if (target == null || target == application.getStage()) {
+            return;
+        }
+        if (application.getArchivedAt() != null) {
+            throw new GeneralException(GeneralErrorCode.JOB_APPLICATION_UPDATE_CONFLICT,
+                    "보관된 지원 카드는 이동할 수 없습니다.");
+        }
+        JobApplicationStage source = application.getStage();
+        List<JobApplication> locked = jobApplicationRepository.lockActiveColumns(
+                user.getId(), List.of(source, target));
+        int sourceIndex = 0;
+        int targetIndex = 0;
+        for (JobApplication card : locked) {
+            if (card.getId().equals(application.getId())) {
+                continue;
+            }
+            if (card.getStage() == source) {
+                card.moveTo(source, sourceIndex++);
+            } else {
+                card.moveTo(target, targetIndex++);
+            }
+        }
+        application.moveTo(target, targetIndex);
     }
 
     private JobApplication getOwnedApplication(User user, Long jobApplicationId) {

@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobapplication.dto.request;
 
 import com.jobdri.jobdri_api.domain.company.entity.CompanySize;
+import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
 import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.media.Schema;
 import org.hibernate.validator.constraints.URL;
@@ -71,7 +72,9 @@ public record JobApplicationDetailUpdateRequest(
         @Size(max = 20, message = "자기소개서는 최대 20개까지 입력할 수 있습니다.")
         List<@Valid JobApplicationEssayRequest> essays,
         @URL(regexp = "(?i)^https?://.+$")
-        @Size(max = 2048) String postingUrl
+        @Size(max = 2048) String postingUrl,
+        @Schema(description = "변경할 지원 단계. 생략하거나 null이면 기존 단계 유지")
+        JobApplicationStage stage
 ) {
     public JobApplicationDetailUpdateRequest(LocalDateTime lastKnownUpdatedAt, String companyName, String
                 postingName, String jobTitle, CompanySize companySize, Long detailClassificationId, String
@@ -82,6 +85,18 @@ public record JobApplicationDetailUpdateRequest(
         this(lastKnownUpdatedAt, companyName, postingName, jobTitle, companySize, detailClassificationId,
                 task, requirement, preferred, requiredSkills, deadlineAt, currentLabel, currentAt, memo, gpa,
                 maxGpa, checklistItems, metrics, essays, null);
+    }
+
+    public JobApplicationDetailUpdateRequest(LocalDateTime lastKnownUpdatedAt, String companyName,
+            String postingName, String jobTitle, CompanySize companySize, Long detailClassificationId,
+            String task, String requirement, String preferred, List<String> requiredSkills,
+            LocalDateTime deadlineAt, String currentLabel, LocalDateTime currentAt, String memo,
+            BigDecimal gpa, BigDecimal maxGpa, List<JobApplicationChecklistItemRequest> checklistItems,
+            List<JobApplicationMetricRequest> metrics, List<JobApplicationEssayRequest> essays,
+            String postingUrl) {
+        this(lastKnownUpdatedAt, companyName, postingName, jobTitle, companySize, detailClassificationId,
+                task, requirement, preferred, requiredSkills, deadlineAt, currentLabel, currentAt, memo,
+                gpa, maxGpa, checklistItems, metrics, essays, postingUrl, null);
     }
 
     @Schema(hidden = true)

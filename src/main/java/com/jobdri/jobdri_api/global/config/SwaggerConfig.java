@@ -25,8 +25,8 @@ public class SwaggerConfig {
     @Bean
     public OpenAPI swagger() {
         Info info = new Info()
-                .title("CEOS 23rd JobDri API")
-                .description("ceos-23rd jobdri swagger")
+                .title("JobDri API")
+                .description("JobDri swagger")
                 .version("1.0.0");
 
         String jwtSchemeName = "JWT TOKEN";

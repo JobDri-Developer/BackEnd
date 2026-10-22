@@ -189,7 +189,7 @@ public class JobApplicationController {
         return ApiResponse.onSuccess("지원 카드 상세 조회에 성공했습니다.", jobApplicationDetailService.get(user, jobApplicationId));
     }
 
-    @Operation(summary = "지원 카드 상세 전체 저장", description = "공고 스냅샷과 세 탭 데이터를 한 트랜잭션에서 전체 교체합니다. 마지막 조회 수정 시각이 오래된 경우 409를 반환합니다.")
+    @Operation(summary = "지원 카드 상세 전체 저장", description = "공고 스냅샷과 세 탭 데이터를 한 트랜잭션에서 전체 교체합니다. stage 지정 시 도착 단계 마지막으로 이동하며 생략하면 기존 단계와 순서를 유지합니다. 마지막 조회 수정 시각이 오래된 경우 409를 반환합니다.")
     @PutMapping("/{jobApplicationId}")
     public ApiResponse<JobApplicationDetailResponse> update(
             @AuthenticationPrincipal UserDetailsImpl userDetails,

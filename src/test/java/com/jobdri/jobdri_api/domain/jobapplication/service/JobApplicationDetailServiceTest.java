@@ -9,6 +9,7 @@ import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationMet
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationDetailResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationMetricType;
+import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
 import com.jobdri.jobdri_api.domain.jobapplication.repository.JobApplicationRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
@@ -209,22 +210,58 @@ class JobApplicationDetailServiceTest {
         User user = userRepository.saveAndFlush(User.signup(
                 "롤백 사용자", "detail-rollback-" + UUID.randomUUID() + "@example.com", "encoded-password"));
         JobApplicationResponse card = createCard(user, "롤백 원본");
-        JobApplicationDetailUpdateRequest invalid = request(
+        JobApplicationResponse sibling = createCard(user, "롤백 순서 유지");
+        JobApplicationDetailUpdateRequest invalid = withStage(request(
                 LocalDateTime.now().plusYears(1),
                 List.of(new JobApplicationChecklistItemRequest("저장되면 안 됨", true)),
                 Collections.singletonList(null),
                 List.of(new JobApplicationEssayRequest("저장되면 안 되는 질문", "답변")),
                 null
-        );
+        ), JobApplicationStage.INTERVIEW);
 
         assertThatThrownBy(() -> detailService.update(user, card.getJobApplicationId(), invalid))
                 .isInstanceOf(NullPointerException.class);
 
         JobApplicationDetailResponse found = detailService.get(user, card.getJobApplicationId());
+        assertThat(found.getStage()).isEqualTo(JobApplicationStage.PLANNED);
+        assertThat(jobApplicationRepository.findById(card.getJobApplicationId()).orElseThrow().getStageOrder()).isZero();
+        assertThat(jobApplicationRepository.findById(sibling.getJobApplicationId()).orElseThrow().getStageOrder()).isEqualTo(1);
         assertThat(found.getCompanyName()).isEqualTo("테스트 기업");
         assertThat(found.getChecklistItems()).isEmpty();
         assertThat(found.getMetrics()).isEmpty();
         assertThat(found.getEssays()).isEmpty();
+    }
+
+    @Test
+    void stageChangeAppendsAndCompactsSourceAndPreservesUnchangedOrder() {
+        User user = saveUser();
+        JobApplicationResponse first = createCard(user, "첫 카드");
+        JobApplicationResponse middle = createCard(user, "중간 카드");
+        JobApplicationResponse last = createCard(user, "마지막 카드");
+        detailService.update(user, first.getJobApplicationId(), withStage(request(
+                first.getUpdatedAt(), List.of(), List.of(), List.of(), null), JobApplicationStage.INTERVIEW));
+        JobApplicationDetailResponse moved = detailService.update(user, middle.getJobApplicationId(), withStage(request(
+                detailService.get(user, middle.getJobApplicationId()).getUpdatedAt(),
+                List.of(), List.of(), List.of(), null), JobApplicationStage.INTERVIEW));
+        assertThat(moved.getStage()).isEqualTo(JobApplicationStage.INTERVIEW);
+        assertThat(moved.getCompanyName()).isEqualTo("수정 기업");
+        assertThat(jobApplicationRepository.findById(first.getJobApplicationId()).orElseThrow().getStageOrder()).isZero();
+        assertThat(jobApplicationRepository.findById(middle.getJobApplicationId()).orElseThrow().getStageOrder()).isEqualTo(1);
+        assertThat(jobApplicationRepository.findById(last.getJobApplicationId()).orElseThrow().getStageOrder()).isZero();
+        JobApplicationDetailResponse same = detailService.update(user, first.getJobApplicationId(), withStage(request(
+                detailService.get(user, first.getJobApplicationId()).getUpdatedAt(), List.of(), List.of(), List.of(), null),
+                JobApplicationStage.INTERVIEW));
+        detailService.update(user, first.getJobApplicationId(), request(
+                same.getUpdatedAt(), List.of(), List.of(), List.of(), null));
+        assertThat(jobApplicationRepository.findById(first.getJobApplicationId()).orElseThrow().getStageOrder()).isZero();
+        assertThat(detailService.get(user, first.getJobApplicationId()).getStage()).isEqualTo(JobApplicationStage.INTERVIEW);
+    }
+
+    private JobApplicationDetailUpdateRequest withStage(JobApplicationDetailUpdateRequest r, JobApplicationStage stage) {
+        return new JobApplicationDetailUpdateRequest(r.lastKnownUpdatedAt(), r.companyName(), r.postingName(),
+                r.jobTitle(), r.companySize(), r.detailClassificationId(), r.task(), r.requirement(), r.preferred(),
+                r.requiredSkills(), r.deadlineAt(), r.currentLabel(), r.currentAt(), r.memo(), r.gpa(), r.maxGpa(),
+                r.checklistItems(), r.metrics(), r.essays(), r.postingUrl(), stage);
     }
 
     private JobApplicationDetailUpdateRequest request(
