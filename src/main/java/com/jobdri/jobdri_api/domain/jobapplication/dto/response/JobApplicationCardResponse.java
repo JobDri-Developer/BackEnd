@@ -9,13 +9,13 @@ public record JobApplicationCardResponse(
         Long jobApplicationId, String companyName, String postingName, String jobTitle,
         List<String> requiredSkills, long essayQuestionCount, LocalDateTime deadlineAt,
         String currentLabel, LocalDateTime currentAt, JobApplicationStage stage,
-        int stageOrder, LocalDateTime createdAt, LocalDateTime updatedAt, String postingUrl
+        int stageOrder, LocalDateTime createdAt, LocalDateTime updatedAt, String postingUrl, boolean favorite
 ) {
     public static JobApplicationCardResponse from(JobApplication card, long essayQuestionCount) {
         return new JobApplicationCardResponse(
                 card.getId(), card.getCompanyName(), card.getPostingName(), card.getJobTitle(),
                 List.copyOf(card.getRequiredSkills()), essayQuestionCount, card.getDeadlineAt(),
                 card.getCurrentLabel(), card.getCurrentAt(), card.getStage(), card.getStageOrder(),
-                card.getCreatedAt(), card.getUpdatedAt(), card.getPostingUrl());
+                card.getCreatedAt(), card.getUpdatedAt(), card.getPostingUrl(), card.isFavorite());
     }
 }

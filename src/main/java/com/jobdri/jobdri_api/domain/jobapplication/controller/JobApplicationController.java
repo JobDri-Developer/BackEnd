@@ -56,10 +56,11 @@ public class JobApplicationController {
     public ApiResponse<JobApplicationBoardResponse> board(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @RequestParam(defaultValue = "") String query,
-            @RequestParam(defaultValue = "MANUAL") JobApplicationSort sort
+            @RequestParam(defaultValue = "MANUAL") JobApplicationSort sort,
+            @RequestParam(defaultValue = "false") boolean favoritesOnly
     ) {
         return ApiResponse.onSuccess("지원관리 칸반 조회에 성공했습니다.",
-                jobApplicationBoardService.getBoard(validateAuthenticatedUser(userDetails), query, sort));
+                jobApplicationBoardService.getBoard(validateAuthenticatedUser(userDetails), query, sort, favoritesOnly));
     }
 
     @Operation(summary = "지원 카드 이동", description = "카드를 제거한 도착 열의 0 기반 targetIndex에 삽입합니다. 필터링된 화면의 인덱스가 아닌 전체 열 기준이며, 저장 후 전체 MANUAL 보드를 반환합니다.")

@@ -23,11 +23,13 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
     @Query("""
             select distinct ja from JobApplication ja left join fetch ja.requiredSkills
             where ja.user.id = :userId and ja.archivedAt is null
+              and (:favoritesOnly = false or ja.favorite = true)
               and (lower(ja.companyName) like :pattern escape '!'
                 or lower(ja.postingName) like :pattern escape '!'
                 or lower(ja.jobTitle) like :pattern escape '!')
             """)
-    List<JobApplication> findBoard(@Param("userId") Long userId, @Param("pattern") String pattern);
+    List<JobApplication> findBoard(@Param("userId") Long userId, @Param("pattern") String pattern,
+                                   @Param("favoritesOnly") boolean favoritesOnly);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
