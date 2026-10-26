@@ -51,7 +51,7 @@ public class JobApplicationController {
     private final JobApplicationIngestService jobApplicationIngestService;
     private final JobApplicationMockApplyService jobApplicationMockApplyService;
 
-    @Operation(summary = "지원관리 칸반 조회", description = "활성 카드를 4개 열로 반환합니다. 회사명·공고명·직무명을 검색하며 count는 검색 결과 기준입니다. CREATED_DESC에서는 드래그를 비활성화합니다.")
+    @Operation(summary = "지원관리 칸반 조회", description = "활성 카드를 4개 열로 반환합니다. 회사명·공고명·직무명을 검색하며 count는 검색 결과 기준입니다. 기본 정렬은 MANUAL이며 CREATED_ASC·CREATED_DESC에서는 드래그를 비활성화합니다.")
     @GetMapping("/board")
     public ApiResponse<JobApplicationBoardResponse> board(
             @AuthenticationPrincipal UserDetailsImpl userDetails,

@@ -43,10 +43,13 @@ public class JobApplicationBoardService {
         Map<Long, Long> counts = cards.isEmpty() ? Map.of() : essays.countActiveByUser(user.getId()).stream()
                 .collect(Collectors.toMap(JobApplicationEssayRepository.Count::getJobApplicationId,
                         JobApplicationEssayRepository.Count::getQuestionCount));
-        Comparator<JobApplication> comparator = effectiveSort == JobApplicationSort.CREATED_DESC
-                ? Comparator.comparing(JobApplication::getCreatedAt).reversed()
-                    .thenComparing(JobApplication::getId, Comparator.reverseOrder())
-                : Comparator.comparingInt(JobApplication::getStageOrder).thenComparing(JobApplication::getId);
+        Comparator<JobApplication> comparator = switch (effectiveSort) {
+            case CREATED_ASC -> Comparator.comparing(JobApplication::getCreatedAt)
+                    .thenComparing(JobApplication::getId);
+            case CREATED_DESC -> Comparator.comparing(JobApplication::getCreatedAt).reversed()
+                    .thenComparing(JobApplication::getId, Comparator.reverseOrder());
+            case MANUAL -> Comparator.comparingInt(JobApplication::getStageOrder).thenComparing(JobApplication::getId);
+        };
         List<JobApplicationBoardResponse.Column> columns = Arrays.stream(JobApplicationStage.values())
                 .map(stage -> {
                     List<JobApplicationCardResponse> items = cards.stream()
