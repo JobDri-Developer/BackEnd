@@ -46,6 +46,7 @@ class JobApplicationEssayImportControllerTest {
                         .param("query", "  SPRING  ").param("size", "1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result.totalElements").value(2))
+                .andExpect(jsonPath("$.result.totalPages").value(2))
                 .andExpect(jsonPath("$.result.content.length()").value(1))
                 .andExpect(jsonPath("$.result.content[0].jobApplicationId").value(last))
                 .andExpect(jsonPath("$.result.content[0].essayQuestionCount").value(2));
@@ -54,7 +55,15 @@ class JobApplicationEssayImportControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.result.content[0].jobApplicationId").value(first));
         mvc.perform(get(path(target)).with(user(new UserDetailsImpl(owner))))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.result.totalElements").value(2));
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.number").value(0))
+                .andExpect(jsonPath("$.result.size").value(10))
+                .andExpect(jsonPath("$.result.totalPages").value(1))
+                .andExpect(jsonPath("$.result.totalElements").value(2));
+        mvc.perform(get(path(target)).with(user(new UserDetailsImpl(owner)))
+                        .param("query", "spring").param("size", "1").param("page", "2"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.content").isEmpty());
     }
 
     @Test
