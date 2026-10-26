@@ -33,9 +33,13 @@ public class JobApplicationBoardService {
     private final EntityManager entityManager;
 
     public JobApplicationBoardResponse getBoard(User principal, String query, JobApplicationSort sort) {
+        return getBoard(principal, query, sort, false);
+    }
+
+    public JobApplicationBoardResponse getBoard(User principal, String query, JobApplicationSort sort, boolean favoritesOnly) {
         User user = userService.validateUser(principal);
         JobApplicationSort effectiveSort = sort == null ? JobApplicationSort.MANUAL : sort;
-        List<JobApplication> cards = applications.findBoard(user.getId(), searchPattern(query));
+        List<JobApplication> cards = applications.findBoard(user.getId(), searchPattern(query), favoritesOnly);
         Map<Long, Long> counts = cards.isEmpty() ? Map.of() : essays.countActiveByUser(user.getId()).stream()
                 .collect(Collectors.toMap(JobApplicationEssayRepository.Count::getJobApplicationId,
                         JobApplicationEssayRepository.Count::getQuestionCount));

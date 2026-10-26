@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS job_applications (
     archived_at TIMESTAMP,
     ingest_idempotency_key VARCHAR(100),
     content_revision BIGINT NOT NULL DEFAULT 0,
+    favorite BOOLEAN NOT NULL DEFAULT FALSE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP,
     CONSTRAINT ck_job_applications_stage
@@ -312,3 +313,6 @@ ALTER TABLE IF EXISTS job_applications
 
 ALTER TABLE IF EXISTS job_applications
     ADD COLUMN IF NOT EXISTS content_revision BIGINT NOT NULL DEFAULT 0;
+
+ALTER TABLE IF EXISTS job_applications
+    ADD COLUMN IF NOT EXISTS favorite BOOLEAN NOT NULL DEFAULT FALSE;

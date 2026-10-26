@@ -111,6 +111,13 @@ public class JobApplication extends BaseEntity {
         this.postingUrl = postingUrl == null || postingUrl.isBlank() ? null : postingUrl.trim();
     }
 
+    @Column(nullable = false)
+    private boolean favorite;
+
+    public void setFavorite(boolean favorite) {
+        this.favorite = favorite;
+    }
+
     private LocalDateTime deadlineAt;
 
     @Enumerated(EnumType.STRING)

@@ -22,6 +22,7 @@ public class JobApplicationDetailResponse {
     private Long jobApplicationId;
     private Long sourceJobPostingId;
     private Long mockApplyId;
+    private boolean favorite;
     private String companyName;
     private String postingName;
     private String jobTitle;
@@ -54,6 +55,7 @@ public class JobApplicationDetailResponse {
                 .jobApplicationId(application.getId())
                 .sourceJobPostingId(application.getSourceJobPosting() == null ? null : application.getSourceJobPosting().getId())
                 .mockApplyId(application.getMockApply() == null ? null : application.getMockApply().getId())
+                .favorite(application.isFavorite())
                 .companyName(application.getCompanyName())
                 .postingName(application.getPostingName())
                 .jobTitle(application.getJobTitle())
