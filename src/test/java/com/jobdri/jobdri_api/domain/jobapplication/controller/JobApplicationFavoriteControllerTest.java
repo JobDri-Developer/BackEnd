@@ -91,7 +91,7 @@ class JobApplicationFavoriteControllerTest {
                 .andExpect(jsonPath("$.result.columns[0].cards[0].jobApplicationId").value(chosen))
                 .andExpect(jsonPath("$.result.columns[0].cards[0].favorite").value(true));
         mvc.perform(get("/api/job-applications/board").with(user(new UserDetailsImpl(owner)))
-                        .param("favoritesOnly", "true").param("query", "missing"))
+                        .param("favoritesOnly", "true").param("query", "missing").param("sort", "CREATED_ASC"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.result.columns[0].count").value(0));
         assertThat(applications.findById(other).orElseThrow().isFavorite()).isFalse();
     }
