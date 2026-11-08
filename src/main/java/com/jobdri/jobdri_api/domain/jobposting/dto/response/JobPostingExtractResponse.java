@@ -6,6 +6,11 @@ public record JobPostingExtractResponse(String postingName, String companyName, 
                                         String requirements, String preferredQualifications, String rawText,
                                         double confidence, List<String> requiredSkills, String deadlineAt) {
 
+    public JobPostingExtractResponse {
+        requiredSkills = requiredSkills == null ? List.of() : requiredSkills;
+        deadlineAt = deadlineAt == null ? "" : deadlineAt;
+    }
+
     public JobPostingExtractResponse(
             String postingName,
             String companyName,
