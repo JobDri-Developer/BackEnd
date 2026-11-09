@@ -6,6 +6,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncCance
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncStatusResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncSubmitResponse;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingRegistrationPreviewResponse;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAsyncFacadeService;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAsyncSseService;
@@ -55,6 +56,19 @@ public class JobPostingAiController {
                 "채용 공고 추출에 성공했습니다.",
                 jobPostingAiService.extractJobPosting(user.getId(), request)
         );
+    }
+
+    /** 인증된 사용자의 등록 초안을 추출하며 공고나 지원 카드를 저장하지 않는다. */
+    @Operation(summary = "지원 공고 등록 전 분석 미리보기",
+            description = "텍스트나 업로드된 이미지에서 등록 폼 초안을 추출합니다. 동기 요청이며 공고·지원 카드를 저장하지 않습니다.")
+    @PostMapping(value = "/extract/preview", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ApiResponse<JobPostingRegistrationPreviewResponse> previewRegistration(
+            @AuthenticationPrincipal UserDetailsImpl userDetails,
+            @Valid @RequestBody JobPostingExtractRequest request
+    ) {
+        var user = validateAuthenticatedUser(userDetails);
+        return ApiResponse.onSuccess("지원 공고 등록 초안을 추출했습니다.",
+                JobPostingRegistrationPreviewResponse.from(jobPostingAiService.extractForPreview(user.getId(), request)));
     }
 
     @Operation(
