@@ -21,6 +21,7 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -94,6 +95,60 @@ class JobApplicationFavoriteControllerTest {
                         .param("favoritesOnly", "true").param("query", "missing").param("sort", "CREATED_ASC"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.result.columns[0].count").value(0));
         assertThat(applications.findById(other).orElseThrow().isFavorite()).isFalse();
+    }
+
+    /** Verifies stage filtering with and without search, sorting, and favorites. */
+    @Test
+    void boardCombinesStageWithFavoriteFilterSearchAndSortAndKeepsAllColumns() throws Exception {
+        User owner = owner();
+        long older = card(owner, "Spring older");
+        long newer = card(owner, "Spring newer");
+        long ordinary = card(owner, "Spring ordinary");
+        long different = card(owner, "Java favorite");
+        long planned = card(owner, "Spring planned");
+        applications.findById(older).orElseThrow().moveTo(JobApplicationStage.DOCUMENT, 0);
+        applications.findById(newer).orElseThrow().moveTo(JobApplicationStage.DOCUMENT, 2);
+        applications.findById(ordinary).orElseThrow().moveTo(JobApplicationStage.DOCUMENT, 1);
+        applications.findById(different).orElseThrow().moveTo(JobApplicationStage.DOCUMENT, 3);
+        for (long id : new long[]{older, newer, different, planned}) {
+            applications.findById(id).orElseThrow().setFavorite(true);
+        }
+        applications.flush();
+
+        mvc.perform(get("/api/job-applications/board").with(user(new UserDetailsImpl(owner)))
+                        .param("stage", "DOCUMENT").param("favoritesOnly", "true")
+                        .param("query", " SPRING ").param("sort", "CREATED_DESC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.sort").value("CREATED_DESC"))
+                .andExpect(jsonPath("$.result.columns[*].stage",
+                        contains("PLANNED", "DOCUMENT", "INTERVIEW", "COMPLETED")))
+                .andExpect(jsonPath("$.result.columns[*].count", contains(0, 2, 0, 0)))
+                .andExpect(jsonPath("$.result.columns[0].cards").isEmpty())
+                .andExpect(jsonPath("$.result.columns[1].cards.length()").value(2))
+                .andExpect(jsonPath("$.result.columns[1].cards[0].jobApplicationId").value(newer))
+                .andExpect(jsonPath("$.result.columns[1].cards[0].stageOrder").value(2))
+                .andExpect(jsonPath("$.result.columns[1].cards[1].jobApplicationId").value(older))
+                .andExpect(jsonPath("$.result.columns[2].cards").isEmpty())
+                .andExpect(jsonPath("$.result.columns[3].cards").isEmpty());
+
+        mvc.perform(get("/api/job-applications/board").with(user(new UserDetailsImpl(owner)))
+                        .param("stage", "DOCUMENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.columns[*].count", contains(0, 4, 0, 0)))
+                .andExpect(jsonPath("$.result.columns[1].cards[1].jobApplicationId").value(ordinary))
+                .andExpect(jsonPath("$.result.columns[1].cards[1].favorite").value(false));
+
+        mvc.perform(get("/api/job-applications/board").with(user(new UserDetailsImpl(owner)))
+                        .param("favoritesOnly", "true").param("query", " SPRING ").param("sort", "CREATED_DESC"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.columns[*].count", contains(1, 2, 0, 0)))
+                .andExpect(jsonPath("$.result.columns[0].cards[0].jobApplicationId").value(planned))
+                .andExpect(jsonPath("$.result.columns[1].cards[0].jobApplicationId").value(newer))
+                .andExpect(jsonPath("$.result.columns[1].cards[1].jobApplicationId").value(older));
+
+        mvc.perform(get("/api/job-applications/board").with(user(new UserDetailsImpl(owner)))
+                        .param("stage", "UNKNOWN"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

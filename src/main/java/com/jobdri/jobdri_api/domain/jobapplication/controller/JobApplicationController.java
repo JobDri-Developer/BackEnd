@@ -12,6 +12,7 @@ import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationDe
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationIngestResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationMockApplyResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationResponse;
+import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationArchiveService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationBoardService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationDetailService;
@@ -51,16 +52,18 @@ public class JobApplicationController {
     private final JobApplicationIngestService jobApplicationIngestService;
     private final JobApplicationMockApplyService jobApplicationMockApplyService;
 
-    @Operation(summary = "지원관리 칸반 조회", description = "활성 카드를 4개 열로 반환합니다. 회사명·공고명·직무명을 검색하며 count는 검색 결과 기준입니다. 기본 정렬은 MANUAL이며 CREATED_ASC·CREATED_DESC에서는 드래그를 비활성화합니다.")
+    /** Returns all four board columns, with cards restricted to the requested stage when supplied. */
+    @Operation(summary = "지원관리 칸반 조회", description = "활성 카드를 4개 열로 반환합니다. 검색, 즐겨찾기, 지원 단계 필터를 함께 적용할 수 있으며 count는 필터 적용 후 카드 수입니다. 기본 정렬은 MANUAL이며 CREATED_ASC·CREATED_DESC에서는 드래그를 비활성화합니다.")
     @GetMapping("/board")
     public ApiResponse<JobApplicationBoardResponse> board(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @RequestParam(defaultValue = "") String query,
             @RequestParam(defaultValue = "MANUAL") JobApplicationSort sort,
-            @RequestParam(defaultValue = "false") boolean favoritesOnly
+            @RequestParam(defaultValue = "false") boolean favoritesOnly,
+            @RequestParam(required = false) JobApplicationStage stage
     ) {
         return ApiResponse.onSuccess("지원관리 칸반 조회에 성공했습니다.",
-                jobApplicationBoardService.getBoard(validateAuthenticatedUser(userDetails), query, sort, favoritesOnly));
+                jobApplicationBoardService.getBoard(validateAuthenticatedUser(userDetails), query, sort, favoritesOnly, stage));
     }
 
     @Operation(summary = "지원 카드 이동", description = "카드를 제거한 도착 열의 0 기반 targetIndex에 삽입합니다. 필터링된 화면의 인덱스가 아닌 전체 열 기준이며, 저장 후 전체 MANUAL 보드를 반환합니다.")
