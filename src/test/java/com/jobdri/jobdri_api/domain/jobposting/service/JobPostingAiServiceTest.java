@@ -91,6 +91,20 @@ class JobPostingAiServiceTest {
     }
 
     @Test
+    void previewReportsProviderFailureWhileLegacyExtractKeepsFallback() {
+        String text = "Original backend developer job description";
+        when(jobPostingImageStorageService.normalizeImageObjectKeys(null, null)).thenReturn(List.of());
+        when(llmConcurrencyLimiter.execute(eq("job-posting-extract"), any()))
+                .thenThrow(new RuntimeException("provider unavailable"));
+
+        assertThatThrownBy(() -> jobPostingAiService.extractForPreview(1L,
+                new com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractRequest(text, null)))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code").isEqualTo(GeneralErrorCode.SERVICE_UNAVAILABLE);
+        assertThat(jobPostingAiService.extractJobPosting(1L, text, null).rawText()).isEqualTo(text);
+    }
+
+    @Test
     @DisplayName("존재하지 않는 소분류 ID로 모의 공고 생성 시 예외를 던진다")
     void generateMockJobPostingThrowsWhenDetailClassificationNotFound() {
         when(detailClassificationRepository.findWithHierarchyById(999L)).thenReturn(Optional.empty());

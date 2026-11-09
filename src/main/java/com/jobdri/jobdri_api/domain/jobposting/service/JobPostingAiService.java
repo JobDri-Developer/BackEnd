@@ -264,6 +264,17 @@ public class JobPostingAiService {
             String imageObjectKey,
             List<String> imageObjectKeys
     ) {
+        return extractJobPosting(userId, rawText, imageObjectKey, imageObjectKeys, true);
+    }
+
+    /** Extracts a preview without turning provider failures into empty successful responses. */
+    public JobPostingExtractResponse extractForPreview(Long userId, JobPostingExtractRequest request) {
+        return extractJobPosting(userId, request.rawText(), request.imageObjectKey(), request.imageObjectKeys(), false);
+    }
+
+    private JobPostingExtractResponse extractJobPosting(
+            Long userId, String rawText, String imageObjectKey, List<String> imageObjectKeys, boolean allowFallback
+    ) {
         List<String> normalizedImageObjectKeys = jobPostingImageStorageService.normalizeImageObjectKeys(
                 imageObjectKey,
                 imageObjectKeys
@@ -306,6 +317,10 @@ public class JobPostingAiService {
             throw e;
         } catch (Exception e) {
             log.error("채용 공고 추출 OpenAI API 호출 오류: {}", e.getMessage(), e);
+            if (!allowFallback) {
+                throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE,
+                        "공고 분석을 완료하지 못했습니다. 잠시 후 다시 시도해주세요.");
+            }
             return createFallbackResponse(rawText);
         }
     }
