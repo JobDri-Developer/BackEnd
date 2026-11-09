@@ -37,9 +37,14 @@ public class JobApplicationBoardService {
     }
 
     public JobApplicationBoardResponse getBoard(User principal, String query, JobApplicationSort sort, boolean favoritesOnly) {
+        return getBoard(principal, query, sort, favoritesOnly, null);
+    }
+
+    public JobApplicationBoardResponse getBoard(User principal, String query, JobApplicationSort sort,
+                                                boolean favoritesOnly, JobApplicationStage selectedStage) {
         User user = userService.validateUser(principal);
         JobApplicationSort effectiveSort = sort == null ? JobApplicationSort.MANUAL : sort;
-        List<JobApplication> cards = applications.findBoard(user.getId(), searchPattern(query), favoritesOnly);
+        List<JobApplication> cards = applications.findBoard(user.getId(), searchPattern(query), favoritesOnly, selectedStage);
         Map<Long, Long> counts = cards.isEmpty() ? Map.of() : essays.countActiveByUser(user.getId()).stream()
                 .collect(Collectors.toMap(JobApplicationEssayRepository.Count::getJobApplicationId,
                         JobApplicationEssayRepository.Count::getQuestionCount));

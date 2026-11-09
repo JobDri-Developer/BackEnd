@@ -10,7 +10,8 @@
 - `query`: 앞뒤 공백을 제거하고 회사명·공고명·직무명을 대소문자 구분 없이 부분 검색한다. `%`, `_`, `!`도 일반 문자로 검색한다.
 - 응답은 공통 `ApiResponse.result` 안의 `sort`, `columns`이다.
 - `columns`는 항상 `PLANNED`, `DOCUMENT`, `INTERVIEW`, `COMPLETED` 순서이며 각 열은 `stage`, `count`, `cards`를 가진다. 빈 열도 반환한다.
-- 보관된 카드는 제외하고 `count`는 검색된 카드 수다.
+- `stage`는 선택한 지원 단계 하나를 조회한다. `PLANNED`, `DOCUMENT`, `INTERVIEW`, `COMPLETED`를 지원하며 생략하면 모든 단계를 조회한다. 알 수 없는 값은 400을 반환한다.
+- 보관된 카드는 제외하며 `count`는 검색, 즐겨찾기, 단계 조건을 모두 만족하는 카드 수다. 선택하지 않은 열은 `count: 0`과 `cards: []`를 반환한다.
 - MANUAL은 저장된 `stageOrder`, ID 순서다. CREATED_DESC는 생성 시각, ID 내림차순이다. CREATED_ASC는 생성 시각, ID 오름차순이다. 각 열 안에만 정렬을 적용하고 두 모드 모두 저장된 stageOrder를 변경하지 않는다.
 - 카드 필드: `jobApplicationId`, `companyName`, `postingName`, `jobTitle`, `requiredSkills`, `essayQuestionCount`, `deadlineAt`, `currentLabel`, `currentAt`, `stage`, `stageOrder`, `createdAt`, `updatedAt`.
 - 일시는 ISO LocalDateTime, Asia/Seoul 기준이며 D-day와 표시 색상은 클라이언트에서 계산한다.
@@ -41,7 +42,7 @@
 
 ## 등록순 정렬과 필터 조합 (#393 일부)
 
-`GET /api/job-applications/board?sort=CREATED_ASC&favoritesOnly=true&query=회사`
+`GET /api/job-applications/board?sort=CREATED_ASC&favoritesOnly=true&query=회사&stage=DOCUMENT`
 
 오래된 등록순에서 시각이 같으면 ID가 작은 카드부터 반환한다. 검색·즐겨찾기·활성 공고 조건은 동일하게 적용한다.
 기본 MANUAL 및 기존 CREATED_DESC 계약은 유지한다. 공고명순·일정 임박순·기본 정렬 변경은 이번 범위에 포함하지 않는다.
