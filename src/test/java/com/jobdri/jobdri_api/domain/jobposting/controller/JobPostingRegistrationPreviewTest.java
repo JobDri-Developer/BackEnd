@@ -53,6 +53,7 @@ class JobPostingRegistrationPreviewTest {
     @Autowired JobPostingAsyncTaskRepository tasks;
     @MockitoBean JobPostingAiService ai;
 
+    /** 미리보기는 데이터를 생성하지 않으며 수정한 초안을 별도로 등록할 수 있는지 확인한다. */
     @Test
     void previewDoesNotSaveAndEditedDraftCanBeRegistered() throws Exception {
         User owner = owner();
@@ -88,6 +89,7 @@ class JobPostingRegistrationPreviewTest {
         assertThat(applications.count()).isEqualTo(cardCount + 1);
     }
 
+    /** 이미지 분석 결과의 누락 필수값을 알리고 유효하지 않은 마감일은 비워 두는지 확인한다. */
     @Test
     void reportsMissingFieldsAndDoesNotGuessAnInvalidDeadline() throws Exception {
         User owner = owner();
@@ -103,6 +105,7 @@ class JobPostingRegistrationPreviewTest {
                 .andExpect(jsonPath("$.result.missingRequiredFields[1]").value("jobTitle"));
     }
 
+    /** 비인증 및 빈 입력 요청이 AI 추출을 호출하기 전에 거절되는지 확인한다. */
     @Test
     void rejectsUnauthenticatedAndEmptyRequestsBeforeExtraction() throws Exception {
         mvc.perform(post(PATH).contentType(MediaType.APPLICATION_JSON).content(INPUT))
@@ -113,6 +116,7 @@ class JobPostingRegistrationPreviewTest {
         verifyNoInteractions(ai);
     }
 
+    /** AI 호출 실패가 빈 초안 대신 서비스 이용 불가 응답으로 전달되는지 확인한다. */
     @Test
     void providerFailureIsAnErrorRatherThanAnEmptyDraft() throws Exception {
         User owner = owner();
@@ -125,6 +129,7 @@ class JobPostingRegistrationPreviewTest {
                 .andExpect(jsonPath("$.code").value("SERVER_5031"));
     }
 
+    /** 테스트 요청에 사용할 고유한 사용자 계정을 생성한다. */
     private User owner() {
         return users.saveAndFlush(User.signup("등록 테스트", UUID.randomUUID() + "@example.com", "encoded"));
     }

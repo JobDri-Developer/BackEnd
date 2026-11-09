@@ -90,6 +90,7 @@ class JobPostingAiServiceTest {
                 });
     }
 
+    /** 동일한 호출 예외를 미리보기는 오류로 전달하고 기존 추출은 fallback으로 처리하는지 확인한다. */
     @Test
     void previewReportsProviderFailureWhileLegacyExtractKeepsFallback() {
         String text = "Original backend developer job description";

@@ -258,6 +258,7 @@ public class JobPostingAiService {
         return extractJobPosting(userId, rawText, imageObjectKey, null);
     }
 
+    /** 기존 추출 호출의 입력 검증과 호출 예외 fallback을 유지한다. */
     public JobPostingExtractResponse extractJobPosting(
             Long userId,
             String rawText,
@@ -272,6 +273,7 @@ public class JobPostingAiService {
         return extractJobPosting(userId, request.rawText(), request.imageObjectKey(), request.imageObjectKeys(), false);
     }
 
+    /** 공통 추출을 수행하고 allowFallback이 true인 기존 경로에서만 호출 예외를 빈 결과로 대체한다. */
     private JobPostingExtractResponse extractJobPosting(
             Long userId, String rawText, String imageObjectKey, List<String> imageObjectKeys, boolean allowFallback
     ) {
