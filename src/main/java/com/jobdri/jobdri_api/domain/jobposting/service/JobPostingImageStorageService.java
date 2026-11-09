@@ -28,7 +28,8 @@ public class JobPostingImageStorageService {
     private static final Map<String, String> CONTENT_TYPE_TO_EXTENSION = Map.of(
             "image/png", "png",
             "image/jpeg", "jpg",
-            "image/jpg", "jpg"
+            "image/jpg", "jpg",
+            "image/webp", "webp"
     );
 
     private final S3ObjectUrlService s3ObjectUrlService;
@@ -40,7 +41,7 @@ public class JobPostingImageStorageService {
             S3ObjectUrlService s3ObjectUrlService,
             S3Client s3Client,
             @Value("${spring.cloud.aws.s3.presign-put-expiration-minutes:5}") long presignPutExpirationMinutes,
-            @Value("${job-posting.image-upload.max-size-bytes:5242880}") long maxImageSizeBytes
+            @Value("${job-posting.image-upload.max-size-bytes:10000000}") long maxImageSizeBytes
     ) {
         this.s3ObjectUrlService = s3ObjectUrlService;
         this.s3Client = s3Client;
@@ -58,7 +59,7 @@ public class JobPostingImageStorageService {
         if (extension == null) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
-                    "지원하는 이미지 형식은 png, jpg, jpeg 입니다."
+                    "지원하는 이미지 형식은 png, jpg, jpeg, webp 입니다."
             );
         }
 
@@ -186,17 +187,18 @@ public class JobPostingImageStorageService {
         if (!CONTENT_TYPE_TO_EXTENSION.containsKey(normalizedContentType)) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
-                    "지원하는 이미지 형식은 png, jpg, jpeg 입니다."
+                    "지원하는 이미지 형식은 png, jpg, jpeg, webp 입니다."
             );
         }
 
         String lowerObjectKey = objectKey.toLowerCase(Locale.ROOT);
         if (!lowerObjectKey.endsWith(".png")
                 && !lowerObjectKey.endsWith(".jpg")
-                && !lowerObjectKey.endsWith(".jpeg")) {
+                && !lowerObjectKey.endsWith(".jpeg")
+                && !lowerObjectKey.endsWith(".webp")) {
             throw new GeneralException(
                     GeneralErrorCode.INVALID_PARAMETER,
-                    "지원하는 이미지 확장자는 png, jpg, jpeg 입니다."
+                    "지원하는 이미지 확장자는 png, jpg, jpeg, webp 입니다."
             );
         }
 

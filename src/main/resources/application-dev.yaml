@@ -222,7 +222,7 @@ job-posting:
   ingest:
     classification-confidence-threshold: ${JOB_POSTING_CLASSIFICATION_CONFIDENCE_THRESHOLD:0.65}
   image-upload:
-    max-size-bytes: ${JOB_POSTING_IMAGE_UPLOAD_MAX_SIZE_BYTES:5242880}
+    max-size-bytes: ${JOB_POSTING_IMAGE_UPLOAD_MAX_SIZE_BYTES:10000000}
 
 async:
   job-posting:

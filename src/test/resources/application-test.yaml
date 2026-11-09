@@ -77,7 +77,7 @@ jwt:
 
 job-posting:
   image-upload:
-    max-size-bytes: 5242880
+    max-size-bytes: 10000000
 
 payment:
   coupon:
