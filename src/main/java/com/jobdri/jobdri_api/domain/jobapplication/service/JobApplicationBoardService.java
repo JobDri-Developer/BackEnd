@@ -36,10 +36,12 @@ public class JobApplicationBoardService {
         return getBoard(principal, query, sort, false);
     }
 
+    /** Applies search and favorites across all stages. */
     public JobApplicationBoardResponse getBoard(User principal, String query, JobApplicationSort sort, boolean favoritesOnly) {
         return getBoard(principal, query, sort, favoritesOnly, null);
     }
 
+    /** Returns all columns with counts computed from the matching cards. A null stage includes every stage. */
     public JobApplicationBoardResponse getBoard(User principal, String query, JobApplicationSort sort,
                                                 boolean favoritesOnly, JobApplicationStage selectedStage) {
         User user = userService.validateUser(principal);

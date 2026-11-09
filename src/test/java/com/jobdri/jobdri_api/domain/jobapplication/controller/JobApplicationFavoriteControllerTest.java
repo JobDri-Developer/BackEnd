@@ -97,6 +97,7 @@ class JobApplicationFavoriteControllerTest {
         assertThat(applications.findById(other).orElseThrow().isFavorite()).isFalse();
     }
 
+    /** Verifies stage filtering with and without search, sorting, and favorites. */
     @Test
     void boardCombinesStageWithFavoriteFilterSearchAndSortAndKeepsAllColumns() throws Exception {
         User owner = owner();
@@ -129,6 +130,13 @@ class JobApplicationFavoriteControllerTest {
                 .andExpect(jsonPath("$.result.columns[1].cards[1].jobApplicationId").value(older))
                 .andExpect(jsonPath("$.result.columns[2].cards").isEmpty())
                 .andExpect(jsonPath("$.result.columns[3].cards").isEmpty());
+
+        mvc.perform(get("/api/job-applications/board").with(user(new UserDetailsImpl(owner)))
+                        .param("stage", "DOCUMENT"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.columns[*].count", contains(0, 4, 0, 0)))
+                .andExpect(jsonPath("$.result.columns[1].cards[1].jobApplicationId").value(ordinary))
+                .andExpect(jsonPath("$.result.columns[1].cards[1].favorite").value(false));
 
         mvc.perform(get("/api/job-applications/board").with(user(new UserDetailsImpl(owner)))
                         .param("favoritesOnly", "true").param("query", " SPRING ").param("sort", "CREATED_DESC"))

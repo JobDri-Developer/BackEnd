@@ -20,6 +20,7 @@ public interface JobApplicationRepository extends JpaRepository<JobApplication, 
 
     Optional<JobApplication> findByUserIdAndIngestIdempotencyKey(Long userId, String ingestIdempotencyKey);
 
+    /** Finds the owner's active cards matching the board filters. A null stage leaves stages unrestricted. */
     @Query("""
             select distinct ja from JobApplication ja left join fetch ja.requiredSkills
             where ja.user.id = :userId and ja.archivedAt is null

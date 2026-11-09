@@ -52,6 +52,7 @@ public class JobApplicationController {
     private final JobApplicationIngestService jobApplicationIngestService;
     private final JobApplicationMockApplyService jobApplicationMockApplyService;
 
+    /** Returns all four board columns, with cards restricted to the requested stage when supplied. */
     @Operation(summary = "지원관리 칸반 조회", description = "활성 카드를 4개 열로 반환합니다. 검색, 즐겨찾기, 지원 단계 필터를 함께 적용할 수 있으며 count는 필터 적용 후 카드 수입니다. 기본 정렬은 MANUAL이며 CREATED_ASC·CREATED_DESC에서는 드래그를 비활성화합니다.")
     @GetMapping("/board")
     public ApiResponse<JobApplicationBoardResponse> board(
