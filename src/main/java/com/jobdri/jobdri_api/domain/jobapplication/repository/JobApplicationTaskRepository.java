@@ -8,8 +8,10 @@ import java.util.List;
 import java.util.Optional;
 
 public interface JobApplicationTaskRepository extends JpaRepository<JobApplicationTask, Long> {
+    /** Fetches an application's tasks and their checklists together in registration order. */
     @EntityGraph(attributePaths = "checklistItems")
     List<JobApplicationTask> findAllByJobApplicationIdOrderByIdAsc(Long jobApplicationId);
 
+    /** Looks up a task only within the given application. */
     Optional<JobApplicationTask> findByIdAndJobApplicationId(Long id, Long jobApplicationId);
 }

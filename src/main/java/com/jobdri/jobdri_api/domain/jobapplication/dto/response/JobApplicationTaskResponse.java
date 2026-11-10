@@ -15,6 +15,7 @@ public record JobApplicationTaskResponse(
         int completedChecklistCount,
         int totalChecklistCount
 ) {
+    /** Maps the stored checklist in order and calculates its progress. */
     public static JobApplicationTaskResponse from(JobApplicationTask task) {
         List<ChecklistItem> items = task.getChecklistItems().stream()
                 .map(item -> new ChecklistItem(item.content(), item.completed()))

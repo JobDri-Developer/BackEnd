@@ -11,19 +11,28 @@ import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -48,7 +57,10 @@ class JobApplicationTaskControllerTest {
     @Autowired JobApplicationRepository applications;
     @Autowired JobApplicationTaskRepository tasks;
     @Autowired EntityManager em;
+    @Autowired JdbcTemplate jdbc;
+    @Autowired PlatformTransactionManager transactionManager;
 
+    /** Exercises the full task lifecycle while keeping the original card checklist intact. */
     @Test
     void createsReadsUpdatesCompletesAndDeletesTaskWithoutChangingLegacyChecklist() throws Exception {
         User owner = owner();
@@ -116,6 +128,72 @@ class JobApplicationTaskControllerTest {
                 .andExpect(jsonPath("$.result.checklistItems[0].completed").value(true));
     }
 
+    /** Verifies a waiting PUT reads committed state after either a PUT or a completion PATCH. */
+    @ParameterizedTest(name = "completion PATCH acquires the card lock first: {0}")
+    @ValueSource(booleans = {false, true})
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void serializesTaskWritesOnTheCardRow(boolean completionFirst) throws Exception {
+        User owner = owner();
+        long applicationId = application(owner);
+        long taskId = createTask(owner, applicationId, TITLE_ONLY);
+        var transaction = new TransactionTemplate(transactionManager);
+        var executor = Executors.newSingleThreadExecutor();
+        try {
+            var secondWrite = transaction.execute(status -> {
+                var first = completionFirst
+                        ? json(patch(COMPLETION, applicationId, taskId), owner, "{\"completed\":true}")
+                        : json(put(TASK, applicationId, taskId), owner, """
+                                {"title":"First edit","checklistItems":[{"content":"First item"}]}
+                                """);
+                assertDoesNotThrow(() -> mvc.perform(first)
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.result.completed").value(completionFirst)));
+                int lockingSession = jdbc.queryForObject("select session_id()", Integer.class);
+                var waitingWrite = executor.submit(() -> mvc.perform(json(put(TASK, applicationId, taskId), owner, """
+                                {"title":"Second edit","checklistItems":[{"content":"Second item","completed":true}]}
+                                """))
+                        .andExpect(status().isOk())
+                        .andExpect(jsonPath("$.result.completed").value(completionFirst)));
+                awaitBlockedWrite(lockingSession);
+                return waitingWrite;
+            });
+            secondWrite.get(10, TimeUnit.SECONDS);
+
+            mvc.perform(get(TASK, applicationId, taskId).with(user(new UserDetailsImpl(owner))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.result.title").value("Second edit"))
+                    .andExpect(jsonPath("$.result.checklistItems.length()").value(1))
+                    .andExpect(jsonPath("$.result.checklistItems[0].content").value("Second item"))
+                    .andExpect(jsonPath("$.result.completedChecklistCount").value(1))
+                    .andExpect(jsonPath("$.result.completed").value(completionFirst));
+        } finally {
+            executor.shutdownNow();
+            executor.awaitTermination(10, TimeUnit.SECONDS);
+            transaction.executeWithoutResult(status -> {
+                applications.deleteById(applicationId);
+                jdbc.update("delete from audit_logs where user_id = ?", owner.getId());
+                users.deleteById(owner.getId());
+            });
+        }
+    }
+
+    /** Uses H2 lock metadata to distinguish a blocked database request from a slow thread start. */
+    private void awaitBlockedWrite(int lockingSession) {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        while (System.nanoTime() < deadline) {
+            int blockedSessions = jdbc.queryForObject("""
+                    select count(*) from information_schema.sessions
+                    where blocker_id = ? and executing_statement ilike '%job_applications%for update%'
+                    """, Integer.class, lockingSession);
+            if (blockedSessions > 0) {
+                return;
+            }
+            assertDoesNotThrow(() -> Thread.sleep(10));
+        }
+        throw new AssertionError("The second write did not wait for the first transaction's card lock");
+    }
+
+    /** Covers authorization and verifies that a task cannot be reached through another card. */
     @Test
     void rejectsUnauthenticatedForeignAndMismatchedTaskRequests() throws Exception {
         User owner = owner();
@@ -142,6 +220,7 @@ class JobApplicationTaskControllerTest {
                 .andExpect(status().isOk()).andExpect(jsonPath("$.result.completed").value(false));
     }
 
+    /** Checks validation errors and database cascades when a card is permanently deleted. */
     @Test
     void validatesRequestsAndCascadesPermanentApplicationDeletion() throws Exception {
         User owner = owner();
@@ -168,26 +247,31 @@ class JobApplicationTaskControllerTest {
                 .setParameter("id", taskId).getSingleResult()).longValue()).isZero();
     }
 
+    /** Creates a task through the API and extracts its identifier for subsequent requests. */
     private long createTask(User owner, long applicationId, String body) throws Exception {
         var response = mvc.perform(json(post(TASKS, applicationId), owner, body))
                 .andExpect(status().isOk()).andReturn().getResponse();
         return objectMapper.readTree(response.getContentAsByteArray()).path("result").path("taskId").asLong();
     }
 
+    /** Builds an authenticated JSON request for the given user. */
     private MockHttpServletRequestBuilder json(MockHttpServletRequestBuilder request, User owner, String body) {
         return request.with(user(new UserDetailsImpl(owner))).contentType(MediaType.APPLICATION_JSON).content(body);
     }
 
+    /** Persists a unique owner so test cases can run independently. */
     private User owner() {
         return users.saveAndFlush(User.signup("Task user", UUID.randomUUID() + "@example.com", "encoded"));
     }
 
+    /** Creates a card using the same registration service as the HTTP endpoint. */
     private long application(User owner) {
         return applicationService.create(owner, new JobApplicationCreateRequest(
                 "Company", "Posting", "Backend", null, null, null, null, null,
                 null, null, null, null, null)).getJobApplicationId();
     }
 
+    /** Forces subsequent reads to reload persisted state. */
     private void flushAndClear() {
         em.flush();
         em.clear();

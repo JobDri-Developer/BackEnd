@@ -44,6 +44,7 @@ public class JobApplicationTask {
     @OnDelete(action = OnDeleteAction.CASCADE)
     private List<ChecklistItem> checklistItems = new ArrayList<>();
 
+    /** Creates an incomplete task attached to the given card. */
     public static JobApplicationTask create(JobApplication application, String title, LocalDate dueDate,
                                             String memo, List<ChecklistItem> checklistItems) {
         JobApplicationTask task = new JobApplicationTask();
@@ -52,6 +53,7 @@ public class JobApplicationTask {
         return task;
     }
 
+    /** Replaces editable fields without modifying the task's completion state. */
     public void update(String title, LocalDate dueDate, String memo, List<ChecklistItem> checklistItems) {
         this.title = title;
         this.dueDate = dueDate;
@@ -60,6 +62,7 @@ public class JobApplicationTask {
         this.checklistItems.addAll(checklistItems);
     }
 
+    /** Sets task completion independently of checklist progress. */
     public void setCompleted(boolean completed) {
         this.completed = completed;
     }
