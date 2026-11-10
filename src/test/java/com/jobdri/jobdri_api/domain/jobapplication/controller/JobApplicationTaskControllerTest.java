@@ -11,11 +11,14 @@ import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
@@ -33,6 +36,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.everyItem;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
@@ -250,19 +257,41 @@ class JobApplicationTaskControllerTest {
 
     /** Checks the checklist size boundary on both task write endpoints. */
     @Test
-    void limitsChecklistSizeOnCreateAndUpdate() throws Exception {
+    @ExtendWith(OutputCaptureExtension.class)
+    void limitsChecklistSizeOnCreateAndUpdate(CapturedOutput output) throws Exception {
         User owner = owner();
         long applicationId = application(owner);
         var request = "{\"title\":\"Task\",\"checklistItems\":[%s]}";
-        var item = "{\"content\":\"Checklist item\"}";
-        var atLimit = request.formatted(String.join(",", Collections.nCopies(100, item)));
-        var overLimit = request.formatted(String.join(",", Collections.nCopies(101, item)));
-        long taskId = createTask(owner, applicationId, atLimit);
+        var createBody = request.formatted(String.join(",", Collections.nCopies(100, "{\"content\":\"Original item\"}")));
+        var updateBody = request.formatted(String.join(",", Collections.nCopies(100, "{\"content\":\"Updated item\"}")));
+        var overLimit = request.formatted(String.join(",", Collections.nCopies(101, "{\"content\":\"Rejected checklist text\"}")));
+        long taskId = createTask(owner, applicationId, createBody);
+        flushAndClear();
 
-        mvc.perform(json(put(TASK, applicationId, taskId), owner, atLimit))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.result.totalChecklistCount").value(100));
-        mvc.perform(json(post(TASKS, applicationId), owner, overLimit)).andExpect(status().isBadRequest());
-        mvc.perform(json(put(TASK, applicationId, taskId), owner, overLimit)).andExpect(status().isBadRequest());
+        mvc.perform(get(TASK, applicationId, taskId).with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.totalChecklistCount").value(100))
+                .andExpect(jsonPath("$.result.checklistItems.length()").value(100))
+                .andExpect(jsonPath("$.result.checklistItems[*].content", everyItem(is("Original item"))));
+
+        mvc.perform(json(put(TASK, applicationId, taskId), owner, updateBody)).andExpect(status().isOk());
+        flushAndClear();
+
+        mvc.perform(get(TASK, applicationId, taskId).with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.totalChecklistCount").value(100))
+                .andExpect(jsonPath("$.result.checklistItems.length()").value(100))
+                .andExpect(jsonPath("$.result.checklistItems[*].content", everyItem(is("Updated item"))));
+
+        for (var write : List.of(post(TASKS, applicationId), put(TASK, applicationId, taskId))) {
+            mvc.perform(json(write, owner, overLimit))
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error[0]", containsString("[checklistItems]")))
+                    .andExpect(jsonPath("$.error[0]", containsString("****")))
+                    .andExpect(content().string(not(containsString("Rejected checklist text"))));
+        }
+        assertThat(output.getAll()).contains("Validation failed: [[checklistItems]", "****")
+                .doesNotContain("Rejected checklist text");
     }
 
     /** Creates a task through the API and extracts its identifier for subsequent requests. */
