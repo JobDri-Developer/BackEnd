@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -245,6 +246,23 @@ class JobApplicationTaskControllerTest {
         assertThat(((Number) em.createNativeQuery(
                         "select count(*) from job_application_task_checklist_items where task_id = :id")
                 .setParameter("id", taskId).getSingleResult()).longValue()).isZero();
+    }
+
+    /** Checks the checklist size boundary on both task write endpoints. */
+    @Test
+    void limitsChecklistSizeOnCreateAndUpdate() throws Exception {
+        User owner = owner();
+        long applicationId = application(owner);
+        var request = "{\"title\":\"Task\",\"checklistItems\":[%s]}";
+        var item = "{\"content\":\"Checklist item\"}";
+        var atLimit = request.formatted(String.join(",", Collections.nCopies(100, item)));
+        var overLimit = request.formatted(String.join(",", Collections.nCopies(101, item)));
+        long taskId = createTask(owner, applicationId, atLimit);
+
+        mvc.perform(json(put(TASK, applicationId, taskId), owner, atLimit))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.result.totalChecklistCount").value(100));
+        mvc.perform(json(post(TASKS, applicationId), owner, overLimit)).andExpect(status().isBadRequest());
+        mvc.perform(json(put(TASK, applicationId, taskId), owner, overLimit)).andExpect(status().isBadRequest());
     }
 
     /** Creates a task through the API and extracts its identifier for subsequent requests. */
