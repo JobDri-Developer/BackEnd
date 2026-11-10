@@ -43,6 +43,7 @@ public enum GeneralErrorCode implements BaseErrorCode {
 
     // 지원관리 에러
     JOB_APPLICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "JOB_APPLICATION_4041", "지원 카드를 찾을 수 없습니다."),
+    JOB_APPLICATION_TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "JOB_APPLICATION_4042", "지원 카드의 할 일을 찾을 수 없습니다."),
     JOB_APPLICATION_UPDATE_CONFLICT(HttpStatus.CONFLICT, "JOB_APPLICATION_4091", "지원 카드가 이미 수정되었습니다."),
     JOB_APPLICATION_NOT_READY(HttpStatus.UNPROCESSABLE_ENTITY, "JOB_APPLICATION_NOT_READY", "모의지원 전환에 필요한 정보가 부족합니다."),
 
