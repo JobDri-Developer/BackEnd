@@ -9,10 +9,18 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
 
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -60,6 +68,56 @@ class OAuth2LoginCodeServiceTest {
 
         assertThat(response.accessToken()).isEqualTo("access-token");
         assertThat(response.refreshToken()).isEqualTo("refresh-token");
+    }
+
+    @Test
+    @DisplayName("같은 코드로 동시에 교환하면 정확히 한 요청만 토큰을 받는다")
+    void concurrentExchangeOfSameCodeSucceedsExactlyOnce() throws Exception {
+        Map<String, String> store = new ConcurrentHashMap<>();
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        org.mockito.Mockito.doAnswer(invocation -> {
+            store.put(invocation.getArgument(0), invocation.getArgument(1));
+            return null;
+        }).when(valueOperations).set(anyString(), anyString(), anyLong(), eq(TimeUnit.SECONDS));
+        // Redis GETDEL처럼 조회와 삭제를 원자적으로 수행한다.
+        when(valueOperations.getAndDelete(anyString()))
+                .thenAnswer(invocation -> store.remove(invocation.<String>getArgument(0)));
+        String code = service.issue(new LoginResponse("access-token", "refresh-token"));
+
+        int requestCount = 8;
+        ExecutorService executor = Executors.newFixedThreadPool(requestCount);
+        CountDownLatch ready = new CountDownLatch(requestCount);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            List<Future<Object>> futures = java.util.stream.IntStream.range(0, requestCount)
+                    .mapToObj(index -> executor.submit(() -> {
+                        ready.countDown();
+                        start.await();
+                        try {
+                            return (Object) service.exchange(code);
+                        } catch (GeneralException exception) {
+                            return exception;
+                        }
+                    }))
+                    .toList();
+            assertThat(ready.await(5, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+
+            List<Object> results = new java.util.ArrayList<>();
+            for (Future<Object> future : futures) {
+                results.add(future.get(5, TimeUnit.SECONDS));
+            }
+
+            assertThat(results).filteredOn(LoginResponse.class::isInstance)
+                    .singleElement()
+                    .isEqualTo(new LoginResponse("access-token", "refresh-token"));
+            assertThat(results).filteredOn(GeneralException.class::isInstance)
+                    .hasSize(requestCount - 1)
+                    .allSatisfy(result -> assertThat(((GeneralException) result).getCode())
+                            .isEqualTo(GeneralErrorCode.INVALID_TOKEN));
+        } finally {
+            executor.shutdownNow();
+        }
     }
 
     @Test
