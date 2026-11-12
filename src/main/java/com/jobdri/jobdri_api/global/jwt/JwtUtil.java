@@ -6,6 +6,7 @@ import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtBuilder;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.UnsupportedJwtException;
@@ -32,6 +33,10 @@ public class JwtUtil {
 
     public static final String AUTHORIZATION_HEADER = "Authorization";
     public static final String BEARER_PREFIX = "Bearer ";
+    public static final String TOKEN_TYPE_CLAIM = "tokenType";
+    public static final String ACCESS_TOKEN_TYPE = "access";
+    public static final String REFRESH_TOKEN_TYPE = "refresh";
+    private static final String USER_ID_CLAIM = "userId";
 
     @Value("${jwt.secret.key}")
     private String secretKey;
@@ -45,11 +50,11 @@ public class JwtUtil {
     }
 
     public String createAccessToken(String email, Long userId, UserRole role) {
-        return createToken(email, userId, role, accessTokenTime);
+        return createToken(email, userId, role, ACCESS_TOKEN_TYPE, accessTokenTime);
     }
 
     public String createRefreshToken(String email) {
-        return createToken(email, null, null, refreshTokenTime);
+        return createToken(email, null, null, REFRESH_TOKEN_TYPE, refreshTokenTime);
     }
 
     public long getRefreshTokenTime() {
@@ -61,7 +66,7 @@ public class JwtUtil {
         return claims.getExpiration().getTime() - System.currentTimeMillis();
     }
 
-    private String createToken(String email, Long userId, UserRole role, long expireTime) {
+    private String createToken(String email, Long userId, UserRole role, String tokenType, long expireTime) {
         Date now = new Date();
         Date expireDate = new Date(now.getTime() + expireTime);
 
@@ -69,10 +74,11 @@ public class JwtUtil {
                 .subject(email)
                 .issuedAt(now)
                 .expiration(expireDate)
+                .claim(TOKEN_TYPE_CLAIM, tokenType)
                 .signWith(key);
 
         if (userId != null) {
-            builder.claim("userId", userId);
+            builder.claim(USER_ID_CLAIM, userId);
         }
         if (role != null) {
             builder.claim("role", role.name());
@@ -103,6 +109,42 @@ public class JwtUtil {
             log.error("JWT claims is empty, 잘못된 JWT 토큰 입니다.");
         }
         return false;
+    }
+
+    /**
+     * 인증 필터에서 사용할 수 있는 access token인지 확인한다.
+     * tokenType claim이 없는 구형 토큰은 userId claim 유무로 구분한다.
+     * 구형 access token은 항상 userId를 가졌고 구형 refresh token은 갖지 않았다.
+     */
+    public boolean isAccessToken(Claims claims) {
+        String tokenType = claims.get(TOKEN_TYPE_CLAIM, String.class);
+        if (tokenType == null) {
+            return claims.get(USER_ID_CLAIM) != null;
+        }
+        return ACCESS_TOKEN_TYPE.equals(tokenType);
+    }
+
+    /**
+     * 토큰 재발급에 사용할 수 있는 refresh token인지 확인한다.
+     * tokenType claim이 없는 구형 토큰은 userId claim이 없을 때만 refresh token으로 본다.
+     */
+    public boolean isRefreshToken(Claims claims) {
+        String tokenType = claims.get(TOKEN_TYPE_CLAIM, String.class);
+        if (tokenType == null) {
+            return claims.get(USER_ID_CLAIM) == null;
+        }
+        return REFRESH_TOKEN_TYPE.equals(tokenType);
+    }
+
+    public boolean validateRefreshToken(String token) {
+        if (!validateToken(token)) {
+            return false;
+        }
+        try {
+            return isRefreshToken(getClaimsFromToken(token));
+        } catch (JwtException | IllegalArgumentException e) {
+            return false;
+        }
     }
 
     public Claims getClaimsFromToken(String token) {
