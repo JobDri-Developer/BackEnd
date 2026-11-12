@@ -120,16 +120,67 @@ class EmailServiceTest {
     void verifyCodeStoresVerifiedFlagAndDeletesCode() {
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get("AuthCode:user@example.com")).thenReturn("123456");
+        when(valueOperations.increment("AuthCodeAttempt:user@example.com")).thenReturn(1L);
 
         emailService.verifyCode("user@example.com", "123456");
 
         verify(redisTemplate).delete("AuthCode:user@example.com");
+        verify(redisTemplate).delete("AuthCodeAttempt:user@example.com");
+        verify(redisTemplate).expire("AuthCodeAttempt:user@example.com", 5L, TimeUnit.MINUTES);
         verify(valueOperations).set(
                 "VerifiedEmail:user@example.com",
                 "true",
                 10L,
                 TimeUnit.MINUTES
         );
+    }
+
+    @Test
+    @DisplayName("인증번호가 틀리면 시도 횟수만 남기고 인증번호는 유지한다")
+    void verifyCodeKeepsCodeWhenMismatchedWithinLimit() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("AuthCode:user@example.com")).thenReturn("123456");
+        when(valueOperations.increment("AuthCodeAttempt:user@example.com")).thenReturn(2L);
+
+        assertThatThrownBy(() -> emailService.verifyCode("user@example.com", "000000"))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_AUTH_CODE);
+        verify(redisTemplate, never()).delete("AuthCode:user@example.com");
+        verify(redisTemplate, never()).expire(anyString(), eq(5L), eq(TimeUnit.MINUTES));
+    }
+
+    @Test
+    @DisplayName("인증번호 확인 횟수를 넘기면 맞는 번호여도 거부하고 인증번호를 폐기한다")
+    void verifyCodeRejectsAndDiscardsCodeAfterTooManyAttempts() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.get("AuthCode:user@example.com")).thenReturn("123456");
+        when(valueOperations.increment("AuthCodeAttempt:user@example.com"))
+                .thenReturn(EmailService.MAX_AUTH_CODE_ATTEMPTS + 1);
+
+        assertThatThrownBy(() -> emailService.verifyCode("user@example.com", "123456"))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.AUTH_CODE_ATTEMPTS_EXCEEDED);
+        verify(redisTemplate).delete("AuthCode:user@example.com");
+        verify(redisTemplate).delete("AuthCodeAttempt:user@example.com");
+        verify(valueOperations, never()).set(eq("VerifiedEmail:user@example.com"), anyString(), eq(10L), eq(TimeUnit.MINUTES));
+    }
+
+    @Test
+    @DisplayName("새 인증번호를 발송하면 이전 확인 시도 횟수를 초기화한다")
+    void sendVerificationCodeResetsAttempts() {
+        when(redisTemplate.opsForValue()).thenReturn(valueOperations);
+        when(valueOperations.setIfAbsent(
+                eq("AuthCodeCooldown:user@example.com"),
+                eq("1"),
+                eq(1L),
+                eq(TimeUnit.MINUTES)
+        )).thenReturn(true);
+
+        emailService.sendVerificationCode("user@example.com");
+
+        verify(redisTemplate).delete("AuthCodeAttempt:user@example.com");
     }
 
     @Test

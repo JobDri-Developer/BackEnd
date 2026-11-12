@@ -26,11 +26,13 @@ public class EmailService {
     private static final String VERIFIED_EMAIL_PREFIX = "VerifiedEmail:";
     private static final String AUTH_CODE_COOLDOWN_PREFIX = "AuthCodeCooldown:";
     private static final String AUTH_CODE_IP_COOLDOWN_PREFIX = "AuthCodeIpCooldown:";
+    private static final String AUTH_CODE_ATTEMPT_PREFIX = "AuthCodeAttempt:";
     private static final String VERIFIED_FLAG = "true";
     private static final long AUTH_CODE_EXPIRATION_MINUTES = 5L;
     private static final long VERIFIED_EMAIL_EXPIRATION_MINUTES = 10L;
     private static final long AUTH_CODE_COOLDOWN_MINUTES = 1L;
     private static final long AUTH_CODE_IP_COOLDOWN_SECONDS = 30L;
+    static final long MAX_AUTH_CODE_ATTEMPTS = 5L;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final StringRedisTemplate redisTemplate;
@@ -49,6 +51,7 @@ public class EmailService {
                 AUTH_CODE_EXPIRATION_MINUTES,
                 TimeUnit.MINUTES
         );
+        redisTemplate.delete(getAuthCodeAttemptKey(email));
 
         asyncEmailSender.sendVerificationCodeMail(email, authCode);
         log.info("[EmailService] 인증번호 발송 요청 등록: {}", email);
@@ -62,11 +65,25 @@ public class EmailService {
             throw new GeneralException(GeneralErrorCode.INVALID_AUTH_CODE, "인증번호가 만료되었거나 존재하지 않습니다.");
         }
 
-        if (!storedCode.equals(code)) {
+        // 6자리 코드 무차별 대입을 막기 위해 비교 전에 시도 횟수를 먼저 센다.
+        if (recordAttempt(email) > MAX_AUTH_CODE_ATTEMPTS) {
+            redisTemplate.delete(redisKey);
+            redisTemplate.delete(getAuthCodeAttemptKey(email));
+            throw new GeneralException(
+                    GeneralErrorCode.AUTH_CODE_ATTEMPTS_EXCEEDED,
+                    "인증번호 확인 횟수를 초과했습니다. 인증번호를 다시 요청해주세요."
+            );
+        }
+
+        if (!MessageDigest.isEqual(
+                storedCode.getBytes(StandardCharsets.UTF_8),
+                String.valueOf(code).getBytes(StandardCharsets.UTF_8)
+        )) {
             throw new GeneralException(GeneralErrorCode.INVALID_AUTH_CODE, "인증번호가 일치하지 않습니다.");
         }
 
         redisTemplate.delete(redisKey);
+        redisTemplate.delete(getAuthCodeAttemptKey(email));
         redisTemplate.opsForValue().set(
                 getVerifiedEmailKey(email),
                 VERIFIED_FLAG,
@@ -93,6 +110,22 @@ public class EmailService {
 
     private String getVerifiedEmailKey(String email) {
         return VERIFIED_EMAIL_PREFIX + email;
+    }
+
+    private String getAuthCodeAttemptKey(String email) {
+        return AUTH_CODE_ATTEMPT_PREFIX + email;
+    }
+
+    private long recordAttempt(String email) {
+        String attemptKey = getAuthCodeAttemptKey(email);
+        Long attempts = redisTemplate.opsForValue().increment(attemptKey);
+        if (attempts == null) {
+            throw new GeneralException(GeneralErrorCode.SERVICE_UNAVAILABLE, "인증번호 확인 요청을 처리할 수 없습니다.");
+        }
+        if (attempts == 1L) {
+            redisTemplate.expire(attemptKey, AUTH_CODE_EXPIRATION_MINUTES, TimeUnit.MINUTES);
+        }
+        return attempts;
     }
 
     private String getAuthCodeCooldownKey(String email) {
