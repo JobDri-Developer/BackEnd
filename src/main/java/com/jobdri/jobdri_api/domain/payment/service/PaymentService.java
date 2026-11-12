@@ -61,6 +61,7 @@ public class PaymentService {
     private static final String EXPECTED_EASY_PAY_PROVIDER = "토스페이";
     private static final String ORDER_ID_PREFIX = "jobdri-";
     private static final String DEFAULT_REFUND_REASON = "관리자 결제 환불";
+    private static final String REJECTED_APPROVAL_CANCEL_REASON = "지원하지 않는 결제 승인 자동 취소";
 
     private final UserService userService;
     private final CreditTransactionRepository creditTransactionRepository;
@@ -213,37 +214,116 @@ public class PaymentService {
             return PaymentConfirmResponse.of(start.payment(), userService.getUser(validatedUser.getId()).getCredit());
         }
 
+        TossPaymentConfirmResponse tossResponse;
         try {
-            TossPaymentConfirmResponse tossResponse =
-                    tossPaymentClient.confirm(request.paymentKey(), request.orderId(), request.amount());
-            validateTossResponse(validatedUser.getId(), request, tossResponse);
+            tossResponse = tossPaymentClient.confirm(request.paymentKey(), request.orderId(), request.amount());
         } catch (RuntimeException e) {
-            if (e instanceof GeneralException generalException
-                    && generalException.getCode() == GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT) {
-                paymentTransactionService.markConfirmationUnknown(
-                        validatedUser.getId(),
-                        request.orderId(),
-                        request.paymentKey()
-                );
-                try (var ignored = LoggingContext.with("payment.confirm.unknown", generalException.getCode(), paymentContext)) {
-                    log.warn("Payment confirmation state marked as unknown");
-                }
-                throw e;
-            }
-            paymentTransactionService.failConfirmation(validatedUser.getId(), request.orderId(), request.paymentKey());
-            BaseErrorCode errorCode = e instanceof GeneralException generalException
-                    ? generalException.getCode()
-                    : GeneralErrorCode.PAYMENT_CONFIRM_FAILED;
-            try (var ignored = LoggingContext.with("payment.confirm.failed", errorCode, paymentContext)) {
-                log.warn("Payment confirmation failed: {}", e.getMessage());
-            }
+            handleConfirmCallFailure(validatedUser.getId(), request, e, paymentContext);
             throw e;
         }
-        PaymentConfirmResponse response = paymentTransactionService.completeConfirmation(validatedUser.getId(), request);
+        try {
+            validateTossResponse(validatedUser.getId(), request, tossResponse);
+        } catch (GeneralException e) {
+            cancelRejectedApproval(validatedUser.getId(), request, tossResponse, paymentContext);
+            throw e;
+        }
+        PaymentConfirmResponse response;
+        try {
+            response = paymentTransactionService.completeConfirmation(validatedUser.getId(), request);
+        } catch (RuntimeException e) {
+            // 토스 승인은 끝났으므로 FAILED가 아니라 UNKNOWN으로 남겨 같은 요청으로 다시 확정할 수 있게 한다.
+            markConfirmationUnknownSafely(validatedUser.getId(), request, paymentContext);
+            throw e;
+        }
         try (var ignored = LoggingContext.with("payment.confirm.completed", null, paymentContext)) {
             log.info("Payment confirmation completed");
         }
         return response;
+    }
+
+    private void handleConfirmCallFailure(
+            Long userId,
+            PaymentConfirmRequest request,
+            RuntimeException exception,
+            Map<String, String> paymentContext
+    ) {
+        if (isConfirmOutcomeUnknown(exception)) {
+            paymentTransactionService.markConfirmationUnknown(userId, request.orderId(), request.paymentKey());
+            BaseErrorCode errorCode = exception instanceof GeneralException generalException
+                    ? generalException.getCode()
+                    : GeneralErrorCode.PAYMENT_CONFIRM_UNKNOWN;
+            try (var ignored = LoggingContext.with("payment.confirm.unknown", errorCode, paymentContext)) {
+                log.warn("Payment confirmation state marked as unknown: {}", exception.getMessage());
+            }
+            return;
+        }
+        paymentTransactionService.failConfirmation(userId, request.orderId(), request.paymentKey());
+        try (var ignored = LoggingContext.with(
+                "payment.confirm.failed",
+                ((GeneralException) exception).getCode(),
+                paymentContext
+        )) {
+            log.warn("Payment confirmation failed: {}", exception.getMessage());
+        }
+    }
+
+    /**
+     * 토스가 거절했다고 확정할 수 있는 경우만 false다.
+     * 응답 지연, 5xx, 통신 오류, 예상하지 못한 예외는 실제 승인 여부를 알 수 없다.
+     */
+    private boolean isConfirmOutcomeUnknown(RuntimeException exception) {
+        if (!(exception instanceof GeneralException generalException)) {
+            return true;
+        }
+        return generalException.getCode() == GeneralErrorCode.EXTERNAL_SERVICE_TIMEOUT
+                || generalException.getCode() == GeneralErrorCode.PAYMENT_CONFIRM_UNKNOWN;
+    }
+
+    /**
+     * 토스에서 승인됐지만 서비스가 받을 수 없는 결제는 사용자가 돈만 내고 크레딧을 못 받지 않도록 취소한다.
+     * 취소까지 실패하면 UNKNOWN으로 남겨 재시도와 수동 확인이 가능하게 한다.
+     */
+    private void cancelRejectedApproval(
+            Long userId,
+            PaymentConfirmRequest request,
+            TossPaymentConfirmResponse tossResponse,
+            Map<String, String> paymentContext
+    ) {
+        if (tossResponse == null) {
+            markConfirmationUnknownSafely(userId, request, paymentContext);
+            return;
+        }
+        try {
+            tossPaymentClient.cancel(request.paymentKey(), request.orderId(), REJECTED_APPROVAL_CANCEL_REASON);
+            paymentTransactionService.failConfirmation(userId, request.orderId(), request.paymentKey());
+        } catch (RuntimeException cancelException) {
+            markConfirmationUnknownSafely(userId, request, paymentContext);
+            try (var ignored = LoggingContext.with(
+                    "payment.confirm.auto_cancel_failed",
+                    GeneralErrorCode.PAYMENT_REFUND_FAILED,
+                    paymentContext
+            )) {
+                log.error("Approved Toss payment could not be cancelled; manual check required", cancelException);
+            }
+        }
+    }
+
+    private void markConfirmationUnknownSafely(
+            Long userId,
+            PaymentConfirmRequest request,
+            Map<String, String> paymentContext
+    ) {
+        try {
+            paymentTransactionService.markConfirmationUnknown(userId, request.orderId(), request.paymentKey());
+        } catch (RuntimeException markException) {
+            try (var ignored = LoggingContext.with(
+                    "payment.confirm.unknown_mark_failed",
+                    GeneralErrorCode.INTERNAL_SERVER_ERROR,
+                    paymentContext
+            )) {
+                log.error("Failed to mark payment confirmation as unknown", markException);
+            }
+        }
     }
 
     public CreditBalanceResponse getBalance(User user) {

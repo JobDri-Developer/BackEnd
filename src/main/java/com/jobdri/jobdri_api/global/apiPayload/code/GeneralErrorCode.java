@@ -63,6 +63,7 @@ public enum GeneralErrorCode implements BaseErrorCode {
     PAYMENT_NOT_REFUNDABLE(HttpStatus.BAD_REQUEST, "PAYMENT_4003", "환불할 수 없는 결제입니다."),
     PAYMENT_CONFIRM_FAILED(HttpStatus.BAD_GATEWAY, "PAYMENT_5021", "결제 승인에 실패했습니다."),
     PAYMENT_REFUND_FAILED(HttpStatus.BAD_GATEWAY, "PAYMENT_5022", "결제 환불에 실패했습니다."),
+    PAYMENT_CONFIRM_UNKNOWN(HttpStatus.BAD_GATEWAY, "PAYMENT_5023", "결제 승인 결과를 확인하지 못했습니다. 잠시 후 다시 시도해주세요."),
     INSUFFICIENT_CREDIT(HttpStatus.PAYMENT_REQUIRED, "CREDIT_4021", "크레딧이 부족합니다."),
     COUPON_INVALID(HttpStatus.BAD_REQUEST, "COUPON_4001", "유효하지 않은 쿠폰입니다."),
     COUPON_ALREADY_REDEEMED(HttpStatus.CONFLICT, "COUPON_4091", "이미 사용한 쿠폰입니다."),
