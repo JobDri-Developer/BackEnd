@@ -7,6 +7,7 @@ import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractRequ
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingAsyncTaskRepository;
 import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
+import com.jobdri.jobdri_api.domain.jobposting.service.GreenhousePostingSource;
 import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -52,6 +54,7 @@ class JobPostingRegistrationPreviewTest {
     @Autowired JobPostingRepository postings;
     @Autowired JobPostingAsyncTaskRepository tasks;
     @MockitoBean JobPostingAiService ai;
+    @MockitoBean GreenhousePostingSource greenhouse;
 
     /** 미리보기는 데이터를 생성하지 않으며 수정한 초안을 별도로 등록할 수 있는지 확인한다. */
     @Test
@@ -87,6 +90,57 @@ class JobPostingRegistrationPreviewTest {
                 .andExpect(jsonPath("$.result.companyName").value("확인한 회사"))
                 .andExpect(jsonPath("$.result.stage").value("PLANNED"));
         assertThat(applications.count()).isEqualTo(cardCount + 1);
+    }
+
+    /** Preserves the input URL through preview and explicit card registration. */
+    @Test
+    void urlPreviewUsesCollectedTextAndKeepsOriginalLinkWithoutSaving() throws Exception {
+        User owner = owner();
+        String url = "https://job-boards.greenhouse.io/example/jobs/123?gh_src=example";
+        String text = "Backend Engineer\n\nBuild hiring APIs with Java.";
+        long cardCount = applications.count(), postingCount = postings.count(), taskCount = tasks.count();
+        when(greenhouse.read(url)).thenReturn(text);
+        when(ai.extractForPreview(owner.getId(), new JobPostingExtractRequest(text, null)))
+                .thenReturn(new JobPostingExtractResponse("Backend Engineer", "Example", "Backend Engineer",
+                        "Build APIs", "Java", "", "", 0.9, List.of(), ""));
+
+        var response = mvc.perform(post(PATH).with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(
+                                Map.of("postingUrl", url))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.draft.postingUrl").value(url))
+                .andReturn();
+        assertThat(applications.count()).isEqualTo(cardCount);
+        assertThat(postings.count()).isEqualTo(postingCount);
+        assertThat(tasks.count()).isEqualTo(taskCount);
+
+        var draft = (ObjectNode) mapper.readTree(response.getResponse().getContentAsByteArray()).path("result").path("draft");
+        draft.put("postingName", "Edited posting");
+        mvc.perform(post("/api/job-applications").with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(draft)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.postingUrl").value(url))
+                .andExpect(jsonPath("$.result.postingName").value("Edited posting"));
+    }
+
+    /** Returns collection failures before invoking AI and rejects mixed input. */
+    @Test
+    void collectionFailureAndMixedInputsStopBeforeExtraction() throws Exception {
+        User owner = owner();
+        String url = "https://job-boards.greenhouse.io/example/jobs/123";
+        when(greenhouse.read(url)).thenThrow(new GeneralException(GeneralErrorCode.POSTING_SOURCE_NOT_FOUND));
+        mvc.perform(post(PATH).with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(
+                                Map.of("postingUrl", url, "rawText", "Some posting text"))))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(greenhouse, ai);
+
+        mvc.perform(post(PATH).with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(
+                                Map.of("postingUrl", url))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("POSTING_SOURCE_NOT_FOUND"));
+        verifyNoInteractions(ai);
     }
 
     /** 이미지 분석 결과의 누락 필수값을 알리고 유효하지 않은 마감일은 비워 두는지 확인한다. */

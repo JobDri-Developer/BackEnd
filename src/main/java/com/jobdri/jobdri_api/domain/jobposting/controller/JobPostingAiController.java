@@ -1,5 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobposting.controller;
 
+import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingRegistrationPreviewRequest;
+import com.jobdri.jobdri_api.domain.jobposting.service.GreenhousePostingSource;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingIngestRequest;
 import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingAsyncCancelResponse;
@@ -41,6 +43,7 @@ public class JobPostingAiController {
     private final JobPostingAsyncFacadeService jobPostingAsyncFacadeService;
     private final JobPostingAsyncSseService jobPostingAsyncSseService;
     private final UserService userService;
+    private final GreenhousePostingSource greenhousePostingSource;
 
     @Operation(
             summary = "채용 공고 정보 추출",
@@ -60,15 +63,20 @@ public class JobPostingAiController {
 
     /** 인증된 사용자의 등록 초안을 추출하며 공고나 지원 카드를 저장하지 않는다. */
     @Operation(summary = "지원 공고 등록 전 분석 미리보기",
-            description = "텍스트나 업로드된 이미지에서 등록 폼 초안을 추출합니다. 동기 요청이며 공고·지원 카드를 저장하지 않습니다.")
+            description = "텍스트, 업로드된 이미지 또는 Greenhouse 공개 공고 URL에서 등록 폼 초안을 추출합니다. 동기 요청이며 공고·지원 카드를 저장하지 않습니다.")
     @PostMapping(value = "/extract/preview", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ApiResponse<JobPostingRegistrationPreviewResponse> previewRegistration(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
-            @Valid @RequestBody JobPostingExtractRequest request
+            @Valid @RequestBody JobPostingRegistrationPreviewRequest request
     ) {
         var user = validateAuthenticatedUser(userDetails);
+        String postingUrl = request.postingUrl();
+        JobPostingExtractRequest extraction = postingUrl == null
+                ? new JobPostingExtractRequest(request.rawText(), request.imageObjectKey(), request.imageObjectKeys())
+                : new JobPostingExtractRequest(greenhousePostingSource.read(postingUrl), null);
         return ApiResponse.onSuccess("지원 공고 등록 초안을 추출했습니다.",
-                JobPostingRegistrationPreviewResponse.from(jobPostingAiService.extractForPreview(user.getId(), request)));
+                JobPostingRegistrationPreviewResponse.from(
+                        jobPostingAiService.extractForPreview(user.getId(), extraction), postingUrl));
     }
 
     @Operation(

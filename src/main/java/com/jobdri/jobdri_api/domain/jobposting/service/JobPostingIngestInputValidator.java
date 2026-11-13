@@ -7,8 +7,8 @@ import java.util.List;
 
 public final class JobPostingIngestInputValidator {
 
-    private static final int MIN_RAW_TEXT_NON_WHITESPACE_LENGTH = 10;
-    private static final int MAX_RAW_TEXT_LENGTH = 10_000;
+    static final int MIN_RAW_TEXT_NON_WHITESPACE_LENGTH = 10;
+    static final int MAX_RAW_TEXT_LENGTH = 10_000;
 
     private JobPostingIngestInputValidator() {
     }
@@ -41,7 +41,7 @@ public final class JobPostingIngestInputValidator {
         return value != null && !value.isBlank();
     }
 
-    private static int nonWhitespaceLength(String value) {
+    static int nonWhitespaceLength(String value) {
         if (value == null) {
             return 0;
         }
