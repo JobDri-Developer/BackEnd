@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobapplication.service;
 
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationTaskRequest;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationIncompleteTaskResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationTaskResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplication;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationTask;
@@ -23,6 +24,11 @@ public class JobApplicationTaskService {
     private final JobApplicationRepository applications;
     private final JobApplicationTaskRepository tasks;
     private final UserService userService;
+
+    /** Lists the authenticated user's incomplete tasks across their cards. */
+    public List<JobApplicationIncompleteTaskResponse> listIncomplete(User user) {
+        return tasks.findIncompleteByUserId(userService.validateUser(user).getId());
+    }
 
     /** Lists an owned card's tasks in registration order. */
     public List<JobApplicationTaskResponse> list(User user, Long applicationId) {

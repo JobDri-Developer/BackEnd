@@ -36,6 +36,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.is;
@@ -50,6 +51,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @ActiveProfiles("test")
 @Transactional
 class JobApplicationTaskControllerTest {
+    private static final String INCOMPLETE_TASKS = "/api/job-applications/tasks/incomplete";
     private static final String APPLICATION = "/api/job-applications/{applicationId}";
     private static final String TASKS = APPLICATION + "/tasks";
     private static final String TASK = TASKS + "/{taskId}";
@@ -292,6 +294,52 @@ class JobApplicationTaskControllerTest {
         }
         assertThat(output.getAll()).contains("Validation failed: [[checklistItems]", "****")
                 .doesNotContain("Rejected checklist text");
+    }
+
+    /** Verifies owner scope and progress across cards and excludes completed tasks. */
+    @Test
+    void listsOnlyOwnedIncompleteTasksAcrossCards() throws Exception {
+        User owner = owner();
+        User outsider = owner();
+        long firstCard = application(owner);
+        long secondCard = application(owner);
+        long firstTask = createTask(owner, firstCard, """
+                {
+                  "title":"Review posting",
+                  "dueDate":"2026-11-15",
+                  "checklistItems":[{"content":"Read","completed":true},{"content":"Review"}]
+                }
+                """);
+        long secondTask = createTask(owner, secondCard, TITLE_ONLY);
+        long completed = createTask(owner, firstCard, TITLE_ONLY);
+        createTask(outsider, application(outsider), TITLE_ONLY);
+        mvc.perform(json(patch(COMPLETION, firstCard, completed), owner, "{\"completed\":true}"))
+                .andExpect(status().isOk());
+        flushAndClear();
+
+        mvc.perform(get(INCOMPLETE_TASKS).with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.length()").value(2))
+                .andExpect(jsonPath("$.result[*].taskId", containsInAnyOrder((int) firstTask, (int) secondTask)))
+                .andExpect(jsonPath("$.result[*].jobApplicationId",
+                        containsInAnyOrder((int) firstCard, (int) secondCard)))
+                .andExpect(jsonPath("$.result[?(@.taskId == %d)].postingName", firstTask).value(is(List.of("Posting"))))
+                .andExpect(jsonPath("$.result[?(@.taskId == %d)].companyName", firstTask).value(is(List.of("Company"))))
+                .andExpect(jsonPath("$.result[?(@.taskId == %d)].title", firstTask).value(is(List.of("Review posting"))))
+                .andExpect(jsonPath("$.result[?(@.taskId == %d)].dueDate", firstTask).value(is(List.of("2026-11-15"))))
+                .andExpect(jsonPath("$.result[?(@.taskId == %d)].completedChecklistCount", firstTask).value(is(List.of(1))))
+                .andExpect(jsonPath("$.result[?(@.taskId == %d)].totalChecklistCount", firstTask).value(is(List.of(2))))
+                .andExpect(jsonPath("$.result[?(@.taskId == %d)].completedChecklistCount", secondTask).value(is(List.of(0))))
+                .andExpect(jsonPath("$.result[?(@.taskId == %d)].totalChecklistCount", secondTask).value(is(List.of(0))));
+    }
+
+    /** Returns an empty array to an authenticated user without tasks and rejects anonymous access. */
+    @Test
+    void returnsEmptyIncompleteListAndRequiresAuthentication() throws Exception {
+        mvc.perform(get(INCOMPLETE_TASKS).with(user(new UserDetailsImpl(owner()))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result").value(is(List.of())));
+        mvc.perform(get(INCOMPLETE_TASKS)).andExpect(status().isUnauthorized());
     }
 
     /** Creates a task through the API and extracts its identifier for subsequent requests. */

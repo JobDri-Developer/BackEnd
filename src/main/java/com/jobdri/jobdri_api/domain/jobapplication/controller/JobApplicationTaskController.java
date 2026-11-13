@@ -1,6 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobapplication.controller;
 
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationTaskRequest;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationIncompleteTaskResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationTaskResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationTaskService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
@@ -17,13 +18,21 @@ import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
-@RequestMapping("/api/job-applications/{jobApplicationId}/tasks")
+@RequestMapping("/api/job-applications")
 @Tag(name = "JobApplication", description = "실제 지원관리 카드 API")
 public class JobApplicationTaskController {
     private final JobApplicationTaskService service;
 
+    /** Returns incomplete task summaries across the authenticated user's cards. */
+    @GetMapping("/tasks/incomplete")
+    @Operation(summary = "내 전체 미완료 할 일 조회")
+    public ApiResponse<List<JobApplicationIncompleteTaskResponse>> listIncomplete(
+            @AuthenticationPrincipal UserDetailsImpl principal) {
+        return ApiResponse.onSuccess("미완료 할 일 목록 조회에 성공했습니다.", service.listIncomplete(user(principal)));
+    }
+
     /** Lists tasks for the authenticated owner of the card. */
-    @GetMapping
+    @GetMapping("/{jobApplicationId}/tasks")
     @Operation(summary = "공고별 할 일 목록 조회")
     public ApiResponse<List<JobApplicationTaskResponse>> list(
             @AuthenticationPrincipal UserDetailsImpl principal, @PathVariable Long jobApplicationId) {
@@ -31,7 +40,7 @@ public class JobApplicationTaskController {
     }
 
     /** Reads a task scoped to the card in the request path. */
-    @GetMapping("/{taskId}")
+    @GetMapping("/{jobApplicationId}/tasks/{taskId}")
     @Operation(summary = "공고별 할 일 상세 조회")
     public ApiResponse<JobApplicationTaskResponse> get(
             @AuthenticationPrincipal UserDetailsImpl principal, @PathVariable Long jobApplicationId,
@@ -40,7 +49,7 @@ public class JobApplicationTaskController {
     }
 
     /** Creates an incomplete task on the specified card. */
-    @PostMapping
+    @PostMapping("/{jobApplicationId}/tasks")
     @Operation(summary = "공고별 할 일 등록")
     public ApiResponse<JobApplicationTaskResponse> create(
             @AuthenticationPrincipal UserDetailsImpl principal, @PathVariable Long jobApplicationId,
@@ -49,7 +58,7 @@ public class JobApplicationTaskController {
     }
 
     /** Replaces editable task fields while preserving completion. */
-    @PutMapping("/{taskId}")
+    @PutMapping("/{jobApplicationId}/tasks/{taskId}")
     @Operation(summary = "공고별 할 일 수정", description = "기한·메모·하위 체크리스트를 요청 값으로 교체합니다. 할 일의 완료 상태는 유지합니다.")
     public ApiResponse<JobApplicationTaskResponse> update(
             @AuthenticationPrincipal UserDetailsImpl principal, @PathVariable Long jobApplicationId,
@@ -58,7 +67,7 @@ public class JobApplicationTaskController {
     }
 
     /** Sets task completion independently of its checklist. */
-    @PatchMapping("/{taskId}/completion")
+    @PatchMapping("/{jobApplicationId}/tasks/{taskId}/completion")
     @Operation(summary = "공고별 할 일 완료 상태 설정", description = "요청한 완료 상태로 설정합니다. 하위 체크리스트 상태는 유지합니다.")
     public ApiResponse<JobApplicationTaskResponse> setCompleted(
             @AuthenticationPrincipal UserDetailsImpl principal, @PathVariable Long jobApplicationId,
@@ -68,7 +77,7 @@ public class JobApplicationTaskController {
     }
 
     /** Deletes the specified task and its checklist. */
-    @DeleteMapping("/{taskId}")
+    @DeleteMapping("/{jobApplicationId}/tasks/{taskId}")
     @Operation(summary = "공고별 할 일 삭제")
     public ApiResponse<Void> delete(@AuthenticationPrincipal UserDetailsImpl principal,
                                     @PathVariable Long jobApplicationId, @PathVariable Long taskId) {
