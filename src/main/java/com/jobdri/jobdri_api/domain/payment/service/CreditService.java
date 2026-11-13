@@ -9,10 +9,12 @@ import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class CreditService {
@@ -29,6 +31,40 @@ public class CreditService {
     @Transactional
     public int use(User user, int amount, String description, String referenceId) {
         return apply(user, CreditTransactionType.USE, amount, description, referenceId);
+    }
+
+    /**
+     * PG 환불이 이미 끝난 결제의 크레딧을 회수한다.
+     * 외부 환불은 되돌릴 수 없으므로 잔액이 부족해도 실패하지 않고 남은 잔액만큼만 회수한다.
+     * 같은 referenceId로 다시 호출하면 추가로 차감하지 않는다.
+     */
+    @Transactional
+    public int recoverForRefund(User user, int amount, String description, String referenceId) {
+        validatePositiveAmount(amount);
+        validateReferenceId(referenceId);
+        User managedUser = getManagedUser(user);
+        if (creditTransactionRepository
+                .findByUserIdAndTypeAndReferenceId(managedUser.getId(), CreditTransactionType.USE, referenceId)
+                .isPresent()) {
+            return managedUser.getCredit();
+        }
+
+        int recoverable = Math.min(amount, Math.max(managedUser.getCredit(), 0));
+        if (recoverable < amount) {
+            log.warn(
+                    "Refund credit recovery shortfall. userId={}, referenceId={}, requested={}, recovered={}",
+                    managedUser.getId(),
+                    referenceId,
+                    amount,
+                    recoverable
+            );
+        }
+        if (recoverable == 0) {
+            return managedUser.getCredit();
+        }
+        managedUser.decreaseCredit(recoverable);
+        saveTransaction(managedUser, CreditTransactionType.USE, -recoverable, description, referenceId);
+        return managedUser.getCredit();
     }
 
     @Transactional
