@@ -3,6 +3,7 @@ package com.jobdri.jobdri_api.domain.jobapplication.dto.request;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
+import org.hibernate.validator.constraints.URL;
 
 import java.util.List;
 
@@ -12,8 +13,16 @@ public record JobApplicationIngestRequest(
         String idempotencyKey,
         String rawText,
         String imageObjectKey,
-        List<String> imageObjectKeys
+        List<String> imageObjectKeys,
+        @URL(regexp = "(?i)^https?://.+$")
+        @Size(max = 2048) String postingUrl
 ) {
+    public JobApplicationIngestRequest(
+            String idempotencyKey, String rawText, String imageObjectKey, List<String> imageObjectKeys
+    ) {
+        this(idempotencyKey, rawText, imageObjectKey, imageObjectKeys, null);
+    }
+
     @AssertTrue(message = "rawText 또는 이미지 objectKey 중 하나는 반드시 포함되어야 합니다.")
     public boolean hasInput() {
         return hasText(rawText) || hasText(imageObjectKey)

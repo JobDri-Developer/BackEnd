@@ -14,16 +14,28 @@ import com.jobdri.jobdri_api.domain.jobposting.repository.JobPostingRepository;
 import com.jobdri.jobdri_api.domain.mockapply.repository.MockApplyRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
+import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
+import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingClassificationService;
+import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.http.MediaType;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -33,7 +45,16 @@ import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
 @SpringBootTest
+@AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Transactional
 class JobApplicationIngestPersistenceServiceTest {
@@ -44,6 +65,64 @@ class JobApplicationIngestPersistenceServiceTest {
     @Autowired JobPostingRepository jobPostingRepository;
     @Autowired MockApplyRepository mockApplyRepository;
     @Autowired AnalysisRepository analysisRepository;
+
+    @Autowired MockMvc mvc;
+    @Autowired ObjectMapper mapper;
+    @Autowired EntityManager entityManager;
+    @MockitoBean JobPostingAiService ai;
+    @MockitoBean JobPostingClassificationService classifications;
+
+    /** Persists the original link through ingest and returns it on retries and detail reads. */
+    @Test
+    void ingestPersistsLinkAndReplaysExistingCard() throws Exception {
+        User owner = saveUser("clipper-url");
+        DetailClassification detail = saveClassification();
+        String url = "https://example.com/jobs/1?source=clipper#details";
+        String text = "잡드리 백엔드 개발자 채용 공고 원문입니다.";
+        String key = "clipper-url-key";
+        String path = "/api/job-applications/ingest";
+        var principal = new UserDetailsImpl(owner);
+        var extractedPosting = extracted();
+        var candidates = List.of(new JobPostingClassificationCandidateResponse(
+                detail.getId(), "소분류", "중분류", "대분류", 0.9));
+        when(ai.extractJobPosting(owner.getId(), text, null, List.of())).thenReturn(extractedPosting);
+        when(classifications.findCandidates(extractedPosting, 5)).thenReturn(candidates);
+        when(ai.classifyDetailClassification(extractedPosting, candidates)).thenReturn(
+                new JobPostingClassificationResultResponse(detail.getId(), "소분류", "중분류", "대분류", "적합", 0.95));
+        when(ai.generateJobPosting(any())).thenReturn(generated());
+
+        mvc.perform(post(path).with(user(principal)).contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of(
+                                "idempotencyKey", key, "rawText", text, "postingUrl", "javascript:alert(1)"))))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(ai, classifications);
+
+        long before = jobApplicationRepository.count();
+        var created = mvc.perform(post(path).with(user(principal)).contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of(
+                                "idempotencyKey", key, "rawText", text, "postingUrl", url))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.idempotentReplay").value(false))
+                .andExpect(jsonPath("$.result.jobApplication.postingUrl").value(url))
+                .andReturn();
+        long cardId = mapper.readTree(created.getResponse().getContentAsByteArray())
+                .path("result").path("jobApplication").path("jobApplicationId").asLong();
+        entityManager.flush();
+        entityManager.clear();
+
+        mvc.perform(post(path).with(user(principal)).contentType(MediaType.APPLICATION_JSON)
+                        .content(mapper.writeValueAsString(Map.of(
+                                "idempotencyKey", key, "rawText", text, "postingUrl", "https://example.com/jobs/2"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.idempotentReplay").value(true))
+                .andExpect(jsonPath("$.result.jobApplication.jobApplicationId").value(cardId))
+                .andExpect(jsonPath("$.result.jobApplication.postingUrl").value(url));
+        mvc.perform(get("/api/job-applications/{id}", cardId).with(user(principal)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.postingUrl").value(url));
+        assertThat(jobApplicationRepository.count()).isEqualTo(before + 1);
+        verify(ai).extractJobPosting(owner.getId(), text, null, List.of());
+    }
 
     @Test
     @DisplayName("추출 스냅샷을 PLANNED 마지막에 저장하고 다른 도메인 엔티티는 생성하지 않는다")
@@ -56,7 +135,7 @@ class JobApplicationIngestPersistenceServiceTest {
         long analysesBefore = analysisRepository.count();
 
         JobApplicationIngestPersistenceService.PersistResult result = service.persist(
-                user, " ingest-key ", detail.getId(), extracted(), generated()
+                user, " ingest-key ", detail.getId(), extracted(), generated(), null
         );
         JobApplicationResponse saved = result.jobApplication();
 
@@ -67,6 +146,7 @@ class JobApplicationIngestPersistenceServiceTest {
         assertThat(saved.getDeadlineAt()).isEqualTo(LocalDateTime.of(2026, 10, 31, 18, 0));
         assertThat(saved.getSourceJobPostingId()).isNull();
         assertThat(saved.getMockApplyId()).isNull();
+        assertThat(saved.getPostingUrl()).isNull();
         assertThat(jobPostingRepository.count()).isEqualTo(postingsBefore);
         assertThat(mockApplyRepository.count()).isEqualTo(mockAppliesBefore);
         assertThat(analysisRepository.count()).isEqualTo(analysesBefore);
@@ -116,8 +196,8 @@ class JobApplicationIngestPersistenceServiceTest {
         User second = saveUser("clipper-owner-b");
         DetailClassification detail = saveClassification();
 
-        var firstResult = service.persist(first, "shared-key", detail.getId(), extracted(), generated());
-        var secondResult = service.persist(second, "shared-key", detail.getId(), extracted(), generated());
+        var firstResult = service.persist(first, "shared-key", detail.getId(), extracted(), generated(), null);
+        var secondResult = service.persist(second, "shared-key", detail.getId(), extracted(), generated(), null);
 
         assertThat(firstResult.jobApplication().getJobApplicationId())
                 .isNotEqualTo(secondResult.jobApplication().getJobApplicationId());
@@ -132,7 +212,7 @@ class JobApplicationIngestPersistenceServiceTest {
         if (!start.await(10, TimeUnit.SECONDS)) {
             throw new IllegalStateException("동시 요청 시작 대기 시간이 초과되었습니다.");
         }
-        return service.persist(user, "same-key", detailId, extracted(), generated());
+        return service.persist(user, "same-key", detailId, extracted(), generated(), null);
     }
 
     private com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplication existingCard(

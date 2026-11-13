@@ -45,14 +45,15 @@ public class JobApplicationIngestPersistenceService {
             String idempotencyKey,
             Long detailClassificationId,
             JobPostingExtractResponse extracted,
-            JobPostingGenerateResponse generated
+            JobPostingGenerateResponse generated,
+            String postingUrl
     ) {
         User validatedUser = lockValidatedUser(user);
         String normalizedKey = idempotencyKey.trim();
         return jobApplicationRepository.findByUserIdAndIngestIdempotencyKey(validatedUser.getId(), normalizedKey)
                 .map(existing -> new PersistResult(JobApplicationResponse.from(existing), true))
                 .orElseGet(() -> create(
-                        validatedUser, normalizedKey, detailClassificationId, extracted, generated
+                        validatedUser, normalizedKey, detailClassificationId, extracted, generated, postingUrl
                 ));
     }
 
@@ -61,7 +62,8 @@ public class JobApplicationIngestPersistenceService {
             String idempotencyKey,
             Long detailClassificationId,
             JobPostingExtractResponse extracted,
-            JobPostingGenerateResponse generated
+            JobPostingGenerateResponse generated,
+            String postingUrl
     ) {
         DetailClassification classification = detailClassificationRepository.findById(detailClassificationId)
                 .orElseThrow(() -> new GeneralException(
@@ -83,6 +85,7 @@ public class JobApplicationIngestPersistenceService {
                 stageOrder,
                 idempotencyKey
         );
+        application.setPostingUrl(postingUrl);
         return new PersistResult(JobApplicationResponse.from(jobApplicationRepository.save(application)), false);
     }
 
