@@ -10,6 +10,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 
 import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -30,6 +31,22 @@ class GreenhousePostingSourceTest {
                 """);
         assertThat(source.read(URL)).isEqualTo("Backend Engineer\n\nDevelop hiring APIs with Java & SQL.");
         verify(source).fetch(API);
+    }
+
+    /** Keeps adjacent paragraphs and list items separated in the analysis input. */
+    @Test
+    void separatesAdjacentParagraphsAndListItems() throws Exception {
+        stubResponse(200, """
+                {"title":"Backend Engineer","content":"<p>Required</p><p>Skills</p><ul><li>Java</li><li>Python</li></ul>"}
+                """);
+        assertThat(source.read(URL)).isEqualTo("Backend Engineer\n\nRequired Skills Java Python");
+    }
+
+    /** Maps Java HTTP client timeouts to the same error as socket timeouts. */
+    @Test
+    void mapsHttpClientTimeout() throws Exception {
+        doThrow(new HttpTimeoutException("Request timed out")).when(source).fetch(API);
+        assertFailure(URL, GeneralErrorCode.POSTING_SOURCE_TIMEOUT);
     }
 
     /** Maps upstream failures without reading an error response as a posting. */

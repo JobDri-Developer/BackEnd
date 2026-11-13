@@ -12,6 +12,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.net.http.HttpTimeoutException;
 import java.util.regex.Pattern;
 
 import static com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode.*;
@@ -47,7 +48,7 @@ public class GreenhousePostingSource {
             }
             String title = posting.path("title").asText("").strip();
             String body = Jsoup.parseBodyFragment(
-                    Parser.unescapeEntities(posting.path("content").asText(""), false)).body().wholeText().strip();
+                    Parser.unescapeEntities(posting.path("content").asText(""), false)).body().text();
             if (JobPostingIngestInputValidator.nonWhitespaceLength(body)
                     < JobPostingIngestInputValidator.MIN_RAW_TEXT_NON_WHITESPACE_LENGTH) {
                 throw new GeneralException(POSTING_CONTENT_EMPTY);
@@ -57,7 +58,7 @@ public class GreenhousePostingSource {
                 throw new GeneralException(POSTING_CONTENT_TOO_LARGE);
             }
             return text;
-        } catch (SocketTimeoutException e) {
+        } catch (SocketTimeoutException | HttpTimeoutException e) {
             throw new GeneralException(POSTING_SOURCE_TIMEOUT);
         } catch (IOException e) {
             throw new GeneralException(POSTING_SOURCE_UNAVAILABLE);
