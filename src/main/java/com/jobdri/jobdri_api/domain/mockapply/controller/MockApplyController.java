@@ -89,18 +89,19 @@ public class MockApplyController {
 
     @Operation(
             summary = "내 최근 모의 서류 지원 조회",
-            description = "공통 사이드바 등에서 사용할 최근 모의 서류 지원을 updatedAt 최신순으로 조회합니다. limit 기본값은 "
+            description = "최근 모의 서류 지원을 updatedAt 최신순으로 조회합니다. draftsOnly=true이면 완료 전 단계만 조회합니다. limit 기본값은 "
                     + MockApplyService.DEFAULT_RECENT_LIMIT + "개, 최대값은 " + MockApplyService.MAX_RECENT_LIMIT + "개입니다."
     )
     @GetMapping("/me/recent")
     public ApiResponse<List<MockApplyHomeItemResponse>> getRecentMockApplies(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @Parameter(description = "조회 개수 (1-" + MockApplyService.MAX_RECENT_LIMIT + ")")
-            @RequestParam(defaultValue = "" + MockApplyService.DEFAULT_RECENT_LIMIT) int limit
+            @RequestParam(defaultValue = "" + MockApplyService.DEFAULT_RECENT_LIMIT) int limit,
+            @RequestParam(defaultValue = "false") boolean draftsOnly
     ) {
         return ApiResponse.onSuccess(
                 "최근 모의 서류 지원 조회에 성공했습니다.",
-                mockApplyService.getRecentMockApplies(userDetails.getUser(), limit)
+                mockApplyService.getRecentMockApplies(userDetails.getUser(), limit, draftsOnly)
         );
     }
 
