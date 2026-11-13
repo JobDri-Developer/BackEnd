@@ -65,7 +65,8 @@ class JobApplicationIngestServiceTest {
     void ingestCreatesOnlyJobApplication() {
         JobApplicationIngestRequest request = new JobApplicationIngestRequest(
                 "clipper-request-1", "잡드리 백엔드 채용 공고 원문입니다.", null,
-                List.of("job-postings/tmp/1/first.png", "job-postings/tmp/1/second.png")
+                List.of("job-postings/tmp/1/first.png", "job-postings/tmp/1/second.png"),
+                "https://example.com/jobs/1"
         );
         JobPostingClassificationResultResponse classification = classification(0.91);
         JobPostingGenerateResponse generated = generated();
@@ -80,7 +81,7 @@ class JobApplicationIngestServiceTest {
         when(jobPostingClassificationService.findCandidates(extracted, 5)).thenReturn(List.of(candidate));
         when(jobPostingAiService.classifyDetailClassification(extracted, List.of(candidate))).thenReturn(classification);
         when(jobPostingAiService.generateJobPosting(any())).thenReturn(generated);
-        when(persistenceService.persist(user, request.idempotencyKey(), 10L, extracted, generated))
+        when(persistenceService.persist(user, request.idempotencyKey(), 10L, extracted, generated, request.postingUrl()))
                 .thenReturn(new JobApplicationIngestPersistenceService.PersistResult(application, false));
 
         JobApplicationIngestResponse response = service.ingest(user, request);
@@ -88,7 +89,7 @@ class JobApplicationIngestServiceTest {
         assertThat(response.savedToDatabase()).isTrue();
         assertThat(response.idempotentReplay()).isFalse();
         assertThat(response.jobApplication().getJobApplicationId()).isEqualTo(20L);
-        verify(persistenceService).persist(user, "clipper-request-1", 10L, extracted, generated);
+        verify(persistenceService).persist(user, "clipper-request-1", 10L, extracted, generated, request.postingUrl());
     }
 
     @Test
@@ -109,7 +110,7 @@ class JobApplicationIngestServiceTest {
         assertThat(response.savedToDatabase()).isFalse();
         assertThat(response.jobApplication()).isNull();
         assertThat(response.message()).contains("confidence");
-        verify(persistenceService, never()).persist(any(), any(), any(), any(), any());
+        verify(persistenceService, never()).persist(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -127,7 +128,7 @@ class JobApplicationIngestServiceTest {
                 .isInstanceOf(GeneralException.class)
                 .extracting("code")
                 .isEqualTo(GeneralErrorCode.CLASSIFICATION_NOT_FOUND);
-        verify(persistenceService, never()).persist(any(), any(), any(), any(), any());
+        verify(persistenceService, never()).persist(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -162,7 +163,7 @@ class JobApplicationIngestServiceTest {
         when(jobPostingAiService.extractJobPosting(1L, request.rawText(), null, List.of())).thenReturn(invalid);
 
         assertInvalidJobPosting(() -> service.ingest(user, request));
-        verify(persistenceService, never()).persist(any(), any(), any(), any(), any());
+        verify(persistenceService, never()).persist(any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -183,7 +184,7 @@ class JobApplicationIngestServiceTest {
         when(jobPostingAiService.generateJobPosting(any())).thenReturn(invalid);
 
         assertInvalidJobPosting(() -> service.ingest(user, request));
-        verify(persistenceService, never()).persist(any(), any(), any(), any(), any());
+        verify(persistenceService, never()).persist(any(), any(), any(), any(), any(), any());
     }
 
     private void assertInvalidJobPosting(org.assertj.core.api.ThrowableAssert.ThrowingCallable callable) {

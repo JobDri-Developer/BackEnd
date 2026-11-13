@@ -86,7 +86,7 @@ public class JobApplicationIngestService {
         JobPostingIngestQualityValidator.validateGenerated(generated);
 
         JobApplicationIngestPersistenceService.PersistResult persisted = persistenceService.persist(
-                user, request.idempotencyKey(), classification.detailClassificationId(), extracted, generated
+                user, request.idempotencyKey(), classification.detailClassificationId(), extracted, generated, request.postingUrl()
         );
         return new JobApplicationIngestResponse(
                 true,

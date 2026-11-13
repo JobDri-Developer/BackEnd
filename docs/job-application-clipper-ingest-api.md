@@ -10,6 +10,7 @@
 {
   "idempotencyKey": "clipper-request-20260924-001",
   "rawText": "채용 공고 원문",
+  "postingUrl": "https://example.com/jobs/101",
   "imageObjectKey": null,
   "imageObjectKeys": [
     "job-postings/tmp/42/first.png",
@@ -20,6 +21,7 @@
 
 - `idempotencyKey`: 필수, 사용자별 최대 100자. 동일 사용자가 같은 키를 재전송하면 기존 카드를 반환한다.
 - `rawText`, `imageObjectKey`, `imageObjectKeys` 중 하나 이상이 필요하다.
+- `postingUrl`은 선택 필드이며 최대 2,048자의 HTTP(S) URL을 받는다. 최초 등록 시 카드에 저장하고 상세 조회에서 반환한다. 동일 사용자와 멱등 키로 재요청하면 처음 저장한 카드와 링크를 반환한다.
 - 이미지는 기존 공고 이미지 업로드 API에서 발급받은 현재 사용자 소유 object key를 사용하며 최대 2개다.
 - 카드에는 회사명·공고명·직무명·주요 업무·자격 요건·우대 사항·기술 태그·마감일과 분류 결과를 복사한다.
 - 새 카드는 `PLANNED` 열의 마지막 순서로 저장된다.
@@ -41,6 +43,7 @@
     "generated": {},
     "jobApplication": {
       "jobApplicationId": 101,
+      "postingUrl": "https://example.com/jobs/101",
       "sourceJobPostingId": null,
       "mockApplyId": null,
       "stage": "PLANNED",
