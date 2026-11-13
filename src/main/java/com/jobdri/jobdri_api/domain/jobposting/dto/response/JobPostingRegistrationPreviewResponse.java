@@ -1,5 +1,7 @@
 package com.jobdri.jobdri_api.domain.jobposting.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
+
 import java.time.LocalDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -12,11 +14,12 @@ public record JobPostingRegistrationPreviewResponse(Draft draft, List<String> mi
     /** Matches the corresponding fields of the manual card registration request. */
     public record Draft(
             String companyName, String postingName, String jobTitle,
-            String task, String requirement, String preferred, List<String> requiredSkills, LocalDateTime deadlineAt
+            String task, String requirement, String preferred, List<String> requiredSkills, LocalDateTime deadlineAt,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String postingUrl
     ) {}
 
     /** Maps extracted data without inventing company, title or deadline values. */
-    public static JobPostingRegistrationPreviewResponse from(JobPostingExtractResponse extracted) {
+    public static JobPostingRegistrationPreviewResponse from(JobPostingExtractResponse extracted, String postingUrl) {
         String companyName = clean(extracted.companyName());
         String jobTitle = clean(extracted.jobTitle());
         List<String> missing = new ArrayList<>();
@@ -36,7 +39,7 @@ public record JobPostingRegistrationPreviewResponse(Draft draft, List<String> mi
         return new JobPostingRegistrationPreviewResponse(
                 new Draft(companyName, clean(extracted.postingName()), jobTitle, clean(extracted.task()),
                         clean(extracted.requirements()), clean(extracted.preferredQualifications()), skills,
-                        parseDeadline(extracted.deadlineAt())),
+                        parseDeadline(extracted.deadlineAt()), postingUrl),
                 List.copyOf(missing)
         );
     }

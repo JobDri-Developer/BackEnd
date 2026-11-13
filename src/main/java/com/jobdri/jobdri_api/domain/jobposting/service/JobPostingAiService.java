@@ -289,7 +289,7 @@ public class JobPostingAiService {
         List<ResponseInputContent> contents = new ArrayList<>();
         contents.add(ResponseInputContent.ofInputText(
                 com.openai.models.responses.ResponseInputText.builder()
-                        .text(buildPrompt(rawText, !imageUrls.isEmpty()))
+                        .text(buildPrompt(rawText, !imageUrls.isEmpty(), !allowFallback && imageUrls.isEmpty()))
                         .build()
         ));
 
@@ -352,7 +352,7 @@ public class JobPostingAiService {
         return java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
     }
 
-    private String buildPrompt(String rawText, boolean hasImage) {
+    private String buildPrompt(String rawText, boolean hasImage, boolean omitRawText) {
         String normalizedRawText = rawText == null ? "" : rawText;
 
         return """
@@ -380,7 +380,7 @@ public class JobPostingAiService {
                 2. 원문에 공고 제목이 없거나 확실하지 않으면 postingName은 반드시 빈 문자열로 두세요.
                 3. postingName을 회사명과 직무명으로 새로 만들거나 요약하지 마세요.
                 4. 이미지가 있으면 이미지 안의 채용 공고 문구를 읽어 rawText에 정리해주세요.
-                5. 텍스트가 있으면 rawText에는 입력 원문을 최대한 그대로 넣어주세요.
+                5. %s
                 6. 이미지와 텍스트가 둘 다 있으면 둘을 함께 참고해서 가장 정확한 값으로 채워주세요.
                 7. 정보가 없거나 확실하지 않으면 해당 필드는 빈 문자열로 두세요.
                 8. requiredSkills는 공고에 명시된 기술명만 중복 없이 배열로 반환하세요.
@@ -390,7 +390,10 @@ public class JobPostingAiService {
 
                 [채용 공고 텍스트]
                 %s
-                """.formatted(hasImage ? "이미지 또는 텍스트" : "텍스트", normalizedRawText);
+                """.formatted(hasImage ? "이미지 또는 텍스트" : "텍스트",
+                        omitRawText ? "rawText는 빈 문자열로 반환하세요."
+                                : "텍스트가 있으면 rawText에는 입력 원문을 최대한 그대로 넣어주세요.",
+                        normalizedRawText);
     }
 
     private String buildClassificationPrompt(

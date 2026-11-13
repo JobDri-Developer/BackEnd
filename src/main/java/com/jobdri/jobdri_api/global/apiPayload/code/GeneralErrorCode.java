@@ -36,6 +36,14 @@ public enum GeneralErrorCode implements BaseErrorCode {
     COMPANY_NOT_FOUND(HttpStatus.NOT_FOUND, "COMPANY_4041", "회사를 찾을 수 없습니다."),
 
     // 채용 공고 에러
+    POSTING_URL_INVALID(HttpStatus.BAD_REQUEST, "POSTING_URL_INVALID", "공고 URL 형식이 잘못되었습니다."),
+    POSTING_URL_UNSUPPORTED(HttpStatus.BAD_REQUEST, "POSTING_URL_UNSUPPORTED", "지원하는 Greenhouse 공고 상세 URL을 입력해주세요."),
+    POSTING_SOURCE_NOT_FOUND(HttpStatus.NOT_FOUND, "POSTING_SOURCE_NOT_FOUND", "원본 공고를 찾을 수 없습니다."),
+    POSTING_CONTENT_EMPTY(HttpStatus.UNPROCESSABLE_ENTITY, "POSTING_CONTENT_EMPTY", "분석할 공고 본문이 부족합니다."),
+    POSTING_CONTENT_TOO_LARGE(HttpStatus.UNPROCESSABLE_ENTITY, "POSTING_CONTENT_TOO_LARGE", "공고 본문이 수집 한도를 초과했습니다."),
+    POSTING_SOURCE_BLOCKED(HttpStatus.BAD_GATEWAY, "POSTING_SOURCE_BLOCKED", "원본 사이트가 공고 조회를 제한했습니다."),
+    POSTING_SOURCE_UNAVAILABLE(HttpStatus.BAD_GATEWAY, "POSTING_SOURCE_UNAVAILABLE", "원본 사이트에서 공고를 가져올 수 없습니다."),
+    POSTING_SOURCE_TIMEOUT(HttpStatus.GATEWAY_TIMEOUT, "POSTING_SOURCE_TIMEOUT", "원본 사이트의 공고 조회 시간이 초과되었습니다."),
     JOB_POSTING_NOT_FOUND(HttpStatus.NOT_FOUND, "JOB_POSTING_4041", "채용 공고를 찾을 수 없습니다."),
     JOB_POSTING_ASYNC_TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "JOB_POSTING_4042", "채용 공고 비동기 작업을 찾을 수 없습니다."),
     JOB_POSTING_UPDATE_CONFLICT(HttpStatus.CONFLICT, "JOB_POSTING_4091", "채용 공고가 이미 수정되었습니다."),
