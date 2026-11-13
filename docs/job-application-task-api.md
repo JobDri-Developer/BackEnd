@@ -31,3 +31,9 @@ POST와 PUT 요청 예시
 - 응답은 공통 `ApiResponse.result`에 담긴다. 할 일에는 `taskId`, 입력 필드, `completed`, `completedChecklistCount`, `totalChecklistCount`가 포함된다. 하위 항목은 요청 순서로 반환된다.
 - 할 일 완료 여부와 하위 항목 완료 여부는 독립적이다. 같은 완료 상태를 다시 설정해도 결과는 같다. 변경 요청은 같은 공고 행 잠금으로 직렬화하며, PUT은 마지막으로 반영된 요청의 내용을 저장한다.
 - 신규 테이블은 `V202611101200__create_job_application_tasks.sql`에서 추가한다. 기존 공고 상세의 체크리스트는 별도로 유지한다. 기존 데이터 이전, 오늘·예정·완료 필터와 홈 통합 조회는 후속 범위다.
+
+## 사용자 전체 미완료 할 일 조회
+
+`GET /api/job-applications/tasks/incomplete`는 로그인 사용자의 모든 공고에서 미완료 할 일을 조회한다. 응답의 `result`는 배열이며 대상이 없으면 `[]`다. 각 항목에는 `taskId`, `jobApplicationId`, `postingName`, `companyName`, `title`, `dueDate`, `completedChecklistCount`, `totalChecklistCount`가 포함된다. 체크리스트가 비어 있으면 두 건수는 모두 0이다.
+
+현재 조회는 공고의 보관 상태와 할 일 기한에 관계없이 반환한다. 응답 순서나 표시 개수를 보장하는 계약은 정책 확정 후 정한다. 완료 처리는 기존 공고별 API를 사용한다.
