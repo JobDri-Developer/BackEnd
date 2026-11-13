@@ -190,7 +190,7 @@ public class MockApplyService {
         );
     }
 
-    public List<MockApplyHomeItemResponse> getRecentMockApplies(User user, int limit) {
+    public List<MockApplyHomeItemResponse> getRecentMockApplies(User user, int limit, boolean draftsOnly) {
         User validatedUser = userService.validateUser(user);
         Pageable pageable = PageRequest.of(
                 0,
@@ -201,7 +201,9 @@ public class MockApplyService {
                 )
         );
 
-        List<MockApply> mockApplies = mockApplyRepository.findAllByUserId(validatedUser.getId(), pageable).getContent();
+        List<MockApply> mockApplies = draftsOnly
+                ? mockApplyRepository.findAllByUserIdAndStatusNot(validatedUser.getId(), MockApplyStatus.COMPLETED, pageable)
+                : mockApplyRepository.findAllByUserId(validatedUser.getId(), pageable).getContent();
         return toHomeItems(validatedUser.getId(), mockApplies);
     }
 

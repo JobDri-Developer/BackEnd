@@ -36,13 +36,16 @@ import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
+import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.Page;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,11 +59,19 @@ import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.user;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
+@AutoConfigureMockMvc
 @ActiveProfiles("test")
 @Transactional
 class MockApplyServiceTest {
+
+    @Autowired
+    private MockMvc mvc;
 
     @Autowired
     private MockApplyService mockApplyService;
@@ -463,7 +474,7 @@ class MockApplyServiceTest {
         ReflectionTestUtils.setField(otherMockApply, "updatedAt", baseTime.plusHours(1));
         mockApplyRepository.saveAndFlush(otherMockApply);
 
-        List<MockApplyHomeItemResponse> responses = mockApplyService.getRecentMockApplies(user, 5);
+        List<MockApplyHomeItemResponse> responses = mockApplyService.getRecentMockApplies(user, 5, false);
 
         assertThat(responses).hasSize(5);
         assertThat(responses).extracting(MockApplyHomeItemResponse::mockApplyId)
@@ -474,6 +485,49 @@ class MockApplyServiceTest {
                         createdIds.get(2),
                         createdIds.get(1)
                 );
+    }
+
+    /** Checks the home draft contract and compatibility with the sidebar query. */
+    @Test
+    void recentDraftsFilterByOwnerAndStatusBeforeApplyingLimit() throws Exception {
+        User owner = saveUser("recent-drafts@example.com");
+        User otherUser = saveUser("recent-drafts-other@example.com");
+        JobPosting posting = saveJobPosting(owner, "백엔드 개발");
+        MockApply draft = mockApplyRepository.save(MockApply.create(owner, posting, ApplyType.ACTUAL, 1));
+        draft.updateStatus(MockApplyStatus.ANSWER_WRITE);
+        draft.updateDisplayName("홈 임시저장 카드");
+        MockApply completed = mockApplyRepository.save(MockApply.create(owner, posting, ApplyType.ACTUAL, 2));
+        completed.updateStatus(MockApplyStatus.COMPLETED);
+        MockApply foreign = mockApplyRepository.save(MockApply.create(
+                otherUser, saveJobPosting(otherUser, "다른 직무"), ApplyType.ACTUAL, 1));
+        mockApplyRepository.flush();
+
+        String recent = "/api/mock-applies/me/recent";
+        var principal = new UserDetailsImpl(owner);
+        mvc.perform(get(recent).with(user(principal)).param("limit", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result[0].mockApplyId").value(completed.getId()));
+        mvc.perform(get(recent).with(user(principal)).param("draftsOnly", "true").param("limit", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.length()").value(1))
+                .andExpect(jsonPath("$.result[0].mockApplyId").value(draft.getId()))
+                .andExpect(jsonPath("$.result[0].jobPostingId").value(posting.getId()))
+                .andExpect(jsonPath("$.result[0].displayName").value(draft.getDisplayName()))
+                .andExpect(jsonPath("$.result[0].companyName").value(posting.getCompany().getName()))
+                .andExpect(jsonPath("$.result[0].jobTitle").value(posting.getJobTitle()))
+                .andExpect(jsonPath("$.result[0].profileColor").value(posting.getProfileColor().name()))
+                .andExpect(jsonPath("$.result[0].status").value("ANSWER_WRITE"))
+                .andExpect(jsonPath("$.result[0].resumePath").value("/mock-applies/" + draft.getId() + "/answers"));
+
+        draft.updateStatus(MockApplyStatus.COMPLETED);
+        mockApplyRepository.flush();
+        mvc.perform(get(recent).with(user(principal)).param("draftsOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.length()").value(0));
+        mvc.perform(get(recent).with(user(new UserDetailsImpl(otherUser))).param("draftsOnly", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result[0].mockApplyId").value(foreign.getId()));
+        mvc.perform(get(recent).param("draftsOnly", "true")).andExpect(status().isUnauthorized());
     }
 
     @Test
@@ -487,7 +541,7 @@ class MockApplyServiceTest {
         }
         mockApplyRepository.flush();
 
-        List<MockApplyHomeItemResponse> responses = mockApplyService.getRecentMockApplies(user, 100);
+        List<MockApplyHomeItemResponse> responses = mockApplyService.getRecentMockApplies(user, 100, false);
 
         assertThat(responses).hasSize(20);
     }

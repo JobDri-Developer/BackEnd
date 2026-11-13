@@ -74,6 +74,14 @@ public interface MockApplyRepository extends JpaRepository<MockApply, Long> {
             "jobPosting.detailClassification",
             "analysis"
     })
+    List<MockApply> findAllByUserIdAndStatusNot(Long userId, MockApplyStatus status, Pageable pageable);
+
+    @EntityGraph(attributePaths = {
+            "jobPosting",
+            "jobPosting.company",
+            "jobPosting.detailClassification",
+            "analysis"
+    })
     @Query("""
             select ma
             from MockApply ma
