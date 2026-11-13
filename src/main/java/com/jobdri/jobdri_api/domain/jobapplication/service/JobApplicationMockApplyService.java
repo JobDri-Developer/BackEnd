@@ -1,129 +1,78 @@
 package com.jobdri.jobdri_api.domain.jobapplication.service;
 
-import com.jobdri.jobdri_api.domain.audit.annotation.AuditLogEvent;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationMockApplyResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationNotReadyResponse;
-import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplication;
-import com.jobdri.jobdri_api.domain.jobapplication.repository.JobApplicationRepository;
-import com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingCreateRequest;
-import com.jobdri.jobdri_api.domain.jobposting.entity.JobPosting;
-import com.jobdri.jobdri_api.domain.jobposting.entity.JobPostingProfileColor;
-import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingService;
-import com.jobdri.jobdri_api.domain.mockapply.entity.MockApply;
-import com.jobdri.jobdri_api.domain.mockapply.service.MockApplyService;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingExtractResponse;
+import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingAiService;
+import com.jobdri.jobdri_api.domain.jobposting.service.JobPostingClassificationService;
 import com.jobdri.jobdri_api.domain.user.entity.User;
-import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
-import com.jobdri.jobdri_api.domain.user.service.UserService;
 import com.jobdri.jobdri_api.global.apiPayload.code.GeneralErrorCode;
 import com.jobdri.jobdri_api.global.apiPayload.exception.GeneralException;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
 public class JobApplicationMockApplyService {
-    private final JobApplicationRepository jobApplicationRepository;
-    private final JobPostingService jobPostingService;
-    private final MockApplyService mockApplyService;
-    private final UserService userService;
-    private final UserRepository userRepository;
+    private static final int CANDIDATE_LIMIT = 5;
 
-    @Transactional
-    @AuditLogEvent(
-            action = "JOB_APPLICATION_MOCK_APPLY_CONVERT",
-            targetType = "JOB_APPLICATION",
-            targetId = "#arg1"
-    )
+    @Value("${job-posting.ingest.classification-confidence-threshold:0.65}")
+    private double classificationConfidenceThreshold;
+
+    private final JobApplicationMockApplyPersistenceService persistenceService;
+    private final JobPostingClassificationService jobPostingClassificationService;
+    private final JobPostingAiService jobPostingAiService;
+
+    /**
+     * 소분류가 없는 카드는 먼저 분류한 뒤 전환한다. 분류는 LLM을 부르므로 잠금을 잡기 전에 끝낸다.
+     */
     public JobApplicationMockApplyResponse createOrGet(User user, Long jobApplicationId) {
-        User validatedUser = lockValidatedUser(user);
-        JobApplication application = jobApplicationRepository.findForConversionByIdForUpdate(jobApplicationId)
-                .orElseThrow(() -> notFound(jobApplicationId));
-        validateOwner(application, validatedUser);
+        JobApplicationMockApplyPersistenceService.ConversionInput input =
+                persistenceService.readInput(user, jobApplicationId);
+        Long classifiedId = input.linked() || input.detailClassificationId() != null ? null : classify(input);
+        return persistenceService.convert(user, jobApplicationId, classifiedId);
+    }
 
-        if (application.getMockApply() != null) {
-            validateLinkedOwnership(application.getMockApply(), validatedUser);
-            return JobApplicationMockApplyResponse.of(jobApplicationId, application.getMockApply(), false);
-        }
-
-        validateReady(application);
-        JobPosting jobPosting = jobPostingService.createJobPostingEntity(
-                validatedUser,
-                toJobPostingCreateRequest(application)
+    private Long classify(JobApplicationMockApplyPersistenceService.ConversionInput input) {
+        JobPostingExtractResponse extracted = new JobPostingExtractResponse(
+                input.postingName(), input.companyName(), input.jobTitle(), input.task(),
+                input.requirement(), input.preferred(), rawText(input), 1.0, input.requiredSkills(), ""
         );
-        MockApply mockApply = mockApplyService.createActualApply(validatedUser, jobPosting);
-        application.assignMockApply(mockApply);
-        jobApplicationRepository.flush();
-        return JobApplicationMockApplyResponse.of(jobApplicationId, mockApply, true);
-    }
-
-    private JobPostingCreateRequest toJobPostingCreateRequest(JobApplication application) {
-        return new JobPostingCreateRequest(
-                JobPostingProfileColor.DEFAULT,
-                application.getPostingName().trim(),
-                application.getCompanyName().trim(),
-                application.getCompanySize(),
-                application.getJobTitle().trim(),
-                application.getDetailClassification().getId(),
-                application.getTask().trim(),
-                application.getRequirement().trim(),
-                application.getPreferred().trim()
-        );
-    }
-
-    private void validateReady(JobApplication application) {
-        List<String> missingFields = new ArrayList<>();
-        addIfBlank(missingFields, "companyName", application.getCompanyName());
-        addIfBlank(missingFields, "postingName", application.getPostingName());
-        addIfBlank(missingFields, "jobTitle", application.getJobTitle());
-        if (application.getDetailClassification() == null) {
-            missingFields.add("detailClassificationId");
+        List<JobPostingClassificationCandidateResponse> candidates =
+                jobPostingClassificationService.findCandidates(extracted, CANDIDATE_LIMIT);
+        if (candidates.isEmpty()) {
+            throw classificationRequired(candidates);
         }
-        addIfBlank(missingFields, "task", application.getTask());
-        addIfBlank(missingFields, "requirement", application.getRequirement());
-        addIfBlank(missingFields, "preferred", application.getPreferred());
-
-        if (!missingFields.isEmpty()) {
-            throw new GeneralException(
-                    GeneralErrorCode.JOB_APPLICATION_NOT_READY,
-                    "모의지원 전환에 필요한 정보가 부족합니다.",
-                    new JobApplicationNotReadyResponse(List.copyOf(missingFields))
-            );
+        JobPostingClassificationResultResponse classification =
+                jobPostingAiService.classifyDetailClassification(extracted, candidates);
+        if (classification.detailClassificationId() == null
+                || classification.confidence() < classificationConfidenceThreshold) {
+            throw classificationRequired(candidates);
         }
+        return classification.detailClassificationId();
     }
 
-    private void addIfBlank(List<String> missingFields, String field, String value) {
-        if (value == null || value.isBlank()) {
-            missingFields.add(field);
-        }
+    private String rawText(JobApplicationMockApplyPersistenceService.ConversionInput input) {
+        return Stream.of(input.postingName(), input.jobTitle(), input.task(), input.requirement(), input.preferred(),
+                        String.join(", ", input.requiredSkills()))
+                .filter(Objects::nonNull)
+                .filter(value -> !value.isBlank())
+                .collect(Collectors.joining("\n"));
     }
 
-    private User lockValidatedUser(User user) {
-        User validatedUser = userService.validateUser(user);
-        return userRepository.findByIdForUpdate(validatedUser.getId())
-                .orElseThrow(() -> new GeneralException(GeneralErrorCode.USER_NOT_FOUND));
-    }
-
-    private void validateOwner(JobApplication application, User user) {
-        if (!application.getUser().getId().equals(user.getId())) {
-            throw new GeneralException(GeneralErrorCode.FORBIDDEN, "해당 지원 카드에 접근할 수 없습니다.");
-        }
-    }
-
-    private void validateLinkedOwnership(MockApply mockApply, User user) {
-        if (!mockApply.getUser().getId().equals(user.getId())
-                || !mockApply.getJobPosting().getUser().getId().equals(user.getId())) {
-            throw new GeneralException(GeneralErrorCode.FORBIDDEN, "연결된 모의지원에 접근할 수 없습니다.");
-        }
-    }
-
-    private GeneralException notFound(Long jobApplicationId) {
+    private GeneralException classificationRequired(List<JobPostingClassificationCandidateResponse> candidates) {
         return new GeneralException(
-                GeneralErrorCode.JOB_APPLICATION_NOT_FOUND,
-                "해당 지원 카드를 찾을 수 없습니다. jobApplicationId=" + jobApplicationId
+                GeneralErrorCode.JOB_APPLICATION_NOT_READY,
+                "직무 소분류를 자동으로 정하지 못했습니다. 후보 중 하나를 선택해 저장한 뒤 다시 시도해주세요.",
+                new JobApplicationNotReadyResponse(List.of("detailClassificationId"), List.copyOf(candidates))
         );
     }
 }

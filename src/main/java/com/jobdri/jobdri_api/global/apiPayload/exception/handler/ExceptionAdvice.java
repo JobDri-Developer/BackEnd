@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
@@ -154,7 +155,7 @@ public class ExceptionAdvice {
     }
 
     static String formatRejectedValue(String field, Object rejectedValue) {
-        if (isSensitiveField(field)) {
+        if (isSensitiveField(field) || rejectedValue instanceof Collection<?>) {
             return MASKED_VALUE;
         }
         return String.valueOf(rejectedValue);

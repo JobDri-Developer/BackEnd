@@ -1,6 +1,8 @@
 package com.jobdri.jobdri_api.domain.jobposting.service;
 
 import com.jobdri.jobdri_api.domain.classification.entity.Classification;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationResultResponse;
+import com.jobdri.jobdri_api.domain.jobposting.dto.response.JobPostingClassificationCandidateResponse;
 import com.jobdri.jobdri_api.domain.classification.entity.DetailClassification;
 import com.jobdri.jobdri_api.domain.classification.entity.MiddleClassification;
 import com.jobdri.jobdri_api.domain.classification.repository.DetailClassificationRepository;
@@ -86,6 +88,21 @@ class JobPostingAiServiceTest {
                     LlmConcurrencyLimiter.CheckedSupplier<?> supplier = invocation.getArgument(1);
                     return supplier.get();
                 });
+    }
+
+    /** 동일한 호출 예외를 미리보기는 오류로 전달하고 기존 추출은 fallback으로 처리하는지 확인한다. */
+    @Test
+    void previewReportsProviderFailureWhileLegacyExtractKeepsFallback() {
+        String text = "Original backend developer job description";
+        when(jobPostingImageStorageService.normalizeImageObjectKeys(null, null)).thenReturn(List.of());
+        when(llmConcurrencyLimiter.execute(eq("job-posting-extract"), any()))
+                .thenThrow(new RuntimeException("provider unavailable"));
+
+        assertThatThrownBy(() -> jobPostingAiService.extractForPreview(1L,
+                new com.jobdri.jobdri_api.domain.jobposting.dto.request.JobPostingExtractRequest(text, null)))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code").isEqualTo(GeneralErrorCode.SERVICE_UNAVAILABLE);
+        assertThat(jobPostingAiService.extractJobPosting(1L, text, null).rawText()).isEqualTo(text);
     }
 
     @Test
@@ -324,6 +341,29 @@ class JobPostingAiServiceTest {
         JobPostingGenerateResponse response = jobPostingAiService.generateJobPosting(request);
 
         assertThat(response.postingName()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("AI가 후보에 없는 소분류를 고르면 첫 후보로 바꾸고 신뢰도를 0으로 낮춘다")
+    void normalizeClassificationZeroesConfidenceForIdOutsideCandidates() {
+        List<JobPostingClassificationCandidateResponse> candidates = List.of(
+                new JobPostingClassificationCandidateResponse(10L, "백엔드", "개발", "IT", 0.8),
+                new JobPostingClassificationCandidateResponse(11L, "프론트엔드", "개발", "IT", 0.5)
+        );
+
+        JobPostingClassificationResultResponse outside = ReflectionTestUtils.invokeMethod(
+                jobPostingAiService, "normalizeClassificationResponse",
+                new JobPostingClassificationResultResponse(99L, "임의", "임의", "임의", "근거", 0.95), candidates);
+        JobPostingClassificationResultResponse inside = ReflectionTestUtils.invokeMethod(
+                jobPostingAiService, "normalizeClassificationResponse",
+                new JobPostingClassificationResultResponse(11L, "프론트엔드", "개발", "IT", "근거", 0.95), candidates);
+
+        assertThat(outside).isNotNull();
+        assertThat(outside.detailClassificationId()).isEqualTo(10L);
+        assertThat(outside.confidence()).isZero();
+        assertThat(inside).isNotNull();
+        assertThat(inside.detailClassificationId()).isEqualTo(11L);
+        assertThat(inside.confidence()).isEqualTo(0.95);
     }
 
     @Test

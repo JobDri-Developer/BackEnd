@@ -10,26 +10,33 @@
 
 ## 준비 상태
 
-아래 필드가 모두 있어야 전환할 수 있다.
+전환 시 카드를 바꾸지 않고 JD에만 아래 보정을 적용한다.
 
-- `companyName`
-- `postingName`
-- `jobTitle`
-- `detailClassificationId`
-- `task`
-- `requirement`
-- `preferred`
+- `task`, `requirement`, `preferred`가 비어 있으면 직무명으로 기본 문장을 채운다.
+  - 주요 업무: `{jobTitle} 업무 수행`
+  - 자격 요건: `{jobTitle} 직무 수행에 필요한 역량`
+  - 우대 사항: `{jobTitle} 관련 실무 경험`
+- `detailClassificationId`가 없으면 카드 내용으로 소분류를 자동 분류한다. 분류는 Clipper ingest와 같은 후보 검색과 LLM 분류를 쓰고, 신뢰도 기준도 `job-posting.ingest.classification-confidence-threshold`(기본 0.65)를 공유한다. 분류는 행 잠금을 잡기 전에 끝낸다.
 
-누락된 필드가 있으면 어떤 엔티티도 생성하지 않고 HTTP 422를 반환한다.
+후보가 없거나 신뢰도가 기준보다 낮으면 어떤 엔티티도 생성하지 않고 HTTP 422를 반환한다. FE는 `classificationCandidates` 중 하나를 사용자에게 고르게 한 뒤 상세 저장(`detailClassificationId`)으로 카드에 반영하고 다시 호출한다.
 
 ```json
 {
   "isSuccess": false,
   "code": "JOB_APPLICATION_NOT_READY",
-  "message": "모의지원 전환에 필요한 정보가 부족합니다.",
+  "message": "직무 소분류를 자동으로 정하지 못했습니다. 후보 중 하나를 선택해 저장한 뒤 다시 시도해주세요.",
   "result": null,
   "error": {
-    "missingFields": ["detailClassificationId", "task"]
+    "missingFields": ["detailClassificationId"],
+    "classificationCandidates": [
+      {
+        "detailClassificationId": 12,
+        "detailClassificationName": "백엔드 개발",
+        "middleClassificationName": "개발",
+        "bigClassificationName": "IT",
+        "score": 0.41
+      }
+    ]
   }
 }
 ```

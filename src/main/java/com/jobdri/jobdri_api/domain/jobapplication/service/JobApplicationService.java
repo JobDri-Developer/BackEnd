@@ -69,11 +69,12 @@ public class JobApplicationService {
                 .mapToObj(index -> com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationEssay.create(
                         application, essays.get(index).question().trim(), essays.get(index).answer(), index)).toList());
         application.setInitialSpecs(request.gpa(), request.maxGpa());
-        List<JobApplicationMetricRequest> metrics = request.metrics() == null ? List.of() : request.metrics();
+        List<MetricRowNormalizer.Row> metrics = MetricRowNormalizer.normalize(request.metrics(),
+                JobApplicationMetricRequest::type, JobApplicationMetricRequest::name, JobApplicationMetricRequest::value);
         application.replaceMetrics(java.util.stream.IntStream.range(0, metrics.size())
                 .mapToObj(index -> JobApplicationMetric.create(application,
-                        metrics.get(index).type(), metrics.get(index).name().trim(),
-                        metrics.get(index).value().trim(), index)).toList());
+                        metrics.get(index).type(), metrics.get(index).name(),
+                        metrics.get(index).value(), index)).toList());
         return JobApplicationResponse.from(jobApplicationRepository.save(application));
     }
 

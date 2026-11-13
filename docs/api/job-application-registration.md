@@ -26,6 +26,6 @@
 - 공고와 정량 정보·자소서는 하나의 트랜잭션으로 저장한다. 등록 응답은 기존 카드 정보 형식을 유지하며, 자소서와 정량 정보 전체는 `GET /api/job-applications/{id}`로 조회한다.
 - `PUT /api/job-applications/{id}`의 전체 저장에도 `postingUrl`을 전달한다. 생략하거나 null로 전달하면 링크를 지운다.
 
-이 API는 사용자 확인 후 최종 저장하는 경로다. AI 분석 초안 반환 API와 URL 본문 추출은 별도 후속 작업이다.
+이 API는 사용자 확인 후 최종 저장하는 경로다. [AI 분석 미리보기](job-posting-registration-preview.md)에서 반환한 초안을 수정해 제출할 수 있다. URL 본문 추출은 별도 작업이다.
 
 기존 DB에는 `V202610111200__add_job_application_posting_url.sql`의 컬럼 추가가 필요하다.

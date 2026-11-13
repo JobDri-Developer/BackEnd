@@ -22,6 +22,7 @@ public class JobApplicationDetailResponse {
     private Long jobApplicationId;
     private Long sourceJobPostingId;
     private Long mockApplyId;
+    private boolean favorite;
     private String companyName;
     private String postingName;
     private String jobTitle;
@@ -47,12 +48,14 @@ public class JobApplicationDetailResponse {
     private LocalDateTime archivedAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private long revision;
 
     public static JobApplicationDetailResponse from(JobApplication application) {
         return JobApplicationDetailResponse.builder()
                 .jobApplicationId(application.getId())
                 .sourceJobPostingId(application.getSourceJobPosting() == null ? null : application.getSourceJobPosting().getId())
                 .mockApplyId(application.getMockApply() == null ? null : application.getMockApply().getId())
+                .favorite(application.isFavorite())
                 .companyName(application.getCompanyName())
                 .postingName(application.getPostingName())
                 .jobTitle(application.getJobTitle())
@@ -78,6 +81,7 @@ public class JobApplicationDetailResponse {
                 .archivedAt(application.getArchivedAt())
                 .createdAt(application.getCreatedAt())
                 .updatedAt(application.getUpdatedAt())
+                .revision(application.getContentRevision())
                 .build();
     }
 

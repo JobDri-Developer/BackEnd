@@ -12,6 +12,7 @@ import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationDe
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationIngestResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationMockApplyResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationResponse;
+import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationArchiveService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationBoardService;
 import com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationDetailService;
@@ -51,15 +52,18 @@ public class JobApplicationController {
     private final JobApplicationIngestService jobApplicationIngestService;
     private final JobApplicationMockApplyService jobApplicationMockApplyService;
 
-    @Operation(summary = "지원관리 칸반 조회", description = "활성 카드를 4개 열로 반환합니다. 회사명·공고명·직무명을 검색하며 count는 검색 결과 기준입니다. CREATED_DESC에서는 드래그를 비활성화합니다.")
+    /** Returns all four board columns, with cards restricted to the requested stage when supplied. */
+    @Operation(summary = "지원관리 칸반 조회", description = "활성 카드를 4개 열로 반환합니다. 검색, 즐겨찾기, 지원 단계 필터를 함께 적용할 수 있으며 count는 필터 적용 후 카드 수입니다. 기본 정렬은 MANUAL이며 CREATED_ASC·CREATED_DESC에서는 드래그를 비활성화합니다.")
     @GetMapping("/board")
     public ApiResponse<JobApplicationBoardResponse> board(
             @AuthenticationPrincipal UserDetailsImpl userDetails,
             @RequestParam(defaultValue = "") String query,
-            @RequestParam(defaultValue = "MANUAL") JobApplicationSort sort
+            @RequestParam(defaultValue = "MANUAL") JobApplicationSort sort,
+            @RequestParam(defaultValue = "false") boolean favoritesOnly,
+            @RequestParam(required = false) JobApplicationStage stage
     ) {
         return ApiResponse.onSuccess("지원관리 칸반 조회에 성공했습니다.",
-                jobApplicationBoardService.getBoard(validateAuthenticatedUser(userDetails), query, sort));
+                jobApplicationBoardService.getBoard(validateAuthenticatedUser(userDetails), query, sort, favoritesOnly, stage));
     }
 
     @Operation(summary = "지원 카드 이동", description = "카드를 제거한 도착 열의 0 기반 targetIndex에 삽입합니다. 필터링된 화면의 인덱스가 아닌 전체 열 기준이며, 저장 후 전체 MANUAL 보드를 반환합니다.")
@@ -142,7 +146,7 @@ public class JobApplicationController {
         );
     }
 
-    @Operation(summary = "지원 카드에서 모의지원 시작", description = "카드 스냅샷이 분석 준비 상태인지 검증한 뒤 별도 JobPosting과 실제 공고형 MockApply를 원자적으로 생성합니다. 반복 호출은 연결된 모의지원을 반환합니다.")
+    @Operation(summary = "지원 카드에서 모의지원 시작", description = "카드 스냅샷으로 별도 JobPosting과 실제 공고형 MockApply를 원자적으로 생성합니다. 소분류가 없으면 자동 분류하고, 비어 있는 주요 업무·자격 요건·우대 사항은 직무명 기반 기본 문장으로 채웁니다. 반복 호출은 연결된 모의지원을 반환합니다.")
     @io.swagger.v3.oas.annotations.responses.ApiResponses({
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "200",
@@ -150,7 +154,7 @@ public class JobApplicationController {
             ),
             @io.swagger.v3.oas.annotations.responses.ApiResponse(
                     responseCode = "422",
-                    description = "분석 준비 필드 누락. error.missingFields에 누락 필드명 반환"
+                    description = "소분류를 자동으로 정하지 못함. error.missingFields와 선택용 error.classificationCandidates 반환"
             )
     })
     @PostMapping("/{jobApplicationId}/mock-apply")
@@ -189,7 +193,7 @@ public class JobApplicationController {
         return ApiResponse.onSuccess("지원 카드 상세 조회에 성공했습니다.", jobApplicationDetailService.get(user, jobApplicationId));
     }
 
-    @Operation(summary = "지원 카드 상세 전체 저장", description = "공고 스냅샷과 세 탭 데이터를 한 트랜잭션에서 전체 교체합니다. 마지막 조회 수정 시각이 오래된 경우 409를 반환합니다.")
+    @Operation(summary = "지원 카드 상세 전체 저장", description = "공고 스냅샷과 세 탭 데이터를 한 트랜잭션에서 전체 교체합니다. stage를 넣으면 같은 트랜잭션에서 도착 열의 마지막으로 옮깁니다. expectedRevision이 서버 revision과 다르면 409를 반환합니다.")
     @PutMapping("/{jobApplicationId}")
     public ApiResponse<JobApplicationDetailResponse> update(
             @AuthenticationPrincipal UserDetailsImpl userDetails,

@@ -33,16 +33,30 @@ public class JobApplicationBoardService {
     private final EntityManager entityManager;
 
     public JobApplicationBoardResponse getBoard(User principal, String query, JobApplicationSort sort) {
+        return getBoard(principal, query, sort, false);
+    }
+
+    /** Applies search and favorites across all stages. */
+    public JobApplicationBoardResponse getBoard(User principal, String query, JobApplicationSort sort, boolean favoritesOnly) {
+        return getBoard(principal, query, sort, favoritesOnly, null);
+    }
+
+    /** Returns all columns with counts computed from the matching cards. A null stage includes every stage. */
+    public JobApplicationBoardResponse getBoard(User principal, String query, JobApplicationSort sort,
+                                                boolean favoritesOnly, JobApplicationStage selectedStage) {
         User user = userService.validateUser(principal);
         JobApplicationSort effectiveSort = sort == null ? JobApplicationSort.MANUAL : sort;
-        List<JobApplication> cards = applications.findBoard(user.getId(), searchPattern(query));
+        List<JobApplication> cards = applications.findBoard(user.getId(), searchPattern(query), favoritesOnly, selectedStage);
         Map<Long, Long> counts = cards.isEmpty() ? Map.of() : essays.countActiveByUser(user.getId()).stream()
                 .collect(Collectors.toMap(JobApplicationEssayRepository.Count::getJobApplicationId,
                         JobApplicationEssayRepository.Count::getQuestionCount));
-        Comparator<JobApplication> comparator = effectiveSort == JobApplicationSort.CREATED_DESC
-                ? Comparator.comparing(JobApplication::getCreatedAt).reversed()
-                    .thenComparing(JobApplication::getId, Comparator.reverseOrder())
-                : Comparator.comparingInt(JobApplication::getStageOrder).thenComparing(JobApplication::getId);
+        Comparator<JobApplication> comparator = switch (effectiveSort) {
+            case CREATED_ASC -> Comparator.comparing(JobApplication::getCreatedAt)
+                    .thenComparing(JobApplication::getId);
+            case CREATED_DESC -> Comparator.comparing(JobApplication::getCreatedAt).reversed()
+                    .thenComparing(JobApplication::getId, Comparator.reverseOrder());
+            case MANUAL -> Comparator.comparingInt(JobApplication::getStageOrder).thenComparing(JobApplication::getId);
+        };
         List<JobApplicationBoardResponse.Column> columns = Arrays.stream(JobApplicationStage.values())
                 .map(stage -> {
                     List<JobApplicationCardResponse> items = cards.stream()
@@ -93,6 +107,29 @@ public class JobApplicationBoardService {
         applications.flush();
         entityManager.clear();
         return getBoard(user, null, JobApplicationSort.MANUAL);
+    }
+
+    /**
+     * 상세 저장에서 단계를 바꿀 때 카드를 도착 열의 마지막으로 옮긴다.
+     * 호출자는 사용자 행 잠금을 잡은 트랜잭션 안에서 불러야 한다.
+     */
+    @Transactional
+    public void moveToEnd(User user, JobApplication card, JobApplicationStage target) {
+        JobApplicationStage source = card.getStage();
+        if (source == target) {
+            return;
+        }
+        if (card.getArchivedAt() != null) {
+            throw new GeneralException(GeneralErrorCode.JOB_APPLICATION_UPDATE_CONFLICT, "보관된 지원 카드는 이동할 수 없습니다.");
+        }
+        List<JobApplication> locked = applications.lockActiveColumns(user.getId(), List.of(source, target));
+        reorder(locked.stream().filter(item -> item.getStage() == source && !item.getId().equals(card.getId())).toList(), source);
+        List<JobApplication> destination = new ArrayList<>(locked.stream()
+                .filter(item -> item.getStage() == target && !item.getId().equals(card.getId()))
+                .sorted(Comparator.comparingInt(JobApplication::getStageOrder).thenComparing(JobApplication::getId))
+                .toList());
+        destination.add(card);
+        reorder(destination, target);
     }
 
     private static void reorder(List<JobApplication> cards, JobApplicationStage stage) {

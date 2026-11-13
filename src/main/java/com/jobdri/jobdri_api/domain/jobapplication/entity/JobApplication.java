@@ -111,6 +111,13 @@ public class JobApplication extends BaseEntity {
         this.postingUrl = postingUrl == null || postingUrl.isBlank() ? null : postingUrl.trim();
     }
 
+    @Column(nullable = false)
+    private boolean favorite;
+
+    public void setFavorite(boolean favorite) {
+        this.favorite = favorite;
+    }
+
     private LocalDateTime deadlineAt;
 
     @Enumerated(EnumType.STRING)
@@ -135,6 +142,10 @@ public class JobApplication extends BaseEntity {
     private BigDecimal maxGpa;
 
     private LocalDateTime archivedAt;
+
+    // 상세 저장의 충돌 검사 기준. 드래그·보관처럼 순서만 바뀌는 변경은 올리지 않는다.
+    @Column(name = "content_revision", nullable = false)
+    private long contentRevision;
 
     @Column(name = "ingest_idempotency_key", length = 100)
     private String ingestIdempotencyKey;
@@ -201,6 +212,7 @@ public class JobApplication extends BaseEntity {
             BigDecimal gpa,
             BigDecimal maxGpa
     ) {
+        this.contentRevision++;
         this.detailClassification = detailClassification;
         this.companyName = companyName;
         this.postingName = postingName;

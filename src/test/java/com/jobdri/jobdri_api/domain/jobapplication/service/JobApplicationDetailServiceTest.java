@@ -6,9 +6,11 @@ import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationCre
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationDetailUpdateRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationEssayRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationMetricRequest;
+import com.jobdri.jobdri_api.domain.jobapplication.dto.request.JobApplicationPositionRequest;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationDetailResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.dto.response.JobApplicationResponse;
 import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationMetricType;
+import com.jobdri.jobdri_api.domain.jobapplication.entity.JobApplicationStage;
 import com.jobdri.jobdri_api.domain.jobapplication.repository.JobApplicationRepository;
 import com.jobdri.jobdri_api.domain.user.entity.User;
 import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
@@ -27,10 +29,17 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -43,6 +52,8 @@ class JobApplicationDetailServiceTest {
 
     @Autowired JobApplicationDetailService detailService;
     @Autowired JobApplicationService applicationService;
+    @Autowired JobApplicationBoardService boardService;
+    @Autowired JobApplicationArchiveService archiveService;
     @Autowired UserRepository userRepository;
     @Autowired JobApplicationRepository jobApplicationRepository;
     @Autowired EntityManager entityManager;
@@ -209,22 +220,276 @@ class JobApplicationDetailServiceTest {
         User user = userRepository.saveAndFlush(User.signup(
                 "롤백 사용자", "detail-rollback-" + UUID.randomUUID() + "@example.com", "encoded-password"));
         JobApplicationResponse card = createCard(user, "롤백 원본");
-        JobApplicationDetailUpdateRequest invalid = request(
+        JobApplicationResponse sibling = createCard(user, "롤백 순서 유지");
+        JobApplicationDetailUpdateRequest invalid = withStage(request(
                 LocalDateTime.now().plusYears(1),
                 List.of(new JobApplicationChecklistItemRequest("저장되면 안 됨", true)),
+                List.of(new JobApplicationMetricRequest(JobApplicationMetricType.AWARD, "저장되면 안 되는 수상", "대상")),
                 Collections.singletonList(null),
-                List.of(new JobApplicationEssayRequest("저장되면 안 되는 질문", "답변")),
                 null
-        );
+        ), JobApplicationStage.INTERVIEW);
 
         assertThatThrownBy(() -> detailService.update(user, card.getJobApplicationId(), invalid))
                 .isInstanceOf(NullPointerException.class);
 
         JobApplicationDetailResponse found = detailService.get(user, card.getJobApplicationId());
+        assertThat(found.getStage()).isEqualTo(JobApplicationStage.PLANNED);
+        assertThat(jobApplicationRepository.findById(card.getJobApplicationId()).orElseThrow().getStageOrder()).isZero();
+        assertThat(jobApplicationRepository.findById(sibling.getJobApplicationId()).orElseThrow().getStageOrder()).isEqualTo(1);
         assertThat(found.getCompanyName()).isEqualTo("테스트 기업");
         assertThat(found.getChecklistItems()).isEmpty();
         assertThat(found.getMetrics()).isEmpty();
         assertThat(found.getEssays()).isEmpty();
+    }
+
+    @Test
+    void stageChangeAppendsAndCompactsSourceAndPreservesUnchangedOrder() {
+        User user = saveUser();
+        JobApplicationResponse first = createCard(user, "첫 카드");
+        JobApplicationResponse middle = createCard(user, "중간 카드");
+        JobApplicationResponse last = createCard(user, "마지막 카드");
+        detailService.update(user, first.getJobApplicationId(), withStage(request(
+                first.getUpdatedAt(), List.of(), List.of(), List.of(), null), JobApplicationStage.INTERVIEW));
+        JobApplicationDetailResponse moved = detailService.update(user, middle.getJobApplicationId(), withStage(request(
+                detailService.get(user, middle.getJobApplicationId()).getUpdatedAt(),
+                List.of(), List.of(), List.of(), null), JobApplicationStage.INTERVIEW));
+        assertThat(moved.getStage()).isEqualTo(JobApplicationStage.INTERVIEW);
+        assertThat(moved.getCompanyName()).isEqualTo("수정 기업");
+        assertThat(jobApplicationRepository.findById(first.getJobApplicationId()).orElseThrow().getStageOrder()).isZero();
+        assertThat(jobApplicationRepository.findById(middle.getJobApplicationId()).orElseThrow().getStageOrder()).isEqualTo(1);
+        assertThat(jobApplicationRepository.findById(last.getJobApplicationId()).orElseThrow().getStageOrder()).isZero();
+        JobApplicationDetailResponse same = detailService.update(user, first.getJobApplicationId(), withStage(request(
+                detailService.get(user, first.getJobApplicationId()).getUpdatedAt(), List.of(), List.of(), List.of(), null),
+                JobApplicationStage.INTERVIEW));
+        detailService.update(user, first.getJobApplicationId(), request(
+                same.getUpdatedAt(), List.of(), List.of(), List.of(), null));
+        assertThat(jobApplicationRepository.findById(first.getJobApplicationId()).orElseThrow().getStageOrder()).isZero();
+        assertThat(detailService.get(user, first.getJobApplicationId()).getStage()).isEqualTo(JobApplicationStage.INTERVIEW);
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("독립 트랜잭션의 카드 이동과 상세 단계 저장이 동시에 실행돼도 양쪽 열의 순서가 연속적이다")
+    void concurrentMoveAndDetailStageSaveKeepBothColumnsContiguous() throws Exception {
+        // Fixtures must commit before the worker threads acquire their own service transactions.
+        User user = userRepository.saveAndFlush(User.signup(
+                "동시 이동 사용자", "detail-move-" + UUID.randomUUID() + "@example.com", "encoded-password"));
+        JobApplicationResponse detailCard = createCard(user, "상세로 이동");
+        JobApplicationResponse plannedSibling = createCard(user, "지원예정 유지");
+        JobApplicationResponse draggedCard = createCard(user, "드래그로 이동");
+        JobApplicationResponse documentSibling = createCard(user, "서류지원 유지");
+        boardService.move(user, draggedCard.getJobApplicationId(),
+                new JobApplicationPositionRequest(JobApplicationStage.DOCUMENT, 0));
+        boardService.move(user, documentSibling.getJobApplicationId(),
+                new JobApplicationPositionRequest(JobApplicationStage.DOCUMENT, 1));
+        long revision = detailService.get(user, detailCard.getJobApplicationId()).getRevision();
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<?> move = executor.submit(() -> {
+                ready.countDown();
+                assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                return boardService.move(user, draggedCard.getJobApplicationId(),
+                        new JobApplicationPositionRequest(JobApplicationStage.PLANNED, 0));
+            });
+            Future<?> save = executor.submit(() -> {
+                ready.countDown();
+                assertThat(start.await(10, TimeUnit.SECONDS)).isTrue();
+                return detailService.update(user, detailCard.getJobApplicationId(),
+                        revisionRequest(revision, JobApplicationStage.DOCUMENT));
+            });
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            move.get(20, TimeUnit.SECONDS);
+            save.get(20, TimeUnit.SECONDS);
+
+            // Read committed state after both service transactions have completed.
+            List<JobApplicationDetailResponse> cards = List.of(detailCard, plannedSibling, draggedCard, documentSibling)
+                    .stream().map(card -> detailService.get(user, card.getJobApplicationId())).toList();
+            List<JobApplicationDetailResponse> planned = cards.stream()
+                    .filter(card -> card.getStage() == JobApplicationStage.PLANNED)
+                    .sorted(java.util.Comparator.comparingInt(JobApplicationDetailResponse::getStageOrder)).toList();
+            List<JobApplicationDetailResponse> document = cards.stream()
+                    .filter(card -> card.getStage() == JobApplicationStage.DOCUMENT)
+                    .sorted(java.util.Comparator.comparingInt(JobApplicationDetailResponse::getStageOrder)).toList();
+            assertThat(planned).extracting(JobApplicationDetailResponse::getJobApplicationId)
+                    .containsExactly(draggedCard.getJobApplicationId(), plannedSibling.getJobApplicationId());
+            assertThat(document).extracting(JobApplicationDetailResponse::getJobApplicationId)
+                    .containsExactly(documentSibling.getJobApplicationId(), detailCard.getJobApplicationId());
+            assertThat(planned).extracting(JobApplicationDetailResponse::getStageOrder).containsExactly(0, 1);
+            assertThat(document).extracting(JobApplicationDetailResponse::getStageOrder).containsExactly(0, 1);
+            assertThat(detailService.get(user, detailCard.getJobApplicationId()).getCompanyName()).isEqualTo("수정 기업");
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(10, TimeUnit.SECONDS);
+        }
+    }
+
+    private JobApplicationDetailUpdateRequest withStage(JobApplicationDetailUpdateRequest r, JobApplicationStage stage) {
+        return new JobApplicationDetailUpdateRequest(r.lastKnownUpdatedAt(), r.companyName(), r.postingName(),
+                r.jobTitle(), r.companySize(), r.detailClassificationId(), r.task(), r.requirement(), r.preferred(),
+                r.requiredSkills(), r.deadlineAt(), r.currentLabel(), r.currentAt(), r.memo(), r.gpa(), r.maxGpa(),
+                r.checklistItems(), r.metrics(), r.essays(), r.postingUrl(), r.expectedRevision(), stage);
+    }
+
+    @Test
+    @DisplayName("이름이 빈 행과 값이 빈 어학·기타 행은 제외하고 자격증·수상은 기본값으로 저장한다")
+    void dropBlankMetricRowsAndFillOptionalValues() {
+        User user = saveUser();
+        JobApplicationResponse card = createCard(user, "빈 행");
+
+        JobApplicationDetailResponse saved = detailService.update(user, card.getJobApplicationId(), request(
+                card.getUpdatedAt(),
+                List.of(),
+                List.of(
+                        new JobApplicationMetricRequest(JobApplicationMetricType.LANGUAGE, "TOEIC", " "),
+                        new JobApplicationMetricRequest(JobApplicationMetricType.CUSTOM, "기타", null),
+                        new JobApplicationMetricRequest(null, " ", null),
+                        new JobApplicationMetricRequest(JobApplicationMetricType.CERTIFICATE, " 정보처리기사 ", ""),
+                        new JobApplicationMetricRequest(JobApplicationMetricType.AWARD, "공모전", null),
+                        new JobApplicationMetricRequest(JobApplicationMetricType.LANGUAGE, "OPIc", " IH ")
+                ),
+                List.of(),
+                null
+        ));
+
+        assertThat(saved.getMetrics()).extracting(JobApplicationDetailResponse.Metric::name)
+                .containsExactly("정보처리기사", "공모전", "OPIc");
+        assertThat(saved.getMetrics()).extracting(JobApplicationDetailResponse.Metric::value)
+                .containsExactly("보유", "취득일 미입력", "IH");
+        assertThat(saved.getMetrics()).extracting(JobApplicationDetailResponse.Metric::displayOrder)
+                .containsExactly(0, 1, 2);
+    }
+
+    @Test
+    @DisplayName("이름이 있는데 유형이 없는 정량 정보 행은 400으로 거절한다")
+    void rejectMetricRowWithoutType() {
+        User user = saveUser();
+        JobApplicationResponse card = createCard(user, "유형 없음");
+
+        assertThatThrownBy(() -> detailService.update(user, card.getJobApplicationId(), request(
+                card.getUpdatedAt(), List.of(),
+                List.of(new JobApplicationMetricRequest(null, "TOEIC", "900")), List.of(), null)))
+                .isInstanceOfSatisfying(GeneralException.class,
+                        error -> assertThat(error.getCode()).isEqualTo(GeneralErrorCode.INVALID_PARAMETER));
+    }
+
+    @Test
+    @DisplayName("expectedRevision이 서버 revision과 다르면 409를 반환하고 저장할 때마다 revision이 오른다")
+    void rejectStaleRevision() {
+        User user = saveUser();
+        JobApplicationResponse card = createCard(user, "revision");
+        long initial = detailService.get(user, card.getJobApplicationId()).getRevision();
+
+        JobApplicationDetailResponse saved = detailService.update(user, card.getJobApplicationId(),
+                revisionRequest(initial, null));
+
+        assertThat(saved.getRevision()).isEqualTo(initial + 1);
+        assertThatThrownBy(() -> detailService.update(user, card.getJobApplicationId(), revisionRequest(initial, null)))
+                .isInstanceOfSatisfying(GeneralException.class, error -> assertThat(error.getCode())
+                        .isEqualTo(GeneralErrorCode.JOB_APPLICATION_UPDATE_CONFLICT));
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @DisplayName("같은 expectedRevision으로 동시에 저장하면 하나만 성공하고 나머지는 409를 받는다")
+    void concurrentSavesWithSameRevisionAllowOnlyOneWinner() throws Exception {
+        User user = userRepository.saveAndFlush(User.signup(
+                "동시 저장 사용자", "detail-concurrent-" + UUID.randomUUID() + "@example.com", "encoded-password"));
+        JobApplicationResponse card = createCard(user, "동시 저장");
+        long revision = detailService.get(user, card.getJobApplicationId()).getRevision();
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Callable<GeneralErrorCode> attempt = () -> {
+                ready.countDown();
+                if (!start.await(10, TimeUnit.SECONDS)) {
+                    throw new AssertionError("동시 저장 시작 대기 시간 초과");
+                }
+                try {
+                    detailService.update(user, card.getJobApplicationId(), revisionRequest(revision, null));
+                    return null;
+                } catch (GeneralException error) {
+                    return (GeneralErrorCode) error.getCode();
+                }
+            };
+            Future<GeneralErrorCode> first = executor.submit(attempt);
+            Future<GeneralErrorCode> second = executor.submit(attempt);
+            assertThat(ready.await(10, TimeUnit.SECONDS)).isTrue();
+            start.countDown();
+            assertThat(Arrays.asList(first.get(20, TimeUnit.SECONDS), second.get(20, TimeUnit.SECONDS)))
+                    .containsExactlyInAnyOrder(null, GeneralErrorCode.JOB_APPLICATION_UPDATE_CONFLICT);
+            assertThat(detailService.get(user, card.getJobApplicationId()).getRevision()).isEqualTo(revision + 1);
+        } finally {
+            start.countDown();
+            executor.shutdownNow();
+            executor.awaitTermination(10, TimeUnit.SECONDS);
+        }
+    }
+
+    @Test
+    @DisplayName("같은 열의 다른 카드를 드래그해 순서가 밀려도 revision 기준 저장은 충돌하지 않는다")
+    void siblingMoveDoesNotConflictWithRevision() {
+        User user = saveUser();
+        JobApplicationResponse first = createCard(user, "첫 카드");
+        JobApplicationResponse second = createCard(user, "둘째 카드");
+        long revision = detailService.get(user, first.getJobApplicationId()).getRevision();
+
+        boardService.move(user, second.getJobApplicationId(),
+                new JobApplicationPositionRequest(JobApplicationStage.PLANNED, 0));
+        JobApplicationDetailResponse saved = detailService.update(user, first.getJobApplicationId(),
+                revisionRequest(revision, null));
+
+        assertThat(saved.getStageOrder()).isEqualTo(1);
+        assertThat(saved.getCompanyName()).isEqualTo("수정 기업");
+    }
+
+    @Test
+    @DisplayName("상세 저장에 stage를 넣으면 같은 트랜잭션에서 도착 열의 마지막으로 옮기고 출발 열을 당긴다")
+    void changeStageWithinDetailSave() {
+        User user = saveUser();
+        JobApplicationResponse moving = createCard(user, "옮길 카드");
+        JobApplicationResponse staying = createCard(user, "남을 카드");
+        JobApplicationResponse existing = createCard(user, "서류 카드");
+        boardService.move(user, existing.getJobApplicationId(),
+                new JobApplicationPositionRequest(JobApplicationStage.DOCUMENT, 0));
+        long revision = detailService.get(user, moving.getJobApplicationId()).getRevision();
+
+        JobApplicationDetailResponse saved = detailService.update(user, moving.getJobApplicationId(),
+                revisionRequest(revision, JobApplicationStage.DOCUMENT));
+
+        assertThat(saved.getStage()).isEqualTo(JobApplicationStage.DOCUMENT);
+        assertThat(saved.getStageOrder()).isEqualTo(1);
+        assertThat(saved.getCompanyName()).isEqualTo("수정 기업");
+        assertThat(detailService.get(user, staying.getJobApplicationId()).getStageOrder()).isZero();
+    }
+
+    @Test
+    @DisplayName("보관된 카드는 상세 저장으로도 단계를 바꿀 수 없다")
+    void rejectStageChangeOnArchivedCard() {
+        User user = saveUser();
+        JobApplicationResponse card = createCard(user, "보관 카드");
+        archiveService.archive(user, card.getJobApplicationId());
+        long revision = detailService.get(user, card.getJobApplicationId()).getRevision();
+
+        assertThatThrownBy(() -> detailService.update(user, card.getJobApplicationId(),
+                revisionRequest(revision, JobApplicationStage.INTERVIEW)))
+                .isInstanceOfSatisfying(GeneralException.class, error -> assertThat(error.getCode())
+                        .isEqualTo(GeneralErrorCode.JOB_APPLICATION_UPDATE_CONFLICT));
+    }
+
+    private JobApplicationDetailUpdateRequest revisionRequest(long expectedRevision, JobApplicationStage stage) {
+        JobApplicationDetailUpdateRequest base = request(null, List.of(), List.of(), List.of(), null);
+        return new JobApplicationDetailUpdateRequest(
+                null, base.companyName(), base.postingName(), base.jobTitle(), base.companySize(),
+                base.detailClassificationId(), base.task(), base.requirement(), base.preferred(),
+                base.requiredSkills(), base.deadlineAt(), base.currentLabel(), base.currentAt(), base.memo(),
+                base.gpa(), base.maxGpa(), base.checklistItems(), base.metrics(), base.essays(), null,
+                expectedRevision, stage
+        );
     }
 
     private JobApplicationDetailUpdateRequest request(

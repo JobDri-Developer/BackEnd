@@ -81,6 +81,50 @@ class JobApplicationBoardServiceTest {
     }
 
     @Test
+    void chronologicalSortsEachColumnByTimestampThenIdWithoutChangingManualOrder() {
+        User owner = user();
+        LocalDateTime sameTime = LocalDateTime.of(2026, 10, 20, 12, 0);
+        Map<JobApplicationStage, List<Long>> expected = new EnumMap<>(JobApplicationStage.class);
+        for (JobApplicationStage stage : JobApplicationStage.values()) {
+            long a = create(owner, "Sort", "a", "직무", stage).getJobApplicationId();
+            long b = create(owner, "Sort", "b", "직무", stage).getJobApplicationId();
+            long c = create(owner, "Sort", "c", "직무", stage).getJobApplicationId();
+            board.move(owner, a, position(stage, 2));
+            for (long id : List.of(a, b, c)) {
+                var card = applications.findById(id).orElseThrow();
+                card.setFavorite(id != b);
+            }
+            expected.put(stage, List.of(a, b, c));
+        }
+        em.flush();
+        // createdAt is non-updatable through JPA; set deterministic persisted timestamps for this test.
+        for (var ids : expected.values()) {
+            for (int index = 0; index < ids.size(); index++) {
+                em.createNativeQuery("update job_applications set created_at = :createdAt where id = :id")
+                        .setParameter("createdAt", index == 2 ? sameTime.minusDays(1) : sameTime)
+                        .setParameter("id", ids.get(index)).executeUpdate();
+            }
+        }
+        em.clear();
+        var ascending = board.getBoard(owner, "", JobApplicationSort.CREATED_ASC);
+        var descending = board.getBoard(owner, "", JobApplicationSort.CREATED_DESC);
+        var filtered = board.getBoard(owner, " SORT ", JobApplicationSort.CREATED_ASC, true);
+        var empty = board.getBoard(owner, "missing", JobApplicationSort.CREATED_ASC, true);
+        var manual = board.getBoard(owner, "", null);
+        assertThat(ascending.sort()).isEqualTo(JobApplicationSort.CREATED_ASC);
+        assertThat(manual.sort()).isEqualTo(JobApplicationSort.MANUAL);
+        for (var entry : expected.entrySet()) {
+            var stage = entry.getKey();
+            long a = entry.getValue().get(0), b = entry.getValue().get(1), c = entry.getValue().get(2);
+            assertThat(ids(ascending, stage)).containsExactly(c, a, b);
+            assertThat(ids(descending, stage)).containsExactly(b, a, c);
+            assertThat(ids(filtered, stage)).containsExactly(c, a);
+            assertThat(ids(empty, stage)).isEmpty();
+            assertThat(ids(manual, stage)).containsExactly(b, c, a);
+        }
+    }
+
+    @Test
     void movesAcrossColumnsToFirstLastAndEmptyPositionsWithoutGaps() {
         User user = user();
         var a = create(user, "기업", "a", "직무", JobApplicationStage.PLANNED);
