@@ -375,6 +375,71 @@ class JobApplicationControllerTest {
             assertThat(after.get(field)).as("수정 후 재조회 %s", field).isEqualTo(before.get(field));
         }
         assertThat(after.path("revision").asLong()).isEqualTo(before.path("revision").asLong() + 1);
+
+        var changedRequest = request.deepCopy()
+                .put("expectedRevision", after.path("revision").asLong())
+                .put("deadlineAt", "2026-12-10T18:00:00")
+                .put("currentAt", "2026-12-05T14:30:00")
+                .put("currentLabel", "변경된 면접")
+                .put("memo", "다른 편집에서 저장한 메모");
+        mockMvc.perform(put("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(changedRequest)))
+                .andExpect(status().isOk());
+        entityManager.flush();
+        entityManager.clear();
+
+        var changedGet = mockMvc.perform(get("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andReturn();
+        var changed = objectMapper.readTree(changedGet.getResponse().getContentAsString()).path("result");
+        for (String field : java.util.List.of("deadlineAt", "currentAt", "currentLabel", "memo")) {
+            assertThat(changed.get(field)).as("선행 변경 %s", field).isEqualTo(changedRequest.get(field));
+        }
+        assertThat(changed.path("revision").asLong()).isEqualTo(after.path("revision").asLong() + 1);
+
+        request.put("expectedRevision", after.path("revision").asLong())
+                .put("memo", "오래된 편집에서 시도한 메모");
+        mockMvc.perform(put("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict());
+        entityManager.flush();
+        entityManager.clear();
+
+        var conflictGet = mockMvc.perform(get("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andReturn();
+        var unchanged = objectMapper.readTree(conflictGet.getResponse().getContentAsString()).path("result");
+        for (String field : java.util.List.of("deadlineAt", "currentAt", "currentLabel", "memo", "revision")) {
+            assertThat(unchanged.get(field)).as("충돌 후 재조회 %s", field).isEqualTo(changed.get(field));
+        }
+
+        var retry = changedRequest.deepCopy()
+                .put("expectedRevision", unchanged.path("revision").asLong())
+                .put("memo", "최신 조회 후 재시도한 메모");
+        mockMvc.perform(put("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(retry)))
+                .andExpect(status().isOk());
+        entityManager.flush();
+        entityManager.clear();
+
+        var retryGet = mockMvc.perform(get("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.memo").value("최신 조회 후 재시도한 메모"))
+                .andReturn();
+        var retried = objectMapper.readTree(retryGet.getResponse().getContentAsString()).path("result");
+        for (String field : java.util.List.of("deadlineAt", "currentAt", "currentLabel")) {
+            assertThat(retried.get(field)).as("재시도 후 일정 %s", field).isEqualTo(changed.get(field));
+        }
+        assertThat(retried.path("revision").asLong()).isEqualTo(changed.path("revision").asLong() + 1);
     }
 
     @Test
