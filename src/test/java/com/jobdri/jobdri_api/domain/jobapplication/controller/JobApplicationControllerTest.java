@@ -5,6 +5,10 @@ import com.jobdri.jobdri_api.domain.user.repository.UserRepository;
 import com.jobdri.jobdri_api.global.security.UserDetailsImpl;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import jakarta.persistence.EntityManager;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,6 +28,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
@@ -35,6 +40,8 @@ import static org.mockito.Mockito.when;
 class JobApplicationControllerTest {
 
     @Autowired MockMvc mockMvc;
+    @Autowired EntityManager entityManager;
+    @Autowired ObjectMapper objectMapper;
     @Autowired UserRepository userRepository;
     @Autowired com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationService applications;
     @MockitoBean com.jobdri.jobdri_api.domain.jobapplication.service.JobApplicationIngestService ingestService;
@@ -308,6 +315,131 @@ class JobApplicationControllerTest {
                 .andExpect(jsonPath("$.result.requiredSkills[0]").value("Java"))
                 .andExpect(jsonPath("$.result.memo").value("면접 메모"))
                 .andExpect(jsonPath("$.result.checklistItems[0].content").value("서류 제출"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "2026-12-01T18:00:00, , ",
+            ", 2026-11-25T14:30:00, 면접 예정",
+            ", , "
+    })
+    @DisplayName("기존 일정 세 조합은 상세 조회 및 메모 수정 후 재조회에서도 유지된다")
+    void preservesLegacyScheduleAfterUpdatingMemo(
+            String deadlineAt, String currentAt, String currentLabel
+    ) throws Exception {
+        User owner = saveUser();
+        var request = objectMapper.createObjectNode()
+                .put("companyName", "기업")
+                .put("postingName", "공고")
+                .put("jobTitle", "직무")
+                .put("deadlineAt", deadlineAt)
+                .put("currentAt", currentAt)
+                .put("currentLabel", currentLabel);
+        var created = mockMvc.perform(post("/api/job-applications")
+                        .with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk())
+                .andReturn();
+        long id = objectMapper.readTree(created.getResponse().getContentAsString())
+                .path("result").path("jobApplicationId").asLong();
+        entityManager.flush();
+        entityManager.clear();
+
+        var firstGet = mockMvc.perform(get("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andReturn();
+        var before = objectMapper.readTree(firstGet.getResponse().getContentAsString()).path("result");
+        for (String field : java.util.List.of("deadlineAt", "currentAt", "currentLabel")) {
+            assertThat(before.get(field)).as("최초 조회 %s", field).isEqualTo(request.get(field));
+        }
+
+        request.put("expectedRevision", before.path("revision").asLong())
+                .put("memo", "일정 외 메모 수정");
+        mockMvc.perform(put("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isOk());
+        entityManager.flush();
+        entityManager.clear();
+
+        var secondGet = mockMvc.perform(get("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.memo").value("일정 외 메모 수정"))
+                .andReturn();
+        var after = objectMapper.readTree(secondGet.getResponse().getContentAsString()).path("result");
+        for (String field : java.util.List.of("deadlineAt", "currentAt", "currentLabel")) {
+            assertThat(after.get(field)).as("수정 후 재조회 %s", field).isEqualTo(before.get(field));
+        }
+        assertThat(after.path("revision").asLong()).isEqualTo(before.path("revision").asLong() + 1);
+
+        var changedRequest = request.deepCopy()
+                .put("expectedRevision", after.path("revision").asLong())
+                .put("deadlineAt", "2026-12-10T18:00:00")
+                .put("currentAt", "2026-12-05T14:30:00")
+                .put("currentLabel", "변경된 면접")
+                .put("memo", "다른 편집에서 저장한 메모");
+        mockMvc.perform(put("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(changedRequest)))
+                .andExpect(status().isOk());
+        entityManager.flush();
+        entityManager.clear();
+
+        var changedGet = mockMvc.perform(get("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andReturn();
+        var changed = objectMapper.readTree(changedGet.getResponse().getContentAsString()).path("result");
+        for (String field : java.util.List.of("deadlineAt", "currentAt", "currentLabel", "memo")) {
+            assertThat(changed.get(field)).as("선행 변경 %s", field).isEqualTo(changedRequest.get(field));
+        }
+        assertThat(changed.path("revision").asLong()).isEqualTo(after.path("revision").asLong() + 1);
+
+        request.put("expectedRevision", after.path("revision").asLong())
+                .put("memo", "오래된 편집에서 시도한 메모");
+        mockMvc.perform(put("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(request)))
+                .andExpect(status().isConflict());
+        entityManager.flush();
+        entityManager.clear();
+
+        var conflictGet = mockMvc.perform(get("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andReturn();
+        var unchanged = objectMapper.readTree(conflictGet.getResponse().getContentAsString()).path("result");
+        for (String field : java.util.List.of("deadlineAt", "currentAt", "currentLabel", "memo", "revision")) {
+            assertThat(unchanged.get(field)).as("충돌 후 재조회 %s", field).isEqualTo(changed.get(field));
+        }
+
+        var retry = changedRequest.deepCopy()
+                .put("expectedRevision", unchanged.path("revision").asLong())
+                .put("memo", "최신 조회 후 재시도한 메모");
+        mockMvc.perform(put("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(retry)))
+                .andExpect(status().isOk());
+        entityManager.flush();
+        entityManager.clear();
+
+        var retryGet = mockMvc.perform(get("/api/job-applications/{id}", id)
+                        .with(user(new UserDetailsImpl(owner))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.result.memo").value("최신 조회 후 재시도한 메모"))
+                .andReturn();
+        var retried = objectMapper.readTree(retryGet.getResponse().getContentAsString()).path("result");
+        for (String field : java.util.List.of("deadlineAt", "currentAt", "currentLabel")) {
+            assertThat(retried.get(field)).as("재시도 후 일정 %s", field).isEqualTo(changed.get(field));
+        }
+        assertThat(retried.path("revision").asLong()).isEqualTo(changed.path("revision").asLong() + 1);
     }
 
     @Test
