@@ -63,7 +63,7 @@ sum(increase(fewshot_selection_count_total[10m])) >= 20
 
 추가 라벨: `signal=static_fallback`
 
-## 3. Cohere 실패 비율 경보
+## 3. 선택 요청 대비 Cohere 실패 비율 경보
 
 - 이름: `JobDri Few-shot Cohere failure ratio high`
 - 심각도: `warning`
@@ -82,6 +82,9 @@ sum(increase(fewshot_selection_count_total[10m])) >= 20
 
 10분간 selection이 20건 이상이면서 Cohere 선택 실패가 selection 요청의 5%를 초과한 상태가
 3분간 지속되면 발동합니다.
+
+분모는 캐시 hit와 fallback을 포함한 Few-shot 선택 요청 수입니다. Cohere HTTP 호출 시도 수를
+분모로 사용하지 않습니다. flag 비활성·rollout 제외 작업은 선택 요청 수에 포함되지 않습니다.
 
 추가 라벨: `signal=cohere_failure`, `dependency=cohere`
 
@@ -131,8 +134,9 @@ Discord를 직접 연결한 경우 각 규칙의 **Configure notifications > Sel
    않습니다.
 4. canary 단계라면 트래픽 확대를 즉시 중단합니다.
 5. 영향이 지속되면 `ANALYSIS_FEW_SHOT_DYNAMIC_SELECTION_ENABLED=false`로 재배포합니다.
-6. 복귀 후 selection이 기존 정적 경로로 처리되는지 확인하고 발생 시각, datasetVersion,
-   실패 reason, 지연을 장애 기록에 남깁니다.
+6. 변경 설정으로 context snapshot을 처음 생성한 작업에서 `fewShot`이 생략되고 worker 분석이
+   정상 완료되는지 확인합니다. 기존 snapshot 재시도는 저장된 Few-shot을 유지합니다.
+   발생 시각, datasetVersion, 실패 reason, 지연을 장애 기록에 남깁니다.
 
 ## 초기에는 경보로 만들지 않는 항목
 
