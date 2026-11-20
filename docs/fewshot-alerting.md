@@ -84,7 +84,7 @@ sum(increase(fewshot_selection_count_total[10m])) >= 20
 3분간 지속되면 발동합니다.
 
 분모는 캐시 hit와 fallback을 포함한 Few-shot 선택 요청 수입니다. Cohere HTTP 호출 시도 수를
-분모로 사용하지 않습니다. flag 비활성·rollout 제외 작업은 선택 요청 수에 포함되지 않습니다.
+분모로 사용하지 않습니다. flag 비활성·rollout 제외 작업은 선택 요청 수에 포함되지 않습니다. `awaitSelection`에서 timeout되어 `recordMetrics`가 실행되지 않은 예외 종료 요청도 이후 `STATIC_FALLBACK` 처리 여부와 관계없이 분모에서 제외됩니다.
 
 추가 라벨: `signal=cohere_failure`, `dependency=cohere`
 

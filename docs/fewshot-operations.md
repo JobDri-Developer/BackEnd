@@ -47,7 +47,7 @@ sum(increase(fewshot_cohere_logical_calls_total[1h]))
 Cohere 실패 비율의 분자는 `fewshot_cohere_failure_count_total`, 분모는 같은 구간의
 `fewshot_selection_count_total`입니다. 캐시 hit와 fallback을 포함한 선택 요청 대비 실패 비율이며,
 Cohere HTTP 시도 대비 실패율이나 재시도별 실패율은 측정하지 않습니다. flag 비활성 또는
-rollout 제외로 선택을 수행하지 않은 작업은 분모에서 제외됩니다.
+rollout 제외로 선택을 수행하지 않은 작업은 분모에서 제외됩니다. `awaitSelection`에서 timeout되어 `recordMetrics`가 실행되지 않은 예외 종료 요청도 이후 `STATIC_FALLBACK` 처리 여부와 관계없이 분모에서 제외됩니다.
 
 ## Grafana Cloud 대시보드
 
