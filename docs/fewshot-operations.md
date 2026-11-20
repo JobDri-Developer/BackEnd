@@ -44,6 +44,11 @@ sum(rate(fewshot_cohere_failure_count_total[10m])) by (reason)
 sum(increase(fewshot_cohere_logical_calls_total[1h]))
 ```
 
+Cohere 실패 비율의 분자는 `fewshot_cohere_failure_count_total`, 분모는 같은 구간의
+`fewshot_selection_count_total`입니다. 캐시 hit와 fallback을 포함한 선택 요청 대비 실패 비율이며,
+Cohere HTTP 시도 대비 실패율이나 재시도별 실패율은 측정하지 않습니다. flag 비활성 또는
+rollout 제외로 선택을 수행하지 않은 작업은 분모에서 제외됩니다. `awaitSelection`에서 timeout되어 `recordMetrics`가 실행되지 않은 예외 종료 요청도 이후 `STATIC_FALLBACK` 처리 여부와 관계없이 분모에서 제외됩니다.
+
 ## Grafana Cloud 대시보드
 
 저장소의 `ops/observability/grafana/fewshot-dashboard.json`을 Grafana Cloud의
@@ -51,10 +56,14 @@ sum(increase(fewshot_cohere_logical_calls_total[1h]))
 선택합니다. 이 대시보드는 다음 항목을 한 화면에서 확인합니다.
 
 - selection mode별 요청률, 10분 LOCAL fallback 비율, STATIC fallback 건수
-- selection P95와 mode별 지연 추이
-- Cohere 실패 reason과 시간당 논리 호출량
+- selection 평균·P95와 mode별 지연 추이
+- Cohere 실패 reason, 선택 요청 대비 실패 비율과 시간당 논리 호출량
 - 평균 선택 후보 수
 - 캐시별 hit 비율과 expired·evicted 건수
+
+평균 지연은 Timer의 소요시간 합을 측정 횟수로 나누어 계산합니다. 새 평균·실패 비율 패널은
+분모가 0이거나 필요한 시계열이 없으면 유효한 비율을 표시하지 않습니다. 요청 부재를 성공으로
+판정하지 않고, 지표 수집 상태와 요청 표본을 함께 확인합니다.
 
 패널이 `No data`이면 먼저 Grafana **Explore**에서 `fewshot_selection_count_total`을 조회합니다.
 지표 자체가 없으면 해당 인스턴스에서 동적 Few-shot 요청이 발생했는지와 Grafana Cloud로
@@ -160,7 +169,7 @@ ANALYSIS_FEW_SHOT_MINIMUM_SELECTED_COUNT=2
 ## 즉시 복귀
 
 1. 활성 인스턴스의 `ANALYSIS_FEW_SHOT_DYNAMIC_SELECTION_ENABLED=false`로 재배포합니다.
-2. Worker 경로의 신규 분석이 동적 Few-shot context 없이 정상 완료되는지 확인합니다.
+2. 변경 설정을 적용한 인스턴스에서 context snapshot을 처음 만드는 작업이 Few-shot context 없이 정상 완료되는지 확인합니다.
 3. 동적 선택 로그와 신규 Few-shot selection 지표가 없다는 사실만으로 flag 비활성을 판단하지
    않습니다. 활성 컨테이너의 `SPRING_PROFILES_ACTIVE`,
    `ANALYSIS_FEW_SHOT_DYNAMIC_SELECTION_ENABLED`,
@@ -181,9 +190,16 @@ docker inspect jobdri-api \
 flag 비활성과 rollout 제외를 구분하는 근거가 아니며, 카나리 기동 로그의
 `workerRolloutPercentage`와 활성 설정을 함께 확인합니다.
 
-현재 비동기 Worker 경로에서 flag를 끄면 optional `fewShot` context를 전달하지 않습니다. 이는
-`STATIC_FALLBACK`이 아니며, worker는 동적 Few-shot block 없이 기존 분석을 계속합니다. 동기
-Backend 프롬프트 경로의 정적 Few-shot과 혼동하지 않습니다. API 응답·DB 스키마는 바뀌지 않습니다.
+비동기 Worker 경로에서 flag를 끄면, 변경 설정을 적용한 Backend가 context snapshot을
+처음 생성할 때 optional `fewShot`을 생략합니다. Python worker는 이 경우 Few-shot 예시 블록을
+추가하지 않고 분석합니다.
+
+이미 context snapshot이 저장된 작업은 재시도에서도 해당 snapshot을 재사용합니다. flag 변경은
+그 안의 Few-shot을 제거하지 않습니다. 설정 변경 전에 생성된 snapshot과 변경 후 처음 생성된
+snapshot을 구분해 복귀 결과를 확인합니다. 기존 snapshot은 재시도의 입력 일관성을 위해 유지합니다.
+
+`STATIC_FALLBACK`은 동적 선택 실패 시 정적 예시 블록을 선택하는 경로입니다. flag 비활성화에
+따른 worker 예시 블록 생략은 별도의 동작입니다.
 
 ## 활성화 승인 조건
 

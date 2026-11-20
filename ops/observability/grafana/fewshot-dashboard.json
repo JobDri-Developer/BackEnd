@@ -279,6 +279,90 @@
       ],
       "title": "Static fallback count (10m)",
       "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "Few-shot 선택 소요시간 합 / 선택 횟수. 전체 분석 소요시간은 별도로 관측합니다. awaitSelection에서 timeout되어 recordMetrics가 실행되지 않은 예외 종료 요청은 이후 STATIC_FALLBACK 처리 여부와 관계없이 선택 횟수와 소요시간 집계에서 제외됩니다.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 30
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "sum(rate(fewshot_selection_duration_seconds_sum[$__rate_interval])) / sum(rate(fewshot_selection_duration_seconds_count[$__rate_interval]))",
+          "legendFormat": "Selection mean latency",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Selection mean latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "description": "분자: Cohere 선택 실패 수. 분모: 캐시 hit·fallback 포함 Few-shot 선택 요청 수. Cohere HTTP 시도 대비 실패율이 아닙니다. flag 비활성·rollout 제외 작업은 분모에서 제외됩니다. awaitSelection에서 timeout되어 recordMetrics가 실행되지 않은 예외 종료 요청은 이후 STATIC_FALLBACK 처리 여부와 관계없이 선택 횟수와 소요시간 집계에서 제외됩니다.",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 30
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "100 * sum(increase(fewshot_cohere_failure_count_total[10m])) / sum(increase(fewshot_selection_count_total[10m]))",
+          "legendFormat": "Cohere failures / selection requests (10m)",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Cohere failures / selection requests (10m)",
+      "type": "timeseries"
     }
   ],
   "refresh": "30s",
@@ -307,6 +391,6 @@
   "timezone": "browser",
   "title": "JobDri / Dynamic Few-shot",
   "uid": "jobdri-fewshot",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }

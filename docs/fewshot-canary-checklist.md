@@ -91,7 +91,7 @@ APP_WORKER_ANALYSIS_PROMPT_MAX_CHARS=120000
 - [ ] 최근 10분 selection 표본이 20건 이상인지 함께 확인한다.
 - [ ] LOCAL_FALLBACK 비율이 25% 이하인지 확인한다.
 - [ ] STATIC_FALLBACK이 0건인지 확인한다.
-- [ ] Cohere 실패 비율이 5% 이하인지 확인한다.
+- [ ] 선택 요청 대비 Cohere 실패 비율이 5% 이하인지 확인한다.
 - [ ] selection P95가 2초 이하인지 확인한다.
 - [ ] 분석 전체 P95를 기록한다. Few-shot 전용 baseline 수립 전에는 확대 조건으로 사용하지 않는다.
 - [ ] Cohere 호출량을 기록한다. 전용 baseline 수립 전에는 확대 조건으로 사용하지 않는다.
@@ -109,7 +109,7 @@ APP_WORKER_ANALYSIS_PROMPT_MAX_CHARS=120000
 복귀 절차:
 
 1. `SPRING_PROFILES_ACTIVE=prod`로 되돌리거나 `ANALYSIS_FEW_SHOT_DYNAMIC_SELECTION_ENABLED=false`로 재배포한다.
-2. Worker 경로에서는 신규 분석이 동적 Few-shot context 없이 정상 완료되는지 확인한다.
+2. 변경 설정으로 context snapshot을 처음 생성한 작업은 `fewShot` 없이 worker 분석이 정상 완료되는지 확인한다. 기존 snapshot 재시도는 저장된 Few-shot을 유지하므로 적용 범위를 구분한다.
 3. Discord 경보가 Resolved로 전환되는지 확인한다.
 4. 발생 시각, datasetVersion, 선택 ID, failure reason, P95를 기록한다.
 5. 승인 리소스와 캐시는 삭제하지 않고 원인 수정 후 내부 환경에서 다시 검증한다.
