@@ -54,6 +54,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             if (jwtUtil.validateToken(token)) {
                 Claims claims = jwtUtil.getClaimsFromToken(token);
+                if (!jwtUtil.isAccessToken(claims)) {
+                    log.warn("access token이 아닌 토큰으로 인증을 시도해 인증 없이 요청을 진행합니다.");
+                    filterChain.doFilter(request, response);
+                    return;
+                }
                 String email = jwtUtil.getEmailFromToken(claims);
 
                 UserDetails userDetails = createUserDetails(claims);

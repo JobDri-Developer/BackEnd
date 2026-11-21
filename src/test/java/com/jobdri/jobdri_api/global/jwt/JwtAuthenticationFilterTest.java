@@ -53,6 +53,7 @@ class JwtAuthenticationFilterTest {
         when(jwtUtil.substringToken(JwtUtil.BEARER_PREFIX + "access-token")).thenReturn("access-token");
         when(jwtUtil.validateToken("access-token")).thenReturn(true);
         when(jwtUtil.getClaimsFromToken("access-token")).thenReturn(claims);
+        when(jwtUtil.isAccessToken(claims)).thenReturn(true);
         when(jwtUtil.getEmailFromToken(claims)).thenReturn("user@example.com");
         when(jwtUtil.getUserIdFromToken(claims)).thenReturn(42L);
         when(jwtUtil.getRoleFromToken(claims)).thenReturn(UserRole.USER);
@@ -84,6 +85,7 @@ class JwtAuthenticationFilterTest {
         when(jwtUtil.substringToken(JwtUtil.BEARER_PREFIX + "legacy-token")).thenReturn("legacy-token");
         when(jwtUtil.validateToken("legacy-token")).thenReturn(true);
         when(jwtUtil.getClaimsFromToken("legacy-token")).thenReturn(claims);
+        when(jwtUtil.isAccessToken(claims)).thenReturn(true);
         when(jwtUtil.getEmailFromToken(claims)).thenReturn("legacy@example.com");
         when(jwtUtil.getUserIdFromToken(claims)).thenReturn(7L);
         when(jwtUtil.getRoleFromToken(claims)).thenReturn(null);
@@ -110,6 +112,7 @@ class JwtAuthenticationFilterTest {
         when(jwtUtil.substringToken(JwtUtil.BEARER_PREFIX + "access-token")).thenReturn("access-token");
         when(jwtUtil.validateToken("access-token")).thenReturn(true);
         when(jwtUtil.getClaimsFromToken("access-token")).thenReturn(claims);
+        when(jwtUtil.isAccessToken(claims)).thenReturn(true);
         when(jwtUtil.getEmailFromToken(claims)).thenReturn("user@example.com");
         when(jwtUtil.getUserIdFromToken(claims)).thenReturn(42L);
         when(jwtUtil.getRoleFromToken(claims)).thenReturn(UserRole.USER);
@@ -118,6 +121,28 @@ class JwtAuthenticationFilterTest {
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNotNull();
         verify(authRedisMetricsRecorder).incrementBlacklistFallback("redis_error");
+        verify(filterChain).doFilter(request, response);
+    }
+
+    @Test
+    @DisplayName("refresh token으로는 인증 객체를 만들지 않고 요청을 그대로 넘긴다")
+    void doesNotAuthenticateWithRefreshToken() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader(JwtUtil.AUTHORIZATION_HEADER, JwtUtil.BEARER_PREFIX + "refresh-token");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        FilterChain filterChain = mock(FilterChain.class);
+        Claims claims = mock(Claims.class);
+
+        when(redisTemplate.hasKey("Blacklist:refresh-token")).thenReturn(false);
+        when(jwtUtil.substringToken(JwtUtil.BEARER_PREFIX + "refresh-token")).thenReturn("refresh-token");
+        when(jwtUtil.validateToken("refresh-token")).thenReturn(true);
+        when(jwtUtil.getClaimsFromToken("refresh-token")).thenReturn(claims);
+        when(jwtUtil.isAccessToken(claims)).thenReturn(false);
+
+        filter.doFilter(request, response, filterChain);
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+        verify(userDetailsService, never()).loadUserByUsername(org.mockito.ArgumentMatchers.anyString());
         verify(filterChain).doFilter(request, response);
     }
 }

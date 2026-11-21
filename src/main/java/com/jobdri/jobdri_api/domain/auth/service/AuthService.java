@@ -116,7 +116,9 @@ public class AuthService {
         Claims accessClaims = jwtUtil.getClaimsFromExpiredToken(request.accessToken());
         Long accessUserId = accessClaims.get("userId", Long.class);
 
-        if (accessUserId == null || !jwtUtil.validateToken(request.refreshToken())) {
+        if (accessUserId == null
+                || !jwtUtil.isAccessToken(accessClaims)
+                || !jwtUtil.validateRefreshToken(request.refreshToken())) {
             throw new GeneralException(GeneralErrorCode.INVALID_TOKEN);
         }
 

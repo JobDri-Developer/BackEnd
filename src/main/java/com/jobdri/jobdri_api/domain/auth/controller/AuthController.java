@@ -4,6 +4,7 @@ import com.jobdri.jobdri_api.domain.auth.dto.request.EmailSendRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.EmailVerificationRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.LoginRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.LogoutRequest;
+import com.jobdri.jobdri_api.domain.auth.dto.request.OAuth2TokenExchangeRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.PasswordResetConfirmationRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.PasswordResetEmailRequest;
 import com.jobdri.jobdri_api.domain.auth.dto.request.ReissueTokenRequest;
@@ -12,6 +13,7 @@ import com.jobdri.jobdri_api.domain.auth.dto.response.LoginResponse;
 import com.jobdri.jobdri_api.domain.auth.dto.response.ReissueTokenResponse;
 import com.jobdri.jobdri_api.domain.auth.service.AuthService;
 import com.jobdri.jobdri_api.domain.auth.service.EmailService;
+import com.jobdri.jobdri_api.domain.auth.service.OAuth2LoginCodeService;
 import com.jobdri.jobdri_api.global.apiPayload.ApiResponse;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -35,6 +37,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final EmailService emailService;
+    private final OAuth2LoginCodeService oAuth2LoginCodeService;
 
     @Operation(summary = "이메일 인증번호 발송", description = "회원가입을 위해 이메일로 인증번호를 발송합니다.")
     @ApiResponses(value = {
@@ -120,6 +123,29 @@ public class AuthController {
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         return ApiResponse.onSuccess("로그인에 성공했습니다.", authService.login(request));
+    }
+
+    @Operation(
+            summary = "소셜 로그인 토큰 교환",
+            description = "소셜 로그인 성공 후 redirect URL의 code 쿼리 파라미터로 받은 일회용 코드를 access token 및 refresh token으로 교환합니다. 코드는 60초 동안 한 번만 사용할 수 있습니다."
+    )
+    @ApiResponses(value = {
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "200", description = "토큰 교환 성공",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":true,\"code\":\"COMMON2000\",\"message\":\"로그인에 성공했습니다.\",\"result\":{\"accessToken\":\"eyJ...\",\"refreshToken\":\"eyJ...\"},\"error\":null}")
+                    )
+            ),
+            @io.swagger.v3.oas.annotations.responses.ApiResponse(responseCode = "401", description = "만료되었거나 이미 사용된 코드",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = ApiResponse.class),
+                            examples = @ExampleObject(value = "{\"isSuccess\":false,\"code\":\"AUTH_4012\",\"message\":\"유효하지 않은 토큰입니다.\",\"result\":null,\"error\":\"로그인 코드가 만료되었거나 이미 사용되었습니다.\"}")
+                    )
+            )
+    })
+    @PostMapping("/oauth2/token")
+    public ApiResponse<LoginResponse> exchangeOAuth2LoginCode(@Valid @RequestBody OAuth2TokenExchangeRequest request) {
+        return ApiResponse.onSuccess("로그인에 성공했습니다.", oAuth2LoginCodeService.exchange(request.code()));
     }
 
     @Operation(summary = "토큰 재발급", description = "만료된 access token과 유효한 refresh token으로 토큰을 재발급합니다.")

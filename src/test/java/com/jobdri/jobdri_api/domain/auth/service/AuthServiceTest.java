@@ -290,13 +290,49 @@ class AuthServiceTest {
     }
 
     @Test
+    @DisplayName("토큰 재발급은 refresh token 자리에 access token을 넣으면 거부한다")
+    void reissueRejectsAccessTokenInRefreshTokenSlot() {
+        Claims claims = mock(Claims.class);
+        when(claims.get("userId", Long.class)).thenReturn(1L);
+        when(jwtUtil.getClaimsFromExpiredToken("expired-access-token")).thenReturn(claims);
+        when(jwtUtil.isAccessToken(claims)).thenReturn(true);
+        when(jwtUtil.validateRefreshToken("another-access-token")).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.reissueToken(
+                new ReissueTokenRequest("expired-access-token", "another-access-token")
+        ))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_TOKEN);
+        verify(redisTemplate, never()).opsForValue();
+    }
+
+    @Test
+    @DisplayName("토큰 재발급은 access token 자리에 refresh token 계열 토큰을 넣으면 거부한다")
+    void reissueRejectsNonAccessTokenInAccessTokenSlot() {
+        Claims claims = mock(Claims.class);
+        when(claims.get("userId", Long.class)).thenReturn(1L);
+        when(jwtUtil.getClaimsFromExpiredToken("refresh-token")).thenReturn(claims);
+        when(jwtUtil.isAccessToken(claims)).thenReturn(false);
+
+        assertThatThrownBy(() -> authService.reissueToken(
+                new ReissueTokenRequest("refresh-token", "refresh-token")
+        ))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.INVALID_TOKEN);
+        verify(redisTemplate, never()).opsForValue();
+    }
+
+    @Test
     @DisplayName("비밀번호 재설정 중 reissue가 끼어들어도 stale refresh token은 저장되지 않는다")
     void resetPasswordSerializesRefreshTokenDeletionAgainstReissue() {
         User user = localUser(1L, "reset@example.com");
         Claims claims = mock(Claims.class);
         when(claims.get("userId", Long.class)).thenReturn(1L);
         when(jwtUtil.getClaimsFromExpiredToken("expired-access-token")).thenReturn(claims);
-        when(jwtUtil.validateToken("old-refresh-token")).thenReturn(true);
+        when(jwtUtil.isAccessToken(claims)).thenReturn(true);
+        when(jwtUtil.validateRefreshToken("old-refresh-token")).thenReturn(true);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
         when(valueOperations.get(anyString())).thenReturn("1");
         when(valueOperations.setIfAbsent(
