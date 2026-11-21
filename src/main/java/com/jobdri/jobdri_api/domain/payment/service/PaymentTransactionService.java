@@ -185,7 +185,7 @@ public class PaymentTransactionService {
             throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "환불 요청 결제수단이 일치하지 않습니다.");
         }
         payment.refundByProviderStatus(externalStatus, reason);
-        int creditBalance = creditService.use(
+        int creditBalance = creditService.recoverForRefund(
                 user,
                 payment.getCreditAmount(),
                 "결제 환불 크레딧 회수",
@@ -275,7 +275,7 @@ public class PaymentTransactionService {
         validatePortOnePayment(payment, snapshot, expectedStoreId);
         return applyGatewayPaymentTransition(
                 payment,
-                snapshot.status(),
+                resolvePortOneStatus(payment, snapshot.status()),
                 snapshot.externalStatus(),
                 snapshot.externalTransactionId(),
                 chargeReferenceId(payment)
@@ -426,7 +426,7 @@ public class PaymentTransactionService {
 
     private int refundAndRecover(User user, Payment payment, String providerStatus) {
         payment.refundByProviderStatus(providerStatus, null);
-        return creditService.use(
+        return creditService.recoverForRefund(
                 user,
                 payment.getCreditAmount(),
                 "결제 환불 크레딧 회수",
@@ -436,6 +436,17 @@ public class PaymentTransactionService {
 
     private PaymentConfirmResponse currentConfirmResponse(Payment payment, User user) {
         return PaymentConfirmResponse.of(payment, user.getCredit());
+    }
+
+    /**
+     * 포트원은 결제 완료 후 전액 취소되면 별도 환불 상태 없이 CANCELLED가 된다.
+     * 이미 크레딧을 지급한 결제의 CANCELLED는 환불로 처리해 크레딧을 회수한다.
+     */
+    private GatewayPaymentStatus resolvePortOneStatus(Payment payment, GatewayPaymentStatus status) {
+        if (payment.getStatus() == PaymentStatus.COMPLETED && status == GatewayPaymentStatus.CANCELED) {
+            return GatewayPaymentStatus.REFUNDED;
+        }
+        return status;
     }
 
     private String chargeReferenceId(Payment payment) {

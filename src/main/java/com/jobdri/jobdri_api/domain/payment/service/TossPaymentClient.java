@@ -76,7 +76,11 @@ public class TossPaymentClient {
             }
             return response;
         } catch (HttpStatusCodeException e) {
-            try (var ignored = LoggingContext.with("payment.confirm.failed", GeneralErrorCode.PAYMENT_CONFIRM_FAILED, paymentContext)) {
+            // 4xx는 토스가 승인을 거절한 확정 실패, 5xx는 승인 여부를 알 수 없는 상태다.
+            GeneralErrorCode errorCode = e.getStatusCode().is5xxServerError()
+                    ? GeneralErrorCode.PAYMENT_CONFIRM_UNKNOWN
+                    : GeneralErrorCode.PAYMENT_CONFIRM_FAILED;
+            try (var ignored = LoggingContext.with("payment.confirm.failed", errorCode, paymentContext)) {
                 log.warn(
                         "Toss payment confirm failed. status={}, response={}",
                         e.getStatusCode(),
@@ -85,7 +89,7 @@ public class TossPaymentClient {
                 log.warn("Toss payment confirm exception", e);
             }
             throw new GeneralException(
-                    GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
+                    errorCode,
                     "토스페이먼츠 결제 승인 실패",
                     e
             );
@@ -101,25 +105,53 @@ public class TossPaymentClient {
                         e
                 );
             }
-            try (var ignored = LoggingContext.with("payment.confirm.failed", GeneralErrorCode.PAYMENT_CONFIRM_FAILED, paymentContext)) {
+            try (var ignored = LoggingContext.with("payment.confirm.unknown", GeneralErrorCode.PAYMENT_CONFIRM_UNKNOWN, paymentContext)) {
                 log.warn("Toss payment confirm request failed. message={}", TossHttpClientSupport.truncate(e.getMessage()));
                 log.warn("Toss payment confirm request exception", e);
             }
             throw new GeneralException(
-                    GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
+                    GeneralErrorCode.PAYMENT_CONFIRM_UNKNOWN,
                     "토스페이먼츠 결제 승인 중 오류 발생",
                     e
             );
         } catch (RestClientException e) {
-            try (var ignored = LoggingContext.with("payment.confirm.failed", GeneralErrorCode.PAYMENT_CONFIRM_FAILED, paymentContext)) {
+            // 응답 해석 실패 등은 토스에서 이미 승인됐을 수 있으므로 결과 불명으로 본다.
+            try (var ignored = LoggingContext.with("payment.confirm.unknown", GeneralErrorCode.PAYMENT_CONFIRM_UNKNOWN, paymentContext)) {
                 log.warn("Toss payment confirm request failed. message={}", TossHttpClientSupport.truncate(e.getMessage()));
                 log.warn("Toss payment confirm request exception", e);
             }
             throw new GeneralException(
-                    GeneralErrorCode.PAYMENT_CONFIRM_FAILED,
+                    GeneralErrorCode.PAYMENT_CONFIRM_UNKNOWN,
                     "토스페이먼츠 결제 승인 중 오류 발생",
                     e
             );
+        }
+    }
+
+    /**
+     * 승인은 됐지만 서비스에서 받을 수 없는 결제를 전액 취소한다.
+     * 같은 주문의 취소 요청은 멱등 키로 한 번만 처리된다.
+     */
+    public void cancel(String paymentKey, String orderId, String cancelReason) {
+        Map<String, String> paymentContext = PaymentLogMasking.paymentContext(orderId, null);
+        try {
+            restClient
+                    .post()
+                    .uri("/v1/payments/{paymentKey}/cancel", paymentKey)
+                    .header(HttpHeaders.AUTHORIZATION, authorizationHeader())
+                    .header("Idempotency-Key", "cancel-" + orderId)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(Map.of("cancelReason", cancelReason))
+                    .retrieve()
+                    .toBodilessEntity();
+            try (var ignored = LoggingContext.with("payment.confirm.auto_cancel_succeeded", null, paymentContext)) {
+                log.info("Toss payment auto cancel succeeded");
+            }
+        } catch (RestClientException e) {
+            try (var ignored = LoggingContext.with("payment.confirm.auto_cancel_failed", GeneralErrorCode.PAYMENT_REFUND_FAILED, paymentContext)) {
+                log.warn("Toss payment auto cancel failed. message={}", TossHttpClientSupport.truncate(e.getMessage()));
+            }
+            throw new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "토스페이먼츠 결제 취소 실패", e);
         }
     }
 

@@ -1390,6 +1390,181 @@ class PaymentServiceTest {
                 .isEqualTo(GeneralErrorCode.FORBIDDEN);
     }
 
+    @Test
+    @DisplayName("PG 환불 중 사용자가 크레딧을 써도 결제는 REFUNDED로 확정하고 남은 잔액만 회수한다")
+    void refundCompletesEvenWhenCreditSpentDuringExternalRefund() {
+        User admin = saveAdmin("payment-refund-spent-during-admin@example.com");
+        User user = saveUser("payment-refund-spent-during-user@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+        paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        when(portOneClient.cancelPayment(prepared.orderId(), prepared.amount(), "테스트 환불"))
+                .thenAnswer(invocation -> {
+                    User spender = userRepository.findById(user.getId()).orElseThrow();
+                    spender.decreaseCredit(2);
+                    userRepository.saveAndFlush(spender);
+                    return new PortOneCancelResponse(new PortOneCancellation(
+                            "cancel-" + prepared.orderId(),
+                            "SUCCEEDED",
+                            prepared.amount()
+                    ));
+                });
+
+        PaymentRefundResponse response = paymentService.refund(admin, payment.getId(), new PaymentRefundRequest("테스트 환불"));
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(paymentRepository.findById(payment.getId()).orElseThrow().getStatus()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isZero();
+    }
+
+    @Test
+    @DisplayName("포트원 취소 재시도가 실패해도 이미 취소된 결제면 환불 완료로 처리하고 크레딧은 한 번만 회수한다")
+    void refundTreatsAlreadyCancelledPortOnePaymentAsSuccess() {
+        User admin = saveAdmin("payment-refund-already-cancelled-admin@example.com");
+        User user = saveUser("payment-refund-already-cancelled-user@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+        paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+        Payment payment = paymentRepository.findByOrderId(prepared.orderId()).orElseThrow();
+        when(portOneClient.cancelPayment(prepared.orderId(), prepared.amount(), "테스트 환불"))
+                .thenThrow(new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "이미 취소된 결제"));
+        mockPortOnePayment(prepared, "CANCELLED", prepared.amount());
+
+        PaymentRefundResponse response = paymentService.refund(admin, payment.getId(), new PaymentRefundRequest("테스트 환불"));
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.USE
+        )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("완료된 포트원 결제에 CANCELLED 웹훅이 오면 환불로 처리하고 크레딧을 회수한다")
+    void portOneCancelledWebhookRefundsCompletedPayment() {
+        User user = saveUser("payment-portone-cancelled-webhook@example.com");
+        PaymentPrepareResponse prepared = preparePortOne(user);
+        mockPortOnePayment(prepared, "PAID", prepared.amount());
+        paymentService.completePortOne(user, new PortOnePaymentCompleteRequest(prepared.orderId()));
+        mockPortOnePayment(prepared, "CANCELLED", prepared.amount());
+        String rawBody = portOneWebhookBody(prepared.orderId());
+
+        paymentService.handlePortOneWebhook(rawBody, signedWebhookHeaders(rawBody));
+        paymentService.handlePortOneWebhook(rawBody, signedWebhookHeaders(rawBody));
+
+        assertThat(paymentRepository.findByOrderId(prepared.orderId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+        assertThat(creditTransactionRepository.findAllByUserIdAndTypeOrderByCreatedAtDescIdDesc(
+                user.getId(),
+                CreditTransactionType.USE
+        )).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("토스페이 환불 콜백은 사용자가 크레딧을 이미 썼어도 실패하지 않고 결제를 REFUNDED로 기록한다")
+    void tossPayRefundCallbackRecordsRefundEvenWhenCreditSpent() {
+        User user = saveUser("payment-tosspay-refund-callback-spent@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        mockTossPayStatus(prepared, TossPayStatus.PAY_COMPLETE, prepared.amount());
+        paymentService.handleTossPayCallback(tossPayCompleteCallback(prepared));
+        User spender = userRepository.findById(user.getId()).orElseThrow();
+        spender.decreaseCredit(2);
+        userRepository.saveAndFlush(spender);
+        mockTossPayStatus(prepared, TossPayStatus.REFUND_SUCCESS, prepared.amount());
+
+        paymentService.handleTossPayCallback(tossPayCompleteCallback(prepared));
+
+        assertThat(paymentRepository.findByOrderId(prepared.orderId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.REFUNDED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isZero();
+    }
+
+    @Test
+    @DisplayName("토스 승인 결과를 알 수 없으면 UNKNOWN으로 남기고 같은 요청으로 다시 승인할 수 있다")
+    void confirmCanRetryAfterUnknownOutcome() {
+        User user = saveUser("payment-confirm-unknown-retry@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        String paymentKey = "payment-key-" + prepared.orderId();
+        when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
+                .thenThrow(new GeneralException(GeneralErrorCode.PAYMENT_CONFIRM_UNKNOWN, "toss 5xx"))
+                .thenReturn(tossPayResponse(paymentKey, prepared, 2500));
+        PaymentConfirmRequest request = new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500);
+
+        assertThatThrownBy(() -> paymentService.confirm(user, request))
+                .isInstanceOf(GeneralException.class)
+                .extracting("code")
+                .isEqualTo(GeneralErrorCode.PAYMENT_CONFIRM_UNKNOWN);
+        assertThat(paymentRepository.findByOrderId(prepared.orderId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.UNKNOWN);
+
+        PaymentConfirmResponse response = paymentService.confirm(user, request);
+
+        assertThat(response.status()).isEqualTo(PaymentStatus.COMPLETED);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("토스가 승인했지만 지원하지 않는 결제수단이면 토스 결제를 취소한 뒤 실패 처리한다")
+    void confirmCancelsApprovedPaymentWithUnsupportedMethod() {
+        User user = saveUser("payment-confirm-auto-cancel@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        String paymentKey = "payment-key-" + prepared.orderId();
+        when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
+                .thenReturn(new TossPaymentConfirmResponse(
+                        paymentKey,
+                        prepared.orderId(),
+                        prepared.orderName(),
+                        "DONE",
+                        2500,
+                        "카드",
+                        null
+                ));
+
+        assertThatThrownBy(() -> paymentService.confirm(
+                user,
+                new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500)
+        )).isInstanceOf(GeneralException.class);
+
+        verify(tossPaymentClient).cancel(paymentKey, prepared.orderId(), "지원하지 않는 결제 승인 자동 취소");
+        assertPaymentFailedWithoutCreditCharge(user, prepared.orderId());
+    }
+
+    @Test
+    @DisplayName("승인된 결제의 자동 취소가 실패하면 FAILED가 아니라 UNKNOWN으로 남겨 재처리할 수 있게 한다")
+    void confirmMarksUnknownWhenAutoCancelFails() {
+        User user = saveUser("payment-confirm-auto-cancel-failed@example.com");
+        mockTossPayCreateSuccess();
+        PaymentPrepareResponse prepared = paymentService.prepare(user, new PaymentPrepareRequest("ONE_TIME"));
+        String paymentKey = "payment-key-" + prepared.orderId();
+        when(tossPaymentClient.confirm(paymentKey, prepared.orderId(), 2500))
+                .thenReturn(new TossPaymentConfirmResponse(
+                        paymentKey,
+                        prepared.orderId(),
+                        prepared.orderName(),
+                        "DONE",
+                        2500,
+                        "카드",
+                        null
+                ));
+        org.mockito.Mockito.doThrow(new GeneralException(GeneralErrorCode.PAYMENT_REFUND_FAILED, "cancel failed"))
+                .when(tossPaymentClient).cancel(anyString(), anyString(), anyString());
+
+        assertThatThrownBy(() -> paymentService.confirm(
+                user,
+                new PaymentConfirmRequest(paymentKey, prepared.orderId(), 2500)
+        )).isInstanceOf(GeneralException.class);
+
+        assertThat(paymentRepository.findByOrderId(prepared.orderId()).orElseThrow().getStatus())
+                .isEqualTo(PaymentStatus.UNKNOWN);
+        assertThat(userRepository.findById(user.getId()).orElseThrow().getCredit()).isEqualTo(1);
+    }
+
     private User saveUser(String email) {
         return userRepository.save(User.signup("테스트 사용자", email, "encoded-password"));
     }

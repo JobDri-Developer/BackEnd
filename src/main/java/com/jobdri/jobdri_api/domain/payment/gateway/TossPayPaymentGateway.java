@@ -65,15 +65,33 @@ public class TossPayPaymentGateway implements PaymentGateway {
             throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "토스페이 payToken이 없는 결제는 환불할 수 없습니다.");
         }
         String refundNo = refundNo(command.paymentId());
-        TossPayRefundResponse response = tossPayClient.refundPayment(
-                command.payToken(),
-                command.orderId(),
-                refundNo,
-                command.amount(),
-                command.reason()
-        );
-        validateRefundResponse(response, command, refundNo);
+        TossPayRefundResponse response;
+        try {
+            response = tossPayClient.refundPayment(
+                    command.payToken(),
+                    command.orderId(),
+                    refundNo,
+                    command.amount(),
+                    command.reason()
+            );
+            validateRefundResponse(response, command, refundNo);
+        } catch (GeneralException e) {
+            // 이전 요청이 응답 지연 등으로 실패했지만 실제로는 환불된 경우, 재시도는 성공으로 본다.
+            if (isAlreadyRefunded(command)) {
+                return new GatewayRefundResult(type(), GatewayRefundStatus.SUCCEEDED, TossPayStatus.REFUND_SUCCESS.name());
+            }
+            throw e;
+        }
         return new GatewayRefundResult(type(), GatewayRefundStatus.SUCCEEDED, response.payStatus());
+    }
+
+    private boolean isAlreadyRefunded(GatewayRefundCommand command) {
+        try {
+            var status = tossPayClient.getPaymentStatus(command.payToken(), command.orderId());
+            return status != null && TossPayStatus.REFUND_SUCCESS.name().equals(status.payStatus());
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     private UnsupportedOperationException unsupported() {

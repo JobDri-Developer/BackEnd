@@ -73,13 +73,30 @@ public class PortOnePaymentGateway implements PaymentGateway {
         if (isBlank(command.externalPaymentId())) {
             throw new GeneralException(GeneralErrorCode.PAYMENT_NOT_REFUNDABLE, "포트원 paymentId가 없는 결제는 환불할 수 없습니다.");
         }
-        PortOneCancelResponse response = portOneClient.cancelPayment(
-                command.externalPaymentId(),
-                command.amount(),
-                command.reason()
-        );
-        validateRefundResponse(response, command.amount());
+        try {
+            PortOneCancelResponse response = portOneClient.cancelPayment(
+                    command.externalPaymentId(),
+                    command.amount(),
+                    command.reason()
+            );
+            validateRefundResponse(response, command.amount());
+        } catch (GeneralException e) {
+            // 이전 요청이 응답 지연 등으로 실패했지만 실제로는 취소된 경우, 재시도는 성공으로 본다.
+            if (isAlreadyCancelled(command.externalPaymentId())) {
+                return new GatewayRefundResult(type(), GatewayRefundStatus.SUCCEEDED, CANCELED_EXTERNAL_STATUS);
+            }
+            throw e;
+        }
         return new GatewayRefundResult(type(), GatewayRefundStatus.SUCCEEDED, CANCELED_EXTERNAL_STATUS);
+    }
+
+    private boolean isAlreadyCancelled(String externalPaymentId) {
+        try {
+            var payment = portOneClient.getPayment(externalPaymentId);
+            return payment != null && CANCELED_EXTERNAL_STATUS.equalsIgnoreCase(payment.status());
+        } catch (RuntimeException ignored) {
+            return false;
+        }
     }
 
     public static GatewayPaymentStatus mapStatus(String externalStatus) {
